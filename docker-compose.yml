@@ -1,0 +1,28 @@
+version: "3.9"
+
+services:
+  monitor:
+    build:
+      context: ./monitor
+    container_name: monitor
+    ports:
+      - "8080:8080"
+    networks:
+      - trading-net
+    environment:
+      - HOST_ENDPOINT=http://host:8090
+    depends_on:
+      - host
+
+  host:
+    build:
+      context: ./host
+    container_name: host
+    ports:
+      - "8090:8090"
+    networks:
+      - trading-net
+
+networks:
+  trading-net:
+    driver: bridge

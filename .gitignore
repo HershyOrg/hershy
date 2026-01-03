@@ -1,0 +1,23 @@
+# Go build output
+/bin/
+/build/
+*.exe
+*.out
+*.test
+
+# Go workspace
+/go.work
+/go.work.sum
+
+# Vendor
+/vendor/
+
+# IDE
+.vscode/
+.idea/
+
+# OS
+.DS_Store
+
+# Docker
+**/app
