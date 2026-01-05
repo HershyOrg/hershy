@@ -1,22 +1,6 @@
 version: "3.9"
 
 services:
-  migrate:
-    image: migrate/migrate
-    depends_on:
-      - postgres
-    volumes:
-      - ./monitor/migrations:/migrations
-    command:
-      [
-        "-path",
-        "/migrations",
-        "-database",
-        "postgres://predict:predict@postgres:5432/predictmarket?sslmode=disable",
-        "up",
-      ]
-    networks:
-      - trading-net
   postgres:
     image: postgres:16
     container_name: predictmarket-postgres
@@ -30,6 +14,26 @@ services:
       - pgdata:/var/lib/postgresql/data
     networks:
       - trading-net
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U predict"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  migrate:
+    image: migrate/migrate
+    depends_on:
+      postgres:
+        condition: service_healthy
+    volumes:
+      - ./monitor/migrations:/migrations
+    command: >
+      -path /migrations
+      -database postgres://predict:predict@postgres:5432/predictmarket?sslmode=disable
+      up
+    networks:
+      - trading-net
+
   monitor:
     build:
       context: ./monitor
@@ -54,6 +58,7 @@ services:
 networks:
   trading-net:
     driver: bridge
+
 volumes:
   pgdata:
     driver: local
