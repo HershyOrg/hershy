@@ -1,4 +1,4 @@
-CREATE TABLE IF NOT EXISTS markets (
+CREATE TABLE IF NOT EXISTS market_polymarket (
   id TEXT PRIMARY KEY,
   question TEXT NOT NULL,
   slug TEXT,
@@ -11,6 +11,5 @@ CREATE TABLE IF NOT EXISTS markets (
   liquidity NUMERIC
 );
 
-
-CREATE INDEX idx_markets_updated_at
-  ON markets (updated_at DESC);
+CREATE INDEX idx_market_polymarket_updated_at
+  ON market_polymarket (updated_at DESC);

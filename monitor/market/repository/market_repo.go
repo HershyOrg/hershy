@@ -16,7 +16,7 @@ func (r *MarketRepository) GetLastUpdatedAt(ctx context.Context) (time.Time, err
 
 	err := r.db.QueryRow(ctx, `
 		SELECT COALESCE(MAX(updated_at), '0001-01-01T00:00:00Z')
-		FROM markets
+		FROM market_polymarket
 	`).Scan(&t)
 
 	if err != nil {
@@ -29,7 +29,7 @@ func (r *MarketRepository) GetLastUpdatedAt(ctx context.Context) (time.Time, err
 
 func (r *MarketRepository) Upsert(ctx context.Context, m model.Market) error {
 	const upsertMarketSQL = `
-		INSERT INTO markets (
+		INSERT INTO market_polymarket (
 			id, question, slug,
 			active, closed,
 			volume, liquidity,
@@ -52,7 +52,7 @@ func (r *MarketRepository) Upsert(ctx context.Context, m model.Market) error {
 			liquidity  = EXCLUDED.liquidity,
 			updated_at = EXCLUDED.updated_at,
 			neg_risk   = EXCLUDED.neg_risk
-		WHERE markets.updated_at < EXCLUDED.updated_at;
+		WHERE market_polymarket.updated_at < EXCLUDED.updated_at;
 		`
 
 	_, err := r.db.Exec(
