@@ -10,6 +10,24 @@ CREATE TABLE IF NOT EXISTS market_polymarket (
   volume NUMERIC,
   liquidity NUMERIC
 );
+CREATE TABLE IF NOT EXISTS market_kalshi (
+    id BIGSERIAL PRIMARY KEY,
+    external_id TEXT,
+    ticker TEXT UNIQUE,
+    title TEXT,
+    category TEXT,
+    status TEXT,
+    open_time TIMESTAMPTZ,
+    close_time TIMESTAMPTZ,
+    last_price NUMERIC,
+    yes_ask NUMERIC,
+    no_ask NUMERIC,
+    volume NUMERIC,
+    open_interest NUMERIC,
+    settlement_ts TIMESTAMPTZ
+);
 
 CREATE INDEX idx_market_polymarket_updated_at
   ON market_polymarket (updated_at DESC);
+
+CREATE INDEX IF NOT EXISTS idx_market_kalshi_ticker ON market_kalshi (ticker);

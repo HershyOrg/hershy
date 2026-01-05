@@ -25,7 +25,7 @@ func main() {
 	defer db.Close()
 
 	log.Println("[main] start market sync")
-	if err := cmd.Run(ctx, db); err != nil {
+	if err := cmd.RunBothConcurrent(ctx, db); err != nil {
 		log.Fatal(err)
 	}
 	log.Println("[main] done")

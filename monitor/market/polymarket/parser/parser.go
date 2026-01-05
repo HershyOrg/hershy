@@ -34,21 +34,21 @@ type Tag struct {
 }
 
 
-func ParseMarket(r Market) (model.Market, error) {
+func ParseMarket(r Market) (model.PolyMarket, error) {
 	updatedAt, err := time.Parse(time.RFC3339Nano, r.UpdatedAt)
 	if err != nil {
-		return model.Market{}, err
+		return model.PolyMarket{}, err
 	}
 
 	createdAt, err := time.Parse(time.RFC3339Nano, r.CreatedAt)
 	if err != nil {
-		return model.Market{}, err
+		return model.PolyMarket{}, err
 	}
 
 	volume, _ := r.Volume.Float64()
 	liquidity, _ := r.Liquidity.Float64()
 
-	return model.Market{
+	return model.PolyMarket{
 		ID:        r.ID,
 		Question:  r.Question,
 		Slug:      r.Slug,

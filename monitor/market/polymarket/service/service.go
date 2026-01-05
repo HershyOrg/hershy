@@ -12,11 +12,11 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
-func SyncMarkets(ctx context.Context, db *pgxpool.Pool) error {
-	repo := repository.NewMarketRepository(db)
+func SyncPolyMarkets(ctx context.Context, db *pgxpool.Pool) error {
+	repo := repository.NewPGRepository(db)
 
 	// 마지막 업데이트 시간 조회
-	lastUpdated, err := repo.GetLastUpdatedAt(ctx)
+	lastUpdated, err := repo.GetLastUpdatedPolymarket(ctx)
 	if err != nil {
 		return err
 	}
@@ -70,7 +70,7 @@ func SyncMarkets(ctx context.Context, db *pgxpool.Pool) error {
 				continue
 			}
 
-			if err := repo.Upsert(ctx, m); err != nil {
+			if err := repo.UpsertPolymarket(ctx, m); err != nil {
 				log.Printf("[error] upsert failed market_id=%s err=%v\n", m.ID, err)
 				return err
 			}
