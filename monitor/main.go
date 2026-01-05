@@ -1,53 +1,32 @@
 package main
 
 import (
-	"bytes"
-	"encoding/json"
+	"context"
 	"log"
-	"net/http"
-	"time"
+	"os"
+
+	"monitor/market/cmd"
+
+	"github.com/jackc/pgx/v5/pgxpool"
 )
 
-type Event struct {
-	Type    string `json:"type"`
-	Message string `json:"message"`
-	Time    string `json:"time"`
-}
-
-func sendEvent() {
-	event := Event{
-		Type:    "TEST_EVENT",
-		Message: "Hello from monitor",
-		Time:    time.Now().Format(time.RFC3339),
-	}
-
-	body, _ := json.Marshal(event)
-
-	resp, err := http.Post(
-		"http://host:8090/event",
-		"application/json",
-		bytes.NewBuffer(body),
-	)
-	if err != nil {
-		log.Println("❌ failed to send event:", err)
-		return
-	}
-	defer resp.Body.Close()
-
-	log.Println("✅ event sent to host, status:", resp.Status)
-}
-
 func main() {
-	log.Println("🚀 monitor server started")
+	ctx := context.Background()
 
-	// 5초마다 host로 이벤트 전송
-	ticker := time.NewTicker(5 * time.Second)
-	defer ticker.Stop()
-
-	for {
-		select {
-		case <-ticker.C:
-			sendEvent()
-		}
+	dbURL := os.Getenv("DATABASE_URL")
+	if dbURL == "" {
+		log.Fatal("DATABASE_URL is required")
 	}
+
+	db, err := pgxpool.New(ctx, dbURL)
+	if err != nil {
+		log.Fatal(err)
+	}
+	defer db.Close()
+
+	log.Println("[main] start market sync")
+	if err := cmd.Run(ctx, db); err != nil {
+		log.Fatal(err)
+	}
+	log.Println("[main] done")
 }
