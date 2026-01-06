@@ -21,3 +21,8 @@
 
 # Docker
 **/app
+
+# Data
+data/
+*.jsonl
+*.csv

@@ -1,18 +1,50 @@
 version: "3.9"
 
 services:
+  postgres:
+    image: postgres:16
+    container_name: predictmarket-postgres
+    environment:
+      POSTGRES_USER: predict
+      POSTGRES_PASSWORD: predict
+      POSTGRES_DB: predictmarket
+    ports:
+      - "5432:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    networks:
+      - trading-net
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U predict -d predictmarket"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  migrate:
+    image: migrate/migrate
+    depends_on:
+      postgres:
+        condition: service_healthy
+    volumes:
+      - ./monitor/migrations:/migrations
+    command: >
+      -path /migrations
+      -database postgres://predict:predict@postgres:5432/predictmarket?sslmode=disable
+      up
+    networks:
+      - trading-net
+
   monitor:
     build:
       context: ./monitor
     container_name: monitor
-    ports:
-      - "8080:8080"
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+    environment:
+      DATABASE_URL: postgres://predict:predict@postgres:5432/predictmarket?sslmode=disable
     networks:
       - trading-net
-    environment:
-      - HOST_ENDPOINT=http://host:8090
-    depends_on:
-      - host
 
   host:
     build:
@@ -26,3 +58,7 @@ services:
 networks:
   trading-net:
     driver: bridge
+
+volumes:
+  pgdata:
+    driver: local
