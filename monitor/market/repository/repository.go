@@ -6,18 +6,28 @@ import (
 	"monitor/market/repository/model"
 	"time"
 
+	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
-
+type pgxRows interface {
+    Next() bool
+    Close()
+    Scan(dest ...interface{}) error
+    Err() error
+}
+var _ pgxRows = (pgx.Rows)(nil)
 
 type Repository interface {
     // Polymarket
     GetLastUpdatedPolymarket(ctx context.Context) (time.Time, error)
     UpsertPolymarket(ctx context.Context, m model.PolyMarket) error
+    ListPolymarkets(ctx context.Context, limit, offset int) ([]model.PolyMarket, error)
+
 
     // Kalshi
     GetLastUpdatedKalshi(ctx context.Context) (time.Time, error)
     UpsertKalshi(ctx context.Context, m model.KalshiMarket) error
+    ListKalshimarkets(ctx context.Context, limit, offset int) ([]model.KalshiMarket, error)
 }
 
 
@@ -102,6 +112,50 @@ func (r *pgRepository) UpsertPolymarket(ctx context.Context, m model.PolyMarket)
     )
     return err
 }
+func (r * pgRepository) ListPolymarkets(ctx context.Context, limit,offset int)([]model.PolyMarket,error){
+    if limit <= 0 {
+        limit = 100
+    }
+    ctx, cancel := context.WithTimeout(ctx, 3*time.Second)
+    defer cancel()
+    base :=  `SELECT * FROM market_polymarket`
+    
+    var rows pgxRows
+    var err error
+    rows, err = r.db.Query(ctx, base+" ORDER BY liquidity DESC NULLS LAST, updated_at DESC LIMIT $1 OFFSET $2", limit, offset)
+    if err != nil {
+        return nil, err
+    }
+    defer rows.Close()
+    out := make([]model.PolyMarket, 0)
+
+    for rows.Next() {
+        var pm model.PolyMarket
+        var endDate *time.Time
+        var outcomes []string
+        err := rows.Scan(
+            &pm.ID, &pm.Question, &pm.Slug,
+            &pm.Active, &pm.Closed,
+            &pm.Volume, &pm.Liquidity,
+            &pm.UpdatedAt, &pm.CreatedAt,
+            &pm.NegRisk,
+            &pm.YesPrice, &pm.NoPrice, &pm.LastTradePrice, &pm.AcceptingOrders, &endDate, &outcomes,
+        )
+        if err != nil {
+            return nil, err
+        }
+        if endDate != nil {
+            pm.EndDate = *endDate
+        }
+        pm.Outcomes = outcomes
+        out = append(out, pm)
+    }
+    return out, nil
+}
+
+
+
+
 
 // Kalshi
 func (r *pgRepository) GetLastUpdatedKalshi(ctx context.Context) (time.Time, error) {
@@ -163,3 +217,52 @@ func (r *pgRepository) UpsertKalshi(ctx context.Context, m model.KalshiMarket) e
     // fmt.Printf("[repo] upsert ok kalshi ticker=%s rowsAffected=%d tag=%s\n", m.Ticker, ct.RowsAffected(), ct)
     return nil
 }
+func (r *pgRepository) ListKalshimarkets(ctx context.Context, limit, offset int) ([]model.KalshiMarket, error) {
+    if limit <= 0 {
+        limit = 100
+    }
+    ctx, cancel := context.WithTimeout(ctx, 3*time.Second)
+    defer cancel()
+
+    base := `
+    SELECT external_id, ticker, title, category, status,
+        open_time, close_time, last_price,
+        yes_ask, no_ask, volume, open_interest, settlement_ts
+    FROM market_kalshi
+`
+    var rows pgxRows
+    var err error
+    rows, err = r.db.Query(ctx, base+" ORDER BY volume DESC NULLS LAST, open_time DESC LIMIT $1 OFFSET $2", limit, offset)
+    if err != nil {
+        return nil, err
+    }
+    defer rows.Close()
+    out := make([]model.KalshiMarket, 0)
+    for rows.Next() {
+        var km model.KalshiMarket
+        var openTime, closeTime, settlement *time.Time
+        err := rows.Scan(
+            &km.ID, &km.Ticker, &km.Title, &km.Category, &km.Status,
+            &openTime, &closeTime, &km.LastPrice,
+            &km.YesAsk, &km.NoAsk, &km.Volume, &km.OpenInterest, &settlement,
+        )
+        if err != nil {
+            return nil, err
+        }
+        if openTime != nil {
+            km.OpenTime = *openTime
+        }
+        if closeTime != nil {
+            km.CloseTime = *closeTime
+        }
+        if settlement != nil {
+            km.SettlementTs = *settlement
+        }
+        out = append(out, km)
+    }
+    if err := rows.Err(); err != nil {
+        return nil, err
+    }
+    return out, nil
+}
+

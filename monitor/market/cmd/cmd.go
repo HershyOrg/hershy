@@ -4,11 +4,13 @@ import (
 	"context"
 	"sync"
 
-	kalshiService "monitor/market/kalshi/service"
-	polyService "monitor/market/polymarket/service"
+	kalshiService "monitor/market/domain/kalshi/service"
+	polyService "monitor/market/domain/polymarket/service"
 
 	"github.com/jackc/pgx/v5/pgxpool"
 )
+
+
 
 func kalshiRun(ctx context.Context, db *pgxpool.Pool) error {
 	return kalshiService.SyncKalshiMarkets(ctx, db)

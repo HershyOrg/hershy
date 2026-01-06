@@ -22,9 +22,10 @@ type Market struct {
 
 	NegRisk bool `json:"negRisk"`
 
-
+	//TODO : 데이터 없음. 추후 ID를 파라미터로 요청 보내야지 얻을 수 있는 듯
 	YesPrice       json.Number `json:"yes_price"`
 	NoPrice        json.Number `json:"no_price"`
+
 	LastTradePrice json.Number `json:"last_trade_price"`
 	AcceptingOrders bool       `json:"accepting_orders"`
 	EndDate         string     `json:"end_date"`

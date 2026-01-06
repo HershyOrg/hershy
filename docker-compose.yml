@@ -26,7 +26,7 @@ services:
       postgres:
         condition: service_healthy
     volumes:
-      - ./monitor/migrations:/migrations
+      - ./monitor/market/repository/migrations:/migrations
     command: >
       -path /migrations
       -database postgres://predict:predict@postgres:5432/predictmarket?sslmode=disable
@@ -45,6 +45,8 @@ services:
       DATABASE_URL: postgres://predict:predict@postgres:5432/predictmarket?sslmode=disable
     networks:
       - trading-net
+    ports:
+      - "8080:8080"
 
   host:
     build:

@@ -4,12 +4,12 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+
+	"monitor/market/domain/kalshi/parser"
 	"net/http"
 	"net/url"
 	"strconv"
 	"time"
-
-	"monitor/market/kalshi/parser"
 )
 
 type Client struct {
@@ -66,6 +66,5 @@ func (c *Client) FetchMarkets(ctx context.Context, cursor string, limit int, sta
     if err := json.NewDecoder(resp.Body).Decode(&out); err != nil {
         return out, err
     }
-		fmt.Printf("[kalshi client] got %d markets, cursor=%q\n", len(out.Markets), out.Cursor)
     return out, nil
 }
