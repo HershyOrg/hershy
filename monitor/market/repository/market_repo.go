@@ -53,24 +53,32 @@ func (r *pgRepository) UpsertPolymarket(ctx context.Context, m model.PolyMarket)
             active, closed,
             volume, liquidity,
             updated_at, created_at,
-            neg_risk
+            neg_risk,
+            yes_price, no_price, last_trade_price, accepting_orders, end_date, outcomes
         )
         VALUES (
             $1,$2,$3,
             $4,$5,
             $6,$7,
             $8,$9,
-            $10
+            $10,
+            $11,$12,$13,$14,$15,$16
         )
         ON CONFLICT (id) DO UPDATE SET
-            question   = EXCLUDED.question,
-            slug       = EXCLUDED.slug,
-            active     = EXCLUDED.active,
-            closed     = EXCLUDED.closed,
-            volume     = EXCLUDED.volume,
-            liquidity  = EXCLUDED.liquidity,
-            updated_at = EXCLUDED.updated_at,
-            neg_risk   = EXCLUDED.neg_risk
+            question          = EXCLUDED.question,
+            slug              = EXCLUDED.slug,
+            active            = EXCLUDED.active,
+            closed            = EXCLUDED.closed,
+            volume            = EXCLUDED.volume,
+            liquidity         = EXCLUDED.liquidity,
+            updated_at        = EXCLUDED.updated_at,
+            neg_risk          = EXCLUDED.neg_risk,
+            yes_price         = EXCLUDED.yes_price,
+            no_price          = EXCLUDED.no_price,
+            last_trade_price  = EXCLUDED.last_trade_price,
+            accepting_orders  = EXCLUDED.accepting_orders,
+            end_date          = EXCLUDED.end_date,
+            outcomes          = EXCLUDED.outcomes
         WHERE market_polymarket.updated_at < EXCLUDED.updated_at;
     `
     _, err := r.db.Exec(
@@ -85,6 +93,12 @@ func (r *pgRepository) UpsertPolymarket(ctx context.Context, m model.PolyMarket)
         m.UpdatedAt,
         m.CreatedAt,
         m.NegRisk,
+        m.YesPrice,
+        m.NoPrice,
+        m.LastTradePrice,
+        m.AcceptingOrders,
+        m.EndDate,
+        m.Outcomes,
     )
     return err
 }
@@ -133,9 +147,9 @@ func (r *pgRepository) UpsertKalshi(ctx context.Context, m model.KalshiMarket) e
 					settlement_ts = EXCLUDED.settlement_ts
 			WHERE market_kalshi.status <> 'closed';
 			`
-		fmt.Printf("[repo] upsert attempt kalshi ticker=%s external_id=%s\n", m.Ticker, m.ID)
+		// fmt.Printf("[repo] upsert attempt kalshi ticker=%s external_id=%s\n", m.Ticker, m.ID)
 
-    ct, err := r.db.Exec(
+    _, err := r.db.Exec(
         ctx, upsertSQL,
         m.ID, 
         m.Ticker, m.Title, m.Category, m.Status,
@@ -146,6 +160,6 @@ func (r *pgRepository) UpsertKalshi(ctx context.Context, m model.KalshiMarket) e
 						fmt.Printf("[repo] upsert error kalshi ticker=%s err=%v\n", m.Ticker, err)
 						return err
 				}
-    fmt.Printf("[repo] upsert ok kalshi ticker=%s rowsAffected=%d tag=%s\n", m.Ticker, ct.RowsAffected(), ct)
+    // fmt.Printf("[repo] upsert ok kalshi ticker=%s rowsAffected=%d tag=%s\n", m.Ticker, ct.RowsAffected(), ct)
     return nil
 }

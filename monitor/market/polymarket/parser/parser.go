@@ -17,22 +17,19 @@ type Market struct {
 	Volume    json.Number `json:"volumeNum" db:"volume"`
 	Liquidity json.Number `json:"liquidity" db:"liquidity"`
 
-
 	UpdatedAt string `json:"updatedAt"`
 	CreatedAt string `json:"createdAt"`
 
 	NegRisk bool `json:"negRisk"`
+
+
+	YesPrice       json.Number `json:"yes_price"`
+	NoPrice        json.Number `json:"no_price"`
+	LastTradePrice json.Number `json:"last_trade_price"`
+	AcceptingOrders bool       `json:"accepting_orders"`
+	EndDate         string     `json:"end_date"`
+	Outcomes       string `json:"outcomes"` 
 }
-
-
-
-//추후 Tag Table 구축 후 JOIN 예정
-type Tag struct {
-	ID    int    `json:"id"`
-	Label string `json:"label"`
-	Slug  string `json:"slug"`
-}
-
 
 func ParseMarket(r Market) (model.PolyMarket, error) {
 	updatedAt, err := time.Parse(time.RFC3339Nano, r.UpdatedAt)
@@ -48,16 +45,35 @@ func ParseMarket(r Market) (model.PolyMarket, error) {
 	volume, _ := r.Volume.Float64()
 	liquidity, _ := r.Liquidity.Float64()
 
+	yesPrice, _ := r.YesPrice.Float64()
+	noPrice, _ := r.NoPrice.Float64()
+	lastTradePrice, _ := r.LastTradePrice.Float64()
+
+	var endDate time.Time
+	if r.EndDate != "" {
+		if t, err := time.Parse(time.RFC3339Nano, r.EndDate); err == nil {
+			endDate = t
+		}
+	}
+	var outcomes []string
+	_ = json.Unmarshal([]byte(r.Outcomes), &outcomes)
+
 	return model.PolyMarket{
-		ID:        r.ID,
-		Question:  r.Question,
-		Slug:      r.Slug,
-		Active:    r.Active,
-		Closed:    r.Closed,
-		Volume:    volume,
-		Liquidity: liquidity,
-		UpdatedAt: updatedAt,
-		CreatedAt: createdAt,
-		NegRisk:   r.NegRisk,
+		ID:             r.ID,
+		Question:       r.Question,
+		Slug:           r.Slug,
+		Active:         r.Active,
+		Closed:         r.Closed,
+		Volume:         volume,
+		Liquidity:      liquidity,
+		UpdatedAt:      updatedAt,
+		CreatedAt:      createdAt,
+		NegRisk:        r.NegRisk,
+		YesPrice:       yesPrice,
+		NoPrice:        noPrice,
+		LastTradePrice: lastTradePrice,
+		AcceptingOrders: r.AcceptingOrders,
+		EndDate:        endDate,
+		Outcomes:       outcomes,
 	}, nil
 }
