@@ -5,8 +5,9 @@ import (
 	"fmt"
 	"time"
 
-	"monitor/market/kalshi/api"
-	"monitor/market/kalshi/parser"
+	"monitor/market/domain/kalshi/api"
+	"monitor/market/domain/kalshi/parser"
+
 	"monitor/market/repository"
 
 	"github.com/jackc/pgx/v5/pgxpool"

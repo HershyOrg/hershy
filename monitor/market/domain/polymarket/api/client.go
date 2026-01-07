@@ -2,10 +2,9 @@ package api
 
 import (
 	"encoding/json"
+	"monitor/market/domain/polymarket/parser"
 	"net/http"
 	"time"
-
-	"monitor/market/polymarket/parser"
 )
 
 const baseURL = "https://gamma-api.polymarket.com/markets"

@@ -17,6 +17,12 @@ type PolyMarket struct {
 	CreatedAt time.Time
 
 	NegRisk bool
+	YesPrice        float64
+  NoPrice         float64
+  LastTradePrice  float64
+  AcceptingOrders bool
+  EndDate         time.Time
+  Outcomes        []string
 }
 
 type KalshiMarket struct {

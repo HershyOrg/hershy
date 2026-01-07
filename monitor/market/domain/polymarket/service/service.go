@@ -5,8 +5,8 @@ import (
 	"log"
 	"time"
 
-	"monitor/market/polymarket/api"
-	"monitor/market/polymarket/parser"
+	"monitor/market/domain/polymarket/api"
+	"monitor/market/domain/polymarket/parser"
 	"monitor/market/repository"
 
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -21,7 +21,6 @@ func SyncPolyMarkets(ctx context.Context, db *pgxpool.Pool) error {
 		return err
 	}
 
-	log.Printf("[sync] lastUpdatedAt = %s\n", lastUpdated.Format(time.RFC3339Nano))
 
 	const limit = 100
 	offset := 0
@@ -41,7 +40,7 @@ func SyncPolyMarkets(ctx context.Context, db *pgxpool.Pool) error {
 			return err
 		}
 		log.Printf(
-			"[sync] fetched=%d offset=%d",
+			"[polymarket] fetched=%d offset=%d",
 			len(raws), offset,
 		)
 
@@ -58,7 +57,7 @@ func SyncPolyMarkets(ctx context.Context, db *pgxpool.Pool) error {
 			// 증분 종료
 			if !t.After(lastUpdated){
 				log.Printf(
-					"[sync] stop at updatedAt=%s (<= %s)",
+					"[polymarket] stop at updatedAt=%s (<= %s)",
 					t, lastUpdated,
 				)
 				stop = true
@@ -66,12 +65,12 @@ func SyncPolyMarkets(ctx context.Context, db *pgxpool.Pool) error {
 			}
 			m, err := parser.ParseMarket(r)
 			if err != nil {
-				log.Printf("[skip] parse error market_id=%s err=%v\n", r.ID, err)
+				log.Printf("[polymarket] parse error market_id=%s err=%v\n", r.ID, err)
 				continue
 			}
 
 			if err := repo.UpsertPolymarket(ctx, m); err != nil {
-				log.Printf("[error] upsert failed market_id=%s err=%v\n", m.ID, err)
+				log.Printf("[polymarket] upsert failed market_id=%s err=%v\n", m.ID, err)
 				return err
 			}
 		}
@@ -82,7 +81,7 @@ func SyncPolyMarkets(ctx context.Context, db *pgxpool.Pool) error {
 		time.Sleep(200 * time.Microsecond)
 	}
 
-	log.Printf("[sync] completed successfully\n")
+	log.Printf("[polymarket] completed successfully\n")
 	return nil
 }
 func ptr[T any](v T) *T {
