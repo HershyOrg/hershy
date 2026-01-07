@@ -8,6 +8,7 @@ type KalshiMarketResponse struct {
     Markets []KalshiMarketRaw `json:"markets"`
     Cursor  string            `json:"cursor"`
 }
+// TODO : SettlementTs, createTime 삭제요망
 type KalshiMarketRaw struct {
     ID           string `json:"id"` 
     Ticker       string `json:"ticker"`
