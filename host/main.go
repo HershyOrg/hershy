@@ -31,7 +31,6 @@ func eventHandler(w http.ResponseWriter, r *http.Request) {
 
 func main() {
 	http.HandleFunc("/event", eventHandler)
-
 	log.Println("🚀 host server started on :8090")
 	if err := http.ListenAndServe(":8090", nil); err != nil {
 		log.Fatal(err)
