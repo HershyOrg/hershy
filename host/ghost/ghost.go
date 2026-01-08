@@ -2,7 +2,7 @@ package ghost
 
 import "context"
 
-func BuildGhost(willInfo WillInfo, bodyInfo string) Ghost
+func BuildGhost(willInfo WillInfo, bodyInfo string) (Ghost, error)
 
 type WillInfo interface {
 	String() string
@@ -15,6 +15,7 @@ type BodyInfo interface {
 }
 
 type Ghost struct {
+	//wills은 "Ghost가 할 행동"임
 	//wills는 "선형적인" Will로 이루어짐.
 	//언어 수준의 표현은 안되겠지만, 스크립트 수준의 자유도는 갖출 수 있음
 	wills []Will
@@ -23,11 +24,11 @@ type Ghost struct {
 	//Body는 will,watcher가 참고하는 개인화된 정보나 기록임
 	body Body
 
-	//derivation은 Will동안 파생되어 지속되어야 하는 값 다루는 공간임
+	//sandbox은 Will동안 파생되어 지속되어야 하는 값 다루는 공간임
 	//스코핑, 리졸빙은 신경쓰지 않음.
-	//derivation은 한번의 wills사이클이 끝날 때마다 초기화됨.
+	//sandbox은 한번의 wills사이클이 끝날 때마다 초기화됨.
 	//장기 기억이 필요한 값은 body의 Memory에 저장됨
-	derivation Env
+	sandbox Env
 
 	//state: mounted, unmounted, running, sleeping, errorOccurend
 	state StateKind
@@ -38,8 +39,9 @@ type Ghost struct {
 }
 
 func (g *Ghost) DoWills(ctx context.Context) (*CtrlInfo, error) {
+	g.sandbox = make(Env) //실행전 샌드박스 초기화
 	for _, w := range g.wills {
-		ctrlInfoOrNil, err := w.Do(g.body, g.derivation, ctx)
+		ctrlInfoOrNil, err := w.Do(g.body, g.sandbox, ctx)
 		if ctrlInfoOrNil != nil || err != nil {
 			return ctrlInfoOrNil, err
 		}
@@ -49,7 +51,7 @@ func (g *Ghost) DoWills(ctx context.Context) (*CtrlInfo, error) {
 
 type Will interface {
 	// Do는 body의 Memory, log를 바꾼 후 CtrlInfo, err를 리턴함
-	Do(b Body, derivation Env, ctx context.Context) (*CtrlInfo, error)
+	Do(b Body, sandbox Env, ctx context.Context) (*CtrlInfo, error)
 
 	// valuate는 Do과정에서 일어난 연산을 표현
 	valuate() ([]Value, *CtrlInfo, error)
@@ -74,9 +76,9 @@ type Watcher struct {
 	//watch는 해당 자원을 감시하는 함수임
 	watch func(ctx context.Context) <-chan ResourceInfo
 
-	//body, derivation은 Watch가 참조할 환경임
-	body       Body
-	derivation Env
+	//body, sandbox Watch가 참조할 환경임
+	body    Body
+	sandbox Env
 }
 
 type ResourceInfo interface {
