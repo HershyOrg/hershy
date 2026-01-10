@@ -1,7 +1,43 @@
 import { useState } from 'react';
 
-export default function TriggerBlocksPanel({ onClose }) {
+export default function TriggerBlocksPanel({ onClose, onCreate }) {
   const [triggerType, setTriggerType] = useState('manual');
+  const [blockName, setBlockName] = useState('');
+  const [intervalSeconds, setIntervalSeconds] = useState('');
+  const [leftValue, setLeftValue] = useState('');
+  const [operator, setOperator] = useState('');
+  const [rightValue, setRightValue] = useState('');
+  const canCreate = Boolean(blockName.trim());
+
+  const handleCreate = () => {
+    if (!canCreate || !onCreate) {
+      return;
+    }
+
+    let interval;
+    if (triggerType === 'time') {
+      const seconds = Number(intervalSeconds);
+      interval = Number.isFinite(seconds) && seconds > 0 ? Math.round(seconds * 1000) : 1000;
+    }
+
+    const conditionSummary = triggerType === 'condition'
+      ? [leftValue.trim(), operator.trim(), rightValue.trim()].filter(Boolean).join(' ')
+      : '';
+
+    onCreate({
+      name: blockName.trim(),
+      triggerType,
+      interval,
+      conditionSummary,
+      logicOperator: 'OR'
+    });
+
+    setBlockName('');
+    setIntervalSeconds('');
+    setLeftValue('');
+    setOperator('');
+    setRightValue('');
+  };
 
   return (
     <div className="overlay-panel">
@@ -21,6 +57,8 @@ export default function TriggerBlocksPanel({ onClose }) {
               type="text" 
               className="field-input" 
               placeholder="예: Price_Check" 
+              value={blockName}
+              onChange={(event) => setBlockName(event.target.value)}
             />
           </div>
           
@@ -28,18 +66,21 @@ export default function TriggerBlocksPanel({ onClose }) {
             <label className="field-label">트리거 타입</label>
             <div className="button-group-vertical">
               <button 
+                type="button"
                 className={`btn-option ${triggerType === 'manual' ? 'active' : ''}`}
                 onClick={() => setTriggerType('manual')}
               >
                 수동 클릭
               </button>
               <button 
+                type="button"
                 className={`btn-option ${triggerType === 'time' ? 'active' : ''}`}
                 onClick={() => setTriggerType('time')}
               >
                 시간 기반
               </button>
               <button 
+                type="button"
                 className={`btn-option ${triggerType === 'condition' ? 'active' : ''}`}
                 onClick={() => setTriggerType('condition')}
               >
@@ -61,6 +102,8 @@ export default function TriggerBlocksPanel({ onClose }) {
                 type="text" 
                 className="field-input" 
                 placeholder="예: 1" 
+                value={intervalSeconds}
+                onChange={(event) => setIntervalSeconds(event.target.value)}
               />
             </div>
           )}
@@ -73,12 +116,19 @@ export default function TriggerBlocksPanel({ onClose }) {
                   type="text" 
                   className="field-input" 
                   placeholder="블록을 선택하거나 값 입력" 
+                  value={leftValue}
+                  onChange={(event) => setLeftValue(event.target.value)}
                 />
               </div>
               
               <div className="form-field">
                 <label className="field-label">비교 연산자</label>
-                <input type="text" className="field-input" />
+                <input
+                  type="text"
+                  className="field-input"
+                  value={operator}
+                  onChange={(event) => setOperator(event.target.value)}
+                />
               </div>
               
               <div className="form-field">
@@ -87,12 +137,21 @@ export default function TriggerBlocksPanel({ onClose }) {
                   type="text" 
                   className="field-input" 
                   placeholder="블록을 선택하거나 값 입력" 
+                  value={rightValue}
+                  onChange={(event) => setRightValue(event.target.value)}
                 />
               </div>
             </>
           )}
           
-          <button className="btn-create disabled">블록 생성</button>
+          <button
+            type="button"
+            className={`btn-create ${canCreate ? '' : 'disabled'}`}
+            disabled={!canCreate}
+            onClick={handleCreate}
+          >
+            블록 생성
+          </button>
         </div>
       </div>
     </div>

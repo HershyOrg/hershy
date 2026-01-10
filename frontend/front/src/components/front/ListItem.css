@@ -1,0 +1,20 @@
+.front-list-item {
+  width: 266px;
+  height: 48px;
+  display: flex;
+  align-items: center;
+  padding: 0 16px;
+  border-radius: 4px;
+  background: #1E293B;
+  font-family: Inter, -apple-system, Roboto, Helvetica, sans-serif;
+}
+
+.front-list-item--active {
+  background: #172554;
+}
+
+.front-list-item__label {
+  color: #FFF;
+  font-size: 16px;
+  line-height: 24px;
+}

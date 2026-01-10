@@ -1,7 +1,102 @@
 import { useState } from 'react';
+import { getStreamingFields } from '../../data/blockFixtures';
 
-export default function StreamingBlocksPanel({ onClose }) {
+const flattenJsonFields = (value, prefix = '') => {
+  if (Array.isArray(value)) {
+    if (value.length === 0) {
+      return prefix ? [prefix] : [];
+    }
+    const first = value[0];
+    if (first && typeof first === 'object' && !Array.isArray(first)) {
+      return flattenJsonFields(first, prefix);
+    }
+    return prefix ? [prefix] : [];
+  }
+
+  if (value && typeof value === 'object') {
+    const keys = Object.keys(value);
+    if (keys.length === 0) {
+      return prefix ? [prefix] : [];
+    }
+    return keys.flatMap((key) => {
+      const nextPrefix = prefix ? `${prefix}::${key}` : key;
+      return flattenJsonFields(value[key], nextPrefix);
+    });
+  }
+
+  return prefix ? [prefix] : [];
+};
+
+const parseJsonFields = (rawValue) => {
+  const trimmed = rawValue.trim();
+  if (!trimmed) {
+    return [];
+  }
+
+  try {
+    const parsed = JSON.parse(trimmed);
+    return flattenJsonFields(parsed);
+  } catch (error) {
+    return [];
+  }
+
+  return [];
+};
+
+export default function StreamingBlocksPanel({ onClose, onCreate }) {
   const [dataReceptionType, setDataReceptionType] = useState('realtime');
+  const [blockName, setBlockName] = useState('');
+  const [apiUrl, setApiUrl] = useState('');
+  const [updateInterval, setUpdateInterval] = useState('');
+  const [responseFormat, setResponseFormat] = useState('');
+  const [fields, setFields] = useState([]);
+
+  const canParse = Boolean(apiUrl.trim() || responseFormat.trim());
+  const canCreate = Boolean(blockName.trim()) && (fields.length > 0 || canParse);
+
+  const resolveFields = () => {
+    const jsonFields = parseJsonFields(responseFormat);
+    if (jsonFields.length > 0) {
+      return jsonFields;
+    }
+    return getStreamingFields(apiUrl.trim());
+  };
+
+  const handleParseFields = () => {
+    setFields(resolveFields());
+  };
+
+  const handleCreate = () => {
+    if (!blockName.trim()) {
+      return;
+    }
+
+    let nextFields = fields;
+    if (nextFields.length === 0) {
+      nextFields = resolveFields();
+      setFields(nextFields);
+    }
+
+    if (nextFields.length === 0 || !onCreate) {
+      return;
+    }
+
+    const updateMode = dataReceptionType === 'periodic' ? 'periodic' : 'live';
+    const resolvedInterval = dataReceptionType === 'periodic'
+      ? Number(updateInterval || 1000)
+      : 1000;
+
+    onCreate({
+      name: blockName.trim(),
+      fields: nextFields,
+      updateMode,
+      updateInterval: resolvedInterval,
+      responseSchema: responseFormat.trim()
+    });
+
+    setBlockName('');
+    setFields([]);
+  };
 
   return (
     <div className="overlay-panel">
@@ -20,7 +115,9 @@ export default function StreamingBlocksPanel({ onClose }) {
             <input 
               type="text" 
               className="field-input" 
-              placeholder="예: BTCUSDT_Price" 
+              placeholder="예: BTCUSDT_Price"
+              value={blockName}
+              onChange={(event) => setBlockName(event.target.value)}
             />
           </div>
           
@@ -29,7 +126,9 @@ export default function StreamingBlocksPanel({ onClose }) {
             <input 
               type="text" 
               className="field-input" 
-              placeholder={dataReceptionType === 'periodic' ? 'wss://stream.binance.com:9443/ws/btcusdt@ticker' : '예: BTCUSDT_Price'} 
+              placeholder={dataReceptionType === 'periodic' ? 'wss://stream.binance.com:9443/ws/btcusdt@ticker' : '예: BTCUSDT_Price'}
+              value={apiUrl}
+              onChange={(event) => setApiUrl(event.target.value)}
             />
           </div>
           
@@ -57,7 +156,9 @@ export default function StreamingBlocksPanel({ onClose }) {
               <input 
                 type="text" 
                 className="field-input" 
-                placeholder="예: 1" 
+                placeholder="예: 1"
+                value={updateInterval}
+                onChange={(event) => setUpdateInterval(event.target.value)}
               />
             </div>
           )}
@@ -67,12 +168,39 @@ export default function StreamingBlocksPanel({ onClose }) {
             <textarea 
               className="field-textarea" 
               placeholder='{"price": "number", "volume": "number", "timestamp": "string"}'
+              value={responseFormat}
+              onChange={(event) => setResponseFormat(event.target.value)}
             />
           </div>
           
-          <button className="btn-parse disabled">필드 파싱</button>
+          <button
+            type="button"
+            className={`btn-parse ${canParse ? '' : 'disabled'}`}
+            disabled={!canParse}
+            onClick={handleParseFields}
+          >
+            필드 파싱
+          </button>
+
+          {fields.length > 0 && (
+            <div className="field-preview">
+              <span className="field-preview-label">파싱된 필드</span>
+              <div className="field-preview-list">
+                {fields.map((field) => (
+                  <span key={field} className="field-preview-tag">{field}</span>
+                ))}
+              </div>
+            </div>
+          )}
           
-          <button className="btn-create disabled">블록 생성</button>
+          <button
+            type="button"
+            className={`btn-create ${canCreate ? '' : 'disabled'}`}
+            disabled={!canCreate}
+            onClick={handleCreate}
+          >
+            블록 생성
+          </button>
         </div>
       </div>
     </div>

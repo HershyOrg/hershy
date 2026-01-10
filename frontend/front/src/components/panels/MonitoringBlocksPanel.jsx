@@ -1,7 +1,24 @@
 import { useState } from 'react';
 
-export default function MonitoringBlocksPanel({ onClose }) {
+export default function MonitoringBlocksPanel({ onClose, onCreate }) {
   const [monitorType, setMonitorType] = useState('table');
+  const [blockName, setBlockName] = useState('');
+  const canCreate = Boolean(blockName.trim());
+
+  const handleCreate = () => {
+    if (!canCreate || !onCreate) {
+      return;
+    }
+
+    onCreate({
+      name: blockName.trim(),
+      monitorType,
+      connectedStream: '',
+      fields: []
+    });
+
+    setBlockName('');
+  };
 
   return (
     <div className="overlay-panel">
@@ -20,7 +37,9 @@ export default function MonitoringBlocksPanel({ onClose }) {
             <input 
               type="text" 
               className="field-input" 
-              placeholder="예: Price_Monitor" 
+              placeholder="예: Price_Monitor"
+              value={blockName}
+              onChange={(event) => setBlockName(event.target.value)}
             />
           </div>
           
@@ -64,7 +83,14 @@ export default function MonitoringBlocksPanel({ onClose }) {
             <p className="info-text">🔗 연결된 블록만 프론트 탭에서 표시됩니다</p>
           </div>
           
-          <button className="btn-create disabled">모니터링 블록 생성</button>
+          <button
+            type="button"
+            className={`btn-create ${canCreate ? '' : 'disabled'}`}
+            disabled={!canCreate}
+            onClick={handleCreate}
+          >
+            모니터링 블록 생성
+          </button>
         </div>
       </div>
     </div>

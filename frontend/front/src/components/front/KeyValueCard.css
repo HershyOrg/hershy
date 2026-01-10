@@ -1,0 +1,64 @@
+.front-key-value-card {
+  display: flex;
+  align-items: flex-start;
+  gap: 4px;
+  padding: 8px;
+  border-radius: 4px;
+  border: 1px solid transparent;
+  background: #0A1628;
+  font-family: Inter, -apple-system, Roboto, Helvetica, sans-serif;
+}
+
+.front-key-value-card--stack {
+  flex-direction: column;
+  width: 232px;
+  min-height: 58px;
+}
+
+.front-key-value-card--row {
+  flex-direction: row;
+  align-items: center;
+  justify-content: space-between;
+  width: 335px;
+  height: 24px;
+  padding: 0 8px;
+}
+
+.front-key-value-card--accent {
+  background: #49B0F5;
+}
+
+.front-key-value-card--default {
+  background: #0A1628;
+}
+
+.front-key-value-card__label {
+  color: #64748B;
+  font-size: 11px;
+  line-height: 16px;
+}
+
+.front-key-value-card__value {
+  color: #FFF;
+  font-size: 14px;
+  line-height: 21px;
+}
+
+.front-key-value-card__value.is-muted {
+  color: rgba(255, 255, 255, 0.5);
+}
+
+.front-key-value-card__value.is-positive {
+  color: #00D492;
+}
+
+.front-key-value-card--row .front-key-value-card__label {
+  font-size: 12px;
+  line-height: 18px;
+}
+
+.front-key-value-card--row .front-key-value-card__value {
+  font-size: 13px;
+  line-height: 20px;
+  text-align: right;
+}
