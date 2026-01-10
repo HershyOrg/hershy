@@ -702,16 +702,17 @@ func runMarketSimulation(ctx context.Context, mock *mockExchange, marketID, yesT
 // runOrderStrategy sets up, monitors, and finalizes strategy execution.
 func runOrderStrategy(ctx context.Context, exchange base.Exchange, endTime time.Time) {
 	// Part 1) Setup
-	strategy, fillEvents := setupStrategy(exchange)
+	exClient := base.NewExchangeClient(exchange, 0, true)
+	client, fillEvents := setupMarketClient(exClient)
 	go trackFillEvents(ctx, fillEvents)
 	autoCancelOrders := true
-	defer strategy.Client.Stop(context.Background())
+	defer exClient.Stop(context.Background())
 
 	plans := []orderPlan{
-		{label: "mean-revert-yes", outcome: "Yes", side: models.OrderSideBuy, limit: 0.58, size: 2, tokenID: strategy.GetTokenID("Yes")},
-		{label: "take-profit-yes", outcome: "Yes", side: models.OrderSideSell, limit: 0.72, size: 2, tokenID: strategy.GetTokenID("Yes")},
-		{label: "mean-revert-no", outcome: "No", side: models.OrderSideBuy, limit: 0.36, size: 2, tokenID: strategy.GetTokenID("No")},
-		{label: "take-profit-no", outcome: "No", side: models.OrderSideSell, limit: 0.40, size: 1, tokenID: strategy.GetTokenID("No")},
+		{label: "mean-revert-yes", outcome: "Yes", side: models.OrderSideBuy, limit: 0.58, size: 2, tokenID: client.GetTokenID("Yes")},
+		{label: "take-profit-yes", outcome: "Yes", side: models.OrderSideSell, limit: 0.72, size: 2, tokenID: client.GetTokenID("Yes")},
+		{label: "mean-revert-no", outcome: "No", side: models.OrderSideBuy, limit: 0.36, size: 2, tokenID: client.GetTokenID("No")},
+		{label: "take-profit-no", outcome: "No", side: models.OrderSideSell, limit: 0.40, size: 1, tokenID: client.GetTokenID("No")},
 	}
 	placed := map[string]models.Order{}
 	slippageThreshold := 0.12
@@ -724,25 +725,25 @@ func runOrderStrategy(ctx context.Context, exchange base.Exchange, endTime time.
 		select {
 		case <-ctx.Done():
 			if autoCancelOrders {
-				cancelOpenOrders(strategy, "context done")
+				cancelOpenOrders(client, "context done")
 			}
-			printStrategySummary(strategy, "context done")
+			printStrategySummary(client, "context done")
 			return
 		case <-ticker.C:
 			if time.Now().After(endTime) {
 				if autoCancelOrders {
-					cancelOpenOrders(strategy, "strategy window elapsed")
+					cancelOpenOrders(client, "strategy window elapsed")
 				}
-				printStrategySummary(strategy, "strategy window elapsed")
+				printStrategySummary(client, "strategy window elapsed")
 				return
 			}
 			for _, plan := range plans {
 				if _, ok := placed[plan.label]; ok {
 					continue
 				}
-				bestBid, bestAsk := strategy.GetBestBidAsk(plan.tokenID)
+				bestBid, bestAsk := client.GetBestBidAsk(plan.tokenID)
 				if shouldPlace(plan, bestBid, bestAsk) {
-					order, err := strategy.CreateOrder(plan.outcome, plan.side, plan.limit, plan.size, plan.tokenID, nil)
+					order, err := client.CreateOrder(plan.outcome, plan.side, plan.limit, plan.size, plan.tokenID, nil)
 					if err == nil {
 						placed[plan.label] = order
 						fmt.Printf("Strategy order placed: %s %s %.2f @ %.2f\n", plan.label, plan.side, order.Size, order.Price)
@@ -750,11 +751,11 @@ func runOrderStrategy(ctx context.Context, exchange base.Exchange, endTime time.
 				}
 			}
 
-			if shouldCancelForSlippage(strategy, slippageThreshold) {
-				openOrders, err := strategy.Client.FetchOpenOrders(strategy.MarketID)
+			if shouldCancelForSlippage(client, slippageThreshold) {
+				openOrders, err := client.FetchOpenOrders()
 				if err == nil && len(openOrders) > 0 {
 					for _, order := range openOrders {
-						cancelled, err := strategy.Client.CancelOrder(order.ID, strategy.MarketID)
+						cancelled, err := client.CancelOrder(order.ID)
 						if err == nil {
 							fmt.Printf("Cancelled for slippage: %s (%s %.2f @ %.2f)\n", cancelled.ID, cancelled.Side, cancelled.Size, cancelled.Price)
 						}
@@ -765,24 +766,24 @@ func runOrderStrategy(ctx context.Context, exchange base.Exchange, endTime time.
 	}
 }
 
-// setupStrategy configures the strategy and seed orders.
-func setupStrategy(exchange base.Exchange) (*base.Strategy, chan string) {
-	strategy := base.NewStrategy(exchange, "mock-binary-1")
-	strategy.Client = base.NewExchangeClient(exchange, 0, true)
+// setupMarketClient configures the strategy and seed orders.
+func setupMarketClient(exClient *base.ExchangeClient) (*base.MarketClient, chan string) {
+
+	client := base.NewMarketClientWithClient(exClient, "mock-binary-1")
 
 	fillEvents := make(chan string, 32)
 	// *웹소켓 사용
-	strategy.Client.OnFill(func(event base.OrderEvent, order models.Order, fillSize float64) {
+	client.Client.OnFill(func(event base.OrderEvent, order models.Order, fillSize float64) {
 		fillEvents <- fmt.Sprintf("%s:%s:%.0f/%.0f", event, order.ID, fillSize, order.Filled)
 	})
 
 	// *웹소켓 사용
-	if !strategy.Setup() {
+	if !client.Setup() {
 		panic("strategy setup failed")
 	}
 
 	mustOrder := func(outcome string, side models.OrderSide, price, size float64, tokenID, label string) models.Order {
-		order, err := strategy.CreateOrder(outcome, side, price, size, tokenID, nil)
+		order, err := client.CreateOrder(outcome, side, price, size, tokenID, nil)
 		if err != nil {
 			panic(err)
 		}
@@ -802,29 +803,29 @@ func setupStrategy(exchange base.Exchange) (*base.Strategy, chan string) {
 		fmt.Printf("Seeded order: %s %s %.2f @ %.2f\n", order.Outcome, order.Side, order.Size, order.Price)
 	}
 
-	return strategy, fillEvents
+	return client, fillEvents
 }
 
 // printStrategySummary reports final strategy state.
-func printStrategySummary(strategy *base.Strategy, reason string) {
+func printStrategySummary(client *base.MarketClient, reason string) {
 	fmt.Printf("Strategy stopping: %s\n", reason)
-	openOrders, err := strategy.Client.FetchOpenOrders(strategy.MarketID)
+	openOrders, err := client.FetchOpenOrders()
 	if err == nil {
 		fmt.Printf("Open orders: %d\n", len(openOrders))
 	}
-	state := base.NewStrategyStateFromClient(strategy.Client, *strategy.Market, strategy.Positions(), len(openOrders))
+	state := base.NewStrategyStateFromClient(client.Client, *client.Market, client.Positions(), len(openOrders))
 	fmt.Printf("Final NAV: %.2f (cash %.2f, positions %.2f)\n", state.NAV, state.Cash, state.PositionsValue)
-	flushLogs(strategy.Logger, strategy.Client.Logger, utils.DefaultLogger())
+	flushLogs(client.Logger, client.Client.Logger, utils.DefaultLogger())
 }
 
 // cancelOpenOrders cancels outstanding orders at shutdown.
-func cancelOpenOrders(strategy *base.Strategy, reason string) {
-	openOrders, err := strategy.Client.FetchOpenOrders(strategy.MarketID)
+func cancelOpenOrders(client *base.MarketClient, reason string) {
+	openOrders, err := client.FetchOpenOrders()
 	if err != nil || len(openOrders) == 0 {
 		return
 	}
 	for _, order := range openOrders {
-		cancelled, err := strategy.Client.CancelOrder(order.ID, strategy.MarketID)
+		cancelled, err := client.CancelOrder(order.ID)
 		if err == nil {
 			fmt.Printf("Auto-cancelled (%s): %s (%s %.2f @ %.2f)\n", reason, cancelled.ID, cancelled.Side, cancelled.Size, cancelled.Price)
 		}
@@ -840,9 +841,9 @@ func shouldPlace(plan orderPlan, bestBid, bestAsk *float64) bool {
 }
 
 // shouldCancelForSlippage triggers cancellation on wide spreads.
-func shouldCancelForSlippage(strategy *base.Strategy, threshold float64) bool {
-	for _, token := range strategy.OutcomeTokens {
-		bestBid, bestAsk := strategy.GetBestBidAsk(token.TokenID)
+func shouldCancelForSlippage(client *base.MarketClient, threshold float64) bool {
+	for _, token := range client.OutcomeTokens {
+		bestBid, bestAsk := client.GetBestBidAsk(token.TokenID)
 		if bestBid == nil || bestAsk == nil {
 			continue
 		}
