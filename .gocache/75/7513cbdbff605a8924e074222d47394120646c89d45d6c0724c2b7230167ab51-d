@@ -1,0 +1,3 @@
+./logger.go
+./price.go
+./tui.go
