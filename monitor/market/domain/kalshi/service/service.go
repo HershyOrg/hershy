@@ -21,7 +21,7 @@ func SyncKalshiMarkets(ctx context.Context, db *pgxpool.Pool) error {
 	cursor := ""
 
 	for {
-		res, err := client.FetchMarkets(ctx, cursor, 100, "open", time.Now().Unix())
+		res, err := client.FetchMarkets(ctx, cursor, 1000, "open", time.Now().Unix())
     if err != nil {
         return err
     }
@@ -31,7 +31,7 @@ func SyncKalshiMarkets(ctx context.Context, db *pgxpool.Pool) error {
     }
 
 		for _, raw := range res.Markets {
-			// fmt.Printf("[kalshi] raw id=%s title=%q\n", raw.ID, raw.Title) 
+			
 
 			mkt, err := parser.ParseKalshiMarket(raw)
 			if err != nil {
@@ -49,11 +49,13 @@ func SyncKalshiMarkets(ctx context.Context, db *pgxpool.Pool) error {
 			break
 		}
 		cursor = res.Cursor
+		timer := time.NewTimer(300 * time.Millisecond)
 		select {
-      case <-ctx.Done():
-        return ctx.Err()
-      case <-time.After(300 * time.Millisecond):
-    }
+			case <-ctx.Done():
+				timer.Stop()
+				return ctx.Err()
+			case <-timer.C:
+		}
 	}
 
 	return nil

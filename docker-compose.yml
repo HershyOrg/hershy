@@ -56,6 +56,21 @@ services:
       - "8090:8090"
     networks:
       - trading-net
+  cron:
+    build:
+      context: ./monitor
+      dockerfile: cron/Dockerfile
+    container_name: cron
+    environment:
+      DATABASE_URL: postgres://predict:predict@postgres:5432/predictmarket?sslmode=disable
+    depends_on:
+      postgres:
+        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
+    networks:
+      - trading-net
+    restart: unless-stopped
 
 networks:
   trading-net:

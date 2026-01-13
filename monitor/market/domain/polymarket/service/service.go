@@ -39,10 +39,10 @@ func SyncPolyMarkets(ctx context.Context, db *pgxpool.Pool) error {
 		if err != nil{
 			return err
 		}
-		log.Printf(
-			"[polymarket] fetched=%d offset=%d",
-			len(raws), offset,
-		)
+		// log.Printf(
+		// 	"[polymarket] fetched=%d offset=%d",
+		// 	len(raws), offset,
+		// )
 
 		if len(raws) == 0 {
 			break
@@ -80,8 +80,13 @@ func SyncPolyMarkets(ctx context.Context, db *pgxpool.Pool) error {
 		offset += limit
 		time.Sleep(200 * time.Microsecond)
 	}
-
-	log.Printf("[polymarket] completed successfully\n")
+	timer := time.NewTimer(300 * time.Millisecond)
+	select {
+		case <-ctx.Done():
+			timer.Stop()
+			return ctx.Err()
+		case <-timer.C:
+	}
 	return nil
 }
 func ptr[T any](v T) *T {
