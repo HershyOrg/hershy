@@ -2,6 +2,7 @@ package cmd
 
 import (
 	"context"
+	"log"
 	"sync"
 
 	kalshiService "monitor/market/domain/kalshi/service"
@@ -13,10 +14,24 @@ import (
 
 
 func kalshiRun(ctx context.Context, db *pgxpool.Pool) error {
-	return kalshiService.SyncKalshiMarkets(ctx, db)
+    log.Printf("[cmd] kalshiRun start")
+    err := kalshiService.SyncKalshiMarkets(ctx, db)
+    if err != nil {
+        log.Printf("[cmd] kalshiRun error: %v", err)
+    } else {
+        log.Printf("[cmd] kalshiRun done")
+    }
+    return err
 }
 func polymarketRun(ctx context.Context, db *pgxpool.Pool) error {
-	return polyService.SyncPolyMarkets(ctx, db)
+    log.Printf("[cmd] polymarketRun start")
+    err := polyService.SyncPolyMarkets(ctx, db)
+    if err != nil {
+        log.Printf("[cmd] polymarketRun error: %v", err)
+    } else {
+        log.Printf("[cmd] polymarketRun done")
+    }
+    return err
 }
 
 func RunBothConcurrent(ctx context.Context, db *pgxpool.Pool) error {

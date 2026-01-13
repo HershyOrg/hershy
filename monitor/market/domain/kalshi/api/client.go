@@ -34,7 +34,7 @@ func (c *Client) FetchMarkets(ctx context.Context, cursor string, limit int, sta
     }
     params := url.Values{}
     if limit <= 0 {
-        limit = 100
+        limit = 1000
     }
     params.Set("limit", strconv.Itoa(limit))
     if status != "" {

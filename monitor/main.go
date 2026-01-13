@@ -4,7 +4,6 @@ import (
 	"context"
 	"log"
 	"monitor/market/api"
-	"monitor/market/cmd"
 
 	"os"
 	"os/signal"
@@ -37,11 +36,11 @@ func main() {
 		}
 	}()
 
-	go func() {
-		if err := cmd.RunBothConcurrent(ctx, db); err != nil {
-			log.Printf("[main] sync error: %v", err)
-		}
-	}()
+	// go func() {
+	// 	if err := cmd.RunBothConcurrent(ctx, db); err != nil {
+	// 		log.Printf("[main] sync error: %v", err)
+	// 	}
+	// }()
 
 	// wait for signal
 	<-ctx.Done()
