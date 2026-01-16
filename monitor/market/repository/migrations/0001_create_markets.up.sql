@@ -1,15 +1,3 @@
--- CREATE TABLE IF NOT EXISTS market_polymarket (
---   id TEXT PRIMARY KEY,
---   question TEXT NOT NULL,
---   slug TEXT,
---   active BOOLEAN NOT NULL,
---   closed BOOLEAN NOT NULL,
---   updated_at TIMESTAMPTZ NOT NULL,
---   created_at TIMESTAMPTZ NOT NULL,
---   neg_risk BOOLEAN NOT NULL,
---   volume NUMERIC,
---   liquidity NUMERIC
--- );
 CREATE TABLE IF NOT EXISTS market_polymarket (
     id TEXT PRIMARY KEY,
     question TEXT NOT NULL,
@@ -44,6 +32,18 @@ CREATE TABLE IF NOT EXISTS market_kalshi (
     volume NUMERIC,
     open_interest NUMERIC,
     settlement_ts TIMESTAMPTZ
+);
+
+CREATE TABLE IF NOT EXISTS market_opinion (
+    market_id BIGINT PRIMARY KEY,
+    title TEXT NOT NULL,
+    status TEXT,
+    yes_token_id TEXT,
+    no_token_id TEXT,
+    volume_24h DOUBLE PRECISION,
+    volume_7d DOUBLE PRECISION,
+    cutoff_at TIMESTAMPTZ,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
 CREATE INDEX idx_market_polymarket_updated_at

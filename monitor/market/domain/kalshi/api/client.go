@@ -5,7 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 
-	"monitor/market/domain/kalshi/parser"
+	parser "monitor/market/domain/kalshi/parser"
 	"net/http"
 	"net/url"
 	"strconv"

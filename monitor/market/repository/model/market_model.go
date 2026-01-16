@@ -41,3 +41,14 @@ type KalshiMarket struct {
     SettlementTs time.Time `json:"settlement_ts"`
 		CreatedAt  string  `json:"created_time"` 
 }
+type OpinionMarket struct {
+	MarketID    int64  `json:"market_id"`
+	Title       string `json:"title"`
+	Status      string `json:"status"` 
+	YesTokenID string `json:"yes_token_id"`
+	NoTokenID  string `json:"no_token_id"`
+	Volume24h float64 `json:"volume_24h"`
+	Volume7d  float64 `json:"volume_7d"`
+	CutoffAt time.Time `json:"cutoff_at"`
+	CreatedAt time.Time `json:"created_at"`
+}

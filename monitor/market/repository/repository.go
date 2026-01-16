@@ -28,6 +28,9 @@ type Repository interface {
     GetLastUpdatedKalshi(ctx context.Context) (time.Time, error)
     UpsertKalshi(ctx context.Context, m model.KalshiMarket) error
     ListKalshimarkets(ctx context.Context, limit, offset int) ([]model.KalshiMarket, error)
+
+    //Opinion
+    UpsertOpinion(ctx context.Context, m model.OpinionMarket) error
 }
 
 
@@ -266,3 +269,40 @@ func (r *pgRepository) ListKalshimarkets(ctx context.Context, limit, offset int)
     return out, nil
 }
 
+// Opinion
+func(r *pgRepository) UpsertOpinion(ctx context.Context, m model.OpinionMarket) error{
+    ctx, cancel := context.WithTimeout(ctx, 4*time.Second)
+    defer cancel()
+    const upsertSQL = `
+    INSERT INTO market_opinion (
+        market_id, title, status, yes_token_id, no_token_id,
+        volume_24h, volume_7d, cutoff_at, created_at
+    ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)
+    ON CONFLICT (market_id) DO UPDATE SET
+        title       = EXCLUDED.title,
+        status      = EXCLUDED.status,
+        yes_token_id= EXCLUDED.yes_token_id,
+        no_token_id = EXCLUDED.no_token_id,
+        volume_24h  = EXCLUDED.volume_24h,
+        volume_7d   = EXCLUDED.volume_7d,
+        cutoff_at   = EXCLUDED.cutoff_at;
+    `
+    _, err := r.db.Exec(
+        ctx, upsertSQL,
+        m.MarketID,
+        m.Title,
+        m.Status,
+        m.YesTokenID,
+        m.NoTokenID,
+        m.Volume24h,
+        m.Volume7d,
+        m.CutoffAt,
+        m.CreatedAt,
+    )
+	if err != nil {
+        fmt.Printf("[repo] upsert error opinion market_id=%v err=%v\n", m.MarketID, err)
+        return err
+    }
+    // fmt.Printf("[repo] upsert ok kalshi ticker=%s rowsAffected=%d tag=%s\n", m.Ticker, ct.RowsAffected(), ct)
+    return nil
+}
