@@ -61,6 +61,8 @@ services:
       context: ./monitor
       dockerfile: cron/Dockerfile
     container_name: cron
+    env_file:
+      - .env
     environment:
       DATABASE_URL: postgres://predict:predict@postgres:5432/predictmarket?sslmode=disable
     depends_on:

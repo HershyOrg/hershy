@@ -6,13 +6,23 @@ import (
 	"sync"
 
 	kalshiService "monitor/market/domain/kalshi/service"
+	opinionService "monitor/market/domain/opinion/service"
 	polyService "monitor/market/domain/polymarket/service"
 
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
 
-
+func opinionRun(ctx context.Context, db *pgxpool.Pool) error {
+    log.Printf("[cmd] opinionRun start")
+    err := opinionService.SyncOpinionMarkets(ctx, db)
+    if err != nil {
+        log.Printf("[cmd] opinionRun error: %v", err)
+    } else {
+        log.Printf("[cmd] opinionRun done")
+    }
+    return err
+}
 func kalshiRun(ctx context.Context, db *pgxpool.Pool) error {
     log.Printf("[cmd] kalshiRun start")
     err := kalshiService.SyncKalshiMarkets(ctx, db)
@@ -50,6 +60,14 @@ func RunBothConcurrent(ctx context.Context, db *pgxpool.Pool) error {
     go func() {
         defer wg.Done()
         if err := polymarketRun(ctx, db); err != nil {
+            errCh <- err
+        }
+    }()
+    
+    wg.Add(1)
+    go func() {
+        defer wg.Done()
+        if err := opinionRun(ctx, db); err != nil {
             errCh <- err
         }
     }()
