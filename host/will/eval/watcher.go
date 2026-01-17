@@ -1,7 +1,8 @@
-package will
+package eval
 
 import (
 	"context"
+	"host/will/parser"
 )
 
 // Watcher는 자원 감시에 대한 설계도임.
@@ -12,7 +13,7 @@ type Watcher struct {
 	resourceName string
 	//varId는 Ghost프로그램 내부에서의 식별자임
 	//ex: varName:BitPrice, Value: int(100)
-	varId VarName
+	varId parser.VarName
 	//Watch는 해당 자원을 감시하는 함수임
 	Watch func(ctx context.Context) <-chan ResourceInfo
 
@@ -23,7 +24,7 @@ type Watcher struct {
 
 type ResourceInfo interface {
 	ResourceName() string
-	VarId() VarName
+	VarId() parser.VarName
 	Value() Value
 	Error() error
 }

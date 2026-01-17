@@ -12,6 +12,9 @@ import (
 
 // MarketClient provides market-scoped helpers without scheduling logic.
 // 전략 실행이 아닌 "요청 대리자" 역할만 수행한다.
+// * 명확한 제어를 위해서,
+// * 내가 Strategy에서 스케쥴링 기능을 제외하고,
+// * 대신 Exchange의 프록시 역할은 강화되로록 만든 구조체임.
 type MarketClient struct {
 	// Exchange is the underlying exchange implementation.
 	Exchange Exchange

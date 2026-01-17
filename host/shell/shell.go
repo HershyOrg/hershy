@@ -3,7 +3,7 @@ package shell
 import (
 	"context"
 	"host/ghost"
-	"host/will"
+	"host/will/eval"
 	"sync"
 )
 
@@ -47,8 +47,8 @@ type GhostState int
 
 const (
 	ReadyGhost GhostState = iota
-	StoppedGhost
 	RunningGhost
+	KilledGhost
 )
 
 // CancleInfo내의 CancleXXX함수를 통해 Ghost의 동작을 제어할 수 있음
@@ -79,7 +79,7 @@ type Trigger struct {
 	ghostId ghost.GhostId
 	//referedWatcher는 Trigger를 만들기 위해 참조한
 	//Ghost의 Watcher정보임
-	referedWatcher will.Watcher
+	referedWatcher eval.Watcher
 }
 
 // ShellInfo는 Shell의 주소 및 고유 Id를 표현함

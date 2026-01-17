@@ -2,8 +2,9 @@ package shell
 
 import (
 	"context"
+	"fmt"
 	"host/ghost"
-	"host/will"
+	"host/will/eval"
 	"time"
 )
 
@@ -15,7 +16,14 @@ func (s *Shell) MountGhost(ghost ghost.Ghost, rootCtx context.Context) error {
 	//초기화 작업은 30초 내로 끝나야 함
 	initCtx, cancle := context.WithTimeout(rootCtx, 30*time.Second)
 	defer cancle()
-	err := ghost.DoInit(initCtx)
+	err, needUnmount := ghost.DoInit(initCtx)
+	if needUnmount {
+		s.KillGhost(ControlTx{
+			ghostId: ghost.GhostId(),
+		})
+		fmt.Println("MountGhost: Ghost Stop")
+		return nil
+	}
 	if err != nil {
 		return err
 	}
@@ -112,7 +120,14 @@ func (s *Shell) reactGhost(target ghost.Ghost, ctx context.Context) error {
 						s.errChan <- err
 						return
 					}
-					err = target.DoWills(ctx)
+					err, needStop := target.DoWills(ctx)
+					if needStop {
+						s.KillGhost(ControlTx{
+							ghostId: target.GhostId(),
+						})
+						fmt.Println("reactGhost: Stop신호를 받음")
+						return
+					}
 					if err != nil {
 						s.errChan <- err
 					}
@@ -126,5 +141,5 @@ func (s *Shell) reactGhost(target ghost.Ghost, ctx context.Context) error {
 // TriggeredSignal은 ghost를 실행하는 시그널임
 type TriggeredSignal struct {
 	ghostId      ghost.GhostId
-	resourceInfo will.ResourceInfo
+	resourceInfo eval.ResourceInfo
 }

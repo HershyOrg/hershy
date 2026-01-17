@@ -1,12 +1,27 @@
-package will
+package eval
 
-import "strconv"
+import (
+	"strconv"
+)
 
 // Value는 Will이 지니는 객체 모델의 표현임
 type Value interface {
 	Inspect() string
-	Type() BaseType
+	Type() EvaledValueType
 }
+
+// * 추후 파서와 Eval이 분리될 걸 감안해서 비정규화 해 두었음
+// * ParsedValueType, EvaledValueType동시 존재 중임
+type EvaledValueType int
+
+const (
+	IntValType EvaledValueType = iota
+	FloatValType
+	BoolValType
+	StringValType
+	ErrValType
+	BuiltInFuncValType
+)
 
 type IntVal struct {
 	Value int
@@ -17,8 +32,8 @@ var _ Value = (*IntVal)(nil)
 func (i *IntVal) Inspect() string {
 	return strconv.Itoa(i.Value)
 }
-func (i *IntVal) Type() BaseType {
-	return IntType
+func (i *IntVal) Type() EvaledValueType {
+	return IntValType
 }
 
 type FloatVal struct {
@@ -26,11 +41,11 @@ type FloatVal struct {
 }
 
 func (f *FloatVal) Inspect() string {
-	return strconv.FormatFloat(f.Value, 'f', 2, 64)
+	return strconv.FormatFloat(f.Value, 'f', 4, 64)
 }
 
-func (f *FloatVal) Type() BaseType {
-	return FloatType
+func (f *FloatVal) Type() EvaledValueType {
+	return FloatValType
 }
 
 var _ Value = (*FloatVal)(nil)
@@ -47,8 +62,8 @@ func (bv *BoolVal) Inspect() string {
 	}
 	return "false"
 }
-func (bv *BoolVal) Type() BaseType {
-	return BoolType
+func (bv *BoolVal) Type() EvaledValueType {
+	return BoolValType
 }
 
 type StringVal struct {
@@ -60,8 +75,8 @@ var _ Value = (*StringVal)(nil)
 func (s *StringVal) Inspect() string {
 	return s.Value
 }
-func (s *StringVal) Type() BaseType {
-	return StringType
+func (s *StringVal) Type() EvaledValueType {
+	return StringValType
 }
 
 type ErrorVal struct {
@@ -75,6 +90,6 @@ func (e *ErrorVal) Inspect() string {
 	}
 	return e.message
 }
-func (e *ErrorVal) Type() BaseType {
-	return ErrType
+func (e *ErrorVal) Type() EvaledValueType {
+	return ErrValType
 }

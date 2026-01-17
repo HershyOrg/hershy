@@ -1,4 +1,4 @@
-package will
+package eval
 
 // CtrlInfo는 Will이 지닌 제어신호임
 type CtrlInfo struct {
@@ -15,4 +15,5 @@ const (
 	ReturnKind
 	Breakkind
 	ContinueKind
+	KillKind // Ghost Kill신호 발생.
 )

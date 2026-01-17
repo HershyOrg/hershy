@@ -703,16 +703,16 @@ func runMarketSimulation(ctx context.Context, mock *mockExchange, marketID, yesT
 func runOrderStrategy(ctx context.Context, exchange base.Exchange, endTime time.Time) {
 	// Part 1) Setup
 	exClient := base.NewExchangeClient(exchange, 0, true)
-	client, fillEvents := setupMarketClient(exClient)
+	marketClient, fillEvents := setupMarketClient(exClient)
 	go trackFillEvents(ctx, fillEvents)
 	autoCancelOrders := true
 	defer exClient.Stop(context.Background())
 
 	plans := []orderPlan{
-		{label: "mean-revert-yes", outcome: "Yes", side: models.OrderSideBuy, limit: 0.58, size: 2, tokenID: client.GetTokenID("Yes")},
-		{label: "take-profit-yes", outcome: "Yes", side: models.OrderSideSell, limit: 0.72, size: 2, tokenID: client.GetTokenID("Yes")},
-		{label: "mean-revert-no", outcome: "No", side: models.OrderSideBuy, limit: 0.36, size: 2, tokenID: client.GetTokenID("No")},
-		{label: "take-profit-no", outcome: "No", side: models.OrderSideSell, limit: 0.40, size: 1, tokenID: client.GetTokenID("No")},
+		{label: "mean-revert-yes", outcome: "Yes", side: models.OrderSideBuy, limit: 0.58, size: 2, tokenID: marketClient.GetTokenID("Yes")},
+		{label: "take-profit-yes", outcome: "Yes", side: models.OrderSideSell, limit: 0.72, size: 2, tokenID: marketClient.GetTokenID("Yes")},
+		{label: "mean-revert-no", outcome: "No", side: models.OrderSideBuy, limit: 0.36, size: 2, tokenID: marketClient.GetTokenID("No")},
+		{label: "take-profit-no", outcome: "No", side: models.OrderSideSell, limit: 0.40, size: 1, tokenID: marketClient.GetTokenID("No")},
 	}
 	placed := map[string]models.Order{}
 	slippageThreshold := 0.12
@@ -725,25 +725,25 @@ func runOrderStrategy(ctx context.Context, exchange base.Exchange, endTime time.
 		select {
 		case <-ctx.Done():
 			if autoCancelOrders {
-				cancelOpenOrders(client, "context done")
+				cancelOpenOrders(marketClient, "context done")
 			}
-			printStrategySummary(client, "context done")
+			printStrategySummary(marketClient, "context done")
 			return
 		case <-ticker.C:
 			if time.Now().After(endTime) {
 				if autoCancelOrders {
-					cancelOpenOrders(client, "strategy window elapsed")
+					cancelOpenOrders(marketClient, "strategy window elapsed")
 				}
-				printStrategySummary(client, "strategy window elapsed")
+				printStrategySummary(marketClient, "strategy window elapsed")
 				return
 			}
 			for _, plan := range plans {
 				if _, ok := placed[plan.label]; ok {
 					continue
 				}
-				bestBid, bestAsk := client.GetBestBidAsk(plan.tokenID)
+				bestBid, bestAsk := marketClient.GetBestBidAsk(plan.tokenID)
 				if shouldPlace(plan, bestBid, bestAsk) {
-					order, err := client.CreateOrder(plan.outcome, plan.side, plan.limit, plan.size, plan.tokenID, nil)
+					order, err := marketClient.CreateOrder(plan.outcome, plan.side, plan.limit, plan.size, plan.tokenID, nil)
 					if err == nil {
 						placed[plan.label] = order
 						fmt.Printf("Strategy order placed: %s %s %.2f @ %.2f\n", plan.label, plan.side, order.Size, order.Price)
@@ -751,11 +751,11 @@ func runOrderStrategy(ctx context.Context, exchange base.Exchange, endTime time.
 				}
 			}
 
-			if shouldCancelForSlippage(client, slippageThreshold) {
-				openOrders, err := client.FetchOpenOrders()
+			if shouldCancelForSlippage(marketClient, slippageThreshold) {
+				openOrders, err := marketClient.FetchOpenOrders()
 				if err == nil && len(openOrders) > 0 {
 					for _, order := range openOrders {
-						cancelled, err := client.CancelOrder(order.ID)
+						cancelled, err := marketClient.CancelOrder(order.ID)
 						if err == nil {
 							fmt.Printf("Cancelled for slippage: %s (%s %.2f @ %.2f)\n", cancelled.ID, cancelled.Side, cancelled.Size, cancelled.Price)
 						}

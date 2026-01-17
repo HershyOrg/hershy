@@ -12,8 +12,8 @@ type ControlTx struct {
 	ghostId ghost.GhostId
 }
 
-// StopGhost는 tx를 받아 해당 Ghost를 종료함
-func (s *Shell) StopGhost(tx ControlTx) error {
+// KillGhost는 tx를 받아 해당 Ghost를 종료함
+func (s *Shell) KillGhost(tx ControlTx) error {
 	s.shellMu.RLock()
 	cancleFuncs, ok := s.cancleManager[tx.ghostId]
 	s.shellMu.Unlock()
@@ -28,7 +28,7 @@ func (s *Shell) StopGhost(tx ControlTx) error {
 	//10분 후에 ghostMonitor분리 후 고치기
 	s.ghostMonitor[tx.ghostId] = GhostWithState{
 		Ghost: ghost.Ghost{},
-		State: StoppedGhost,
+		State: KilledGhost,
 	}
 	s.shellMu.Unlock()
 	return nil
