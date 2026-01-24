@@ -50,6 +50,7 @@ BINANCE_WS_URL = "wss://stream.binance.com:9443/stream?streams=btcusdt@kline_1s/
 CLOB_HOST = "https://clob.polymarket.com"
 CHAIN_ID = 137
 USDC_SCALE = 1_000_000
+CONDITIONAL_SCALE = 1_000_000
 
 
 @dataclass
@@ -134,7 +135,7 @@ class PolymarketExecutor:
             asset_type=AssetType.CONDITIONAL, token_id=token_id
         )
         resp = self.client.get_balance_allowance(params)
-        return _safe_float(resp.get("balance"))
+        return _scale_conditional_balance(resp.get("balance"))
 
     def compute_buy_usdc(self) -> float:
         available = self.get_usdc_available() - self.cfg.reserve_usdc
@@ -183,6 +184,24 @@ class PolymarketExecutor:
             return None
         print(f"[TRADE] sell resp: {resp}")
         return FillResult(usdc=0.0, shares=shares, avg_price=None, partial=False)
+
+    def get_open_orders(self):
+        return self.client.get_orders()
+
+    def get_trades(self):
+        return self.client.get_trades()
+
+    def cancel_order(self, order_id: str):
+        return self.client.cancel(order_id)
+
+    def cancel_orders(self, order_ids: list[str]):
+        return self.client.cancel_orders(order_ids)
+
+    def cancel_all_orders(self):
+        return self.client.cancel_all()
+
+    def cancel_market_orders(self, token_id: str):
+        return self.client.cancel_market_orders(asset_id=token_id)
 
 
 class PaperExecutor:
@@ -329,6 +348,14 @@ def _extract_allowance(resp: dict) -> float:
     return 0.0
 
 
+def _scale_conditional_balance(raw) -> float:
+    if raw is None:
+        return 0.0
+    if isinstance(raw, str) and "." in raw:
+        return _safe_float(raw)
+    return _safe_float(raw) / CONDITIONAL_SCALE
+
+
 def _book_levels(levels, reverse: bool) -> list[tuple[float, float]]:
     out = []
     for lvl in levels or []:
@@ -431,13 +458,63 @@ def _ms_to_utc_str(t_ms: int) -> str:
     return time.strftime("%Y-%m-%d %H:%M:%S", time.gmtime(t_ms / 1000))
 
 
-def _resolve_secret(value: Optional[str], env_key: str, arg_name: str) -> str:
+def _ms_to_et_str(t_ms: int) -> str:
+    dt_et = dt.datetime.fromtimestamp(t_ms / 1000, tz=dt.timezone.utc).astimezone(
+        ET_TZ
+    )
+    return dt_et.strftime("%Y-%m-%d %H:%M:%S ET")
+
+
+def _parse_stop_at(value: Optional[str], tz: dt.tzinfo) -> Optional[int]:
+    if not value:
+        return None
+    text = value.strip()
+    if text.endswith("Z"):
+        text = text[:-1] + "+00:00"
+    try:
+        parsed = dt.datetime.fromisoformat(text)
+    except ValueError as exc:
+        raise ValueError(
+            "Invalid --stop-at-et format. Use YYYY-MM-DD HH:MM[:SS] or ISO format."
+        ) from exc
+    if parsed.tzinfo is None:
+        parsed = parsed.replace(tzinfo=tz)
+    return int(parsed.astimezone(dt.timezone.utc).timestamp() * 1000)
+
+
+def _normalize_env_prefix(prefix: Optional[str]) -> Optional[str]:
+    if prefix is None:
+        return None
+    cleaned = prefix.strip()
+    return cleaned or None
+
+
+def _env_key(base_key: str, env_prefix: Optional[str]) -> str:
+    prefix = _normalize_env_prefix(env_prefix)
+    if prefix:
+        return f"{prefix}_{base_key}"
+    return base_key
+
+
+def _resolve_secret(
+    value: Optional[str], base_env_key: str, arg_name: str, env_prefix: Optional[str]
+) -> str:
     if value:
         return value
+    env_key = _env_key(base_env_key, env_prefix)
     env_value = os.getenv(env_key)
     if env_value:
         return env_value
     raise RuntimeError(f"Missing {env_key}. Provide --{arg_name} or set env var.")
+
+
+def _resolve_optional_secret(
+    value: Optional[str], base_env_key: str, env_prefix: Optional[str]
+) -> Optional[str]:
+    if value:
+        return value
+    env_key = _env_key(base_env_key, env_prefix)
+    return os.getenv(env_key)
 
 
 def _parse_order_type(name: str) -> OrderType:
@@ -447,6 +524,12 @@ def _parse_order_type(name: str) -> OrderType:
     if name == "FAK":
         return OrderType.FAK
     raise ValueError("order_type must be FOK or FAK")
+
+
+def _parse_order_ids(value: Optional[str]) -> list[str]:
+    if not value:
+        return []
+    return [part.strip() for part in value.split(",") if part.strip()]
 
 
 def _resolve_auto_slug(args: argparse.Namespace) -> bool:
@@ -504,8 +587,10 @@ def build_clob_client(args: argparse.Namespace, read_only: bool = False) -> Clob
     if read_only:
         return ClobClient(args.clob_host)
 
-    private_key = _resolve_secret(args.private_key, "POLY_PRIVATE_KEY", "private-key")
-    funder = _resolve_secret(args.funder, "POLY_FUNDER", "funder")
+    private_key = _resolve_secret(
+        args.private_key, "PRIVATE_KEY", "private-key", args.env_prefix
+    )
+    funder = _resolve_secret(args.funder, "FUNDER", "funder", args.env_prefix)
     client = ClobClient(
         args.clob_host,
         key=private_key,
@@ -514,12 +599,18 @@ def build_clob_client(args: argparse.Namespace, read_only: bool = False) -> Clob
         funder=funder,
     )
 
-    if args.api_key and args.api_secret and args.api_passphrase:
+    api_key = _resolve_optional_secret(args.api_key, "API_KEY", args.env_prefix)
+    api_secret = _resolve_optional_secret(args.api_secret, "API_SECRET", args.env_prefix)
+    api_passphrase = _resolve_optional_secret(
+        args.api_passphrase, "API_PASSPHRASE", args.env_prefix
+    )
+
+    if api_key and api_secret and api_passphrase:
         client.set_api_creds(
             ApiCreds(
-                api_key=args.api_key,
-                api_secret=args.api_secret,
-                api_passphrase=args.api_passphrase,
+                api_key=api_key,
+                api_secret=api_secret,
+                api_passphrase=api_passphrase,
             )
         )
     else:
@@ -528,9 +619,71 @@ def build_clob_client(args: argparse.Namespace, read_only: bool = False) -> Clob
     return client
 
 
+def _has_order_ops(args: argparse.Namespace) -> bool:
+    return any(
+        [
+            args.list_open_orders,
+            args.list_trades,
+            args.cancel_order,
+            args.cancel_orders,
+            args.cancel_all_orders,
+            args.cancel_market_orders,
+        ]
+    )
+
+
+def _run_order_ops(args: argparse.Namespace) -> None:
+    if args.paper:
+        raise RuntimeError("order ops require live mode (remove --paper).")
+
+    client = build_clob_client(args)
+    trade_cfg = TradeConfig(
+        max_usdc=args.max_usdc,
+        min_usdc=args.min_usdc,
+        reserve_usdc=args.reserve_usdc,
+        min_shares=args.min_shares,
+        order_type=_parse_order_type(args.order_type),
+        dry_run=args.dry_run,
+    )
+    executor = PolymarketExecutor(client, trade_cfg)
+
+    if args.list_open_orders:
+        orders = executor.get_open_orders()
+        print(f"[ORDERS] count={len(orders)}")
+        print(json.dumps(orders, separators=(",", ":"), ensure_ascii=False))
+
+    if args.list_trades:
+        trades = executor.get_trades()
+        print(f"[TRADES] count={len(trades)}")
+        print(json.dumps(trades, separators=(",", ":"), ensure_ascii=False))
+
+    if args.cancel_order:
+        for order_id in args.cancel_order:
+            resp = executor.cancel_order(order_id)
+            print(json.dumps(resp, separators=(",", ":"), ensure_ascii=False))
+
+    if args.cancel_orders:
+        order_ids = _parse_order_ids(args.cancel_orders)
+        if not order_ids:
+            raise RuntimeError("--cancel-orders provided but no order IDs parsed.")
+        resp = executor.cancel_orders(order_ids)
+        print(json.dumps(resp, separators=(",", ":"), ensure_ascii=False))
+
+    if args.cancel_all_orders:
+        resp = executor.cancel_all_orders()
+        print(json.dumps(resp, separators=(",", ":"), ensure_ascii=False))
+
+    if args.cancel_market_orders:
+        resp = executor.cancel_market_orders(args.cancel_market_orders)
+        print(json.dumps(resp, separators=(",", ":"), ensure_ascii=False))
+
+
 async def run_trader(args: argparse.Namespace) -> None:
     model_path = Path(args.model_path)
     model = load_prob_model_from_path(model_path)
+    run_end_monotonic = None
+    if args.run_for_sec is not None and args.run_for_sec > 0:
+        run_end_monotonic = time.monotonic() + args.run_for_sec
 
     auto_slug = _resolve_auto_slug(args)
     token_id_up, token_id_down, market_slug, enable_orderbook, market_closed = (
@@ -561,6 +714,7 @@ async def run_trader(args: argparse.Namespace) -> None:
         exit_at_window_end=args.exit_at_window_end,
         exit_at_window_end_sec=max(1, int(args.exit_at_window_end_sec)),
     )
+    stop_at_ms = _parse_stop_at(args.stop_at_et, ET_TZ)
     if args.paper:
         paper_cfg = PaperConfig(
             start_usdc=args.paper_usdc,
@@ -585,6 +739,15 @@ async def run_trader(args: argparse.Namespace) -> None:
         f"exit_at_window_end={strategy.exit_at_window_end} "
         f"exit_at_window_end_sec={strategy.exit_at_window_end_sec}"
     )
+    if stop_at_ms is not None:
+        print(
+            f"[BOOT] stop_at_et={_ms_to_et_str(stop_at_ms)} "
+            f"stop_exit={args.stop_exit}"
+        )
+    if args.signals_only:
+        print("[BOOT] signals_only=True (no trades)")
+    if run_end_monotonic is not None:
+        print(f"[BOOT] run_for_sec={args.run_for_sec}")
     if args.paper and paper_cfg is not None:
         print(
             f"[BOOT] paper start_usdc={paper_cfg.start_usdc:.2f} "
@@ -600,6 +763,7 @@ async def run_trader(args: argparse.Namespace) -> None:
     last_log_ms = 0
     last_price = None
     last_price_ts_ms = None
+    stop_logged = False
     signal_log_path = Path(args.signal_log) if args.signal_log else None
     signal_log_fh = None
     signal_log_lines = 0
@@ -618,6 +782,9 @@ async def run_trader(args: argparse.Namespace) -> None:
                 ) as ws:
                     print("[BOOT] connected to Binance stream")
                     while True:
+                        if run_end_monotonic is not None and time.monotonic() >= run_end_monotonic:
+                            print("[STOP] run_for_sec reached; exiting")
+                            return
                         if auto_slug and next_market_check is not None and time.time() >= next_market_check:
                             next_market_check = time.time() + args.auto_refresh_sec
                             try:
@@ -766,6 +933,14 @@ async def run_trader(args: argparse.Namespace) -> None:
                         )
                         pbad, sgn = compute_pbad(p_up, P_t=c, O_1h=o_1h)
 
+                        stop_active = stop_at_ms is not None and t_ms >= stop_at_ms
+                        if stop_active and not stop_logged:
+                            print(
+                                f"[STOP] reached stop_at_et={_ms_to_et_str(stop_at_ms)}; "
+                                "no new entries"
+                            )
+                            stop_logged = True
+
                         if args.log_every_sec and (t_ms - last_log_ms) >= (
                             args.log_every_sec * 1000
                         ):
@@ -840,111 +1015,130 @@ async def run_trader(args: argparse.Namespace) -> None:
                                 if (signal_log_lines % signal_log_flush_every) == 0:
                                     signal_log_fh.flush()
 
-                        bet_up_signal = None
-                        if p_up >= strategy.entry_high:
-                            bet_up_signal = True
-                        elif p_up <= strategy.entry_low:
-                            bet_up_signal = False
+                        if args.signals_only:
+                            continue
 
-                        if state.position is None and not state.traded_this_hour:
-                            if bet_up_signal is not None:
-                                if state.pending_bet_up is None:
-                                    state.pending_bet_up = bet_up_signal
-                                    state.pending_since_ms = t_ms
-                                    print(
-                                        f"[ENTRY] pending tau={tau_sec}s bet_up={bet_up_signal} "
-                                        f"p_up={p_up:.4f}"
-                                    )
-                                elif state.pending_bet_up != bet_up_signal:
-                                    state.pending_bet_up = bet_up_signal
-                                    state.pending_since_ms = t_ms
-                                    print(
-                                        f"[ENTRY] pending switch tau={tau_sec}s bet_up={bet_up_signal} "
-                                        f"p_up={p_up:.4f}"
-                                    )
+                        if stop_active:
+                            state.pending_bet_up = None
+                            state.pending_since_ms = None
+                            if args.stop_exit and state.position is not None:
+                                _try_exit_position(
+                                    executor,
+                                    state,
+                                    reason="stop_time",
+                                    t_ms=t_ms,
+                                )
+                            if state.position is None:
+                                print("[STOP] no open position; exiting")
+                                return
+                        else:
+                            bet_up_signal = None
+                            if p_up >= strategy.entry_high:
+                                bet_up_signal = True
+                            elif p_up <= strategy.entry_low:
+                                bet_up_signal = False
 
-                            if state.pending_bet_up is not None:
-                                if market_closed:
-                                    print("[ENTRY] skip (market closed)")
+                            if state.position is None and not state.traded_this_hour:
+                                if bet_up_signal is not None:
+                                    if state.pending_bet_up is None:
+                                        state.pending_bet_up = bet_up_signal
+                                        state.pending_since_ms = t_ms
+                                        print(
+                                            f"[ENTRY] pending tau={tau_sec}s bet_up={bet_up_signal} "
+                                            f"p_up={p_up:.4f}"
+                                        )
+                                    elif state.pending_bet_up != bet_up_signal:
+                                        state.pending_bet_up = bet_up_signal
+                                        state.pending_since_ms = t_ms
+                                        print(
+                                            f"[ENTRY] pending switch tau={tau_sec}s bet_up={bet_up_signal} "
+                                            f"p_up={p_up:.4f}"
+                                        )
+
+                                if state.pending_bet_up is not None:
+                                    if market_closed:
+                                        print("[ENTRY] skip (market closed)")
+                                        state.pending_bet_up = None
+                                        state.pending_since_ms = None
+                                        state.traded_this_hour = True
+                                    elif enable_orderbook is False:
+                                        print("[ENTRY] skip (orderbook disabled)")
+                                        state.pending_bet_up = None
+                                        state.pending_since_ms = None
+                                        state.traded_this_hour = True
+                                    else:
+                                        token_id = (
+                                            token_id_up if state.pending_bet_up else token_id_down
+                                        )
+                                        print(
+                                            f"[ENTRY] tau={tau_sec}s bet_up={state.pending_bet_up} "
+                                            f"p_up={p_up:.4f} token_id={token_id}"
+                                        )
+                                        fill = executor.market_buy_max(token_id)
+                                        if fill is not None:
+                                            state.position = Position(
+                                                token_id=token_id,
+                                                bet_up=state.pending_bet_up,
+                                                entry_ts_ms=t_ms,
+                                                entry_price=fill.avg_price,
+                                                shares=fill.shares,
+                                                cost_usdc=fill.usdc,
+                                                entry_o_1h=o_1h,
+                                            )
+                                            if not args.allow_scale_in:
+                                                state.traded_this_hour = True
+                                            state.pending_bet_up = None
+                                            state.pending_since_ms = None
+
+                                if (
+                                    state.position is None
+                                    and state.pending_bet_up is not None
+                                    and tau_sec <= 1
+                                ):
+                                    print(
+                                        f"[ENTRY] pending expired tau={tau_sec}s "
+                                        f"bet_up={state.pending_bet_up}"
+                                    )
                                     state.pending_bet_up = None
                                     state.pending_since_ms = None
+                                    state.traded_this_hour = True
+                            elif (
+                                args.allow_scale_in
+                                and state.position is not None
+                                and not state.traded_this_hour
+                                and bet_up_signal is not None
+                                and state.position.bet_up == bet_up_signal
+                            ):
+                                if market_closed:
+                                    print("[ENTRY] scale-in skip (market closed)")
                                     state.traded_this_hour = True
                                 elif enable_orderbook is False:
-                                    print("[ENTRY] skip (orderbook disabled)")
-                                    state.pending_bet_up = None
-                                    state.pending_since_ms = None
+                                    print("[ENTRY] scale-in skip (orderbook disabled)")
                                     state.traded_this_hour = True
                                 else:
-                                    token_id = (
-                                        token_id_up if state.pending_bet_up else token_id_down
-                                    )
+                                    try:
+                                        available = executor.compute_buy_usdc()
+                                    except Exception as exc:
+                                        print(
+                                            f"[ENTRY] scale-in skip (balance check failed: {exc})"
+                                        )
+                                        state.traded_this_hour = True
+                                        continue
+                                    if available < executor.cfg.min_usdc:
+                                        print(
+                                            "[ENTRY] scale-in skip "
+                                            f"(amount={available:.4f} < min_usdc={executor.cfg.min_usdc:.4f})"
+                                        )
+                                        state.traded_this_hour = True
+                                        continue
+                                    token_id = token_id_up if bet_up_signal else token_id_down
                                     print(
-                                        f"[ENTRY] tau={tau_sec}s bet_up={state.pending_bet_up} "
+                                        f"[ENTRY] scale-in tau={tau_sec}s bet_up={bet_up_signal} "
                                         f"p_up={p_up:.4f} token_id={token_id}"
                                     )
                                     fill = executor.market_buy_max(token_id)
                                     if fill is not None:
-                                        state.position = Position(
-                                            token_id=token_id,
-                                            bet_up=state.pending_bet_up,
-                                            entry_ts_ms=t_ms,
-                                            entry_price=fill.avg_price,
-                                            shares=fill.shares,
-                                            cost_usdc=fill.usdc,
-                                            entry_o_1h=o_1h,
-                                        )
-                                        if not args.allow_scale_in:
-                                            state.traded_this_hour = True
-                                        state.pending_bet_up = None
-                                        state.pending_since_ms = None
-
-                            if (
-                                state.position is None
-                                and state.pending_bet_up is not None
-                                and tau_sec <= 1
-                            ):
-                                print(
-                                    f"[ENTRY] pending expired tau={tau_sec}s "
-                                    f"bet_up={state.pending_bet_up}"
-                                )
-                                state.pending_bet_up = None
-                                state.pending_since_ms = None
-                                state.traded_this_hour = True
-                        elif (
-                            args.allow_scale_in
-                            and state.position is not None
-                            and not state.traded_this_hour
-                            and bet_up_signal is not None
-                            and state.position.bet_up == bet_up_signal
-                        ):
-                            if market_closed:
-                                print("[ENTRY] scale-in skip (market closed)")
-                                state.traded_this_hour = True
-                            elif enable_orderbook is False:
-                                print("[ENTRY] scale-in skip (orderbook disabled)")
-                                state.traded_this_hour = True
-                            else:
-                                try:
-                                    available = executor.compute_buy_usdc()
-                                except Exception as exc:
-                                    print(f"[ENTRY] scale-in skip (balance check failed: {exc})")
-                                    state.traded_this_hour = True
-                                    continue
-                                if available < executor.cfg.min_usdc:
-                                    print(
-                                        "[ENTRY] scale-in skip "
-                                        f"(amount={available:.4f} < min_usdc={executor.cfg.min_usdc:.4f})"
-                                    )
-                                    state.traded_this_hour = True
-                                    continue
-                                token_id = token_id_up if bet_up_signal else token_id_down
-                                print(
-                                    f"[ENTRY] scale-in tau={tau_sec}s bet_up={bet_up_signal} "
-                                    f"p_up={p_up:.4f} token_id={token_id}"
-                                )
-                                fill = executor.market_buy_max(token_id)
-                                if fill is not None:
-                                    _apply_fill_to_position(state.position, fill)
+                                        _apply_fill_to_position(state.position, fill)
 
                         if state.position is None:
                             continue
@@ -999,9 +1193,6 @@ async def run_trader(args: argparse.Namespace) -> None:
                 print(f"[WARN] websocket disconnected: {exc}; reconnecting in 5s")
                 await asyncio.sleep(5)
     finally:
-        if signal_log_fh is not None:
-            signal_log_fh.flush()
-            signal_log_fh.close()
         if signal_log_fh is not None:
             signal_log_fh.flush()
             signal_log_fh.close()
@@ -1130,6 +1321,12 @@ def parse_args() -> argparse.Namespace:
     ap.add_argument("--order-type", default="FAK")
     ap.add_argument("--dry-run", action="store_true")
     ap.add_argument("--allow-scale-in", action="store_true")
+    ap.add_argument("--list-open-orders", action="store_true")
+    ap.add_argument("--list-trades", action="store_true")
+    ap.add_argument("--cancel-order", action="append", default=[])
+    ap.add_argument("--cancel-orders", default=None)
+    ap.add_argument("--cancel-all-orders", action="store_true")
+    ap.add_argument("--cancel-market-orders", default=None)
 
     ap.add_argument("--paper", action="store_true", help="simulate orderbook fills only")
     ap.add_argument("--paper-usdc", type=float, default=1000.0)
@@ -1149,6 +1346,11 @@ def parse_args() -> argparse.Namespace:
 
     ap.add_argument("--private-key", default=None)
     ap.add_argument("--funder", default=None)
+    ap.add_argument(
+        "--env-prefix",
+        default="POLY",
+        help="Env var prefix for secrets (e.g. POLY, POLY2).",
+    )
     ap.add_argument(
         "--signature-type",
         type=int,
@@ -1174,11 +1376,35 @@ def parse_args() -> argparse.Namespace:
         default=2,
         help="exit this many seconds before the window ends",
     )
+    ap.add_argument(
+        "--stop-at-et",
+        default=None,
+        help="Stop new entries after this ET time (YYYY-MM-DD HH:MM[:SS] or ISO).",
+    )
+    ap.add_argument(
+        "--stop-exit",
+        action="store_true",
+        help="Attempt to exit an open position at stop time.",
+    )
+    ap.add_argument(
+        "--signals-only",
+        action="store_true",
+        help="Log signals only; disable all trading.",
+    )
+    ap.add_argument(
+        "--run-for-sec",
+        type=int,
+        default=None,
+        help="Stop after this many seconds of runtime.",
+    )
     return ap.parse_args()
 
 
 def main() -> None:
     args = parse_args()
+    if _has_order_ops(args):
+        _run_order_ops(args)
+        return
     asyncio.run(run_trader(args))
 
 
