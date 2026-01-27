@@ -5,6 +5,7 @@ go 1.22
 require (
 	github.com/ethereum/go-ethereum v1.13.15
 	github.com/gorilla/websocket v1.5.1
+	github.com/traefik/yaegi v0.16.1
 )
 
 require (

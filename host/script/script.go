@@ -1,3 +1,6 @@
 package script
 
-type Script string
+type GoScript string
+type HershScript string
+type PackageName string
+type TargetFuncName string

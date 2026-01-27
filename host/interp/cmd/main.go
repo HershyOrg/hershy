@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"os"
 
-	"interp"
+	"host/interp"
 )
 
 func main() {

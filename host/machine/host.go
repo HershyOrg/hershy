@@ -30,5 +30,5 @@ type HostState struct {
 type HostId int64
 type HostModel interface {
 	//Dis
-	Spawn(script script.Script, body watcher.Body) watcher.Watcher
+	Spawn(script script.GoScript, body watcher.Body) watcher.Watcher
 }

@@ -111,6 +111,7 @@ type LimitlessWebSocket struct {
 	mu sync.Mutex
 }
 
+
 // NewLimitlessWebSocket creates a new polling websocket.
 func NewLimitlessWebSocket(config map[string]any) *LimitlessWebSocket {
 	ws := &LimitlessWebSocket{}

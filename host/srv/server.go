@@ -13,16 +13,18 @@ type ServerInfo struct {
 
 type ServerModel interface {
 	//Dispatch는 script, body를 기반으로 Watcher를 생성 후 그 id를 리턴받음
-	Dispatch(script script.Script, b watcher.Body) (watcher.WatcherId, error)
-
+	Dispatch(script script.GoScript, b watcher.Body) (watcher.WatcherId, error)
 	//dispatch는 내부적으로 적절한 host에다 script, body를 기반으로 디스패치함
-	dispatch(script script.Script, b watcher.Body, hostId machine.HostId) (watcher.WatcherId, error)
+	dispatch(script script.GoScript, b watcher.Body, hostId machine.HostId) (watcher.WatcherId, error)
 
 	// SendMail은 Watcher의 Mailbox에 Mail을 보내고, 결과값을 받음
-	SendMail(mail watcher.HostMail, watcherId watcher.WatcherId) (string, error)
+	SendMail(mail watcher.UserMessage, watcherId watcher.WatcherId, watcherPassword watcher.WatcherPassword) (string, error)
 	// sendMail은 hostId의 Watcher의 Mailbox에 Mail을 보내고, 결과값을 받음
-	sendMail(mail watcher.HostMail, watcerId watcher.WatcherId, hostId machine.HostId) (string, error)
+	sendMail(mail watcher.UserMessage, watcerId watcher.WatcherId, watcherPassword watcher.WatcherPassword, hostId machine.HostId) (string, error)
 
+	//commandToHost는 서버가 호스트에 직접 가하는 명령임
+	//이 경우엔 호스트가 Password check없이 강제로 Watcher를 제어함
+	commandToHost(mail watcher.WatcherControlMail, watcherId watcher.WatcherId, hostId machine.HostId)
 	//createHost는 적당한 호스트를 만든 후 내부 데이터에 해당 호스트 등록함
 	createHost(hostId machine.HostId, hostInfo machine.HostInfo) error
 	//registerHost는 내부에 호스트를 등록함

@@ -2,13 +2,17 @@
 
 ## Rule
 
+- package 이름엔 UserId가 들어옴
 - "S_xxx"로 시작하는 이름의 함수를 "main함수"로 취급함.
-- 해당 함수의 타입은 func(b Body. mailBox hersh.MailBox) error여야 함
+- 해당 함수의 타입은 func(b Body, message *UserMessage) error여야 함
 - 한 파일에 "S_xxx"가 두 개 이상 시 리졸버 에러를 냄
+- "S_xxx"함수의 실행은 "1분"이내로 끝나야 함.
+- 1분 이상 지속될 경우 블로킹되었다 판단하여 프로세스가 함수를 강제로 취소함.
 
 ## script example
 
 ```go
+package rlaau123
 import "hersh"
 
 //"S_"로 시작하는 함수는 유일해야 하며, 이를 컴파일함
