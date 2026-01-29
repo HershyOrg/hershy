@@ -1,34 +1,34 @@
 // Package core contains shared types used across the hersh framework.
-// This package breaks the import cycle between hersh and manager packages.
-package core
+package shared
 
 import (
 	"context"
 	"time"
 )
 
-// WatcherState represents the state of a Watcher.
+// ManagerInnerState represents the internal state of the Manager.
 // States form a finite state machine with specific transition rules.
-type WatcherState uint8
+// This is the core state that drives the reactive execution engine.
+type ManagerInnerState uint8
 
 const (
-	// StateReady indicates the Watcher is ready to execute on next signal
-	StateReady WatcherState = iota
-	// StateRunning indicates the Watcher is currently executing
+	// StateReady indicates the Manager is ready to execute on next signal
+	StateReady ManagerInnerState = iota
+	// StateRunning indicates the Manager is currently executing
 	StateRunning
-	// StateInitRun indicates the Watcher is initializing (first run)
+	// StateInitRun indicates the Manager is initializing (first run)
 	StateInitRun
-	// StateStopped indicates the Watcher stopped normally and can be restarted
+	// StateStopped indicates the Manager stopped normally and can be restarted
 	StateStopped
-	// StateKilled indicates the Watcher was killed and is permanently stopped
+	// StateKilled indicates the Manager was killed and is permanently stopped
 	StateKilled
-	// StateCrashed indicates the Watcher crashed irrecoverably
+	// StateCrashed indicates the Manager crashed irrecoverably
 	StateCrashed
-	// StateWaitRecover indicates the Watcher is waiting for recovery decision
+	// StateWaitRecover indicates the Manager is waiting for recovery decision
 	StateWaitRecover
 )
 
-func (s WatcherState) String() string {
+func (s ManagerInnerState) String() string {
 	switch s {
 	case StateReady:
 		return "Ready"
@@ -54,8 +54,8 @@ func (s WatcherState) String() string {
 type SignalPriority uint8
 
 const (
-	// PriorityWatcher is the highest priority (Watcher state control)
-	PriorityWatcher SignalPriority = 0
+	// PriorityManagerInner is the highest priority (Watcher state control)
+	PriorityManagerInner SignalPriority = 0
 	// PriorityUser is medium priority (user messages)
 	PriorityUser SignalPriority = 1
 	// PriorityVar is the lowest priority (watched variable changes)
@@ -87,6 +87,7 @@ func (m *Message) String() string {
 
 // HershContext provides runtime context for managed functions.
 // It includes cancellation, deadlines, and access to Watcher features.
+// This is the base interface used by manager package.
 type HershContext interface {
 	context.Context
 

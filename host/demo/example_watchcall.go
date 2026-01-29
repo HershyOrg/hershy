@@ -8,7 +8,7 @@ import (
 )
 
 // Advanced example demonstrating WatchCall reactive mechanism
-func main2() {
+func main1() {
 	fmt.Println("=== Hersh WatchCall Demo ===\n")
 
 	config := hersh.DefaultWatcherConfig()

@@ -20,8 +20,10 @@ func Memo(computeValue func() any, memoName string, ctx HershContext) any {
 		panic("Memo called with invalid HershContext")
 	}
 
+	memoCache := w.manager.GetMemoCache()
+
 	w.mu.RLock()
-	cached, exists := w.memoCache[memoName]
+	cached, exists := memoCache[memoName]
 	w.mu.RUnlock()
 
 	if exists {
@@ -33,11 +35,13 @@ func Memo(computeValue func() any, memoName string, ctx HershContext) any {
 
 	// Cache it
 	w.mu.Lock()
-	w.memoCache[memoName] = value
+	memoCache[memoName] = value
 	w.mu.Unlock()
 
 	// Log the memoization
-	w.logger.LogEffect(fmt.Sprintf("Memo[%s] = %v", memoName, value))
+	if logger := w.GetLogger(); logger != nil {
+		logger.LogEffect(fmt.Sprintf("Memo[%s] = %v", memoName, value))
+	}
 
 	return value
 }
@@ -49,9 +53,13 @@ func ClearMemo(memoName string, ctx HershContext) {
 		panic("ClearMemo called with invalid HershContext")
 	}
 
+	memoCache := w.manager.GetMemoCache()
+
 	w.mu.Lock()
-	delete(w.memoCache, memoName)
+	delete(memoCache, memoName)
 	w.mu.Unlock()
 
-	w.logger.LogEffect(fmt.Sprintf("Memo[%s] cleared", memoName))
+	if logger := w.GetLogger(); logger != nil {
+		logger.LogEffect(fmt.Sprintf("Memo[%s] cleared", memoName))
+	}
 }

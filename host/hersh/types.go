@@ -2,48 +2,48 @@
 package hersh
 
 import (
-	"hersh/core"
+	"hersh/shared"
 )
 
 // Re-export core types for convenience
 type (
-	WatcherState   = core.WatcherState
-	SignalPriority = core.SignalPriority
-	Signal         = core.Signal
-	HershContext   = core.HershContext
-	Message        = core.Message
-	WatcherConfig  = core.WatcherConfig
-	RecoveryPolicy = core.RecoveryPolicy
+	ManagerInnerState = shared.ManagerInnerState
+	SignalPriority    = shared.SignalPriority
+	Signal            = shared.Signal
+	HershContext      = shared.HershContext
+	Message           = shared.Message
+	WatcherConfig     = shared.WatcherConfig
+	RecoveryPolicy    = shared.RecoveryPolicy
 
 	// Error types
-	ControlError           = core.ControlError
-	StopError              = core.StopError
-	KillError              = core.KillError
-	CrashError             = core.CrashError
-	VarNotInitializedError = core.VarNotInitializedError
+	ControlError           = shared.ControlError
+	StopError              = shared.StopError
+	KillError              = shared.KillError
+	CrashError             = shared.CrashError
+	VarNotInitializedError = shared.VarNotInitializedError
 )
 
 // Re-export constants
 const (
-	StateReady       = core.StateReady
-	StateRunning     = core.StateRunning
-	StateInitRun     = core.StateInitRun
-	StateStopped     = core.StateStopped
-	StateKilled      = core.StateKilled
-	StateCrashed     = core.StateCrashed
-	StateWaitRecover = core.StateWaitRecover
+	StateReady       = shared.StateReady
+	StateRunning     = shared.StateRunning
+	StateInitRun     = shared.StateInitRun
+	StateStopped     = shared.StateStopped
+	StateKilled      = shared.StateKilled
+	StateCrashed     = shared.StateCrashed
+	StateWaitRecover = shared.StateWaitRecover
 
-	PriorityWatcher = core.PriorityWatcher
-	PriorityUser    = core.PriorityUser
-	PriorityVar     = core.PriorityVar
+	PriorityManagerInner = shared.PriorityManagerInner
+	PriorityUser         = shared.PriorityUser
+	PriorityVar          = shared.PriorityVar
 )
 
 // Re-export functions
 var (
-	NewStopErr              = core.NewStopErr
-	NewKillErr              = core.NewKillErr
-	NewCrashErr             = core.NewCrashErr
-	NewVarNotInitializedErr = core.NewVarNotInitializedErr
-	DefaultRecoveryPolicy   = core.DefaultRecoveryPolicy
-	DefaultWatcherConfig    = core.DefaultWatcherConfig
+	NewStopErr              = shared.NewStopErr
+	NewKillErr              = shared.NewKillErr
+	NewCrashErr             = shared.NewCrashErr
+	NewVarNotInitializedErr = shared.NewVarNotInitializedErr
+	DefaultRecoveryPolicy   = shared.DefaultRecoveryPolicy
+	DefaultWatcherConfig    = shared.DefaultWatcherConfig
 )

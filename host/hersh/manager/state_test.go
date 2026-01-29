@@ -3,7 +3,7 @@ package manager
 import (
 	"testing"
 
-	"hersh/core"
+	"hersh/shared"
 )
 
 func TestVarState_BasicOperations(t *testing.T) {
@@ -97,7 +97,7 @@ func TestUserState_Operations(t *testing.T) {
 	}
 
 	// Set message
-	msg := &core.Message{
+	msg := &shared.Message{
 		Content:    "test message",
 		IsConsumed: false,
 	}
@@ -135,32 +135,32 @@ func TestUserState_Operations(t *testing.T) {
 	}
 }
 
-func TestManagerState_WatcherState(t *testing.T) {
-	ms := NewManagerState(core.StateInitRun)
+func TestManagerState_ManagerInnerState(t *testing.T) {
+	ms := NewManagerState(shared.StateInitRun)
 
-	if state := ms.GetWatcherState(); state != core.StateInitRun {
+	if state := ms.GetManagerInnerState(); state != shared.StateInitRun {
 		t.Errorf("expected StateInitRun, got %s", state)
 	}
 
-	ms.SetWatcherState(core.StateReady)
+	ms.SetManagerInnerState(shared.StateReady)
 
-	if state := ms.GetWatcherState(); state != core.StateReady {
+	if state := ms.GetManagerInnerState(); state != shared.StateReady {
 		t.Errorf("expected StateReady, got %s", state)
 	}
 }
 
 func TestManagerState_Snapshot(t *testing.T) {
-	ms := NewManagerState(core.StateReady)
+	ms := NewManagerState(shared.StateReady)
 
 	// Set up state
 	ms.VarState.Set("var1", 100)
-	ms.UserState.SetMessage(&core.Message{Content: "hello"})
+	ms.UserState.SetMessage(&shared.Message{Content: "hello"})
 
 	snapshot := ms.Snapshot()
 
 	// Verify snapshot
-	if snapshot.WatcherState != core.StateReady {
-		t.Errorf("expected StateReady, got %s", snapshot.WatcherState)
+	if snapshot.ManagerInnerState != shared.StateReady {
+		t.Errorf("expected StateReady, got %s", snapshot.ManagerInnerState)
 	}
 
 	if val, ok := snapshot.VarState["var1"]; !ok || val != 100 {

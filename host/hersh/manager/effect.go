@@ -1,11 +1,10 @@
 package manager
 
 import (
-	"context"
 	"fmt"
 	"time"
 
-	"hersh/core"
+	"hersh/shared"
 )
 
 // EffectDefinition defines the type of effect to execute.
@@ -53,7 +52,7 @@ func (e *RunScriptEffect) String() string   { return "RunScript" }
 
 // ClearRunScriptEffect executes cleanup with hook information.
 type ClearRunScriptEffect struct {
-	HookState core.WatcherState // Which state triggered this cleanup
+	HookState shared.ManagerInnerState // Which state triggered this cleanup
 }
 
 func (e *ClearRunScriptEffect) Type() EffectType { return EffectClearRunScript }
@@ -85,160 +84,137 @@ type RecoverEffect struct{}
 func (e *RecoverEffect) Type() EffectType { return EffectRecover }
 func (e *RecoverEffect) String() string   { return "Recover" }
 
-// EffectCommander monitors ReduceActions and commands effects.
-type EffectCommander struct {
-	actionCh <-chan ReduceAction
-	effectCh chan EffectDefinition
-}
+// EffectCommander determines which effect to execute based on state transitions.
+// This is now a synchronous component - no goroutines, just function calls.
+type EffectCommander struct{}
 
 // NewEffectCommander creates a new EffectCommander.
-func NewEffectCommander(actionCh <-chan ReduceAction) *EffectCommander {
-	return &EffectCommander{
-		actionCh: actionCh,
-		effectCh: make(chan EffectDefinition, 100),
-	}
+func NewEffectCommander() *EffectCommander {
+	return &EffectCommander{}
 }
 
-// EffectChannel returns the channel that emits EffectDefinitions.
-func (ec *EffectCommander) EffectChannel() <-chan EffectDefinition {
-	return ec.effectCh
-}
-
-// Run starts the effect commander loop.
-func (ec *EffectCommander) Run(ctx context.Context) error {
-	for {
-		select {
-		case <-ctx.Done():
-			return ctx.Err()
-		case action := <-ec.actionCh:
-			ec.commandEffect(action)
-		}
-	}
-}
-
-// commandEffect determines which effect to trigger based on state transition.
-func (ec *EffectCommander) commandEffect(action ReduceAction) {
-	prevState := action.PrevState.WatcherState
-	nextState := action.NextState.WatcherState
+// CommandEffect determines which effect to trigger based on state transition.
+// Returns nil if no effect should be executed.
+// This is called synchronously by the Reducer.
+func (ec *EffectCommander) CommandEffect(action ReduceAction) EffectDefinition {
+	prevState := action.PrevState.ManagerInnerState
+	nextState := action.NextState.ManagerInnerState
 
 	// Ignore same-state transitions
 	if prevState == nextState {
-		return
+		return nil
 	}
 
-	effect := ec.determineEffect(prevState, nextState)
-	if effect != nil {
-		ec.effectCh <- effect
-	}
+	return ec.determineEffect(prevState, nextState)
 }
 
 // determineEffect implements the trigger rules from the design.
-func (ec *EffectCommander) determineEffect(prevState, nextState core.WatcherState) EffectDefinition {
+func (ec *EffectCommander) determineEffect(prevState, nextState shared.ManagerInnerState) EffectDefinition {
 	switch prevState {
-	case core.StateRunning:
+	case shared.StateRunning:
 		return ec.fromRunning(nextState)
-	case core.StateReady:
+	case shared.StateReady:
 		return ec.fromReady(nextState)
-	case core.StateInitRun:
+	case shared.StateInitRun:
 		return ec.fromInitRun(nextState)
-	case core.StateStopped:
+	case shared.StateStopped:
 		return ec.fromStopped(nextState)
-	case core.StateKilled:
+	case shared.StateKilled:
 		return ec.fromKilled(nextState)
-	case core.StateCrashed:
+	case shared.StateCrashed:
 		return nil // Terminal state, ignore
-	case core.StateWaitRecover:
+	case shared.StateWaitRecover:
 		return ec.fromWaitRecover(nextState)
 	}
 	return nil
 }
 
-func (ec *EffectCommander) fromRunning(nextState core.WatcherState) EffectDefinition {
+func (ec *EffectCommander) fromRunning(nextState shared.ManagerInnerState) EffectDefinition {
 	switch nextState {
-	case core.StateRunning:
+	case shared.StateRunning:
 		return nil // Ignore
-	case core.StateReady:
+	case shared.StateReady:
 		return nil // Ignore (normal completion handled by EffectHandler)
-	case core.StateInitRun:
+	case shared.StateInitRun:
 		return &InitRunScriptEffect{}
-	case core.StateStopped, core.StateKilled, core.StateCrashed:
+	case shared.StateStopped, shared.StateKilled, shared.StateCrashed:
 		return &ClearRunScriptEffect{HookState: nextState}
-	case core.StateWaitRecover:
+	case shared.StateWaitRecover:
 		return &RecoverEffect{}
 	}
 	return nil
 }
 
-func (ec *EffectCommander) fromReady(nextState core.WatcherState) EffectDefinition {
+func (ec *EffectCommander) fromReady(nextState shared.ManagerInnerState) EffectDefinition {
 	switch nextState {
-	case core.StateReady:
+	case shared.StateReady:
 		return nil
-	case core.StateRunning:
+	case shared.StateRunning:
 		return &RunScriptEffect{}
-	case core.StateInitRun:
+	case shared.StateInitRun:
 		return &InitRunScriptEffect{}
-	case core.StateKilled, core.StateStopped, core.StateCrashed:
+	case shared.StateKilled, shared.StateStopped, shared.StateCrashed:
 		return &ClearRunScriptEffect{HookState: nextState}
-	case core.StateWaitRecover:
+	case shared.StateWaitRecover:
 		return &RecoverEffect{}
 	}
 	return nil
 }
 
-func (ec *EffectCommander) fromInitRun(nextState core.WatcherState) EffectDefinition {
+func (ec *EffectCommander) fromInitRun(nextState shared.ManagerInnerState) EffectDefinition {
 	switch nextState {
-	case core.StateInitRun:
+	case shared.StateInitRun:
 		return nil
-	case core.StateRunning:
+	case shared.StateRunning:
 		return &RunScriptEffect{}
-	case core.StateReady:
+	case shared.StateReady:
 		return nil // Normal completion
-	case core.StateKilled, core.StateStopped, core.StateCrashed:
+	case shared.StateKilled, shared.StateStopped, shared.StateCrashed:
 		return &ClearRunScriptEffect{HookState: nextState}
-	case core.StateWaitRecover:
+	case shared.StateWaitRecover:
 		return &RecoverEffect{}
 	}
 	return nil
 }
 
-func (ec *EffectCommander) fromStopped(nextState core.WatcherState) EffectDefinition {
+func (ec *EffectCommander) fromStopped(nextState shared.ManagerInnerState) EffectDefinition {
 	switch nextState {
-	case core.StateStopped:
+	case shared.StateStopped:
 		return nil
-	case core.StateInitRun:
+	case shared.StateInitRun:
 		return &InitRunScriptEffect{}
-	case core.StateKilled:
+	case shared.StateKilled:
 		return &JustKillEffect{}
-	case core.StateCrashed:
+	case shared.StateCrashed:
 		return &JustCrashEffect{}
-	case core.StateReady, core.StateRunning:
+	case shared.StateReady, shared.StateRunning:
 		return nil // Invalid, ignore
-	case core.StateWaitRecover:
+	case shared.StateWaitRecover:
 		return &RecoverEffect{}
 	}
 	return nil
 }
 
-func (ec *EffectCommander) fromKilled(nextState core.WatcherState) EffectDefinition {
+func (ec *EffectCommander) fromKilled(nextState shared.ManagerInnerState) EffectDefinition {
 	switch nextState {
-	case core.StateKilled:
+	case shared.StateKilled:
 		return nil
-	case core.StateCrashed:
+	case shared.StateCrashed:
 		return &JustCrashEffect{}
-	case core.StateWaitRecover:
+	case shared.StateWaitRecover:
 		return &RecoverEffect{}
 	default:
 		return nil // All other transitions ignored
 	}
 }
 
-func (ec *EffectCommander) fromWaitRecover(nextState core.WatcherState) EffectDefinition {
+func (ec *EffectCommander) fromWaitRecover(nextState shared.ManagerInnerState) EffectDefinition {
 	switch nextState {
-	case core.StateWaitRecover:
+	case shared.StateWaitRecover:
 		return &RecoverEffect{}
-	case core.StateCrashed:
-		return &ClearRunScriptEffect{HookState: core.StateCrashed}
-	case core.StateInitRun:
+	case shared.StateCrashed:
+		return &ClearRunScriptEffect{HookState: shared.StateCrashed}
+	case shared.StateInitRun:
 		return &InitRunScriptEffect{}
 	default:
 		return &RecoverEffect{}

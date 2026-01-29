@@ -6,7 +6,7 @@ import (
 	"fmt"
 	"time"
 
-	"hersh/core"
+	"hersh/shared"
 )
 
 // VarSig represents a change in a watched variable's state.
@@ -17,8 +17,8 @@ type VarSig struct {
 	NextState     any
 }
 
-func (s *VarSig) Priority() core.SignalPriority {
-	return core.PriorityVar
+func (s *VarSig) Priority() shared.SignalPriority {
+	return shared.PriorityVar
 }
 
 func (s *VarSig) CreatedAt() time.Time {
@@ -33,11 +33,11 @@ func (s *VarSig) String() string {
 // UserSig represents a change in the user message state.
 type UserSig struct {
 	ReceivedTime time.Time
-	Message      *core.Message
+	Message      *shared.Message
 }
 
-func (s *UserSig) Priority() core.SignalPriority {
-	return core.PriorityUser
+func (s *UserSig) Priority() shared.SignalPriority {
+	return shared.PriorityUser
 }
 
 func (s *UserSig) CreatedAt() time.Time {
@@ -55,13 +55,13 @@ func (s *UserSig) String() string {
 
 // WatcherSig represents a change in the Watcher's state.
 type WatcherSig struct {
-	SignalTime time.Time
-	TargetState core.WatcherState
-	Reason     string // Why this transition is happening
+	SignalTime  time.Time
+	TargetState shared.ManagerInnerState
+	Reason      string // Why this transition is happening
 }
 
-func (s *WatcherSig) Priority() core.SignalPriority {
-	return core.PriorityWatcher
+func (s *WatcherSig) Priority() shared.SignalPriority {
+	return shared.PriorityManagerInner
 }
 
 func (s *WatcherSig) CreatedAt() time.Time {

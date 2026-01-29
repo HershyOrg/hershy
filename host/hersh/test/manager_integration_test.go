@@ -5,48 +5,45 @@ import (
 	"testing"
 	"time"
 
-	"hersh"
 	"hersh/manager"
+	"hersh/shared"
 )
 
 // TestManager_BasicWorkflow tests the complete Manager workflow.
 func TestManager_BasicWorkflow(t *testing.T) {
 	// Setup
-	state := manager.NewManagerState(hersh.StateReady)
+	state := manager.NewManagerState(shared.StateReady)
 	signals := manager.NewSignalChannels(10)
 	logger := manager.NewLogger(100)
 
 	// Create Reducer
 	reducer := manager.NewReducer(state, signals, logger)
 
-	// Create EffectCommander
-	commander := manager.NewEffectCommander(reducer.ActionChannel())
+	// Create EffectCommander (synchronous, no channels)
+	commander := manager.NewEffectCommander()
 
 	// Create simple managed function
 	executeCount := 0
-	managedFunc := func(msg *hersh.Message, ctx hersh.HershContext) error {
+	managedFunc := func(msg *shared.Message, ctx shared.HershContext) error {
 		executeCount++
 		return nil
 	}
 
-	// Create EffectHandler
+	// Create EffectHandler (synchronous, no effectCh)
 	handler := manager.NewEffectHandler(
 		managedFunc,
 		nil, // no cleaner for this test
 		state,
 		signals,
-		commander.EffectChannel(),
 		logger,
-		hersh.DefaultWatcherConfig(),
+		shared.DefaultWatcherConfig(),
 	)
 
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 	defer cancel()
 
-	// Start components
-	go reducer.Run(ctx)
-	go commander.Run(ctx)
-	go handler.Run(ctx)
+	// Start unified reducer loop (synchronous architecture)
+	go reducer.RunWithEffects(ctx, commander, handler)
 
 	// Test: Send a VarSig to trigger execution
 	t.Log("Sending VarSig...")
@@ -65,8 +62,8 @@ func TestManager_BasicWorkflow(t *testing.T) {
 	}
 
 	// Verify state transitioned back to Ready
-	if state.GetWatcherState() != hersh.StateReady {
-		t.Errorf("expected StateReady after execution, got %s", state.GetWatcherState())
+	if state.GetManagerInnerState() != shared.StateReady {
+		t.Errorf("expected StateReady after execution, got %s", state.GetManagerInnerState())
 	}
 
 	// Verify variable was set
@@ -81,15 +78,15 @@ func TestManager_BasicWorkflow(t *testing.T) {
 // TestManager_UserMessageFlow tests user message handling.
 func TestManager_UserMessageFlow(t *testing.T) {
 	// Setup
-	state := manager.NewManagerState(hersh.StateReady)
+	state := manager.NewManagerState(shared.StateReady)
 	signals := manager.NewSignalChannels(10)
 	logger := manager.NewLogger(100)
 
 	reducer := manager.NewReducer(state, signals, logger)
-	commander := manager.NewEffectCommander(reducer.ActionChannel())
+	commander := manager.NewEffectCommander()
 
 	var receivedMessage string
-	managedFunc := func(msg *hersh.Message, ctx hersh.HershContext) error {
+	managedFunc := func(msg *shared.Message, ctx shared.HershContext) error {
 		if msg != nil {
 			receivedMessage = msg.String()
 		}
@@ -101,23 +98,20 @@ func TestManager_UserMessageFlow(t *testing.T) {
 		nil,
 		state,
 		signals,
-		commander.EffectChannel(),
 		logger,
-		hersh.DefaultWatcherConfig(),
+		shared.DefaultWatcherConfig(),
 	)
 
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 	defer cancel()
 
-	go reducer.Run(ctx)
-	go commander.Run(ctx)
-	go handler.Run(ctx)
+	go reducer.RunWithEffects(ctx, commander, handler)
 
 	// Send user message
 	t.Log("Sending UserSig...")
 	signals.SendUserSig(&manager.UserSig{
 		ReceivedTime: time.Now(),
-		Message: &hersh.Message{
+		Message: &shared.Message{
 			Content:    "Hello, Watcher!",
 			ReceivedAt: time.Now(),
 		},
@@ -131,23 +125,23 @@ func TestManager_UserMessageFlow(t *testing.T) {
 	}
 
 	// Verify state returned to Ready
-	if state.GetWatcherState() != hersh.StateReady {
-		t.Errorf("expected StateReady, got %s", state.GetWatcherState())
+	if state.GetManagerInnerState() != shared.StateReady {
+		t.Errorf("expected StateReady, got %s", state.GetManagerInnerState())
 	}
 }
 
 // TestManager_ErrorHandling tests error control flow.
 func TestManager_ErrorHandling(t *testing.T) {
 	// Setup
-	state := manager.NewManagerState(hersh.StateReady)
+	state := manager.NewManagerState(shared.StateReady)
 	signals := manager.NewSignalChannels(10)
 	logger := manager.NewLogger(100)
 
 	reducer := manager.NewReducer(state, signals, logger)
-	commander := manager.NewEffectCommander(reducer.ActionChannel())
+	commander := manager.NewEffectCommander()
 
-	managedFunc := func(msg *hersh.Message, ctx hersh.HershContext) error {
-		return hersh.NewStopErr("intentional stop")
+	managedFunc := func(msg *shared.Message, ctx shared.HershContext) error {
+		return shared.NewStopErr("intentional stop")
 	}
 
 	handler := manager.NewEffectHandler(
@@ -155,17 +149,14 @@ func TestManager_ErrorHandling(t *testing.T) {
 		nil,
 		state,
 		signals,
-		commander.EffectChannel(),
 		logger,
-		hersh.DefaultWatcherConfig(),
+		shared.DefaultWatcherConfig(),
 	)
 
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 	defer cancel()
 
-	go reducer.Run(ctx)
-	go commander.Run(ctx)
-	go handler.Run(ctx)
+	go reducer.RunWithEffects(ctx, commander, handler)
 
 	// Trigger execution
 	t.Log("Sending VarSig to trigger StopErr...")
@@ -178,8 +169,8 @@ func TestManager_ErrorHandling(t *testing.T) {
 	time.Sleep(200 * time.Millisecond)
 
 	// Verify state transitioned to Stopped
-	if state.GetWatcherState() != hersh.StateStopped {
-		t.Errorf("expected StateStopped, got %s", state.GetWatcherState())
+	if state.GetManagerInnerState() != shared.StateStopped {
+		t.Errorf("expected StateStopped, got %s", state.GetManagerInnerState())
 	}
 
 	t.Log("StopErr handled correctly")
@@ -188,7 +179,7 @@ func TestManager_ErrorHandling(t *testing.T) {
 // TestManager_PriorityProcessing tests signal priority ordering.
 func TestManager_PriorityProcessing(t *testing.T) {
 	// Setup
-	state := manager.NewManagerState(hersh.StateReady)
+	state := manager.NewManagerState(shared.StateReady)
 	signals := manager.NewSignalChannels(10)
 	logger := manager.NewLogger(100)
 
@@ -196,6 +187,17 @@ func TestManager_PriorityProcessing(t *testing.T) {
 
 	ctx, cancel := context.WithTimeout(context.Background(), 1*time.Second)
 	defer cancel()
+
+	// Create minimal commander and handler for synchronous loop
+	commander := manager.NewEffectCommander()
+	handler := manager.NewEffectHandler(
+		func(msg *shared.Message, ctx shared.HershContext) error { return nil },
+		nil,
+		state,
+		signals,
+		logger,
+		shared.DefaultWatcherConfig(),
+	)
 
 	// Send signals in reverse priority order
 	signals.SendVarSig(&manager.VarSig{
@@ -206,23 +208,23 @@ func TestManager_PriorityProcessing(t *testing.T) {
 
 	signals.SendUserSig(&manager.UserSig{
 		ReceivedTime: time.Now(),
-		Message:      &hersh.Message{Content: "user"},
+		Message:      &shared.Message{Content: "user"},
 	})
 
 	signals.SendWatcherSig(&manager.WatcherSig{
 		SignalTime:  time.Now(),
-		TargetState: hersh.StateKilled,
+		TargetState: shared.StateKilled,
 		Reason:      "priority test",
 	})
 
 	// Process signals
-	go reducer.Run(ctx)
+	go reducer.RunWithEffects(ctx, commander, handler)
 
 	time.Sleep(100 * time.Millisecond)
 
 	// WatcherSig should be processed first
-	if state.GetWatcherState() != hersh.StateKilled {
-		t.Errorf("expected StateKilled from WatcherSig priority, got %s", state.GetWatcherState())
+	if state.GetManagerInnerState() != shared.StateKilled {
+		t.Errorf("expected StateKilled from WatcherSig priority, got %s", state.GetManagerInnerState())
 	}
 
 	// Check that WatcherSig was processed first in logs
@@ -242,7 +244,7 @@ func TestManager_PriorityProcessing(t *testing.T) {
 // TestManager_MultipleVarBatching tests batching of multiple VarSigs.
 func TestManager_MultipleVarBatching(t *testing.T) {
 	// Setup
-	state := manager.NewManagerState(hersh.StateReady)
+	state := manager.NewManagerState(shared.StateReady)
 	signals := manager.NewSignalChannels(10)
 	logger := manager.NewLogger(100)
 
@@ -250,6 +252,16 @@ func TestManager_MultipleVarBatching(t *testing.T) {
 
 	ctx, cancel := context.WithTimeout(context.Background(), 1*time.Second)
 	defer cancel()
+
+	commander := manager.NewEffectCommander()
+	handler := manager.NewEffectHandler(
+		func(msg *shared.Message, ctx shared.HershContext) error { return nil },
+		nil,
+		state,
+		signals,
+		logger,
+		shared.DefaultWatcherConfig(),
+	)
 
 	// Send multiple VarSigs
 	for i := 1; i <= 10; i++ {
@@ -260,7 +272,7 @@ func TestManager_MultipleVarBatching(t *testing.T) {
 		})
 	}
 
-	go reducer.Run(ctx)
+	go reducer.RunWithEffects(ctx, commander, handler)
 
 	time.Sleep(100 * time.Millisecond)
 
@@ -277,9 +289,9 @@ func TestManager_MultipleVarBatching(t *testing.T) {
 		}
 	}
 
-	// Should have transitioned to Running
-	if state.GetWatcherState() != hersh.StateRunning {
-		t.Errorf("expected StateRunning, got %s", state.GetWatcherState())
+	// In new architecture: Final state should be Ready after effect execution
+	if state.GetManagerInnerState() != shared.StateReady {
+		t.Errorf("expected final state Ready, got %s", state.GetManagerInnerState())
 	}
 
 	t.Log("Batch VarSig processing verified")
@@ -288,15 +300,15 @@ func TestManager_MultipleVarBatching(t *testing.T) {
 // TestManager_FullCycle tests a complete execution cycle.
 func TestManager_FullCycle(t *testing.T) {
 	// Setup
-	state := manager.NewManagerState(hersh.StateReady)
+	state := manager.NewManagerState(shared.StateReady)
 	signals := manager.NewSignalChannels(10)
 	logger := manager.NewLogger(100)
 
 	reducer := manager.NewReducer(state, signals, logger)
-	commander := manager.NewEffectCommander(reducer.ActionChannel())
+	commander := manager.NewEffectCommander()
 
 	executionLog := []string{}
-	managedFunc := func(msg *hersh.Message, ctx hersh.HershContext) error {
+	managedFunc := func(msg *shared.Message, ctx shared.HershContext) error {
 		executionLog = append(executionLog, "executed")
 		return nil
 	}
@@ -306,17 +318,14 @@ func TestManager_FullCycle(t *testing.T) {
 		nil,
 		state,
 		signals,
-		commander.EffectChannel(),
 		logger,
-		hersh.DefaultWatcherConfig(),
+		shared.DefaultWatcherConfig(),
 	)
 
 	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
 	defer cancel()
 
-	go reducer.Run(ctx)
-	go commander.Run(ctx)
-	go handler.Run(ctx)
+	go reducer.RunWithEffects(ctx, commander, handler)
 
 	// Cycle 1: VarSig triggers execution
 	t.Log("Cycle 1: VarSig")
@@ -331,7 +340,7 @@ func TestManager_FullCycle(t *testing.T) {
 	t.Log("Cycle 2: UserSig")
 	signals.SendUserSig(&manager.UserSig{
 		ReceivedTime: time.Now(),
-		Message:      &hersh.Message{Content: "trigger2"},
+		Message:      &shared.Message{Content: "trigger2"},
 	})
 	time.Sleep(200 * time.Millisecond)
 
@@ -350,8 +359,8 @@ func TestManager_FullCycle(t *testing.T) {
 	}
 
 	// Verify final state is Ready
-	if state.GetWatcherState() != hersh.StateReady {
-		t.Errorf("expected final state Ready, got %s", state.GetWatcherState())
+	if state.GetManagerInnerState() != shared.StateReady {
+		t.Errorf("expected final state Ready, got %s", state.GetManagerInnerState())
 	}
 
 	logger.PrintSummary()

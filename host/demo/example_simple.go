@@ -8,7 +8,7 @@ import (
 )
 
 // Simple counter example demonstrating hersh reactive framework
-func main1() {
+func main2() {
 	fmt.Println("=== Hersh Reactive Framework Demo ===\n")
 
 	config := hersh.DefaultWatcherConfig()

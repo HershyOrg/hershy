@@ -3,7 +3,7 @@ package manager
 import (
 	"sync"
 
-	"hersh/core"
+	"hersh/shared"
 )
 
 // VarState holds the state of all watched variables.
@@ -77,7 +77,7 @@ func (vs *VarState) AllInitialized(expectedVars []string) bool {
 // UserState holds the current user message state.
 type UserState struct {
 	mu      sync.RWMutex
-	message *core.Message
+	message *shared.Message
 }
 
 // NewUserState creates a new UserState.
@@ -86,21 +86,21 @@ func NewUserState() *UserState {
 }
 
 // GetMessage retrieves the current message.
-func (us *UserState) GetMessage() *core.Message {
+func (us *UserState) GetMessage() *shared.Message {
 	us.mu.RLock()
 	defer us.mu.RUnlock()
 	return us.message
 }
 
 // SetMessage updates the current message.
-func (us *UserState) SetMessage(msg *core.Message) {
+func (us *UserState) SetMessage(msg *shared.Message) {
 	us.mu.Lock()
 	defer us.mu.Unlock()
 	us.message = msg
 }
 
 // ConsumeMessage marks the message as consumed and returns it.
-func (us *UserState) ConsumeMessage() *core.Message {
+func (us *UserState) ConsumeMessage() *shared.Message {
 	us.mu.Lock()
 	defer us.mu.Unlock()
 	if us.message != nil {
@@ -114,47 +114,84 @@ func (us *UserState) ConsumeMessage() *core.Message {
 
 // ManagerState holds all state managed by the Manager.
 type ManagerState struct {
-	VarState     *VarState
-	UserState    *UserState
-	WatcherState core.WatcherState
-	mu           sync.RWMutex
+	VarState          *VarState
+	UserState         *UserState
+	ManagerInnerState shared.ManagerInnerState
+	mu                sync.RWMutex
+
+	// State transition notification channels
+	// These channels are closed when the Manager reaches the corresponding state
+	stoppedChan       chan struct{}
+	readyChan         chan struct{}
+	stoppedChanClosed bool
+	readyChanClosed   bool
 }
 
-// NewManagerState creates a new ManagerState with initial WatcherState.
-func NewManagerState(initialState core.WatcherState) *ManagerState {
+// NewManagerState creates a new ManagerState with initial ManagerInnerState.
+func NewManagerState(initialState shared.ManagerInnerState) *ManagerState {
 	return &ManagerState{
-		VarState:     NewVarState(),
-		UserState:    NewUserState(),
-		WatcherState: initialState,
+		VarState:          NewVarState(),
+		UserState:         NewUserState(),
+		ManagerInnerState: initialState,
+		stoppedChan:       make(chan struct{}),
+		readyChan:         make(chan struct{}),
 	}
 }
 
-// GetWatcherState returns the current WatcherState.
-func (ms *ManagerState) GetWatcherState() core.WatcherState {
+// GetManagerInnerState returns the current ManagerInnerState.
+func (ms *ManagerState) GetManagerInnerState() shared.ManagerInnerState {
 	ms.mu.RLock()
 	defer ms.mu.RUnlock()
-	return ms.WatcherState
+	return ms.ManagerInnerState
 }
 
-// SetWatcherState updates the WatcherState.
-func (ms *ManagerState) SetWatcherState(state core.WatcherState) {
+// SetManagerInnerState updates the ManagerInnerState.
+func (ms *ManagerState) SetManagerInnerState(state shared.ManagerInnerState) {
 	ms.mu.Lock()
 	defer ms.mu.Unlock()
-	ms.WatcherState = state
+
+	ms.ManagerInnerState = state
+
+	// Close notification channels when reaching specific states (only once)
+	// This allows other components to wait deterministically without timeouts
+	if state == shared.StateStopped && !ms.stoppedChanClosed {
+		close(ms.stoppedChan)
+		ms.stoppedChanClosed = true
+	}
+	if state == shared.StateReady && !ms.readyChanClosed {
+		close(ms.readyChan)
+		ms.readyChanClosed = true
+	}
+}
+
+// WaitStopped returns a channel that closes when Manager reaches Stopped state.
+// This allows deterministic waiting without timeouts.
+func (ms *ManagerState) WaitStopped() <-chan struct{} {
+	ms.mu.RLock()
+	defer ms.mu.RUnlock()
+	return ms.stoppedChan
+}
+
+// WaitReady returns a channel that closes when Manager reaches Ready state.
+// This allows deterministic waiting without timeouts.
+func (ms *ManagerState) WaitReady() <-chan struct{} {
+	ms.mu.RLock()
+	defer ms.mu.RUnlock()
+	return ms.readyChan
 }
 
 // Snapshot returns a complete state snapshot for logging.
 type StateSnapshot struct {
-	VarState     map[string]any
-	UserMessage  *core.Message
-	WatcherState core.WatcherState
+	VarState          map[string]any
+	UserMessage       *shared.Message
+	ManagerInnerState shared.ManagerInnerState
 }
 
 // Snapshot creates a snapshot of all state.
 func (ms *ManagerState) Snapshot() StateSnapshot {
 	return StateSnapshot{
-		VarState:     ms.VarState.GetAll(),
-		UserMessage:  ms.UserState.GetMessage(),
-		WatcherState: ms.GetWatcherState(),
+		VarState:          ms.VarState.GetAll(),
+		UserMessage:       ms.UserState.GetMessage(),
+		ManagerInnerState: ms.GetManagerInnerState(),
 	}
 }
