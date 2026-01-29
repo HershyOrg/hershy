@@ -8,7 +8,7 @@ import (
 )
 
 // Simple counter example demonstrating hersh reactive framework
-func main() {
+func main1() {
 	fmt.Println("=== Hersh Reactive Framework Demo ===\n")
 
 	config := hersh.DefaultWatcherConfig()
@@ -30,13 +30,13 @@ func main() {
 		}, "expensiveComputation", ctx)
 		fmt.Printf("  Memo result: %v\n", expensiveResult)
 
-		// Use Global for shared state
-		totalRuns := hersh.Global("totalRuns", ctx)
+		// Use context value for shared state
+		totalRuns := ctx.GetValue("totalRuns")
 		if totalRuns == nil {
 			totalRuns = 0
 		}
 		newTotal := totalRuns.(int) + 1
-		hersh.SetGlobal("totalRuns", newTotal, ctx)
+		ctx.SetValue("totalRuns", newTotal)
 		fmt.Printf("  Total runs across executions: %d\n", newTotal)
 
 		// Handle user messages

@@ -7,7 +7,7 @@ Hersh는 반응형 프로그래밍과 모니터링 기능을 제공하는 Go 프
 ### Reactive State Management (반응형 상태 관리)
 - **Watch**: 값의 변화를 감지하고 자동으로 재실행
 - **Memo**: 비용이 높은 계산 결과를 캐싱
-- **Global**: 실행 간 공유되는 전역 상태
+- **HershContext**: 실행 간 공유되는 상태 관리 (GetValue/SetValue)
 
 ### Fault Tolerance (장애 허용)
 - Erlang Supervisor 패턴 기반 자동 복구
@@ -94,7 +94,7 @@ hersh/
 │   └── logger.go  # 통합 로깅
 ├── watcher.go     # Watcher 코어 API
 ├── watch.go       # WatchCall, WatchFlow
-├── memo.go        # Memo, Global
+├── memo.go        # Memo 캐싱
 └── types.go       # 편의 re-export
 ```
 
@@ -116,7 +116,7 @@ go test ./...
 go run demo/example_simple.go
 ```
 
-Memo, Global, Message 기반 실행을 시연합니다.
+Memo, HershContext 기반 상태 관리, Message 실행을 시연합니다.
 
 ### 2. WatchCall 반응형 폴링
 ```bash
@@ -128,7 +128,7 @@ go run demo/example_watchcall.go
 ## 📊 주요 기능
 
 ### ✅ 구현 완료
-- [x] Reactive State Management (Watch, Memo, Global)
+- [x] Reactive State Management (Watch, Memo, HershContext)
 - [x] Fault Tolerance (Supervisor 패턴)
 - [x] Reducer-Effect 패턴
 - [x] 우선순위 기반 시그널 처리

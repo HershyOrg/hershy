@@ -3,31 +3,18 @@ package hersh
 import (
 	"context"
 	"fmt"
-	"sync"
 	"time"
 
 	"hersh/manager"
 )
 
-// Global watcher registry for accessing current Watcher in Watch calls.
-// In production, this would use context or thread-local storage.
-var (
-	currentWatcherMu sync.RWMutex
-	currentWatcher   *Watcher
-)
-
-// setCurrentWatcher sets the current Watcher for Watch calls.
-func setCurrentWatcher(w *Watcher) {
-	currentWatcherMu.Lock()
-	defer currentWatcherMu.Unlock()
-	currentWatcher = w
-}
-
-// getCurrentWatcher gets the current Watcher.
-func getCurrentWatcher() *Watcher {
-	currentWatcherMu.RLock()
-	defer currentWatcherMu.RUnlock()
-	return currentWatcher
+// getWatcherFromContext extracts the Watcher from HershContext.
+func getWatcherFromContext(ctx HershContext) *Watcher {
+	w := ctx.GetValue("__watcher__")
+	if w == nil {
+		return nil
+	}
+	return w.(*Watcher)
 }
 
 // WatchCall monitors a value by calling a compute function periodically.
@@ -35,21 +22,21 @@ func getCurrentWatcher() *Watcher {
 //
 // The compute function receives:
 // - prev: the previous value (nil on first call)
-// - ctx: context for cancellation
+// - ctx: HershContext for state access and cancellation
 //
 // The compute function returns:
 // - next: the new value
 // - changed: whether the value changed
 // - error: any error that occurred
 func WatchCall(
-	computeNextState func(prev any, ctx context.Context) (any, bool, error),
+	computeNextState func(prev any, ctx HershContext) (any, bool, error),
 	varName string,
 	tick time.Duration,
 	runCtx HershContext,
 ) any {
-	w := getCurrentWatcher()
+	w := runCtx.GetValue("__watcher__").(*Watcher)
 	if w == nil {
-		panic("WatchCall called outside of managed function")
+		panic("WatchCall called with invalid HershContext")
 	}
 
 	w.mu.RLock()
@@ -66,6 +53,7 @@ func WatchCall(
 			Tick:         tick,
 			cancelFunc:   cancel,
 			currentValue: nil,
+			hershCtx:     runCtx, // Store HershContext for compute function
 		}
 
 		w.registerWatch(varName, handle)
@@ -102,8 +90,8 @@ func watchLoop(w *Watcher, handle *WatchHandle, ctx context.Context) {
 		case <-ctx.Done():
 			return
 		case <-ticker.C:
-			// Compute next value
-			nextValue, changed, err := handle.ComputeFunc(prevValue, ctx)
+			// Compute next value using HershContext
+			nextValue, changed, err := handle.ComputeFunc(prevValue, handle.hershCtx)
 
 			if err != nil {
 				// Log error but continue watching
@@ -138,9 +126,9 @@ func WatchFlow(
 	varName string,
 	runCtx HershContext,
 ) any {
-	w := getCurrentWatcher()
+	w := getWatcherFromContext(runCtx)
 	if w == nil {
-		panic("WatchFlow called outside of managed function")
+		panic("WatchFlow called with invalid HershContext")
 	}
 
 	w.mu.RLock()
@@ -157,6 +145,7 @@ func WatchFlow(
 			Tick:         0,
 			cancelFunc:   cancel,
 			currentValue: nil,
+			hershCtx:     runCtx, // Store HershContext
 		}
 
 		w.registerWatch(varName, handle)
@@ -214,7 +203,7 @@ func watchFlowLoop(w *Watcher, handle *WatchHandle, sourceChan <-chan any, ctx c
 func Watch(varName string, initialValue any, runCtx HershContext) any {
 	// For backward compatibility, just return WatchCall with a simple function
 	return WatchCall(
-		func(prev any, ctx context.Context) (any, bool, error) {
+		func(prev any, ctx HershContext) (any, bool, error) {
 			if prev == nil {
 				return initialValue, true, nil
 			}

@@ -95,6 +95,23 @@ type HershContext interface {
 
 	// Message returns the current user message (nil if none)
 	Message() *Message
+
+	// GetValue retrieves a value stored in the context by key
+	// Returns nil if the key does not exist
+	// WARNING: Returns the actual stored value (not a copy)
+	// Mutating returned pointers will affect the stored state
+	GetValue(key string) any
+
+	// SetValue stores a value in the context by key
+	// This allows managed functions to maintain state across executions
+	// The framework automatically tracks changes for monitoring
+	SetValue(key string, value any)
+
+	// UpdateValue provides a safe way to update context values
+	// The updateFn receives a copy of the current value and returns the new value
+	// This ensures immutability and proper change tracking
+	// Returns the new value after update
+	UpdateValue(key string, updateFn func(current any) any) any
 }
 
 // WatcherConfig holds configuration for creating a new Watcher.

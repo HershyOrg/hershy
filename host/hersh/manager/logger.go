@@ -13,6 +13,7 @@ type Logger struct {
 	effectLog      []EffectLogEntry
 	effectResults  []*EffectResult
 	errorLog       []ErrorLogEntry
+	contextLog     []ContextValueLogEntry
 	maxEntries     int
 }
 
@@ -38,6 +39,16 @@ type ErrorLogEntry struct {
 	Context   string
 }
 
+// ContextValueLogEntry represents a context value change.
+type ContextValueLogEntry struct {
+	LogID     uint64
+	Timestamp time.Time
+	Key       string
+	OldValue  any
+	NewValue  any
+	Operation string // "initialized" or "updated"
+}
+
 // NewLogger creates a new Logger with specified max entries per log type.
 func NewLogger(maxEntries int) *Logger {
 	return &Logger{
@@ -45,6 +56,7 @@ func NewLogger(maxEntries int) *Logger {
 		effectLog:     make([]EffectLogEntry, 0, maxEntries),
 		effectResults: make([]*EffectResult, 0, maxEntries),
 		errorLog:      make([]ErrorLogEntry, 0, maxEntries),
+		contextLog:    make([]ContextValueLogEntry, 0, maxEntries),
 		maxEntries:    maxEntries,
 	}
 }
@@ -128,6 +140,31 @@ func (l *Logger) LogError(err error, context string) {
 	}
 }
 
+// LogContextValue logs a context value change.
+func (l *Logger) LogContextValue(key string, oldValue, newValue any, operation string) {
+	// Skip internal keys
+	if key == "__watcher__" {
+		return
+	}
+
+	l.mu.Lock()
+	defer l.mu.Unlock()
+
+	entry := ContextValueLogEntry{
+		LogID:     uint64(len(l.contextLog)) + 1,
+		Timestamp: time.Now(),
+		Key:       key,
+		OldValue:  oldValue,
+		NewValue:  newValue,
+		Operation: operation,
+	}
+
+	l.contextLog = append(l.contextLog, entry)
+	if len(l.contextLog) > l.maxEntries {
+		l.contextLog = l.contextLog[1:]
+	}
+}
+
 // GetReduceLog returns a copy of the reduce log.
 func (l *Logger) GetReduceLog() []ReduceLogEntry {
 	l.mu.RLock()
@@ -168,6 +205,23 @@ func (l *Logger) PrintSummary() {
 	fmt.Printf("Effect Log Entries: %d\n", len(l.effectLog))
 	fmt.Printf("Effect Results: %d\n", len(l.effectResults))
 	fmt.Printf("Error Log Entries: %d\n", len(l.errorLog))
+	fmt.Printf("Context Value Changes: %d\n", len(l.contextLog))
+
+	if len(l.contextLog) > 0 {
+		fmt.Printf("\nRecent Context Value Changes:\n")
+		start := len(l.contextLog) - 5
+		if start < 0 {
+			start = 0
+		}
+		for _, entry := range l.contextLog[start:] {
+			fmt.Printf("  [%s] %s: %s (%v → %v)\n",
+				entry.Timestamp.Format("15:04:05"),
+				entry.Key,
+				entry.Operation,
+				entry.OldValue,
+				entry.NewValue)
+		}
+	}
 
 	if len(l.errorLog) > 0 {
 		fmt.Printf("\nRecent Errors:\n")

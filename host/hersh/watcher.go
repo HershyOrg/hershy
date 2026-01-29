@@ -22,7 +22,6 @@ type Watcher struct {
 	isRunning    bool
 	watchRegistry map[string]*WatchHandle
 	memoCache     map[string]any
-	globalStore   map[string]any
 
 	// Lifecycle
 	ctx    context.Context
@@ -41,10 +40,11 @@ type WatcherManager struct {
 // WatchHandle represents a registered Watch variable.
 type WatchHandle struct {
 	VarName      string
-	ComputeFunc  func(prev any, ctx context.Context) (any, bool, error)
+	ComputeFunc  func(prev any, ctx HershContext) (any, bool, error)
 	Tick         time.Duration
 	cancelFunc   context.CancelFunc
 	currentValue any
+	hershCtx     HershContext // Context for compute function
 }
 
 // NewWatcher creates a new Watcher with the given configuration.
@@ -60,7 +60,6 @@ func NewWatcher(config WatcherConfig) *Watcher {
 		logger:        manager.NewLogger(1000),
 		watchRegistry: make(map[string]*WatchHandle),
 		memoCache:     make(map[string]any),
-		globalStore:   make(map[string]any),
 		ctx:           ctx,
 		cancel:        cancel,
 	}
@@ -78,10 +77,8 @@ func (w *Watcher) Manage(fn manager.ManagedFunc, name string) *CleanupBuilder {
 		panic("cannot call Manage after Watcher is already running")
 	}
 
-	// Wrap the managed function to set currentWatcher
+	// Wrap the managed function (no need for global watcher anymore)
 	wrappedFn := func(msg *Message, ctx HershContext) error {
-		setCurrentWatcher(w)
-		defer setCurrentWatcher(nil)
 		return fn(msg, ctx)
 	}
 
@@ -100,6 +97,9 @@ func (w *Watcher) Manage(fn manager.ManagedFunc, name string) *CleanupBuilder {
 		w.logger,
 		w.config,
 	)
+
+	// Set watcher reference in HershContext
+	handler.SetWatcher(w)
 
 	w.manager = &WatcherManager{
 		state:     state,
@@ -245,7 +245,6 @@ type CleanupBuilder struct {
 func (cb *CleanupBuilder) Cleanup(cleanupFn func(ctx HershContext)) *Watcher {
 	cleaner := &cleanupAdapter{
 		cleanupFn: cleanupFn,
-		watcherID: "watcher-1", // TODO: Use actual ID
 	}
 
 	if cb.watcher.manager != nil {
@@ -259,6 +258,8 @@ func (cb *CleanupBuilder) Cleanup(cleanupFn func(ctx HershContext)) *Watcher {
 			cb.watcher.logger,
 			cb.watcher.config,
 		)
+		// Re-set watcher reference after handler recreation
+		cb.watcher.manager.handler.SetWatcher(cb.watcher)
 	}
 
 	return cb.watcher
@@ -267,21 +268,15 @@ func (cb *CleanupBuilder) Cleanup(cleanupFn func(ctx HershContext)) *Watcher {
 // cleanupAdapter adapts the user's cleanup function to the Cleaner interface.
 type cleanupAdapter struct {
 	cleanupFn func(ctx HershContext)
-	watcherID string
 }
 
-func (ca *cleanupAdapter) ClearRun(ctx context.Context) error {
-	hershCtx := &hershContextImpl{
-		Context:   ctx,
-		watcherID: ca.watcherID,
-		message:   nil,
-	}
-
-	ca.cleanupFn(hershCtx)
+func (ca *cleanupAdapter) ClearRun(ctx HershContext) error {
+	// Simply call the cleanup function with HershContext
+	ca.cleanupFn(ctx)
 	return nil
 }
 
-// hershContextImpl implements HershContext.
+// hershContextImpl implements HershContext (simple fallback version).
 type hershContextImpl struct {
 	context.Context
 	watcherID string
@@ -294,4 +289,18 @@ func (hc *hershContextImpl) WatcherID() string {
 
 func (hc *hershContextImpl) Message() *Message {
 	return hc.message
+}
+
+func (hc *hershContextImpl) GetValue(key string) any {
+	// Fallback implementation returns nil
+	return nil
+}
+
+func (hc *hershContextImpl) SetValue(key string, value any) {
+	// Fallback implementation does nothing
+}
+
+func (hc *hershContextImpl) UpdateValue(key string, updateFn func(current any) any) any {
+	// Fallback implementation - call updateFn with nil and return result
+	return updateFn(nil)
 }

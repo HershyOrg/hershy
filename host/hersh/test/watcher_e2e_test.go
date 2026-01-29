@@ -1,7 +1,6 @@
 package test
 
 import (
-	"context"
 	"testing"
 	"time"
 
@@ -69,7 +68,7 @@ func TestWatcher_WithWatchCall(t *testing.T) {
 	managedFunc := func(msg *hersh.Message, ctx hersh.HershContext) error {
 		// Watch a value that increments
 		val := hersh.WatchCall(
-			func(prev any, watchCtx context.Context) (any, bool, error) {
+			func(prev any, watchCtx hersh.HershContext) (any, bool, error) {
 				newValue := counter
 				counter++
 
@@ -180,16 +179,16 @@ func TestWatcher_WithMemo(t *testing.T) {
 	watcher.GetLogger().PrintSummary()
 }
 
-// TestWatcher_WithGlobal tests Global state management.
-func TestWatcher_WithGlobal(t *testing.T) {
+// TestWatcher_WithContextState tests HershContext state management.
+func TestWatcher_WithContextState(t *testing.T) {
 	config := hersh.DefaultWatcherConfig()
 	watcher := hersh.NewWatcher(config)
 
 	executeCount := 0
 
 	managedFunc := func(msg *hersh.Message, ctx hersh.HershContext) error {
-		// Get global counter
-		val := hersh.Global("counter", ctx)
+		// Get context value counter
+		val := ctx.GetValue("counter")
 		if val == nil {
 			val = 0
 		}
@@ -197,8 +196,8 @@ func TestWatcher_WithGlobal(t *testing.T) {
 		counter := val.(int)
 		counter++
 
-		// Set updated counter
-		hersh.SetGlobal("counter", counter, ctx)
+		// Set updated counter in context
+		ctx.SetValue("counter", counter)
 
 		executeCount++
 		t.Logf("Execution %d: counter = %d", executeCount, counter)
@@ -210,7 +209,7 @@ func TestWatcher_WithGlobal(t *testing.T) {
 		return nil
 	}
 
-	watcher.Manage(managedFunc, "globalTest")
+	watcher.Manage(managedFunc, "contextStateTest")
 
 	err := watcher.Start()
 	if err != nil {
@@ -234,9 +233,9 @@ func TestWatcher_WithGlobal(t *testing.T) {
 		t.Errorf("failed to stop watcher: %v", err)
 	}
 
-	// Verify global was incremented
-	finalCounter := watcher.GetLogger()
-	_ = finalCounter // Global value persists in watcher
+	// Verify context value was tracked
+	logger := watcher.GetLogger()
+	_ = logger // Context values persist in HershContext
 
 	watcher.GetLogger().PrintSummary()
 }

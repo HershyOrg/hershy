@@ -1,6 +1,8 @@
 module host
 
-go 1.22
+go 1.22.2
+
+replace hersh => ./hersh
 
 require (
 	github.com/ethereum/go-ethereum v1.13.15
@@ -24,5 +26,6 @@ require (
 	golang.org/x/net v0.18.0 // indirect
 	golang.org/x/sync v0.5.0 // indirect
 	golang.org/x/sys v0.16.0 // indirect
+	hersh v0.0.0-00010101000000-000000000000 // indirect
 	rsc.io/tmplfunc v0.0.3 // indirect
 )

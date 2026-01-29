@@ -15,9 +15,9 @@ import "fmt"
 //	    return expensive.NewClient()
 //	}, "apiClient", ctx).(*Client)
 func Memo(computeValue func() any, memoName string, ctx HershContext) any {
-	w := getCurrentWatcher()
+	w := getWatcherFromContext(ctx)
 	if w == nil {
-		panic("Memo called outside of managed function")
+		panic("Memo called with invalid HershContext")
 	}
 
 	w.mu.RLock()
@@ -42,56 +42,11 @@ func Memo(computeValue func() any, memoName string, ctx HershContext) any {
 	return value
 }
 
-// Global retrieves a global variable.
-// Global variables are shared across all executions and can be modified.
-//
-// Unlike Memo, Global values can change between executions.
-// Each access is logged for observability.
-//
-// Returns nil if the global doesn't exist.
-func Global(globalName string, ctx HershContext) any {
-	w := getCurrentWatcher()
-	if w == nil {
-		panic("Global called outside of managed function")
-	}
-
-	w.mu.RLock()
-	value, exists := w.globalStore[globalName]
-	w.mu.RUnlock()
-
-	// Log access
-	w.logger.LogEffect(fmt.Sprintf("Global[%s] read = %v", globalName, value))
-
-	if !exists {
-		return nil
-	}
-
-	return value
-}
-
-// SetGlobal sets a global variable.
-// The change is logged for observability.
-//
-// Global variables persist across executions and can be modified by effects.
-func SetGlobal(globalName string, value any, ctx HershContext) {
-	w := getCurrentWatcher()
-	if w == nil {
-		panic("SetGlobal called outside of managed function")
-	}
-
-	w.mu.Lock()
-	w.globalStore[globalName] = value
-	w.mu.Unlock()
-
-	// Log modification
-	w.logger.LogEffect(fmt.Sprintf("Global[%s] set = %v", globalName, value))
-}
-
 // ClearMemo removes a memoized value, forcing recomputation on next Memo call.
 func ClearMemo(memoName string, ctx HershContext) {
-	w := getCurrentWatcher()
+	w := getWatcherFromContext(ctx)
 	if w == nil {
-		panic("ClearMemo called outside of managed function")
+		panic("ClearMemo called with invalid HershContext")
 	}
 
 	w.mu.Lock()

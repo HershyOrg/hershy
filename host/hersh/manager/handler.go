@@ -3,6 +3,7 @@ package manager
 import (
 	"context"
 	"fmt"
+	"sync"
 	"time"
 
 	"hersh/core"
@@ -14,7 +15,7 @@ type ManagedFunc func(message *core.Message, ctx core.HershContext) error
 
 // Cleaner provides cleanup functionality for managed functions.
 type Cleaner interface {
-	ClearRun(ctx context.Context) error
+	ClearRun(ctx core.HershContext) error
 }
 
 // EffectLogger logs effect execution results.
@@ -26,17 +27,18 @@ type EffectLogger interface {
 
 // EffectHandler executes effects and manages the lifecycle of managed functions.
 type EffectHandler struct {
-	managedFunc    ManagedFunc
-	cleaner        Cleaner
-	state          *ManagerState
-	signals        *SignalChannels
-	effectCh       <-chan EffectDefinition
-	logger         EffectLogger
-	config         core.WatcherConfig
-	expectedVars   []string // Variables registered by Watch calls
-	rootCtx        context.Context
-	rootCtxCancel  context.CancelFunc
+	managedFunc      ManagedFunc
+	cleaner          Cleaner
+	state            *ManagerState
+	signals          *SignalChannels
+	effectCh         <-chan EffectDefinition
+	logger           EffectLogger
+	config           core.WatcherConfig
+	expectedVars     []string // Variables registered by Watch calls
+	rootCtx          context.Context
+	rootCtxCancel    context.CancelFunc
 	consecutiveFails int
+	hershCtx         *hershContext // Persistent HershContext across executions
 }
 
 // NewEffectHandler creates a new EffectHandler.
@@ -50,6 +52,16 @@ func NewEffectHandler(
 	config core.WatcherConfig,
 ) *EffectHandler {
 	ctx, cancel := context.WithCancel(context.Background())
+
+	// Create persistent HershContext
+	hershCtx := &hershContext{
+		Context:     ctx,
+		watcherID:   "watcher-1", // TODO: Get from config
+		message:     nil,
+		valueStore:  make(map[string]any),
+		logger:      logger.(*Logger),
+	}
+
 	return &EffectHandler{
 		managedFunc:   managedFunc,
 		cleaner:       cleaner,
@@ -61,12 +73,24 @@ func NewEffectHandler(
 		expectedVars:  make([]string, 0),
 		rootCtx:       ctx,
 		rootCtxCancel: cancel,
+		hershCtx:      hershCtx,
 	}
 }
 
 // RegisterVar registers a variable name that Watch will monitor.
 func (eh *EffectHandler) RegisterVar(varName string) {
 	eh.expectedVars = append(eh.expectedVars, varName)
+}
+
+// SetWatcher sets the Watcher reference in the HershContext.
+// This must be called before running any effects.
+func (eh *EffectHandler) SetWatcher(watcher any) {
+	eh.hershCtx.SetValue("__watcher__", watcher)
+}
+
+// GetHershContext returns the persistent HershContext.
+func (eh *EffectHandler) GetHershContext() core.HershContext {
+	return eh.hershCtx
 }
 
 // Run starts the effect handler loop.
@@ -126,12 +150,9 @@ func (eh *EffectHandler) runScript() *EffectResult {
 	// Consume message
 	msg := eh.state.UserState.ConsumeMessage()
 
-	// Create HershContext (simplified for now)
-	hershCtx := &hershContext{
-		Context: execCtx,
-		watcherID: "watcher-1", // TODO: Get from config
-		message: msg,
-	}
+	// Update persistent HershContext with new context and message
+	eh.hershCtx.Context = execCtx
+	eh.hershCtx.message = msg
 
 	// Execute in goroutine with panic recovery
 	done := make(chan error, 1)
@@ -141,7 +162,7 @@ func (eh *EffectHandler) runScript() *EffectResult {
 				done <- fmt.Errorf("panic: %v", r)
 			}
 		}()
-		done <- eh.managedFunc(msg, hershCtx)
+		done <- eh.managedFunc(msg, eh.hershCtx)
 	}()
 
 	// Wait for completion or timeout
@@ -274,11 +295,9 @@ func (eh *EffectHandler) runScriptOnce() *EffectResult {
 	execCtx, cancel := context.WithTimeout(eh.rootCtx, eh.config.DefaultTimeout)
 	defer cancel()
 
-	hershCtx := &hershContext{
-		Context:   execCtx,
-		watcherID: "watcher-1",
-		message:   nil,
-	}
+	// Update persistent HershContext
+	eh.hershCtx.Context = execCtx
+	eh.hershCtx.message = nil
 
 	done := make(chan error, 1)
 	go func() {
@@ -287,7 +306,7 @@ func (eh *EffectHandler) runScriptOnce() *EffectResult {
 				done <- fmt.Errorf("panic: %v", r)
 			}
 		}()
-		done <- eh.managedFunc(nil, hershCtx)
+		done <- eh.managedFunc(nil, eh.hershCtx)
 	}()
 
 	select {
@@ -315,12 +334,14 @@ func (eh *EffectHandler) clearRunScript(hookState core.WatcherState) *EffectResu
 	// Create new root context
 	eh.rootCtx, eh.rootCtxCancel = context.WithCancel(context.Background())
 
-	// Execute cleanup with 5-minute timeout
+	// Execute cleanup using persistent HershContext
 	if eh.cleaner != nil {
+		// Update context with 5-minute timeout for cleanup
 		cleanCtx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
 		defer cancel()
+		eh.hershCtx.Context = cleanCtx
 
-		err := eh.cleaner.ClearRun(cleanCtx)
+		err := eh.cleaner.ClearRun(eh.hershCtx)
 		if err != nil {
 			result.Success = false
 			result.Error = err
@@ -429,8 +450,11 @@ func (eh *EffectHandler) calculateBackoff(failures int) time.Duration {
 // hershContext implements HershContext interface (simplified version).
 type hershContext struct {
 	context.Context
-	watcherID string
-	message   *core.Message
+	watcherID   string
+	message     *core.Message
+	valueStore  map[string]any
+	valuesMutex sync.RWMutex
+	logger      *Logger
 }
 
 func (hc *hershContext) WatcherID() string {
@@ -439,4 +463,57 @@ func (hc *hershContext) WatcherID() string {
 
 func (hc *hershContext) Message() *core.Message {
 	return hc.message
+}
+
+func (hc *hershContext) GetValue(key string) any {
+	hc.valuesMutex.RLock()
+	defer hc.valuesMutex.RUnlock()
+	return hc.valueStore[key]
+}
+
+func (hc *hershContext) SetValue(key string, value any) {
+	hc.valuesMutex.Lock()
+	defer hc.valuesMutex.Unlock()
+
+	oldValue := hc.valueStore[key]
+	hc.valueStore[key] = value
+
+	// Log the state change
+	if hc.logger != nil {
+		if oldValue == nil {
+			hc.logger.LogContextValue(key, nil, value, "initialized")
+		} else {
+			hc.logger.LogContextValue(key, oldValue, value, "updated")
+		}
+	}
+}
+
+func (hc *hershContext) UpdateValue(key string, updateFn func(current any) any) any {
+	hc.valuesMutex.Lock()
+	defer hc.valuesMutex.Unlock()
+
+	// Get current value
+	currentValue := hc.valueStore[key]
+
+	// Create a deep copy to pass to updateFn
+	// This ensures the user cannot accidentally mutate the stored state
+	currentCopy := core.DeepCopy(currentValue)
+
+	// Call the update function with the copy
+	newValue := updateFn(currentCopy)
+
+	// Store the new value
+	oldValue := hc.valueStore[key]
+	hc.valueStore[key] = newValue
+
+	// Log the state change
+	if hc.logger != nil {
+		if oldValue == nil {
+			hc.logger.LogContextValue(key, nil, newValue, "initialized")
+		} else {
+			hc.logger.LogContextValue(key, oldValue, newValue, "updated")
+		}
+	}
+
+	return newValue
 }

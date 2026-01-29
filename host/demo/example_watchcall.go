@@ -1,7 +1,6 @@
 package main
 
 import (
-	"context"
 	"fmt"
 	"time"
 
@@ -23,7 +22,7 @@ func main2() {
 
 		// WatchCall monitors external value and triggers re-execution on change
 		watchedValue := hersh.WatchCall(
-			func(prev any, watchCtx context.Context) (any, bool, error) {
+			func(prev any, watchCtx hersh.HershContext) (any, bool, error) {
 				// Simulate polling external data source
 				currentValue := externalCounter
 				externalCounter++
