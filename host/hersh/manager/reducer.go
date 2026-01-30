@@ -26,6 +26,8 @@ type Reducer struct {
 // ReduceLogger handles logging of state transitions.
 type ReduceLogger interface {
 	LogReduce(action ReduceAction)
+	LogWatchError(varName string, phase WatchErrorPhase, err error)
+	LogStateTransitionFault(from, to shared.ManagerInnerState, reason string, err error)
 }
 
 // NewReducer creates a new Reducer.
@@ -172,22 +174,6 @@ func (r *Reducer) reduceAndExecuteEffect(sig shared.Signal, commander *EffectCom
 	r.signals.SendWatcherSig(resultSig)
 }
 
-// processAvailableSignals drains signal channels respecting priority.
-func (r *Reducer) processAvailableSignals(ctx context.Context) {
-	for {
-		select {
-		case <-ctx.Done():
-			return
-		default:
-			// Try to process one signal, highest priority first
-			if !r.tryProcessNextSignal() {
-				// No more signals to process
-				return
-			}
-		}
-	}
-}
-
 // tryProcessNextSignal attempts to process one signal following priority rules.
 // Returns true if a signal was processed or skipped, false if no signals available.
 // Signals are NEVER dropped - they are either processed or left in channel.
@@ -248,16 +234,25 @@ func (r *Reducer) reduceVarSig(sig *VarSig) {
 
 	switch currentState {
 	case shared.StateReady:
-		// Batch collect all VarSigs and update state
-		updates := r.collectAllVarSigs(sig)
-		r.state.VarState.BatchSet(updates)
-		r.state.SetManagerInnerState(shared.StateRunning)
+		// Batch collect and apply all VarSigs
+		updates := r.collectAndApplyVarSigs(sig)
+
+		// Only transition to Running if there are actual updates
+		if len(updates) > 0 {
+			r.state.VarState.BatchSet(updates)
+			r.state.SetManagerInnerState(shared.StateRunning)
+		}
+		// If no updates (all changed=false), stay in Ready state
 
 	case shared.StateInitRun:
-		// During initialization, collect VarSigs to update state
+		// During initialization, collect and apply VarSigs to update state
 		// This allows InitRun phase 2 to detect when all variables are initialized
-		updates := r.collectAllVarSigs(sig)
-		r.state.VarState.BatchSet(updates)
+		updates := r.collectAndApplyVarSigs(sig)
+
+		// Only update VarState if there are actual updates
+		if len(updates) > 0 {
+			r.state.VarState.BatchSet(updates)
+		}
 		// Don't change ManagerInnerState, just update VarState
 
 	default:
@@ -266,19 +261,88 @@ func (r *Reducer) reduceVarSig(sig *VarSig) {
 	}
 }
 
-// collectAllVarSigs drains VarSigChan and returns all updates as a map.
-func (r *Reducer) collectAllVarSigs(first *VarSig) map[string]any {
-	updates := make(map[string]any)
-	updates[first.TargetVarName] = first.NextState
+// collectAndApplyVarSigs collects all VarSigs and applies them correctly.
+// For IsStateIndependent=true (Flow): only apply the last signal's function
+// For IsStateIndependent=false (Tick): apply all functions sequentially
+func (r *Reducer) collectAndApplyVarSigs(first *VarSig) map[string]any {
+	sigs := []*VarSig{first}
 
+	// Collect all available VarSigs from the channel
 	for {
 		select {
 		case sig := <-r.signals.VarSigChan:
-			updates[sig.TargetVarName] = sig.NextState
+			sigs = append(sigs, sig)
 		default:
-			return updates
+			// break사용이 불가하므로 goto이용.
+			goto APPLY
 		}
 	}
+
+APPLY:
+	// Group signals by variable name
+	byVar := make(map[string][]*VarSig)
+	for _, sig := range sigs {
+		byVar[sig.TargetVarName] = append(byVar[sig.TargetVarName], sig)
+	}
+
+	updates := make(map[string]any)
+
+	for varName, varSigs := range byVar {
+		// Check if this variable is state-independent (check first signal)
+		isIndependent := varSigs[0].IsStateIndependent
+
+		if isIndependent {
+			// State-independent (Flow): only apply the last signal
+			lastSig := varSigs[len(varSigs)-1]
+
+			// Get current value from VarState (may be ignored by the function)
+			currentValue, _ := r.state.VarState.Get(varName)
+
+			nextValue, changed, err := lastSig.VarUpdateFunc(currentValue)
+			if err != nil {
+				// Skip this signal on error
+				if r.logger != nil {
+					r.logger.LogWatchError(varName, ErrorPhaseExecuteComputeFunc, err)
+				}
+				continue
+			}
+
+			if changed {
+				updates[varName] = nextValue
+			}
+
+		} else {
+			// State-dependent (Tick): apply all signals sequentially
+			currentValue, exists := r.state.VarState.Get(varName)
+			if !exists {
+				currentValue = nil
+			}
+
+			hasAnyChange := false
+			for _, sig := range varSigs {
+				nextValue, changed, err := sig.VarUpdateFunc(currentValue)
+				if err != nil {
+					// Skip this signal on error
+					if r.logger != nil {
+						r.logger.LogWatchError(varName, ErrorPhaseExecuteComputeFunc, err)
+					}
+					continue
+				}
+
+				if changed {
+					currentValue = nextValue // Next function's input
+					hasAnyChange = true
+				}
+			}
+
+			// Only add to updates if at least one signal reported a change
+			if hasAnyChange {
+				updates[varName] = currentValue
+			}
+		}
+	}
+
+	return updates
 }
 
 // reduceUserSig handles UserSig according to transition rules.
@@ -289,7 +353,7 @@ func (r *Reducer) reduceUserSig(sig *UserSig) {
 
 	switch currentState {
 	case shared.StateReady:
-		r.state.UserState.SetMessage(sig.Message)
+		r.state.UserState.SetMessage(sig.UserMessage)
 		r.state.SetManagerInnerState(shared.StateRunning)
 
 	default:
@@ -312,12 +376,22 @@ func (r *Reducer) reduceWatcherSig(sig *WatcherSig) {
 	// Validate transition
 	if err := r.validateTransition(currentState, targetState); err != nil {
 		// Log error but don't crash reducer
-		fmt.Printf("Invalid transition: %v\n", err)
+		if r.logger != nil {
+			r.logger.LogStateTransitionFault(currentState, targetState, sig.Reason, err)
+		}
 		return
 	}
 
 	// Special case: Crashed is terminal
 	if currentState == shared.StateCrashed {
+		if r.logger != nil {
+			r.logger.LogStateTransitionFault(
+				currentState,
+				targetState,
+				sig.Reason,
+				fmt.Errorf("cannot transition from Crashed state"),
+			)
+		}
 		return
 	}
 

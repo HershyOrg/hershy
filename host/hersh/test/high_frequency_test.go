@@ -49,11 +49,12 @@ func TestHighFrequency_FastWatchSlowFunction(t *testing.T) {
 	t.Logf("Sending %d VarSigs at 10ms intervals (100/sec)", totalSignals)
 
 	for i := 1; i <= totalSignals; i++ {
+		currentI := int32(i)
 		signals.SendVarSig(&manager.VarSig{
-			ComputedTime:  time.Now(),
-			TargetVarName: "highFreqVar",
-			PrevState:     lastVarValue.Load(),
-			NextState:     int32(i),
+			ComputedTime:       time.Now(),
+			TargetVarName:      "highFreqVar",
+			VarUpdateFunc:      func(prev any) (any, bool, error) { return currentI, true, nil },
+			IsStateIndependent: false,
 		})
 		lastVarValue.Store(int32(i))
 		time.Sleep(10 * time.Millisecond)
@@ -127,10 +128,12 @@ func TestHighFrequency_ConcurrentSignalsAndMessages(t *testing.T) {
 	go func() {
 		defer wg.Done()
 		for i := 1; i <= totalVarSigs; i++ {
+			currentI := i
 			signals.SendVarSig(&manager.VarSig{
-				ComputedTime:  time.Now(),
-				TargetVarName: "concurrentVar",
-				NextState:     i,
+				ComputedTime:       time.Now(),
+				TargetVarName:      "concurrentVar",
+				VarUpdateFunc:      func(prev any) (any, bool, error) { return currentI, true, nil },
+				IsStateIndependent: false,
 			})
 			varSigCount.Add(1)
 			time.Sleep(20 * time.Millisecond)
@@ -144,7 +147,7 @@ func TestHighFrequency_ConcurrentSignalsAndMessages(t *testing.T) {
 		for i := 1; i <= totalUserSigs; i++ {
 			signals.SendUserSig(&manager.UserSig{
 				ReceivedTime: time.Now(),
-				Message: &shared.Message{
+				UserMessage: &shared.Message{
 					Content:    "concurrent message",
 					ReceivedAt: time.Now(),
 				},
@@ -218,10 +221,12 @@ func TestHighFrequency_SignalBurst(t *testing.T) {
 		go func(val int) {
 			defer wg.Done()
 			varName := "burstVar"
+			currentVal := val
 			signals.SendVarSig(&manager.VarSig{
-				ComputedTime:  time.Now(),
-				TargetVarName: varName,
-				NextState:     val,
+				ComputedTime:       time.Now(),
+				TargetVarName:      varName,
+				VarUpdateFunc:      func(prev any) (any, bool, error) { return currentVal, true, nil },
+				IsStateIndependent: false,
 			})
 			processedVars.Store(val, true)
 		}(i)
@@ -298,10 +303,12 @@ func TestHighFrequency_SignalsWithTimeout(t *testing.T) {
 	t.Logf("Sending %d VarSigs while function may timeout", totalSignals)
 
 	for i := 1; i <= totalSignals; i++ {
+		currentI := i
 		signals.SendVarSig(&manager.VarSig{
-			ComputedTime:  time.Now(),
-			TargetVarName: "timeoutVar",
-			NextState:     i,
+			ComputedTime:       time.Now(),
+			TargetVarName:      "timeoutVar",
+			VarUpdateFunc:      func(prev any) (any, bool, error) { return currentI, true, nil },
+			IsStateIndependent: false,
 		})
 		time.Sleep(40 * time.Millisecond)
 	}
@@ -317,15 +324,9 @@ func TestHighFrequency_SignalsWithTimeout(t *testing.T) {
 		t.Errorf("expected at least %d executions, got %d", totalSignals/2, executionCount.Load())
 	}
 
-	// Check error log for timeout errors
-	errorLog := logger.GetErrorLog()
-	timeoutErrors := 0
-	for _, entry := range errorLog {
-		if entry.Error != nil && entry.Error.Error() == "context deadline exceeded" {
-			timeoutErrors++
-		}
-	}
-	t.Logf("Timeout errors logged: %d", timeoutErrors)
+	// Check watch error log
+	watchErrorLog := logger.GetWatchErrorLog()
+	t.Logf("Watch errors logged: %d", len(watchErrorLog))
 
 	logger.PrintSummary()
 }
@@ -380,10 +381,12 @@ func TestHighFrequency_MultipleWatchVariables(t *testing.T) {
 		go func(vName string, counter *atomic.Int32) {
 			defer wg.Done()
 			for i := 1; i <= signalsPerVar; i++ {
+				currentI := i
 				signals.SendVarSig(&manager.VarSig{
-					ComputedTime:  time.Now(),
-					TargetVarName: vName,
-					NextState:     i,
+					ComputedTime:       time.Now(),
+					TargetVarName:      vName,
+					VarUpdateFunc:      func(prev any) (any, bool, error) { return currentI, true, nil },
+					IsStateIndependent: false,
 				})
 				counter.Add(1)
 				time.Sleep(15 * time.Millisecond)
@@ -468,10 +471,12 @@ func TestHighFrequency_PriorityUnderLoad(t *testing.T) {
 	go func() {
 		defer wg.Done()
 		for i := 0; i < 50; i++ {
+			currentI := i
 			signals.SendVarSig(&manager.VarSig{
-				ComputedTime:  time.Now(),
-				TargetVarName: "priorityVar",
-				NextState:     i,
+				ComputedTime:       time.Now(),
+				TargetVarName:      "priorityVar",
+				VarUpdateFunc:      func(prev any) (any, bool, error) { return currentI, true, nil },
+				IsStateIndependent: false,
 			})
 			varSigProcessed.Add(1)
 			time.Sleep(30 * time.Millisecond)
@@ -485,7 +490,7 @@ func TestHighFrequency_PriorityUnderLoad(t *testing.T) {
 		for i := 0; i < 30; i++ {
 			signals.SendUserSig(&manager.UserSig{
 				ReceivedTime: time.Now(),
-				Message: &shared.Message{
+				UserMessage: &shared.Message{
 					Content:    "priority test",
 					ReceivedAt: time.Now(),
 				},
@@ -583,10 +588,12 @@ func TestHighFrequency_StressTest(t *testing.T) {
 		go func(senderID int) {
 			defer wg.Done()
 			for i := 0; i < signalsPerSender; i++ {
+				currentVal := senderID*1000 + i
 				signals.SendVarSig(&manager.VarSig{
-					ComputedTime:  time.Now(),
-					TargetVarName: "stressVar",
-					NextState:     senderID*1000 + i,
+					ComputedTime:       time.Now(),
+					TargetVarName:      "stressVar",
+					VarUpdateFunc:      func(prev any) (any, bool, error) { return currentVal, true, nil },
+					IsStateIndependent: false,
 				})
 				signalsSent.Add(1)
 				time.Sleep(5 * time.Millisecond)
@@ -616,13 +623,13 @@ func TestHighFrequency_StressTest(t *testing.T) {
 		t.Errorf("expected final state Ready, got %s", state.GetManagerInnerState())
 	}
 
-	// Check for errors
-	errorLog := logger.GetErrorLog()
-	if len(errorLog) > 0 {
-		t.Logf("Errors during stress test: %d", len(errorLog))
-		for i, entry := range errorLog {
+	// Check for watch errors
+	watchErrorLog := logger.GetWatchErrorLog()
+	if len(watchErrorLog) > 0 {
+		t.Logf("Watch errors during stress test: %d", len(watchErrorLog))
+		for i, entry := range watchErrorLog {
 			if i < 5 { // Show first 5 errors
-				t.Logf("  Error %d: %v", i+1, entry.Error)
+				t.Logf("  Watch Error %d [%s, %s]: %v", i+1, entry.VarName, entry.ErrorPhase, entry.Error)
 			}
 		}
 	}

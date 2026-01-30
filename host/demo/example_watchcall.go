@@ -5,6 +5,7 @@ import (
 	"time"
 
 	"hersh"
+	"hersh/manager"
 )
 
 // Advanced example demonstrating WatchCall reactive mechanism
@@ -22,21 +23,23 @@ func main1() {
 
 		// WatchCall monitors external value and triggers re-execution on change
 		watchedValue := hersh.WatchCall(
-			func(prev any, watchCtx hersh.HershContext) (any, bool, error) {
-				// Simulate polling external data source
-				currentValue := externalCounter
-				externalCounter++
+			func() (manager.VarUpdateFunc, error) {
+				return func(prev any) (any, bool, error) {
+					// Simulate polling external data source
+					currentValue := externalCounter
+					externalCounter++
 
-				fmt.Printf("  Polling: prev=%v, current=%v\n", prev, currentValue)
+					fmt.Printf("  Polling: prev=%v, current=%v\n", prev, currentValue)
 
-				// Detect change
-				if prev == nil {
-					return currentValue, true, nil // First call - always changed
-				}
+					// Detect change
+					if prev == nil {
+						return currentValue, true, nil // First call - always changed
+					}
 
-				prevInt := prev.(int)
-				changed := prevInt != currentValue
-				return currentValue, changed, nil
+					prevInt := prev.(int)
+					changed := prevInt != currentValue
+					return currentValue, changed, nil
+				}, nil
 			},
 			"externalCounter",
 			300*time.Millisecond, // Poll every 300ms

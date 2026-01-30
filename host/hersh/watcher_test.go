@@ -5,6 +5,8 @@ import (
 	"sync/atomic"
 	"testing"
 	"time"
+
+	"hersh/manager"
 )
 
 // TestWatchCall_BasicFunctionality tests basic WatchCall behavior
@@ -22,12 +24,14 @@ func TestWatchCall_BasicFunctionality(t *testing.T) {
 
 		// WatchCall with compute function
 		val := WatchCall(
-			func(prev any, ctx HershContext) (any, bool, error) {
-				newVal := atomic.AddInt32(&varValue, 1)
-				if prev == nil {
-					return newVal, true, nil
-				}
-				return newVal, newVal != prev.(int32), nil
+			func() (manager.VarUpdateFunc, error) {
+				return func(prev any) (any, bool, error) {
+					newVal := atomic.AddInt32(&varValue, 1)
+					if prev == nil {
+						return newVal, true, nil
+					}
+					return newVal, newVal != prev.(int32), nil
+				}, nil
 			},
 			"testVar",
 			100*time.Millisecond,
@@ -79,8 +83,10 @@ func TestWatchCall_ValuePersistence(t *testing.T) {
 		executionCount++
 
 		val := WatchCall(
-			func(prev any, ctx HershContext) (any, bool, error) {
-				return executionCount, true, nil
+			func() (manager.VarUpdateFunc, error) {
+				return func(prev any) (any, bool, error) {
+					return executionCount, true, nil
+				}, nil
 			},
 			"counter",
 			50*time.Millisecond,
@@ -131,10 +137,16 @@ func TestWatchCall_NoChangeDoesNotTrigger(t *testing.T) {
 		atomic.AddInt32(&executeCount, 1)
 
 		val := WatchCall(
-			func(prev any, ctx HershContext) (any, bool, error) {
-				atomic.AddInt32(&computeCallCount, 1)
-				// Always return same value
-				return 42, false, nil // changed=false
+			func() (manager.VarUpdateFunc, error) {
+				return func(prev any) (any, bool, error) {
+					atomic.AddInt32(&computeCallCount, 1)
+					// First call: initialize with changed=true
+					// Subsequent calls: return same value with changed=false
+					if prev == nil {
+						return 42, true, nil // Initialize
+					}
+					return 42, false, nil // No change
+				}, nil
 			},
 			"staticVar",
 			50*time.Millisecond,
@@ -158,17 +170,20 @@ func TestWatchCall_NoChangeDoesNotTrigger(t *testing.T) {
 	executions := atomic.LoadInt32(&executeCount)
 	computeCalls := atomic.LoadInt32(&computeCallCount)
 
-	// Compute should be called multiple times
-	if computeCalls < 3 {
-		t.Errorf("Expected at least 3 compute calls, got %d", computeCalls)
-	}
-
-	// But executions should be minimal (only initial run)
-	if executions > 3 {
-		t.Errorf("Expected at most 3 executions for unchanged value, got %d", executions)
-	}
-
 	t.Logf("Test complete - executions: %d, compute calls: %d", executions, computeCalls)
+
+	// Compute should be called multiple times (every 50ms for 400ms = ~8 times)
+	if computeCalls < 5 {
+		t.Errorf("Expected at least 5 compute calls, got %d", computeCalls)
+	}
+
+	// But executions should be minimal
+	// Only initial run during InitRun phase (val = nil)
+	// The first VarSig with changed=true initializes the variable in InitRun state
+	// After transition to Ready, all subsequent VarSigs have changed=false, so no Running transitions
+	if executions != 1 {
+		t.Errorf("Expected exactly 1 execution (only InitRun), got %d", executions)
+	}
 }
 
 // TestWatchFlow_ChannelBased tests WatchFlow with channel-based reactive programming
@@ -406,8 +421,10 @@ func TestWatcher_MultipleWatchVariables(t *testing.T) {
 		atomic.AddInt32(&executeCount, 1)
 
 		val1 := WatchCall(
-			func(prev any, ctx HershContext) (any, bool, error) {
-				return atomic.AddInt32(&counter1, 1), true, nil
+			func() (manager.VarUpdateFunc, error) {
+				return func(prev any) (any, bool, error) {
+					return atomic.AddInt32(&counter1, 1), true, nil
+				}, nil
 			},
 			"var1",
 			80*time.Millisecond,
@@ -415,8 +432,10 @@ func TestWatcher_MultipleWatchVariables(t *testing.T) {
 		)
 
 		val2 := WatchCall(
-			func(prev any, ctx HershContext) (any, bool, error) {
-				return atomic.AddInt32(&counter2, 2), true, nil
+			func() (manager.VarUpdateFunc, error) {
+				return func(prev any) (any, bool, error) {
+					return atomic.AddInt32(&counter2, 2), true, nil
+				}, nil
 			},
 			"var2",
 			80*time.Millisecond,
@@ -470,8 +489,10 @@ func TestWatcher_WatchAndMemo(t *testing.T) {
 	managedFunc := func(msg *Message, ctx HershContext) error {
 		// Watch value changes frequently
 		watchVal := WatchCall(
-			func(prev any, ctx HershContext) (any, bool, error) {
-				return atomic.AddInt32(&watchCounter, 1), true, nil
+			func() (manager.VarUpdateFunc, error) {
+				return func(prev any) (any, bool, error) {
+					return atomic.AddInt32(&watchCounter, 1), true, nil
+				}, nil
 			},
 			"frequentVar",
 			50*time.Millisecond,
@@ -534,8 +555,10 @@ func TestWatcher_HershContextAccess(t *testing.T) {
 
 		// Use Watch to verify context is working
 		val := WatchCall(
-			func(prev any, ctx HershContext) (any, bool, error) {
-				return 42, true, nil
+			func() (manager.VarUpdateFunc, error) {
+				return func(prev any) (any, bool, error) {
+					return 42, true, nil
+				}, nil
 			},
 			"contextTest",
 			100*time.Millisecond,
@@ -575,9 +598,11 @@ func TestWatcher_StopCancelsWatches(t *testing.T) {
 
 	managedFunc := func(msg *Message, ctx HershContext) error {
 		WatchCall(
-			func(prev any, ctx HershContext) (any, bool, error) {
-				atomic.AddInt32(&watchCallCount, 1)
-				return time.Now().Unix(), true, nil
+			func() (manager.VarUpdateFunc, error) {
+				return func(prev any) (any, bool, error) {
+					atomic.AddInt32(&watchCallCount, 1)
+					return time.Now().Unix(), true, nil
+				}, nil
 			},
 			"activeCheck",
 			50*time.Millisecond,
@@ -627,14 +652,16 @@ func TestWatchCall_ErrorHandling(t *testing.T) {
 
 	managedFunc := func(msg *Message, ctx HershContext) error {
 		val := WatchCall(
-			func(prev any, ctx HershContext) (any, bool, error) {
-				count := atomic.AddInt32(&errorCount, 1)
-				if count%2 == 0 {
-					// Return error on even calls
-					return nil, false, context.DeadlineExceeded
-				}
-				atomic.AddInt32(&successCount, 1)
-				return count, true, nil
+			func() (manager.VarUpdateFunc, error) {
+				return func(prev any) (any, bool, error) {
+					count := atomic.AddInt32(&errorCount, 1)
+					if count%2 == 0 {
+						// Return error on even calls
+						return nil, false, context.DeadlineExceeded
+					}
+					atomic.AddInt32(&successCount, 1)
+					return count, true, nil
+				}, nil
 			},
 			"errorVar",
 			100*time.Millisecond,

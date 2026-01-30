@@ -3,7 +3,7 @@ package hersh
 import (
 	"context"
 	"fmt"
-	"sync"
+	"sync/atomic"
 	"time"
 
 	"hersh/manager"
@@ -17,12 +17,11 @@ type Watcher struct {
 	manager *manager.Manager
 
 	// State
-	mu        sync.RWMutex
-	isRunning bool
+	isRunning atomic.Bool
 
 	// Lifecycle
-	ctx    context.Context
-	cancel context.CancelFunc
+	rootCtx    context.Context
+	rootCancel context.CancelFunc
 }
 
 // NewWatcher creates a new Watcher with the given configuration.
@@ -38,14 +37,14 @@ func NewWatcher(config WatcherConfig) *Watcher {
 	mgr := manager.NewManager(config)
 
 	w := &Watcher{
-		config:  config,
-		manager: mgr,
-		ctx:     ctx,
-		cancel:  cancel,
+		config:     config,
+		manager:    mgr,
+		rootCtx:    ctx,
+		rootCancel: cancel,
 	}
 
 	// Set watcher reference in Manager's handler
-	mgr.GetHandler().SetWatcher(w)
+	mgr.GetEffectHandler().SetWatcher(w)
 
 	return w
 }
@@ -53,10 +52,7 @@ func NewWatcher(config WatcherConfig) *Watcher {
 // Manage registers a function to be managed by the Watcher.
 // Returns a CleanupBuilder for optional cleanup registration.
 func (w *Watcher) Manage(fn manager.ManagedFunc, name string) *CleanupBuilder {
-	w.mu.Lock()
-	defer w.mu.Unlock()
-
-	if w.isRunning {
+	if w.isRunning.Load() {
 		panic("cannot call Manage after Watcher is already running")
 	}
 
@@ -82,20 +78,17 @@ func (w *Watcher) Manage(fn manager.ManagedFunc, name string) *CleanupBuilder {
 // Start begins the Watcher's execution.
 // It starts all Manager components, enters InitRun state, and waits for Ready state.
 func (w *Watcher) Start() error {
-	w.mu.Lock()
-
-	if w.isRunning {
-		w.mu.Unlock()
+	if !w.isRunning.CompareAndSwap(false, true) {
 		return fmt.Errorf("watcher already running")
 	}
 
 	if !w.manager.HasManagedFunc() {
-		w.mu.Unlock()
+		w.isRunning.Store(false) // Reset on error
 		return fmt.Errorf("no managed function registered")
 	}
 
 	// Start Manager components
-	w.manager.Start(w.ctx)
+	w.manager.Start(w.rootCtx)
 
 	// Send InitRun signal to start initialization
 	w.manager.GetSignals().SendWatcherSig(&manager.WatcherSig{
@@ -103,9 +96,6 @@ func (w *Watcher) Start() error {
 		TargetState: StateInitRun,
 		Reason:      "watcher start",
 	})
-
-	w.isRunning = true
-	w.mu.Unlock()
 
 	// Wait for initialization to complete using channel (deterministic, no timeouts)
 	// The Manager will transition to Ready state when all variables are initialized
@@ -124,18 +114,14 @@ func (w *Watcher) Start() error {
 
 // Stop gracefully stops the Watcher.
 func (w *Watcher) Stop() error {
-	w.mu.Lock()
-
 	// Check if Manager is already in a terminal state
 	// This handles cases where StopError/KillError automatically stopped the Manager
 	currentState := w.manager.GetState().GetManagerInnerState()
 	if currentState == StateStopped || currentState == StateKilled || currentState == StateCrashed {
-		w.mu.Unlock()
 		return fmt.Errorf("watcher already stopped (state: %s)", currentState)
 	}
 
-	if !w.isRunning {
-		w.mu.Unlock()
+	if !w.isRunning.Load() {
 		return fmt.Errorf("watcher not running")
 	}
 
@@ -146,11 +132,9 @@ func (w *Watcher) Stop() error {
 		Reason:      "user requested stop",
 	})
 
-	w.mu.Unlock()
-
 	// Wait for actual cleanup completion using channels (deterministic, no timeouts)
 	// 1. Wait for cleanup to actually complete
-	cleanupDone := w.manager.GetHandler().GetCleanupDone()
+	cleanupDone := w.manager.GetEffectHandler().GetCleanupDone()
 	<-cleanupDone
 
 	// 2. Wait for Manager to reach Stopped state
@@ -158,21 +142,16 @@ func (w *Watcher) Stop() error {
 	<-stoppedChan
 
 	// 3. Finalize Watcher shutdown
-	w.mu.Lock()
 	w.stopAllWatches()
-	w.cancel()
-	w.isRunning = false
-	w.mu.Unlock()
+	w.rootCancel()
+	w.isRunning.Store(false)
 
 	return nil
 }
 
 // SendMessage sends a user message to the managed function.
 func (w *Watcher) SendMessage(content string) error {
-	w.mu.RLock()
-	defer w.mu.RUnlock()
-
-	if !w.isRunning {
+	if !w.isRunning.Load() {
 		return fmt.Errorf("watcher not running")
 	}
 
@@ -184,7 +163,7 @@ func (w *Watcher) SendMessage(content string) error {
 
 	w.manager.GetSignals().SendUserSig(&manager.UserSig{
 		ReceivedTime: time.Now(),
-		Message:      msg,
+		UserMessage:  msg,
 	})
 
 	return nil
@@ -202,25 +181,24 @@ func (w *Watcher) GetLogger() *manager.Logger {
 
 // registerWatch registers a Watch variable.
 // This is called by Watch/WatchCall/WatchFlow functions.
-func (w *Watcher) registerWatch(varName string, handle *manager.WatchHandle) {
-	w.mu.Lock()
-	defer w.mu.Unlock()
-
+func (w *Watcher) registerWatch(varName string, handle manager.WatchHandle) {
 	watchRegistry := w.manager.GetWatchRegistry()
-	watchRegistry[varName] = handle
+	watchRegistry.Store(varName, handle)
 
 	// Register with EffectHandler for initialization tracking
-	w.manager.GetHandler().RegisterVar(varName)
+	w.manager.GetEffectHandler().RegisterVar(varName)
 }
 
 // stopAllWatches stops all Watch goroutines.
 func (w *Watcher) stopAllWatches() {
 	watchRegistry := w.manager.GetWatchRegistry()
-	for _, handle := range watchRegistry {
-		if handle.CancelFunc != nil {
-			handle.CancelFunc()
+	watchRegistry.Range(func(key, value any) bool {
+		handle := value.(manager.WatchHandle)
+		if cancelFunc := handle.GetCancelFunc(); cancelFunc != nil {
+			cancelFunc()
 		}
-	}
+		return true // continue iteration
+	})
 }
 
 // CleanupBuilder provides a fluent interface for registering cleanup.

@@ -48,9 +48,10 @@ func TestManager_BasicWorkflow(t *testing.T) {
 	// Test: Send a VarSig to trigger execution
 	t.Log("Sending VarSig...")
 	signals.SendVarSig(&manager.VarSig{
-		ComputedTime:  time.Now(),
-		TargetVarName: "testVar",
-		NextState:     42,
+		ComputedTime:       time.Now(),
+		TargetVarName:      "testVar",
+		VarUpdateFunc:      func(prev any) (any, bool, error) { return 42, true, nil },
+		IsStateIndependent: false,
 	})
 
 	// Wait for execution
@@ -111,7 +112,7 @@ func TestManager_UserMessageFlow(t *testing.T) {
 	t.Log("Sending UserSig...")
 	signals.SendUserSig(&manager.UserSig{
 		ReceivedTime: time.Now(),
-		Message: &shared.Message{
+		UserMessage: &shared.Message{
 			Content:    "Hello, Watcher!",
 			ReceivedAt: time.Now(),
 		},
@@ -161,9 +162,10 @@ func TestManager_ErrorHandling(t *testing.T) {
 	// Trigger execution
 	t.Log("Sending VarSig to trigger StopErr...")
 	signals.SendVarSig(&manager.VarSig{
-		ComputedTime:  time.Now(),
-		TargetVarName: "trigger",
-		NextState:     1,
+		ComputedTime:       time.Now(),
+		TargetVarName:      "trigger",
+		VarUpdateFunc:      func(prev any) (any, bool, error) { return 1, true, nil },
+		IsStateIndependent: false,
 	})
 
 	time.Sleep(200 * time.Millisecond)
@@ -201,14 +203,15 @@ func TestManager_PriorityProcessing(t *testing.T) {
 
 	// Send signals in reverse priority order
 	signals.SendVarSig(&manager.VarSig{
-		ComputedTime:  time.Now(),
-		TargetVarName: "var1",
-		NextState:     1,
+		ComputedTime:       time.Now(),
+		TargetVarName:      "var1",
+		VarUpdateFunc:      func(prev any) (any, bool, error) { return 1, true, nil },
+		IsStateIndependent: false,
 	})
 
 	signals.SendUserSig(&manager.UserSig{
 		ReceivedTime: time.Now(),
-		Message:      &shared.Message{Content: "user"},
+		UserMessage:  &shared.Message{Content: "user"},
 	})
 
 	signals.SendWatcherSig(&manager.WatcherSig{
@@ -265,10 +268,12 @@ func TestManager_MultipleVarBatching(t *testing.T) {
 
 	// Send multiple VarSigs
 	for i := 1; i <= 10; i++ {
+		currentVal := i * 10
 		signals.SendVarSig(&manager.VarSig{
-			ComputedTime:  time.Now(),
-			TargetVarName: "var" + string(rune('0'+i)),
-			NextState:     i * 10,
+			ComputedTime:       time.Now(),
+			TargetVarName:      "var" + string(rune('0'+i)),
+			VarUpdateFunc:      func(prev any) (any, bool, error) { return currentVal, true, nil },
+			IsStateIndependent: false,
 		})
 	}
 
@@ -330,9 +335,10 @@ func TestManager_FullCycle(t *testing.T) {
 	// Cycle 1: VarSig triggers execution
 	t.Log("Cycle 1: VarSig")
 	signals.SendVarSig(&manager.VarSig{
-		ComputedTime:  time.Now(),
-		TargetVarName: "trigger1",
-		NextState:     1,
+		ComputedTime:       time.Now(),
+		TargetVarName:      "trigger1",
+		VarUpdateFunc:      func(prev any) (any, bool, error) { return 1, true, nil },
+		IsStateIndependent: false,
 	})
 	time.Sleep(200 * time.Millisecond)
 
@@ -340,16 +346,17 @@ func TestManager_FullCycle(t *testing.T) {
 	t.Log("Cycle 2: UserSig")
 	signals.SendUserSig(&manager.UserSig{
 		ReceivedTime: time.Now(),
-		Message:      &shared.Message{Content: "trigger2"},
+		UserMessage:  &shared.Message{Content: "trigger2"},
 	})
 	time.Sleep(200 * time.Millisecond)
 
 	// Cycle 3: Another VarSig
 	t.Log("Cycle 3: VarSig again")
 	signals.SendVarSig(&manager.VarSig{
-		ComputedTime:  time.Now(),
-		TargetVarName: "trigger3",
-		NextState:     3,
+		ComputedTime:       time.Now(),
+		TargetVarName:      "trigger3",
+		VarUpdateFunc:      func(prev any) (any, bool, error) { return 3, true, nil },
+		IsStateIndependent: false,
 	})
 	time.Sleep(200 * time.Millisecond)
 

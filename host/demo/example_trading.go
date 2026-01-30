@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"hersh"
+	"hersh/manager"
 )
 
 // Trading strategy configuration
@@ -70,28 +71,30 @@ func main() {
 
 		// Watch Bitcoin price - always outside conditional logic
 		priceData := hersh.WatchCall(
-			func(prev any, watchCtx hersh.HershContext) (any, bool, error) {
-				// Fetch current price
+			func() (manager.VarUpdateFunc, error) {
+				// 네트워크 요청은 미리 해둔 후, func엔 가능한 계산만 남기는게 성능상 유리.
 				price, err := client.GetBitcoinPrice()
 				if err != nil {
-					// Silently ignore errors during shutdown
-					return prev, false, nil
+					return nil, err
 				}
 
-				// Check if price changed significantly (>$100)
-				if prev == nil {
-					return price, true, nil
-				}
+				return func(prev any) (any, bool, error) {
 
-				prevPrice := prev.(float64)
-				changed := abs(price-prevPrice) > 100.0
+					// Check if price changed significantly (>$100)
+					if prev == nil {
+						return price, true, nil
+					}
 
-				if changed {
-					fmt.Printf("  [Watch] Price changed: $%.2f → $%.2f (Δ $%.2f)\n",
-						prevPrice, price, price-prevPrice)
-				}
+					prevPrice := prev.(float64)
+					changed := abs(price-prevPrice) > 100.0
 
-				return price, changed, nil
+					if changed {
+						fmt.Printf("  [Watch] Price changed: $%.2f → $%.2f (Δ $%.2f)\n",
+							prevPrice, price, price-prevPrice)
+					}
+
+					return price, changed, nil
+				}, nil
 			},
 			"btcPrice",
 			500*time.Millisecond, // Poll every 500ms

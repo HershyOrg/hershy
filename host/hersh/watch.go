@@ -2,7 +2,6 @@ package hersh
 
 import (
 	"context"
-	"fmt"
 	"time"
 
 	"hersh/manager"
@@ -17,19 +16,22 @@ func getWatcherFromContext(ctx HershContext) *Watcher {
 	return w.(*Watcher)
 }
 
-// WatchCall monitors a value by calling a compute function periodically.
+// WatchCall monitors a value by periodically generating computation functions.
 // Returns the current value or nil if not yet initialized.
 //
-// The compute function receives:
-// - prev: the previous value (nil on first call)
-// - ctx: HershContext for state access and cancellation
+// The getComputationFunc is called on each tick and returns:
+// - A VarUpdateFunc that computes the next state from the previous state
+// - An error if the computation function cannot be generated
 //
-// The compute function returns:
+// The returned VarUpdateFunc receives:
+// - prev: the previous value (nil on first call)
+//
+// The VarUpdateFunc returns:
 // - next: the new value
 // - changed: whether the value changed
-// - error: any error that occurred
+// - error: any error that occurred during computation
 func WatchCall(
-	computeNextState func(prev any, ctx HershContext) (any, bool, error),
+	getComputationFunc func() (manager.VarUpdateFunc, error),
 	varName string,
 	tick time.Duration,
 	runCtx HershContext,
@@ -39,28 +41,24 @@ func WatchCall(
 		panic("WatchCall called with invalid HershContext")
 	}
 
-	w.mu.RLock()
 	watchRegistry := w.manager.GetWatchRegistry()
-	handle, exists := watchRegistry[varName]
-	w.mu.RUnlock()
+	_, exists := watchRegistry.Load(varName)
 
 	if !exists {
 		// First call - register and start watching
-		ctx, cancel := context.WithCancel(w.ctx)
+		ctx, cancel := context.WithCancel(w.rootCtx)
 
-		handle = &manager.WatchHandle{
-			VarName:      varName,
-			ComputeFunc:  computeNextState,
-			Tick:         tick,
-			CancelFunc:   cancel,
-			CurrentValue: nil,
-			HershCtx:     runCtx, // Store HershContext for compute function
+		tickHandle := &manager.TickHandle{
+			VarName:            varName,
+			GetComputationFunc: getComputationFunc,
+			Tick:               tick,
+			CancelFunc:         cancel,
 		}
 
-		w.registerWatch(varName, handle)
+		w.registerWatch(varName, tickHandle)
 
 		// Start watching in background
-		go watchLoop(w, handle, ctx)
+		go tickWatchLoop(w, tickHandle, ctx)
 
 		// Return nil on first call (not yet initialized)
 		return nil
@@ -76,45 +74,38 @@ func WatchCall(
 		return val
 	}
 
-	return handle.CurrentValue
+	return nil
 }
 
-// watchLoop runs the Watch monitoring loop.
-func watchLoop(w *Watcher, handle *manager.WatchHandle, ctx context.Context) {
+// tickWatchLoop runs the tick-based Watch monitoring loop.
+func tickWatchLoop(w *Watcher, handle *manager.TickHandle, rootCtx context.Context) {
 	ticker := time.NewTicker(handle.Tick)
 	defer ticker.Stop()
 
-	prevValue := handle.CurrentValue
-
 	for {
 		select {
-		case <-ctx.Done():
+		case <-rootCtx.Done():
 			return
-		case <-ticker.C:
-			// Compute next value using HershContext
-			nextValue, changed, err := handle.ComputeFunc(prevValue, handle.HershCtx)
 
+		case <-ticker.C:
+			// Get computation function
+			varUpdateFunc, err := handle.GetComputationFunc()
 			if err != nil {
 				// Log error but continue watching
-				if w.manager != nil {
-					w.manager.GetLogger().LogError(err, fmt.Sprintf("watch error for %s", handle.VarName))
+				if logger := w.manager.GetLogger(); logger != nil {
+					logger.LogWatchError(handle.VarName, manager.ErrorPhaseGetComputeFunc, err)
 				}
 				continue
 			}
 
-			if changed || prevValue == nil {
-				// Send VarSig
-				if w.manager != nil {
-					w.manager.GetSignals().SendVarSig(&manager.VarSig{
-						ComputedTime:  time.Now(),
-						TargetVarName: handle.VarName,
-						PrevState:     prevValue,
-						NextState:     nextValue,
-					})
-				}
-
-				handle.CurrentValue = nextValue
-				prevValue = nextValue
+			// Send VarSig with the computation function
+			if w.manager != nil {
+				w.manager.GetSignals().SendVarSig(&manager.VarSig{
+					ComputedTime:       time.Now(),
+					TargetVarName:      handle.VarName,
+					VarUpdateFunc:      varUpdateFunc,
+					IsStateIndependent: false, // Tick is state-dependent (apply sequentially)
+				})
 			}
 		}
 	}
@@ -134,33 +125,28 @@ func WatchFlow(
 		panic("WatchFlow called with invalid HershContext")
 	}
 
-	w.mu.RLock()
 	watchRegistry := w.manager.GetWatchRegistry()
-	handle, exists := watchRegistry[varName]
-	w.mu.RUnlock()
+	_, exists := watchRegistry.Load(varName)
 
 	if !exists {
 		// First call - register and start watching
-		ctx, cancel := context.WithCancel(w.ctx)
+		ctx, cancel := context.WithCancel(w.rootCtx)
 
-		handle = &manager.WatchHandle{
-			VarName:      varName,
-			ComputeFunc:  nil, // Not used for WatchFlow
-			Tick:         0,
-			CancelFunc:   cancel,
-			CurrentValue: nil,
-			HershCtx:     runCtx, // Store HershContext
+		flowHandle := &manager.FlowHandle{
+			VarName:    varName,
+			SourceChan: sourceChan,
+			CancelFunc: cancel,
 		}
 
-		w.registerWatch(varName, handle)
+		w.registerWatch(varName, flowHandle)
 
 		// Start watching channel
-		go watchFlowLoop(w, handle, sourceChan, ctx)
+		go flowWatchLoop(w, flowHandle, ctx)
 
 		return nil
 	}
 
-	// Get current value
+	// Get current value from VarState
 	if w.manager != nil {
 		val, ok := w.manager.GetState().VarState.Get(varName)
 		if !ok {
@@ -169,35 +155,38 @@ func WatchFlow(
 		return val
 	}
 
-	return handle.CurrentValue
+	return nil
 }
 
-// watchFlowLoop monitors a channel and sends VarSig on updates.
-func watchFlowLoop(w *Watcher, handle *manager.WatchHandle, sourceChan <-chan any, ctx context.Context) {
-	prevValue := handle.CurrentValue
-
+// flowWatchLoop monitors a channel and sends VarSig on updates.
+func flowWatchLoop(w *Watcher, handle *manager.FlowHandle, ctx context.Context) {
 	for {
 		select {
 		case <-ctx.Done():
+			msg := time.Now().String() + ": flow " + handle.VarName + " chan cancelled"
+			w.GetLogger().LogEffect(msg)
 			return
-		case nextValue, ok := <-sourceChan:
+
+		case value, ok := <-handle.SourceChan:
 			if !ok {
 				// Channel closed
 				return
 			}
 
+			// Wrap value in a VarUpdateFunc (ignores prev, returns value)
+			varUpdateFunc := func(prev any) (any, bool, error) {
+				return value, true, nil
+			}
+
 			// Send VarSig
 			if w.manager != nil {
 				w.manager.GetSignals().SendVarSig(&manager.VarSig{
-					ComputedTime:  time.Now(),
-					TargetVarName: handle.VarName,
-					PrevState:     prevValue,
-					NextState:     nextValue,
+					ComputedTime:       time.Now(),
+					TargetVarName:      handle.VarName,
+					VarUpdateFunc:      varUpdateFunc,
+					IsStateIndependent: true, // Flow is state-independent (use last value only)
 				})
 			}
-
-			handle.CurrentValue = nextValue
-			prevValue = nextValue
 		}
 	}
 }
@@ -207,11 +196,13 @@ func watchFlowLoop(w *Watcher, handle *manager.WatchHandle, sourceChan <-chan an
 func Watch(varName string, initialValue any, runCtx HershContext) any {
 	// For backward compatibility, just return WatchCall with a simple function
 	return WatchCall(
-		func(prev any, ctx HershContext) (any, bool, error) {
-			if prev == nil {
-				return initialValue, true, nil
-			}
-			return prev, false, nil
+		func() (manager.VarUpdateFunc, error) {
+			return func(prev any) (any, bool, error) {
+				if prev == nil {
+					return initialValue, true, nil
+				}
+				return prev, false, nil
+			}, nil
 		},
 		varName,
 		1*time.Second,

@@ -23,6 +23,10 @@ type (
 	VarNotInitializedError = shared.VarNotInitializedError
 )
 
+// VarUpdateFunc is a function that updates a variable's state.
+// It takes the previous state and returns the next state, a boolean indicating if the state changed, and an error.
+type VarUpdateFunc func(prev any) (next any, changed bool, err error)
+
 // Re-export constants
 const (
 	StateReady       = shared.StateReady

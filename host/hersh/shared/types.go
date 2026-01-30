@@ -135,21 +135,32 @@ type WatcherConfig struct {
 
 // RecoveryPolicy defines fault tolerance behavior.
 type RecoveryPolicy struct {
+	// MinConsecutiveFailures before entering recovery mode (default: 3)
+	// Failures below this threshold are suppressed with exponential backoff
+	MinConsecutiveFailures int
+
 	// MaxConsecutiveFailures before crashing (default: 6)
 	MaxConsecutiveFailures int
 
-	// BaseRetryDelay is the initial delay before retry (exponential backoff)
+	// SuppressDelay is the initial delay for suppression phase (default: 1s)
+	// Used when failures < MinConsecutiveFailures
+	SuppressDelay time.Duration
+
+	// BaseRetryDelay is the initial delay before retry in recovery mode (default: 5s)
+	// Used when failures >= MinConsecutiveFailures (exponential backoff)
 	BaseRetryDelay time.Duration
 
-	// MaxRetryDelay caps the maximum retry delay
+	// MaxRetryDelay caps the maximum retry delay (default: 5m)
 	MaxRetryDelay time.Duration
 }
 
 // DefaultRecoveryPolicy returns sensible defaults.
 func DefaultRecoveryPolicy() RecoveryPolicy {
 	return RecoveryPolicy{
+		MinConsecutiveFailures: 3,
 		MaxConsecutiveFailures: 6,
-		BaseRetryDelay:         1 * time.Second,
+		SuppressDelay:          1 * time.Second,
+		BaseRetryDelay:         5 * time.Second,
 		MaxRetryDelay:          5 * time.Minute,
 	}
 }

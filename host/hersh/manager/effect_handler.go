@@ -3,6 +3,7 @@ package manager
 import (
 	"context"
 	"fmt"
+	"sync"
 	"time"
 
 	"hersh/hctx"
@@ -28,6 +29,7 @@ type EffectLogger interface {
 // EffectHandler executes effects and manages the lifecycle of managed functions.
 // This is now a synchronous component - effects are executed via direct function calls.
 type EffectHandler struct {
+	mu               sync.RWMutex
 	managedFunc      ManagedFunc
 	cleaner          Cleaner
 	state            *ManagerState
@@ -97,16 +99,22 @@ func (eh *EffectHandler) SetWatcher(watcher any) {
 
 // SetManagedFunc sets the managed function.
 func (eh *EffectHandler) SetManagedFunc(managedFunc ManagedFunc) {
+	eh.mu.Lock()
+	defer eh.mu.Unlock()
 	eh.managedFunc = managedFunc
 }
 
 // SetCleaner sets the cleaner function.
 func (eh *EffectHandler) SetCleaner(cleaner Cleaner) {
+	eh.mu.Lock()
+	defer eh.mu.Unlock()
 	eh.cleaner = cleaner
 }
 
 // HasManagedFunc returns whether a managed function has been set.
 func (eh *EffectHandler) HasManagedFunc() bool {
+	eh.mu.RLock()
+	defer eh.mu.RUnlock()
 	return eh.managedFunc != nil
 }
 
@@ -179,6 +187,11 @@ func (eh *EffectHandler) runScript() (*EffectResult, *WatcherSig) {
 	eh.hershCtx.UpdateContext(execCtx)
 	eh.hershCtx.SetMessage(msg)
 
+	// Get managedFunc with read lock
+	eh.mu.RLock()
+	fn := eh.managedFunc
+	eh.mu.RUnlock()
+
 	// Execute in goroutine with panic recovery
 	done := make(chan error, 1)
 	go func() {
@@ -187,7 +200,7 @@ func (eh *EffectHandler) runScript() (*EffectResult, *WatcherSig) {
 				done <- fmt.Errorf("panic: %v", r)
 			}
 		}()
-		done <- eh.managedFunc(msg, eh.hershCtx)
+		done <- fn(msg, eh.hershCtx)
 	}()
 
 	// Wait for completion or timeout
@@ -225,7 +238,7 @@ func (eh *EffectHandler) runScript() (*EffectResult, *WatcherSig) {
 }
 
 // handleScriptError processes errors from managed function execution.
-// Returns the appropriate WatcherSig based on error type.
+// Returns the appropriate WatcherSig based on error type and recovery policy.
 func (eh *EffectHandler) handleScriptError(err error) *WatcherSig {
 	switch err.(type) {
 	case *shared.KillError:
@@ -241,11 +254,27 @@ func (eh *EffectHandler) handleScriptError(err error) *WatcherSig {
 			Reason:      err.Error(),
 		}
 	default:
-		// Regular error - go back to Ready
+		// Count consecutive failures from recent logs
+		consecutiveFails := eh.countConsecutiveFailures()
+
+		if consecutiveFails < eh.config.RecoveryPolicy.MinConsecutiveFailures {
+			// Suppress: sleep with exponential backoff, then Ready
+			delay := eh.calculateSuppressDelay(consecutiveFails)
+			time.Sleep(delay)
+			return &WatcherSig{
+				SignalTime:  time.Now(),
+				TargetState: shared.StateReady,
+				Reason: fmt.Sprintf("error suppressed (%d/%d) after %v: %v",
+					consecutiveFails, eh.config.RecoveryPolicy.MinConsecutiveFailures, delay, err),
+			}
+		}
+
+		// Enter recovery mode
 		return &WatcherSig{
 			SignalTime:  time.Now(),
-			TargetState: shared.StateReady,
-			Reason:      fmt.Sprintf("error: %v", err),
+			TargetState: shared.StateWaitRecover,
+			Reason: fmt.Sprintf("consecutive failures (%d) >= threshold (%d): %v",
+				consecutiveFails, eh.config.RecoveryPolicy.MinConsecutiveFailures, err),
 		}
 	}
 }
@@ -314,6 +343,11 @@ func (eh *EffectHandler) runScriptOnce() *EffectResult {
 	eh.hershCtx.UpdateContext(execCtx)
 	eh.hershCtx.SetMessage(nil)
 
+	// Get managedFunc with read lock
+	eh.mu.RLock()
+	fn := eh.managedFunc
+	eh.mu.RUnlock()
+
 	done := make(chan error, 1)
 	go func() {
 		defer func() {
@@ -321,7 +355,7 @@ func (eh *EffectHandler) runScriptOnce() *EffectResult {
 				done <- fmt.Errorf("panic: %v", r)
 			}
 		}()
-		done <- eh.managedFunc(nil, eh.hershCtx)
+		done <- fn(nil, eh.hershCtx)
 	}()
 
 	select {
@@ -432,16 +466,8 @@ func (eh *EffectHandler) recover() (*EffectResult, *WatcherSig) {
 		Timestamp: time.Now(),
 	}
 
-	// Check recent failure count
-	recentResults := eh.logger.GetRecentResults(6)
-	consecutiveFails := 0
-	for _, r := range recentResults {
-		if !r.Success {
-			consecutiveFails++
-		} else {
-			break
-		}
-	}
+	// Count consecutive failures from logs
+	consecutiveFails := eh.countConsecutiveFailures()
 
 	if consecutiveFails >= eh.config.RecoveryPolicy.MaxConsecutiveFailures {
 		// Too many failures - crash
@@ -455,8 +481,8 @@ func (eh *EffectHandler) recover() (*EffectResult, *WatcherSig) {
 		return result, sig
 	}
 
-	// Calculate backoff delay
-	delay := eh.calculateBackoff(consecutiveFails)
+	// Calculate recovery backoff delay
+	delay := eh.calculateRecoveryBackoff(consecutiveFails)
 	time.Sleep(delay)
 
 	// Attempt recovery - return InitRun signal
@@ -464,13 +490,63 @@ func (eh *EffectHandler) recover() (*EffectResult, *WatcherSig) {
 	sig := &WatcherSig{
 		SignalTime:  time.Now(),
 		TargetState: shared.StateInitRun,
-		Reason:      fmt.Sprintf("recovery attempt after %d failures", consecutiveFails),
+		Reason:      fmt.Sprintf("recovery attempt after %d failures (backoff: %v)", consecutiveFails, delay),
 	}
 
 	return result, sig
 }
 
-// calculateBackoff calculates exponential backoff delay.
+// countConsecutiveFailures counts recent consecutive failures from logs.
+func (eh *EffectHandler) countConsecutiveFailures() int {
+	// Get recent results including current execution
+	recentResults := eh.logger.GetRecentResults(eh.config.RecoveryPolicy.MaxConsecutiveFailures + 1)
+
+	consecutiveFails := 0
+	for i := len(recentResults) - 1; i >= 0; i-- {
+		if !recentResults[i].Success {
+			consecutiveFails++
+		} else {
+			break
+		}
+	}
+
+	// +1 for current failure (not yet logged)
+	return consecutiveFails + 1
+}
+
+// calculateSuppressDelay calculates exponential backoff for suppression phase.
+func (eh *EffectHandler) calculateSuppressDelay(failures int) time.Duration {
+	delay := eh.config.RecoveryPolicy.SuppressDelay
+	for i := 1; i < failures; i++ {
+		delay *= 2
+	}
+	// Cap at BaseRetryDelay (복구 모드 진입 전까지는 짧게 유지)
+	if delay > eh.config.RecoveryPolicy.BaseRetryDelay {
+		delay = eh.config.RecoveryPolicy.BaseRetryDelay
+	}
+	return delay
+}
+
+// calculateRecoveryBackoff calculates exponential backoff for recovery attempts.
+func (eh *EffectHandler) calculateRecoveryBackoff(failures int) time.Duration {
+	delay := eh.config.RecoveryPolicy.BaseRetryDelay
+
+	// Recovery 진입 이후의 실패 횟수만 계산
+	recoveryAttempts := failures - eh.config.RecoveryPolicy.MinConsecutiveFailures
+	if recoveryAttempts < 0 {
+		recoveryAttempts = 0
+	}
+
+	for i := 0; i < recoveryAttempts; i++ {
+		delay *= 2
+		if delay > eh.config.RecoveryPolicy.MaxRetryDelay {
+			return eh.config.RecoveryPolicy.MaxRetryDelay
+		}
+	}
+	return delay
+}
+
+// calculateBackoff calculates exponential backoff delay (deprecated - use calculateRecoveryBackoff).
 func (eh *EffectHandler) calculateBackoff(failures int) time.Duration {
 	delay := eh.config.RecoveryPolicy.BaseRetryDelay
 	for i := 0; i < failures; i++ {

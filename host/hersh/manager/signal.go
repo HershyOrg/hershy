@@ -9,12 +9,16 @@ import (
 	"hersh/shared"
 )
 
+// VarUpdateFunc is a function that updates a variable's state.
+// It receives the previous state and returns the next state, a changed flag, and an error.
+type VarUpdateFunc func(prev any) (next any, changed bool, err error)
+
 // VarSig represents a change in a watched variable's state.
 type VarSig struct {
-	ComputedTime  time.Time
-	TargetVarName string
-	PrevState     any
-	NextState     any
+	ComputedTime       time.Time
+	TargetVarName      string
+	VarUpdateFunc      VarUpdateFunc // Function to compute the next state
+	IsStateIndependent bool          // If true, only last signal matters; if false, apply sequentially
 }
 
 func (s *VarSig) Priority() shared.SignalPriority {
@@ -26,14 +30,18 @@ func (s *VarSig) CreatedAt() time.Time {
 }
 
 func (s *VarSig) String() string {
-	return fmt.Sprintf("VarSig{var=%s, prev=%v, next=%v, time=%s}",
-		s.TargetVarName, s.PrevState, s.NextState, s.ComputedTime.Format(time.RFC3339))
+	typeStr := "dependent"
+	if s.IsStateIndependent {
+		typeStr = "independent"
+	}
+	return fmt.Sprintf("VarSig{var=%s, type=%s, time=%s}",
+		s.TargetVarName, typeStr, s.ComputedTime.Format(time.RFC3339))
 }
 
 // UserSig represents a change in the user message state.
 type UserSig struct {
 	ReceivedTime time.Time
-	Message      *shared.Message
+	UserMessage  *shared.Message
 }
 
 func (s *UserSig) Priority() shared.SignalPriority {
@@ -46,8 +54,8 @@ func (s *UserSig) CreatedAt() time.Time {
 
 func (s *UserSig) String() string {
 	msgContent := ""
-	if s.Message != nil {
-		msgContent = s.Message.Content
+	if s.UserMessage != nil {
+		msgContent = s.UserMessage.Content
 	}
 	return fmt.Sprintf("UserSig{msg=%s, time=%s}",
 		msgContent, s.ReceivedTime.Format(time.RFC3339))

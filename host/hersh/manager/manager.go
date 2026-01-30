@@ -2,20 +2,38 @@ package manager
 
 import (
 	"context"
+	"sync"
 	"time"
 
 	"hersh/shared"
 )
 
-// WatchHandle represents a registered Watch variable.
-type WatchHandle struct {
-	VarName      string
-	ComputeFunc  func(prev any, ctx shared.HershContext) (any, bool, error)
-	Tick         time.Duration
-	CancelFunc   context.CancelFunc
-	CurrentValue any
-	HershCtx     shared.HershContext // Context for compute function
+// WatchHandle is an interface for different types of watch mechanisms.
+type WatchHandle interface {
+	GetVarName() string
+	GetCancelFunc() context.CancelFunc
 }
+
+// TickHandle represents a tick-based watch variable.
+type TickHandle struct {
+	VarName            string
+	GetComputationFunc func() (VarUpdateFunc, error) // Returns a function to compute next state
+	Tick               time.Duration
+	CancelFunc         context.CancelFunc
+}
+
+func (h *TickHandle) GetVarName() string                { return h.VarName }
+func (h *TickHandle) GetCancelFunc() context.CancelFunc { return h.CancelFunc }
+
+// FlowHandle represents a channel-based watch variable.
+type FlowHandle struct {
+	VarName    string
+	SourceChan <-chan any
+	CancelFunc context.CancelFunc
+}
+
+func (h *FlowHandle) GetVarName() string                { return h.VarName }
+func (h *FlowHandle) GetCancelFunc() context.CancelFunc { return h.CancelFunc }
 
 // Manager encapsulates all Manager components.
 // It orchestrates the Reducer-Effect pattern for reactive execution.
@@ -29,8 +47,8 @@ type Manager struct {
 	commander *EffectCommander
 	handler   *EffectHandler
 
-	memoCache     map[string]any
-	watchRegistry map[string]*WatchHandle
+	memoCache     sync.Map // map[string]any
+	watchRegistry sync.Map // map[string]WatchHandle
 }
 
 // NewManager creates a new WatcherManager with core components initialized.
@@ -38,11 +56,11 @@ type Manager struct {
 // ManagedFunc should be set later via SetManagedFunc().
 func NewManager(config shared.WatcherConfig) *Manager {
 	// Initialize logger (Manager owns its logger)
-	logger := NewLogger(1000)
+	logger := NewLogger(10_000)
 
 	// Initialize Manager components (start in Ready, will transition to InitRun on Start)
 	state := NewManagerState(shared.StateReady)
-	signals := NewSignalChannels(100)
+	signals := NewSignalChannels(50_000)
 
 	// Create reducer (no longer needs ActionChannel)
 	reducer := NewReducer(state, signals, logger)
@@ -67,16 +85,16 @@ func NewManager(config shared.WatcherConfig) *Manager {
 		reducer:       reducer,
 		commander:     commander,
 		handler:       handler,
-		memoCache:     make(map[string]any),
-		watchRegistry: make(map[string]*WatchHandle),
+		memoCache:     sync.Map{},
+		watchRegistry: sync.Map{},
 	}
 }
 
 // Start starts the Reducer loop (synchronous architecture).
 // Only Reducer runs in a goroutine now - it calls Commander and Handler synchronously.
-func (wm *Manager) Start(ctx context.Context) {
+func (wm *Manager) Start(rootCtx context.Context) {
 	// Pass commander and handler to reducer so it can call them synchronously
-	go wm.reducer.RunWithEffects(ctx, wm.commander, wm.handler)
+	go wm.reducer.RunWithEffects(rootCtx, wm.commander, wm.handler)
 }
 
 // GetState returns the current ManagerState.
@@ -89,8 +107,8 @@ func (wm *Manager) GetSignals() *SignalChannels {
 	return wm.signals
 }
 
-// GetHandler returns the EffectHandler.
-func (wm *Manager) GetHandler() *EffectHandler {
+// GetEffectHandler returns the EffectHandler.
+func (wm *Manager) GetEffectHandler() *EffectHandler {
 	return wm.handler
 }
 
@@ -111,12 +129,12 @@ func (wm *Manager) HasManagedFunc() bool {
 	return wm.handler.HasManagedFunc()
 }
 
-// GetMemoCache returns the memo cache.
-func (wm *Manager) GetMemoCache() map[string]any {
-	return wm.memoCache
+// GetMemoCache returns a pointer to the memo cache.
+func (wm *Manager) GetMemoCache() *sync.Map {
+	return &wm.memoCache
 }
 
-// GetWatchRegistry returns the watch registry.
-func (wm *Manager) GetWatchRegistry() map[string]*WatchHandle {
-	return wm.watchRegistry
+// GetWatchRegistry returns a pointer to the watch registry.
+func (wm *Manager) GetWatchRegistry() *sync.Map {
+	return &wm.watchRegistry
 }

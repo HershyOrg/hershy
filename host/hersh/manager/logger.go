@@ -4,17 +4,20 @@ import (
 	"fmt"
 	"sync"
 	"time"
+
+	"hersh/shared"
 )
 
 // Logger implements both ReduceLogger and EffectLogger interfaces.
 type Logger struct {
-	mu             sync.RWMutex
-	reduceLog      []ReduceLogEntry
-	effectLog      []EffectLogEntry
-	effectResults  []*EffectResult
-	errorLog       []ErrorLogEntry
-	contextLog     []ContextValueLogEntry
-	maxEntries     int
+	mu                      sync.RWMutex
+	reduceLog               []ReduceLogEntry
+	effectLog               []EffectLogEntry
+	effectResults           []*EffectResult
+	watchErrorLog           []WatchErrorLogEntry
+	contextLog              []ContextValueLogEntry
+	stateTransitionFaultLog []StateTransitionFaultLogEntry
+	maxEntries              int
 }
 
 // ReduceLogEntry represents a single reduce log entry.
@@ -31,12 +34,21 @@ type EffectLogEntry struct {
 	Message   string
 }
 
-// ErrorLogEntry represents an error that occurred in the Watcher.
-type ErrorLogEntry struct {
-	LogID     uint64
-	Timestamp time.Time
-	Error     error
-	Context   string
+// WatchErrorPhase represents the phase where a Watch error occurred.
+type WatchErrorPhase string
+
+const (
+	ErrorPhaseGetComputeFunc     WatchErrorPhase = "get_compute_func"
+	ErrorPhaseExecuteComputeFunc WatchErrorPhase = "execute_compute_func"
+)
+
+// WatchErrorLogEntry represents a Watch error log entry.
+type WatchErrorLogEntry struct {
+	LogID      uint64
+	Timestamp  time.Time
+	VarName    string
+	ErrorPhase WatchErrorPhase
+	Error      error
 }
 
 // ContextValueLogEntry represents a context value change.
@@ -49,15 +61,26 @@ type ContextValueLogEntry struct {
 	Operation string // "initialized" or "updated"
 }
 
+// StateTransitionFaultLogEntry represents a state transition failure.
+type StateTransitionFaultLogEntry struct {
+	LogID     uint64
+	Timestamp time.Time
+	FromState shared.ManagerInnerState
+	ToState   shared.ManagerInnerState
+	Reason    string
+	Error     error
+}
+
 // NewLogger creates a new Logger with specified max entries per log type.
 func NewLogger(maxEntries int) *Logger {
 	return &Logger{
-		reduceLog:     make([]ReduceLogEntry, 0, maxEntries),
-		effectLog:     make([]EffectLogEntry, 0, maxEntries),
-		effectResults: make([]*EffectResult, 0, maxEntries),
-		errorLog:      make([]ErrorLogEntry, 0, maxEntries),
-		contextLog:    make([]ContextValueLogEntry, 0, maxEntries),
-		maxEntries:    maxEntries,
+		reduceLog:               make([]ReduceLogEntry, 0, maxEntries),
+		effectLog:               make([]EffectLogEntry, 0, maxEntries),
+		effectResults:           make([]*EffectResult, 0, maxEntries),
+		watchErrorLog:           make([]WatchErrorLogEntry, 0, maxEntries),
+		contextLog:              make([]ContextValueLogEntry, 0, maxEntries),
+		stateTransitionFaultLog: make([]StateTransitionFaultLogEntry, 0, maxEntries),
+		maxEntries:              maxEntries,
 	}
 }
 
@@ -122,21 +145,22 @@ func (l *Logger) GetRecentResults(count int) []*EffectResult {
 	return results
 }
 
-// LogError logs an error with context.
-func (l *Logger) LogError(err error, context string) {
+// LogWatchError logs a Watch error with variable name and phase.
+func (l *Logger) LogWatchError(varName string, phase WatchErrorPhase, err error) {
 	l.mu.Lock()
 	defer l.mu.Unlock()
 
-	entry := ErrorLogEntry{
-		LogID:     uint64(len(l.errorLog)) + 1,
-		Timestamp: time.Now(),
-		Error:     err,
-		Context:   context,
+	entry := WatchErrorLogEntry{
+		LogID:      uint64(len(l.watchErrorLog)) + 1,
+		Timestamp:  time.Now(),
+		VarName:    varName,
+		ErrorPhase: phase,
+		Error:      err,
 	}
 
-	l.errorLog = append(l.errorLog, entry)
-	if len(l.errorLog) > l.maxEntries {
-		l.errorLog = l.errorLog[1:]
+	l.watchErrorLog = append(l.watchErrorLog, entry)
+	if len(l.watchErrorLog) > l.maxEntries {
+		l.watchErrorLog = l.watchErrorLog[1:]
 	}
 }
 
@@ -165,6 +189,26 @@ func (l *Logger) LogContextValue(key string, oldValue, newValue any, operation s
 	}
 }
 
+// LogStateTransitionFault logs a state transition failure.
+func (l *Logger) LogStateTransitionFault(from, to shared.ManagerInnerState, reason string, err error) {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+
+	entry := StateTransitionFaultLogEntry{
+		LogID:     uint64(len(l.stateTransitionFaultLog)) + 1,
+		Timestamp: time.Now(),
+		FromState: from,
+		ToState:   to,
+		Reason:    reason,
+		Error:     err,
+	}
+
+	l.stateTransitionFaultLog = append(l.stateTransitionFaultLog, entry)
+	if len(l.stateTransitionFaultLog) > l.maxEntries {
+		l.stateTransitionFaultLog = l.stateTransitionFaultLog[1:]
+	}
+}
+
 // GetReduceLog returns a copy of the reduce log.
 func (l *Logger) GetReduceLog() []ReduceLogEntry {
 	l.mu.RLock()
@@ -185,13 +229,23 @@ func (l *Logger) GetEffectLog() []EffectLogEntry {
 	return logCopy
 }
 
-// GetErrorLog returns a copy of the error log.
-func (l *Logger) GetErrorLog() []ErrorLogEntry {
+// GetWatchErrorLog returns a copy of the watch error log.
+func (l *Logger) GetWatchErrorLog() []WatchErrorLogEntry {
 	l.mu.RLock()
 	defer l.mu.RUnlock()
 
-	logCopy := make([]ErrorLogEntry, len(l.errorLog))
-	copy(logCopy, l.errorLog)
+	logCopy := make([]WatchErrorLogEntry, len(l.watchErrorLog))
+	copy(logCopy, l.watchErrorLog)
+	return logCopy
+}
+
+// GetStateTransitionFaultLog returns a copy of the state transition fault log.
+func (l *Logger) GetStateTransitionFaultLog() []StateTransitionFaultLogEntry {
+	l.mu.RLock()
+	defer l.mu.RUnlock()
+
+	logCopy := make([]StateTransitionFaultLogEntry, len(l.stateTransitionFaultLog))
+	copy(logCopy, l.stateTransitionFaultLog)
 	return logCopy
 }
 
@@ -204,8 +258,9 @@ func (l *Logger) PrintSummary() {
 	fmt.Printf("Reduce Log Entries: %d\n", len(l.reduceLog))
 	fmt.Printf("Effect Log Entries: %d\n", len(l.effectLog))
 	fmt.Printf("Effect Results: %d\n", len(l.effectResults))
-	fmt.Printf("Error Log Entries: %d\n", len(l.errorLog))
+	fmt.Printf("Watch Error Log Entries: %d\n", len(l.watchErrorLog))
 	fmt.Printf("Context Value Changes: %d\n", len(l.contextLog))
+	fmt.Printf("State Transition Fault Entries: %d\n", len(l.stateTransitionFaultLog))
 
 	if len(l.contextLog) > 0 {
 		fmt.Printf("\nRecent Context Value Changes:\n")
@@ -223,14 +278,34 @@ func (l *Logger) PrintSummary() {
 		}
 	}
 
-	if len(l.errorLog) > 0 {
-		fmt.Printf("\nRecent Errors:\n")
-		start := len(l.errorLog) - 5
+	if len(l.watchErrorLog) > 0 {
+		fmt.Printf("\nRecent Watch Errors:\n")
+		start := len(l.watchErrorLog) - 5
 		if start < 0 {
 			start = 0
 		}
-		for _, entry := range l.errorLog[start:] {
-			fmt.Printf("  [%s] %s: %v\n", entry.Timestamp.Format(time.RFC3339), entry.Context, entry.Error)
+		for _, entry := range l.watchErrorLog[start:] {
+			fmt.Printf("  [%s] %s (%s): %v\n",
+				entry.Timestamp.Format(time.RFC3339),
+				entry.VarName,
+				entry.ErrorPhase,
+				entry.Error)
+		}
+	}
+
+	if len(l.stateTransitionFaultLog) > 0 {
+		fmt.Printf("\nRecent State Transition Faults:\n")
+		start := len(l.stateTransitionFaultLog) - 5
+		if start < 0 {
+			start = 0
+		}
+		for _, entry := range l.stateTransitionFaultLog[start:] {
+			fmt.Printf("  [%s] %s → %s (reason: %s): %v\n",
+				entry.Timestamp.Format(time.RFC3339),
+				entry.FromState,
+				entry.ToState,
+				entry.Reason,
+				entry.Error)
 		}
 	}
 }

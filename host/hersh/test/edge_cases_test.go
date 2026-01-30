@@ -1,6 +1,7 @@
 package test
 
 import (
+	"hersh/manager"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -23,9 +24,11 @@ func TestEdgeCase_StopDuringInitRun(t *testing.T) {
 
 		// Register a slow watch to keep in InitRun state
 		hersh.WatchCall(
-			func(prev any, ctx shared.HershContext) (any, bool, error) {
-				time.Sleep(100 * time.Millisecond)
-				return time.Now().Unix(), true, nil
+			func() (manager.VarUpdateFunc, error) {
+				return func(prev any) (any, bool, error) {
+					time.Sleep(100 * time.Millisecond)
+					return time.Now().Unix(), true, nil
+				}, nil
 			},
 			"slowWatch",
 			500*time.Millisecond,
@@ -86,8 +89,10 @@ func TestEdgeCase_MultipleStops(t *testing.T) {
 
 	managedFunc := func(msg *shared.Message, ctx shared.HershContext) error {
 		hersh.WatchCall(
-			func(prev any, ctx shared.HershContext) (any, bool, error) {
-				return time.Now().Unix(), true, nil
+			func() (manager.VarUpdateFunc, error) {
+				return func(prev any) (any, bool, error) {
+					return time.Now().Unix(), true, nil
+				}, nil
 			},
 			"watch1",
 			100*time.Millisecond,
@@ -190,8 +195,10 @@ func TestEdgeCase_CleanupTimeout(t *testing.T) {
 
 	managedFunc := func(msg *shared.Message, ctx shared.HershContext) error {
 		hersh.WatchCall(
-			func(prev any, ctx shared.HershContext) (any, bool, error) {
-				return time.Now().Unix(), true, nil
+			func() (manager.VarUpdateFunc, error) {
+				return func(prev any) (any, bool, error) {
+					return time.Now().Unix(), true, nil
+				}, nil
 			},
 			"watch1",
 			100*time.Millisecond,
@@ -264,8 +271,10 @@ func TestEdgeCase_NilMessageHandling(t *testing.T) {
 		}
 
 		hersh.WatchCall(
-			func(prev any, ctx shared.HershContext) (any, bool, error) {
-				return time.Now().Unix(), true, nil
+			func() (manager.VarUpdateFunc, error) {
+				return func(prev any) (any, bool, error) {
+					return time.Now().Unix(), true, nil
+				}, nil
 			},
 			"watch1",
 			100*time.Millisecond,
@@ -361,8 +370,10 @@ func TestEdgeCase_PanicRecovery(t *testing.T) {
 		}
 
 		hersh.WatchCall(
-			func(prev any, ctx shared.HershContext) (any, bool, error) {
-				return time.Now().Unix(), true, nil
+			func() (manager.VarUpdateFunc, error) {
+				return func(prev any) (any, bool, error) {
+					return time.Now().Unix(), true, nil
+				}, nil
 			},
 			"watch1",
 			100*time.Millisecond,
@@ -434,8 +445,10 @@ func TestEdgeCase_ContextCancellation(t *testing.T) {
 		}
 
 		hersh.WatchCall(
-			func(prev any, ctx shared.HershContext) (any, bool, error) {
-				return time.Now().Unix(), true, nil
+			func() (manager.VarUpdateFunc, error) {
+				return func(prev any) (any, bool, error) {
+					return time.Now().Unix(), true, nil
+				}, nil
 			},
 			"watch1",
 			100*time.Millisecond,

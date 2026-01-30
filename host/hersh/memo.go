@@ -22,10 +22,7 @@ func Memo(computeValue func() any, memoName string, ctx HershContext) any {
 
 	memoCache := w.manager.GetMemoCache()
 
-	w.mu.RLock()
-	cached, exists := memoCache[memoName]
-	w.mu.RUnlock()
-
+	cached, exists := memoCache.Load(memoName)
 	if exists {
 		return cached
 	}
@@ -33,12 +30,14 @@ func Memo(computeValue func() any, memoName string, ctx HershContext) any {
 	// Compute value
 	value := computeValue()
 
-	// Cache it
-	w.mu.Lock()
-	memoCache[memoName] = value
-	w.mu.Unlock()
+	// Cache it (LoadOrStore handles race conditions)
+	actual, loaded := memoCache.LoadOrStore(memoName, value)
+	if loaded {
+		// Another goroutine computed it first, use that value
+		return actual
+	}
 
-	// Log the memoization
+	// Log the memoization (only if we stored it)
 	if logger := w.GetLogger(); logger != nil {
 		logger.LogEffect(fmt.Sprintf("Memo[%s] = %v", memoName, value))
 	}
@@ -54,10 +53,7 @@ func ClearMemo(memoName string, ctx HershContext) {
 	}
 
 	memoCache := w.manager.GetMemoCache()
-
-	w.mu.Lock()
-	delete(memoCache, memoName)
-	w.mu.Unlock()
+	memoCache.Delete(memoName)
 
 	if logger := w.GetLogger(); logger != nil {
 		logger.LogEffect(fmt.Sprintf("Memo[%s] cleared", memoName))

@@ -38,10 +38,10 @@ func TestReducer_VarSigTransition(t *testing.T) {
 
 	// Send VarSig
 	sig := &VarSig{
-		ComputedTime:  time.Now(),
-		TargetVarName: "testVar",
-		PrevState:     nil,
-		NextState:     42,
+		ComputedTime:       time.Now(),
+		TargetVarName:      "testVar",
+		VarUpdateFunc:      func(prev any) (any, bool, error) { return 42, true, nil },
+		IsStateIndependent: false,
 	}
 	signals.SendVarSig(sig)
 
@@ -112,7 +112,7 @@ func TestReducer_UserSigTransition(t *testing.T) {
 	}
 	sig := &UserSig{
 		ReceivedTime: time.Now(),
-		Message:      msg,
+		UserMessage:  msg,
 	}
 	signals.SendUserSig(sig)
 
@@ -203,13 +203,14 @@ func TestReducer_PriorityOrdering(t *testing.T) {
 
 	// Send signals in reverse priority order (Var, User, Watcher)
 	varSig := &VarSig{
-		ComputedTime:  time.Now(),
-		TargetVarName: "var1",
-		NextState:     1,
+		ComputedTime:       time.Now(),
+		TargetVarName:      "var1",
+		VarUpdateFunc:      func(prev any) (any, bool, error) { return 1, true, nil },
+		IsStateIndependent: false,
 	}
 	userSig := &UserSig{
 		ReceivedTime: time.Now(),
-		Message:      &shared.Message{Content: "user"},
+		UserMessage:  &shared.Message{Content: "user"},
 	}
 	watcherSig := &WatcherSig{
 		SignalTime:  time.Now(),
@@ -259,10 +260,12 @@ func TestReducer_BatchVarSigCollection(t *testing.T) {
 
 	// Send multiple VarSigs
 	for i := 1; i <= 5; i++ {
+		currentVal := i * 10
 		sig := &VarSig{
-			ComputedTime:  time.Now(),
-			TargetVarName: "var" + string(rune('0'+i)),
-			NextState:     i * 10,
+			ComputedTime:       time.Now(),
+			TargetVarName:      "var" + string(rune('0'+i)),
+			VarUpdateFunc:      func(prev any) (any, bool, error) { return currentVal, true, nil },
+			IsStateIndependent: false,
 		}
 		signals.SendVarSig(sig)
 	}
