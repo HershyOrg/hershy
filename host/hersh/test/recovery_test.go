@@ -17,7 +17,6 @@ func TestRecovery_SuppressPhase(t *testing.T) {
 	config := shared.DefaultWatcherConfig()
 	config.RecoveryPolicy.MinConsecutiveFailures = 3
 	config.RecoveryPolicy.MaxConsecutiveFailures = 6
-	config.RecoveryPolicy.SuppressDelay = 100 * time.Millisecond
 
 	watcher := hersh.NewWatcher(config)
 
@@ -78,7 +77,6 @@ func TestRecovery_EnterRecoveryMode(t *testing.T) {
 	config := shared.DefaultWatcherConfig()
 	config.RecoveryPolicy.MinConsecutiveFailures = 3
 	config.RecoveryPolicy.MaxConsecutiveFailures = 6
-	config.RecoveryPolicy.SuppressDelay = 50 * time.Millisecond
 	config.RecoveryPolicy.BaseRetryDelay = 200 * time.Millisecond
 
 	watcher := hersh.NewWatcher(config)
@@ -140,7 +138,6 @@ func TestRecovery_SuccessfulRecovery(t *testing.T) {
 	config := shared.DefaultWatcherConfig()
 	config.RecoveryPolicy.MinConsecutiveFailures = 3
 	config.RecoveryPolicy.MaxConsecutiveFailures = 6
-	config.RecoveryPolicy.SuppressDelay = 50 * time.Millisecond
 	config.RecoveryPolicy.BaseRetryDelay = 200 * time.Millisecond
 
 	watcher := hersh.NewWatcher(config)
@@ -202,7 +199,6 @@ func TestRecovery_MaxFailureCrash(t *testing.T) {
 	config := shared.DefaultWatcherConfig()
 	config.RecoveryPolicy.MinConsecutiveFailures = 3
 	config.RecoveryPolicy.MaxConsecutiveFailures = 6
-	config.RecoveryPolicy.SuppressDelay = 50 * time.Millisecond
 	config.RecoveryPolicy.BaseRetryDelay = 100 * time.Millisecond
 
 	watcher := hersh.NewWatcher(config)
@@ -267,7 +263,6 @@ func TestRecovery_CounterReset(t *testing.T) {
 	config := shared.DefaultWatcherConfig()
 	config.RecoveryPolicy.MinConsecutiveFailures = 3
 	config.RecoveryPolicy.MaxConsecutiveFailures = 6
-	config.RecoveryPolicy.SuppressDelay = 50 * time.Millisecond
 
 	watcher := hersh.NewWatcher(config)
 
@@ -276,7 +271,7 @@ func TestRecovery_CounterReset(t *testing.T) {
 		false, false, // Fail twice
 		true,         // Success (resets counter)
 		false, false, // Fail twice again (should suppress, not recover)
-		true,         // Success
+		true, // Success
 	}
 
 	managedFunc := func(msg *shared.Message, ctx shared.HershContext) error {

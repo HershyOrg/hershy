@@ -81,7 +81,7 @@ func (r *Reducer) processAvailableSignalsWithEffects(ctx context.Context, comman
 // 2. Reduce (state transition)
 // 3. CommandEffect (synchronous)
 // 4. ExecuteEffect (synchronous)
-// 5. If effect returns WatcherSig, inject it back into channel for recursive processing
+// 5. If effect returns WatcherSig, process it recursively (atomic execution)
 // Returns true if a signal was processed, false if no signals available.
 func (r *Reducer) tryProcessNextSignalWithEffects(commander *EffectCommander, handler *EffectHandler) bool {
 	currentState := r.state.GetManagerInnerState()
@@ -130,18 +130,7 @@ func (r *Reducer) reduceAndExecuteEffect(sig shared.Signal, commander *EffectCom
 		r.reduceUserSig(s)
 	case *VarSig:
 		r.reduceVarSig(s)
-
-		// Special case: After processing VarSig in InitRun, check if initialization is complete
-		if r.state.GetManagerInnerState() == shared.StateInitRun {
-			if handler.CheckInitializationComplete() {
-				// All variables initialized - send WatcherSig to transition to Ready
-				r.signals.SendWatcherSig(&WatcherSig{
-					SignalTime:  time.Now(),
-					TargetState: shared.StateReady,
-					Reason:      "initialization complete (all variables initialized)",
-				})
-			}
-		}
+		// Note: InitRun completion check moved after effect execution for atomic processing
 	default:
 		return // Unknown signal type
 	}
@@ -158,20 +147,36 @@ func (r *Reducer) reduceAndExecuteEffect(sig shared.Signal, commander *EffectCom
 		r.logger.LogReduce(action)
 	}
 
-	// 3. CommandEffect (synchronous)
+	// 3. Check for InitRun completion before CommandEffect
+	// This ensures atomic InitRun → Ready transition without effect execution
+	if r.state.GetManagerInnerState() == shared.StateInitRun {
+		if _, ok := sig.(*VarSig); ok && handler.CheckInitializationComplete() {
+			// All variables initialized - transition to Ready immediately
+			initCompleteSig := &WatcherSig{
+				SignalTime:  time.Now(),
+				TargetState: shared.StateReady,
+				Reason:      "initialization complete (all variables initialized)",
+			}
+			// Process Ready transition recursively (atomic)
+			r.reduceAndExecuteEffect(initCompleteSig, commander, handler)
+			return
+		}
+	}
+
+	// 4. CommandEffect (synchronous)
 	effectDef := commander.CommandEffect(action)
 	if effectDef == nil {
 		return // No effect to execute
 	}
 
-	// 4. ExecuteEffect (synchronous)
+	// 5. ExecuteEffect (synchronous)
 	resultSig := handler.ExecuteEffect(effectDef)
 	if resultSig == nil {
 		return // No further state transition needed
 	}
 
-	// 5. Inject result WatcherSig back into channel for recursive processing
-	r.signals.SendWatcherSig(resultSig)
+	// 6. Process result WatcherSig recursively (atomic execution)
+	r.reduceAndExecuteEffect(resultSig, commander, handler)
 }
 
 // tryProcessNextSignal attempts to process one signal following priority rules.

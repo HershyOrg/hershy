@@ -235,7 +235,7 @@ func TestEdgeCase_PanicRecovery_Original(t *testing.T) {
 	}
 	defer watcher.Stop()
 
-	time.Sleep(200 * time.Millisecond)
+	time.Sleep(210 * time.Millisecond)
 
 	// Trigger panic
 	watcher.SendMessage("trigger panic")

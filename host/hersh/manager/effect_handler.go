@@ -239,6 +239,7 @@ func (eh *EffectHandler) runScript() (*EffectResult, *WatcherSig) {
 
 // handleScriptError processes errors from managed function execution.
 // Returns the appropriate WatcherSig based on error type and recovery policy.
+// Part 2: Determines state transition AFTER execution (delay was already applied in runScript)
 func (eh *EffectHandler) handleScriptError(err error) *WatcherSig {
 	switch err.(type) {
 	case *shared.KillError:
@@ -258,18 +259,16 @@ func (eh *EffectHandler) handleScriptError(err error) *WatcherSig {
 		consecutiveFails := eh.countConsecutiveFailures()
 
 		if consecutiveFails < eh.config.RecoveryPolicy.MinConsecutiveFailures {
-			// Suppress: sleep with exponential backoff, then Ready
-			delay := eh.calculateSuppressDelay(consecutiveFails)
-			time.Sleep(delay)
+			// Suppression phase: delay was already applied in runScript, just return Ready
 			return &WatcherSig{
 				SignalTime:  time.Now(),
 				TargetState: shared.StateReady,
-				Reason: fmt.Sprintf("error suppressed (%d/%d) after %v: %v",
-					consecutiveFails, eh.config.RecoveryPolicy.MinConsecutiveFailures, delay, err),
+				Reason: fmt.Sprintf("error suppressed (%d/%d): %v",
+					consecutiveFails, eh.config.RecoveryPolicy.MinConsecutiveFailures, err),
 			}
 		}
 
-		// Enter recovery mode
+		// Too many consecutive failures - enter recovery mode
 		return &WatcherSig{
 			SignalTime:  time.Now(),
 			TargetState: shared.StateWaitRecover,
@@ -497,8 +496,9 @@ func (eh *EffectHandler) recover() (*EffectResult, *WatcherSig) {
 }
 
 // countConsecutiveFailures counts recent consecutive failures from logs.
+// Used by handleScriptError to include the current failure (+1).
 func (eh *EffectHandler) countConsecutiveFailures() int {
-	// Get recent results including current execution
+	// Get recent results from log
 	recentResults := eh.logger.GetRecentResults(eh.config.RecoveryPolicy.MaxConsecutiveFailures + 1)
 
 	consecutiveFails := 0
@@ -512,19 +512,6 @@ func (eh *EffectHandler) countConsecutiveFailures() int {
 
 	// +1 for current failure (not yet logged)
 	return consecutiveFails + 1
-}
-
-// calculateSuppressDelay calculates exponential backoff for suppression phase.
-func (eh *EffectHandler) calculateSuppressDelay(failures int) time.Duration {
-	delay := eh.config.RecoveryPolicy.SuppressDelay
-	for i := 1; i < failures; i++ {
-		delay *= 2
-	}
-	// Cap at BaseRetryDelay (복구 모드 진입 전까지는 짧게 유지)
-	if delay > eh.config.RecoveryPolicy.BaseRetryDelay {
-		delay = eh.config.RecoveryPolicy.BaseRetryDelay
-	}
-	return delay
 }
 
 // calculateRecoveryBackoff calculates exponential backoff for recovery attempts.
