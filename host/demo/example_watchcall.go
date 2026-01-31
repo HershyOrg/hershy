@@ -13,7 +13,7 @@ func main1() {
 	fmt.Println("=== Hersh WatchCall Demo ===\n")
 
 	config := hersh.DefaultWatcherConfig()
-	watcher := hersh.NewWatcher(config)
+	watcher := hersh.NewWatcher(config, nil)
 
 	// Simulated external data source
 	externalCounter := 0

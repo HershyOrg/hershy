@@ -14,7 +14,7 @@ func main2() {
 	config := hersh.DefaultWatcherConfig()
 	config.DefaultTimeout = 5 * time.Second
 
-	watcher := hersh.NewWatcher(config)
+	watcher := hersh.NewWatcher(config, nil)
 
 	// Managed function with reactive state
 	counter := 0

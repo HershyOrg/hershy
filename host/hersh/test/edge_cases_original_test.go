@@ -15,7 +15,7 @@ import (
 // TestEdgeCase_StopDuringInitRun_Original tests that cleanup IS called when stopped during InitRun
 func TestEdgeCase_StopDuringInitRun_Original(t *testing.T) {
 	config := shared.DefaultWatcherConfig()
-	watcher := hersh.NewWatcher(config)
+	watcher := hersh.NewWatcher(config, nil)
 
 	cleanupCalled := int32(0)
 	executionCount := int32(0)
@@ -81,7 +81,7 @@ func TestEdgeCase_StopDuringInitRun_Original(t *testing.T) {
 // TestEdgeCase_StopErrorHandling_Original expects second Stop() to return error
 func TestEdgeCase_StopErrorHandling_Original(t *testing.T) {
 	config := shared.DefaultWatcherConfig()
-	watcher := hersh.NewWatcher(config)
+	watcher := hersh.NewWatcher(config, nil)
 
 	executionCount := int32(0)
 
@@ -130,7 +130,7 @@ func TestEdgeCase_StopErrorHandling_Original(t *testing.T) {
 // TestEdgeCase_CleanupTimeout_Original expects Stop() to wait for cleanup
 func TestEdgeCase_CleanupTimeout_Original(t *testing.T) {
 	config := shared.DefaultWatcherConfig()
-	watcher := hersh.NewWatcher(config)
+	watcher := hersh.NewWatcher(config, nil)
 
 	cleanupStarted := int32(0)
 	cleanupCompleted := int32(0)
@@ -199,7 +199,7 @@ func TestEdgeCase_CleanupTimeout_Original(t *testing.T) {
 // TestEdgeCase_PanicRecovery_Original expects Ready state after panic
 func TestEdgeCase_PanicRecovery_Original(t *testing.T) {
 	config := shared.DefaultWatcherConfig()
-	watcher := hersh.NewWatcher(config)
+	watcher := hersh.NewWatcher(config, nil)
 
 	executionCount := int32(0)
 	panicCount := int32(0)
@@ -269,7 +269,7 @@ func TestEdgeCase_PanicRecovery_Original(t *testing.T) {
 func TestEdgeCase_ContextCancellation_Original(t *testing.T) {
 	config := shared.DefaultWatcherConfig()
 	config.DefaultTimeout = 500 * time.Millisecond
-	watcher := hersh.NewWatcher(config)
+	watcher := hersh.NewWatcher(config, nil)
 
 	executionCount := int32(0)
 	timeoutCount := int32(0)

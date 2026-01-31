@@ -14,7 +14,7 @@ import (
 // FIX: Updated expectation - cleanup may not be called if stopped during InitRun
 func TestEdgeCase_StopDuringInitRun(t *testing.T) {
 	config := shared.DefaultWatcherConfig()
-	watcher := hersh.NewWatcher(config)
+	watcher := hersh.NewWatcher(config, nil)
 
 	cleanupCalled := int32(0)
 	executionCount := int32(0)
@@ -83,7 +83,7 @@ func TestEdgeCase_StopDuringInitRun(t *testing.T) {
 // TestEdgeCase_MultipleStops tests idempotent stop behavior
 func TestEdgeCase_MultipleStops(t *testing.T) {
 	config := shared.DefaultWatcherConfig()
-	watcher := hersh.NewWatcher(config)
+	watcher := hersh.NewWatcher(config, nil)
 
 	cleanupCalled := int32(0)
 
@@ -141,7 +141,7 @@ func TestEdgeCase_MultipleStops(t *testing.T) {
 // FIX: Updated expectation - after StopError auto-stop, second Stop() may not error
 func TestEdgeCase_StopErrorHandling(t *testing.T) {
 	config := shared.DefaultWatcherConfig()
-	watcher := hersh.NewWatcher(config)
+	watcher := hersh.NewWatcher(config, nil)
 
 	executionCount := int32(0)
 
@@ -188,7 +188,7 @@ func TestEdgeCase_StopErrorHandling(t *testing.T) {
 // FIX: Cleanup runs in background, Stop() may return before cleanup completes
 func TestEdgeCase_CleanupTimeout(t *testing.T) {
 	config := shared.DefaultWatcherConfig()
-	watcher := hersh.NewWatcher(config)
+	watcher := hersh.NewWatcher(config, nil)
 
 	cleanupStarted := int32(0)
 	cleanupCompleted := int32(0)
@@ -256,7 +256,7 @@ func TestEdgeCase_CleanupTimeout(t *testing.T) {
 // TestEdgeCase_NilMessageHandling tests nil message handling
 func TestEdgeCase_NilMessageHandling(t *testing.T) {
 	config := shared.DefaultWatcherConfig()
-	watcher := hersh.NewWatcher(config)
+	watcher := hersh.NewWatcher(config, nil)
 
 	nilCount := int32(0)
 	nonNilCount := int32(0)
@@ -318,7 +318,7 @@ func TestEdgeCase_NilMessageHandling(t *testing.T) {
 // TestEdgeCase_EmptyWatchVariables tests handling when no watches registered
 func TestEdgeCase_EmptyWatchVariables(t *testing.T) {
 	config := shared.DefaultWatcherConfig()
-	watcher := hersh.NewWatcher(config)
+	watcher := hersh.NewWatcher(config, nil)
 
 	executionCount := int32(0)
 
@@ -355,7 +355,7 @@ func TestEdgeCase_EmptyWatchVariables(t *testing.T) {
 // TestEdgeCase_PanicRecovery tests panic recovery in managed function
 func TestEdgeCase_PanicRecovery(t *testing.T) {
 	config := shared.DefaultWatcherConfig()
-	watcher := hersh.NewWatcher(config)
+	watcher := hersh.NewWatcher(config, nil)
 
 	executionCount := int32(0)
 	panicCount := int32(0)
@@ -426,7 +426,7 @@ func TestEdgeCase_PanicRecovery(t *testing.T) {
 func TestEdgeCase_ContextCancellation(t *testing.T) {
 	config := shared.DefaultWatcherConfig()
 	config.DefaultTimeout = 200 * time.Millisecond // Short timeout
-	watcher := hersh.NewWatcher(config)
+	watcher := hersh.NewWatcher(config, nil)
 
 	executionCount := int32(0)
 	longOpCount := int32(0)

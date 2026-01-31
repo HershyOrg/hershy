@@ -14,7 +14,7 @@ func TestWatchCall_BasicFunctionality(t *testing.T) {
 	config := DefaultWatcherConfig()
 	config.DefaultTimeout = 5 * time.Second
 
-	watcher := NewWatcher(config)
+	watcher := NewWatcher(config, nil)
 
 	executeCount := int32(0)
 	varValue := int32(0)
@@ -74,7 +74,7 @@ func TestWatchCall_BasicFunctionality(t *testing.T) {
 // TestWatchCall_ValuePersistence tests that WatchCall values persist across executions
 func TestWatchCall_ValuePersistence(t *testing.T) {
 	config := DefaultWatcherConfig()
-	watcher := NewWatcher(config)
+	watcher := NewWatcher(config, nil)
 
 	observedValues := make([]any, 0)
 	executionCount := 0
@@ -128,7 +128,7 @@ func TestWatchCall_ValuePersistence(t *testing.T) {
 // TestWatchCall_NoChangeDoesNotTrigger tests that unchanged values don't trigger re-execution
 func TestWatchCall_NoChangeDoesNotTrigger(t *testing.T) {
 	config := DefaultWatcherConfig()
-	watcher := NewWatcher(config)
+	watcher := NewWatcher(config, nil)
 
 	executeCount := int32(0)
 	computeCallCount := int32(0)
@@ -189,7 +189,7 @@ func TestWatchCall_NoChangeDoesNotTrigger(t *testing.T) {
 // TestWatchFlow_ChannelBased tests WatchFlow with channel-based reactive programming
 func TestWatchFlow_ChannelBased(t *testing.T) {
 	config := DefaultWatcherConfig()
-	watcher := NewWatcher(config)
+	watcher := NewWatcher(config, nil)
 
 	sourceChan := make(chan any, 10)
 	receivedValues := make([]any, 0)
@@ -248,7 +248,7 @@ func TestWatchFlow_ChannelBased(t *testing.T) {
 // TestWatchFlow_ChannelClosed tests WatchFlow behavior when channel is closed
 func TestWatchFlow_ChannelClosed(t *testing.T) {
 	config := DefaultWatcherConfig()
-	watcher := NewWatcher(config)
+	watcher := NewWatcher(config, nil)
 
 	sourceChan := make(chan any, 5)
 	receivedValues := make([]any, 0)
@@ -293,7 +293,7 @@ func TestWatchFlow_ChannelClosed(t *testing.T) {
 // TestMemo_BasicCaching tests basic Memo caching functionality
 func TestMemo_BasicCaching(t *testing.T) {
 	config := DefaultWatcherConfig()
-	watcher := NewWatcher(config)
+	watcher := NewWatcher(config, nil)
 
 	computeCount := int32(0)
 	executeCount := int32(0)
@@ -349,7 +349,7 @@ func TestMemo_BasicCaching(t *testing.T) {
 // TestMemo_ClearMemo tests ClearMemo functionality
 func TestMemo_ClearMemo(t *testing.T) {
 	config := DefaultWatcherConfig()
-	watcher := NewWatcher(config)
+	watcher := NewWatcher(config, nil)
 
 	computeCount := int32(0)
 
@@ -411,7 +411,7 @@ func TestMemo_ClearMemo(t *testing.T) {
 // TestWatcher_MultipleWatchVariables tests multiple Watch variables working together
 func TestWatcher_MultipleWatchVariables(t *testing.T) {
 	config := DefaultWatcherConfig()
-	watcher := NewWatcher(config)
+	watcher := NewWatcher(config, nil)
 
 	counter1 := int32(0)
 	counter2 := int32(0)
@@ -481,7 +481,7 @@ func TestWatcher_MultipleWatchVariables(t *testing.T) {
 // TestWatcher_WatchAndMemo tests Watch and Memo working together
 func TestWatcher_WatchAndMemo(t *testing.T) {
 	config := DefaultWatcherConfig()
-	watcher := NewWatcher(config)
+	watcher := NewWatcher(config, nil)
 
 	watchCounter := int32(0)
 	memoComputeCount := int32(0)
@@ -541,7 +541,7 @@ func TestWatcher_WatchAndMemo(t *testing.T) {
 // TestWatcher_HershContextAccess tests accessing Watcher through HershContext
 func TestWatcher_HershContextAccess(t *testing.T) {
 	config := DefaultWatcherConfig()
-	watcher := NewWatcher(config)
+	watcher := NewWatcher(config, nil)
 
 	contextValid := false
 
@@ -592,7 +592,7 @@ func TestWatcher_HershContextAccess(t *testing.T) {
 // TestWatcher_StopCancelsWatches tests that Stop() stops the watcher gracefully
 func TestWatcher_StopCancelsWatches(t *testing.T) {
 	config := DefaultWatcherConfig()
-	watcher := NewWatcher(config)
+	watcher := NewWatcher(config, nil)
 
 	watchCallCount := int32(0)
 
@@ -645,7 +645,7 @@ func TestWatcher_StopCancelsWatches(t *testing.T) {
 // TestWatchCall_ErrorHandling tests error handling in WatchCall compute function
 func TestWatchCall_ErrorHandling(t *testing.T) {
 	config := DefaultWatcherConfig()
-	watcher := NewWatcher(config)
+	watcher := NewWatcher(config, nil)
 
 	errorCount := int32(0)
 	successCount := int32(0)

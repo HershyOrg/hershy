@@ -16,6 +16,10 @@ type Watcher struct {
 	config  WatcherConfig
 	manager *manager.Manager
 
+	// Environment variables (immutable after initialization)
+	// Can only be set during NewWatcher and accessed via GetEnv.
+	envVarMap map[string]string
+
 	// State
 	isRunning atomic.Bool
 
@@ -24,9 +28,11 @@ type Watcher struct {
 	rootCancel context.CancelFunc
 }
 
-// NewWatcher creates a new Watcher with the given configuration.
+// NewWatcher creates a new Watcher with the given configuration and environment variables.
 // The Manager is initialized during Watcher construction.
-func NewWatcher(config WatcherConfig) *Watcher {
+// envVars are immutable after initialization and can only be accessed via GetEnv.
+// If envVars is nil, an empty map is created.
+func NewWatcher(config WatcherConfig, envVars map[string]string) *Watcher {
 	if config.DefaultTimeout == 0 {
 		config = DefaultWatcherConfig()
 	}
@@ -36,9 +42,18 @@ func NewWatcher(config WatcherConfig) *Watcher {
 	// Initialize Manager with config (no managed function yet)
 	mgr := manager.NewManager(config)
 
+	// Deep copy envVars to ensure immutability
+	envCopy := make(map[string]string)
+	if envVars != nil {
+		for k, v := range envVars {
+			envCopy[k] = v
+		}
+	}
+
 	w := &Watcher{
 		config:     config,
 		manager:    mgr,
+		envVarMap:  envCopy,
 		rootCtx:    ctx,
 		rootCancel: cancel,
 	}
@@ -177,6 +192,14 @@ func (w *Watcher) GetState() ManagerInnerState {
 // GetLogger returns the Watcher's logger for inspection.
 func (w *Watcher) GetLogger() *manager.Logger {
 	return w.manager.GetLogger()
+}
+
+// GetEnv returns the environment variable value for the given key.
+// The second return value (ok) is true if the key exists, false otherwise.
+// This method is safe for concurrent access as envVarMap is immutable after initialization.
+func (w *Watcher) GetEnv(key string) (string, bool) {
+	val, ok := w.envVarMap[key]
+	return val, ok
 }
 
 // registerWatch registers a Watch variable.

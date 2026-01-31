@@ -21,7 +21,7 @@ import (
 func TestBatchUpdate_LongExecution(t *testing.T) {
 	config := shared.DefaultWatcherConfig()
 	config.DefaultTimeout = 10 * time.Second // Long timeout for 3s execution
-	watcher := hersh.NewWatcher(config)
+	watcher := hersh.NewWatcher(config, nil)
 
 	// Track execution count
 	executionCount := int32(0)
@@ -233,7 +233,7 @@ func TestBatchUpdate_LongExecution(t *testing.T) {
 // This uses shorter execution times (100ms) to trigger more frequent batch processing.
 func TestBatchUpdate_RapidExecutions(t *testing.T) {
 	config := shared.DefaultWatcherConfig()
-	watcher := hersh.NewWatcher(config)
+	watcher := hersh.NewWatcher(config, nil)
 
 	executionCount := int32(0)
 	ticksA := int32(0)

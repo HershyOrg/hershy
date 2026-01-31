@@ -18,7 +18,7 @@ func TestRecovery_SuppressPhase(t *testing.T) {
 	config.RecoveryPolicy.MinConsecutiveFailures = 3
 	config.RecoveryPolicy.MaxConsecutiveFailures = 6
 
-	watcher := hersh.NewWatcher(config)
+	watcher := hersh.NewWatcher(config, nil)
 
 	executionCount := int32(0)
 	failureCount := 2 // Fail twice, then succeed
@@ -79,7 +79,7 @@ func TestRecovery_EnterRecoveryMode(t *testing.T) {
 	config.RecoveryPolicy.MaxConsecutiveFailures = 6
 	config.RecoveryPolicy.BaseRetryDelay = 200 * time.Millisecond
 
-	watcher := hersh.NewWatcher(config)
+	watcher := hersh.NewWatcher(config, nil)
 
 	executionCount := int32(0)
 	failureCount := 4 // Fail 4 times to trigger recovery
@@ -140,7 +140,7 @@ func TestRecovery_SuccessfulRecovery(t *testing.T) {
 	config.RecoveryPolicy.MaxConsecutiveFailures = 6
 	config.RecoveryPolicy.BaseRetryDelay = 200 * time.Millisecond
 
-	watcher := hersh.NewWatcher(config)
+	watcher := hersh.NewWatcher(config, nil)
 
 	executionCount := int32(0)
 	failureCount := 3 // Fail 3 times, then succeed
@@ -201,7 +201,7 @@ func TestRecovery_MaxFailureCrash(t *testing.T) {
 	config.RecoveryPolicy.MaxConsecutiveFailures = 6
 	config.RecoveryPolicy.BaseRetryDelay = 100 * time.Millisecond
 
-	watcher := hersh.NewWatcher(config)
+	watcher := hersh.NewWatcher(config, nil)
 
 	executionCount := int32(0)
 
@@ -264,7 +264,7 @@ func TestRecovery_CounterReset(t *testing.T) {
 	config.RecoveryPolicy.MinConsecutiveFailures = 3
 	config.RecoveryPolicy.MaxConsecutiveFailures = 6
 
-	watcher := hersh.NewWatcher(config)
+	watcher := hersh.NewWatcher(config, nil)
 
 	executionCount := int32(0)
 	failPattern := []bool{
