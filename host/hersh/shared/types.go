@@ -113,6 +113,10 @@ type HershContext interface {
 	// This ensures immutability and proper change tracking
 	// Returns the new value after update
 	UpdateValue(key string, updateFn func(current any) any) any
+
+	// GetWatcher returns the watcher reference
+	// Returns any to avoid circular dependency with hersh package
+	GetWatcher() any
 }
 
 // WatcherConfig holds configuration for creating a new Watcher.

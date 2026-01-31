@@ -9,7 +9,7 @@ import (
 
 // getWatcherFromContext extracts the Watcher from HershContext.
 func getWatcherFromContext(ctx HershContext) *Watcher {
-	w := ctx.GetValue("__watcher__")
+	w := ctx.GetWatcher()
 	if w == nil {
 		return nil
 	}

@@ -166,11 +166,6 @@ func (l *Logger) LogWatchError(varName string, phase WatchErrorPhase, err error)
 
 // LogContextValue logs a context value change.
 func (l *Logger) LogContextValue(key string, oldValue, newValue any, operation string) {
-	// Skip internal keys
-	if key == "__watcher__" {
-		return
-	}
-
 	l.mu.Lock()
 	defer l.mu.Unlock()
 

@@ -33,7 +33,7 @@ func tradingFunc(msg *hersh.Message, ctx hersh.HershContext) error {
 	fmt.Println(strings.Repeat("=", 60))
 
 	// Get watcher to access environment variables
-	watcherVal := ctx.GetValue("__watcher__")
+	watcherVal := ctx.GetWatcher()
 	if watcherVal == nil {
 		return fmt.Errorf("watcher not found in context")
 	}
@@ -230,7 +230,8 @@ func cleanupFunc(ctx hersh.HershContext) {
 
 func main() {
 	fmt.Println("=== Hersh Trading Bot Demo ===")
-	fmt.Println("Polymarket + Bitcoin Price Monitor\n")
+
+	fmt.Println("Polymarket + Bitcoin Price Monitor. \n")
 
 	// Create environment variables for watcher
 	envVars := map[string]string{

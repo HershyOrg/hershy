@@ -547,7 +547,7 @@ func TestWatcher_HershContextAccess(t *testing.T) {
 
 	managedFunc := func(msg *Message, ctx HershContext) error {
 		// Verify we can access watcher from context
-		watcherFromCtx := ctx.GetValue("__watcher__")
+		watcherFromCtx := ctx.GetWatcher()
 		if watcherFromCtx != nil {
 			contextValid = true
 			t.Log("Successfully accessed watcher from HershContext")

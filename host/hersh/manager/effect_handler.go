@@ -91,10 +91,7 @@ func (eh *EffectHandler) CheckInitializationComplete() bool {
 // This must be called before running any effects.
 // The watcher parameter should be of type *Watcher from hersh package.
 func (eh *EffectHandler) SetWatcher(watcher any) {
-	// Set watcher reference
 	eh.hershCtx.SetWatcher(watcher)
-	// Also store in valueStore for backward compatibility
-	eh.hershCtx.SetValue("__watcher__", watcher)
 }
 
 // SetManagedFunc sets the managed function.
