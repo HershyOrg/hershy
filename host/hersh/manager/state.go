@@ -121,7 +121,7 @@ type ManagerState struct {
 
 	// State transition notification channels
 	// These channels are closed when the Manager reaches the corresponding state
-	stoppedAfterCleanupChan              chan struct{}
+	stoppedAfterCleanupChan  chan struct{}
 	readyAfterInitChan       chan struct{}
 	stoppedChanClosed        bool
 	readyAfterInitChanClosed bool
@@ -130,11 +130,11 @@ type ManagerState struct {
 // NewManagerState creates a new ManagerState with initial ManagerInnerState.
 func NewManagerState(initialState shared.ManagerInnerState) *ManagerState {
 	return &ManagerState{
-		VarState:           NewVarState(),
-		UserState:          NewUserState(),
-		ManagerInnerState:  initialState,
-		stoppedAfterCleanupChan:        make(chan struct{}),
-		readyAfterInitChan: make(chan struct{}),
+		VarState:                NewVarState(),
+		UserState:               NewUserState(),
+		ManagerInnerState:       initialState,
+		stoppedAfterCleanupChan: make(chan struct{}),
+		readyAfterInitChan:      make(chan struct{}),
 	}
 }
 

@@ -104,6 +104,13 @@ func (w *Watcher) Start() error {
 	// Start Manager components
 	w.manager.Start(w.rootCtx)
 
+	// Start API server (non-blocking)
+	apiServer, err := w.StartAPIServer()
+	if err != nil {
+		return fmt.Errorf("failed to start API server: %w", err)
+	}
+	w.apiServer = apiServer
+
 	// Send InitRun signal to start initialization
 	w.manager.GetSignals().SendWatcherSig(&manager.WatcherSig{
 		SignalTime:  time.Now(),
@@ -122,13 +129,6 @@ func (w *Watcher) Start() error {
 		// Initialization failed
 		return fmt.Errorf("initialization failed: watcher entered %s state", finalState)
 	}
-
-	// Start API server (non-blocking)
-	apiServer, err := w.StartAPIServer()
-	if err != nil {
-		return fmt.Errorf("failed to start API server: %w", err)
-	}
-	w.apiServer = apiServer
 
 	return nil
 }
