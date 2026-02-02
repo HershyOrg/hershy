@@ -56,7 +56,7 @@ func NewEffectHandler(
 	bgCtx, cancel := context.WithCancel(context.Background())
 
 	// Create persistent HershContext
-	hershCtx := hctx.New(bgCtx, "watcher-1", logger.(hctx.Logger))
+	hershCtx := hctx.New(bgCtx, "effect Handler ctx", logger.(hctx.Logger))
 
 	return &EffectHandler{
 		managedFunc:   managedFunc,
@@ -256,12 +256,17 @@ func (eh *EffectHandler) handleScriptError(err error) *WatcherSig {
 		consecutiveFails := eh.countConsecutiveFailures()
 
 		if consecutiveFails < eh.config.RecoveryPolicy.MinConsecutiveFailures {
-			// Suppression phase: delay was already applied in runScript, just return Ready
+			// Apply lightweight retry delay
+			delay := eh.calculateLightweightRetryDelay(consecutiveFails)
+			if delay > 0 {
+				time.Sleep(delay)
+			}
+
 			return &WatcherSig{
 				SignalTime:  time.Now(),
 				TargetState: shared.StateReady,
-				Reason: fmt.Sprintf("error suppressed (%d/%d): %v",
-					consecutiveFails, eh.config.RecoveryPolicy.MinConsecutiveFailures, err),
+				Reason: fmt.Sprintf("error suppressed (%d/%d) after %v delay: %v",
+					consecutiveFails, eh.config.RecoveryPolicy.MinConsecutiveFailures, delay, err),
 			}
 		}
 
@@ -530,10 +535,31 @@ func (eh *EffectHandler) calculateRecoveryBackoff(failures int) time.Duration {
 	return delay
 }
 
+// calculateLightweightRetryDelay calculates delay for failures below MinConsecutiveFailures.
+// Returns 0 if no delay configured.
+func (eh *EffectHandler) calculateLightweightRetryDelay(failures int) time.Duration {
+	delays := eh.config.RecoveryPolicy.LightweightRetryDelays
+	if len(delays) == 0 {
+		return 0 // No lightweight retry configured (legacy behavior)
+	}
+
+	// failures는 1부터 시작 (첫 실패 = 1)
+	index := failures - 1
+	if index < 0 {
+		return 0
+	}
+	if index >= len(delays) {
+		// 마지막 delay 재사용
+		index = len(delays) - 1
+	}
+
+	return delays[index]
+}
+
 // calculateBackoff calculates exponential backoff delay (deprecated - use calculateRecoveryBackoff).
 func (eh *EffectHandler) calculateBackoff(failures int) time.Duration {
 	delay := eh.config.RecoveryPolicy.BaseRetryDelay
-	for i := 0; i < failures; i++ {
+	for range failures {
 		delay *= 2
 		if delay > eh.config.RecoveryPolicy.MaxRetryDelay {
 			return eh.config.RecoveryPolicy.MaxRetryDelay

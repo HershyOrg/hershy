@@ -199,6 +199,12 @@ func TestEdgeCase_CleanupTimeout_Original(t *testing.T) {
 // TestEdgeCase_PanicRecovery_Original expects Ready state after panic
 func TestEdgeCase_PanicRecovery_Original(t *testing.T) {
 	config := shared.DefaultWatcherConfig()
+	// Use short lightweight retry delays for testing (panic is treated as error)
+	config.RecoveryPolicy.LightweightRetryDelays = []time.Duration{
+		100 * time.Millisecond, // 1st failure
+		200 * time.Millisecond, // 2nd failure
+		300 * time.Millisecond, // 3rd+ failures
+	}
 	watcher := hersh.NewWatcher(config, nil)
 
 	executionCount := int32(0)
@@ -239,7 +245,8 @@ func TestEdgeCase_PanicRecovery_Original(t *testing.T) {
 
 	// Trigger panic
 	watcher.SendMessage("trigger panic")
-	time.Sleep(300 * time.Millisecond)
+	// Wait for panic recovery + lightweight retry delay (100ms)
+	time.Sleep(500 * time.Millisecond)
 
 	// System should continue working after panic
 	watcher.SendMessage("after panic")

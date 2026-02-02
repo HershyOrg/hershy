@@ -117,6 +117,11 @@ type HershContext interface {
 	// GetWatcher returns the watcher reference
 	// Returns any to avoid circular dependency with hersh package
 	GetWatcher() any
+
+	// GetEnv returns the environment variable value for the given key
+	// The second return value (ok) is true if the key exists, false otherwise
+	// Environment variables are immutable after Watcher initialization
+	GetEnv(key string) (string, bool)
 }
 
 // WatcherConfig holds configuration for creating a new Watcher.
@@ -135,6 +140,12 @@ type WatcherConfig struct {
 
 	// RecoveryPolicy defines how the Watcher handles failures
 	RecoveryPolicy RecoveryPolicy
+
+	// Resource limit settings for long-running stability
+	MaxLogEntries      int // Maximum log entries before circular buffer truncation (default: 50,000)
+	MaxWatches         int // Maximum number of concurrent watches (default: 1,000)
+	MaxMemoEntries     int // Maximum number of memo cache entries (default: 1,000)
+	SignalChanCapacity int // Signal channel buffer capacity (default: 50,000)
 }
 
 // RecoveryPolicy defines fault tolerance behavior.
@@ -152,6 +163,15 @@ type RecoveryPolicy struct {
 
 	// MaxRetryDelay caps the maximum retry delay (default: 5m)
 	MaxRetryDelay time.Duration
+
+	// LightweightRetryDelays defines backoff delays for errors below MinConsecutiveFailures.
+	// Example: [15s, 30s, 60s] means:
+	//   - 1st failure: wait 15s → Ready
+	//   - 2nd failure: wait 30s → Ready
+	//   - 3rd failure: wait 60s → Ready
+	//   - 4th+ failure: WaitRecover (if >= MinConsecutiveFailures)
+	// If nil or empty, no delay (legacy behavior for backward compatibility).
+	LightweightRetryDelays []time.Duration
 }
 
 // DefaultRecoveryPolicy returns sensible defaults.
@@ -161,14 +181,23 @@ func DefaultRecoveryPolicy() RecoveryPolicy {
 		MaxConsecutiveFailures: 6,
 		BaseRetryDelay:         5 * time.Second,
 		MaxRetryDelay:          5 * time.Minute,
+		LightweightRetryDelays: []time.Duration{
+			15 * time.Second, // 1st failure: 15s
+			30 * time.Second, // 2nd failure: 30s
+			60 * time.Second, // 3rd failure: 60s
+		},
 	}
 }
 
 // DefaultWatcherConfig returns default configuration.
 func DefaultWatcherConfig() WatcherConfig {
 	return WatcherConfig{
-		ServerPort:     8080,
-		DefaultTimeout: 1 * time.Minute,
-		RecoveryPolicy: DefaultRecoveryPolicy(),
+		ServerPort:         8080,
+		DefaultTimeout:     1 * time.Minute,
+		RecoveryPolicy:     DefaultRecoveryPolicy(),
+		MaxLogEntries:      50_000,
+		MaxWatches:         1_000,
+		MaxMemoEntries:     1_000,
+		SignalChanCapacity: 50_000,
 	}
 }

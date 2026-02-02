@@ -2,6 +2,7 @@ package manager
 
 import (
 	"context"
+	"fmt"
 	"sync"
 	"time"
 
@@ -38,6 +39,8 @@ func (h *FlowHandle) GetCancelFunc() context.CancelFunc { return h.CancelFunc }
 // Manager encapsulates all Manager components.
 // It orchestrates the Reducer-Effect pattern for reactive execution.
 type Manager struct {
+	config *shared.WatcherConfig
+
 	logger *Logger
 
 	state   *ManagerState
@@ -55,12 +58,12 @@ type Manager struct {
 // The Manager creates and owns its logger internally.
 // ManagedFunc should be set later via SetManagedFunc().
 func NewManager(config shared.WatcherConfig) *Manager {
-	// Initialize logger (Manager owns its logger)
-	logger := NewLogger(10_000)
+	// Initialize logger with config limit
+	logger := NewLogger(config.MaxLogEntries)
 
 	// Initialize Manager components (start in Ready, will transition to InitRun on Start)
 	state := NewManagerState(shared.StateReady)
-	signals := NewSignalChannels(50_000)
+	signals := NewSignalChannels(config.SignalChanCapacity)
 
 	// Create reducer (no longer needs ActionChannel)
 	reducer := NewReducer(state, signals, logger)
@@ -79,6 +82,7 @@ func NewManager(config shared.WatcherConfig) *Manager {
 	)
 
 	return &Manager{
+		config:        &config,
 		logger:        logger,
 		state:         state,
 		signals:       signals,
@@ -137,4 +141,36 @@ func (wm *Manager) GetMemoCache() *sync.Map {
 // GetWatchRegistry returns a pointer to the watch registry.
 func (wm *Manager) GetWatchRegistry() *sync.Map {
 	return &wm.watchRegistry
+}
+
+// GetConfig returns the WatcherConfig.
+func (wm *Manager) GetConfig() *shared.WatcherConfig {
+	return wm.config
+}
+
+// SetMemo stores a value in the memo cache with size limit enforcement.
+// Returns error if cache limit is reached.
+func (wm *Manager) SetMemo(key string, value any) error {
+	// Check if updating existing entry (allowed)
+	if _, exists := wm.memoCache.Load(key); !exists {
+		// New entry - check size limit
+		count := 0
+		wm.memoCache.Range(func(_, _ any) bool {
+			count++
+			return true
+		})
+
+		if count >= wm.config.MaxMemoEntries {
+			return fmt.Errorf("memo cache limit reached: %d/%d (cannot cache '%s')",
+				count, wm.config.MaxMemoEntries, key)
+		}
+	}
+
+	wm.memoCache.Store(key, value)
+	return nil
+}
+
+// GetMemo retrieves a value from the memo cache.
+func (wm *Manager) GetMemo(key string) (any, bool) {
+	return wm.memoCache.Load(key)
 }

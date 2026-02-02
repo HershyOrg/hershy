@@ -55,7 +55,10 @@ func WatchCall(
 			CancelFunc:         cancel,
 		}
 
-		w.registerWatch(varName, tickHandle)
+		if err := w.registerWatch(varName, tickHandle); err != nil {
+			cancel() // Clean up context
+			panic("WatchCall: " + err.Error())
+		}
 
 		// Start watching in background
 		go tickWatchLoop(w, tickHandle, ctx)
@@ -138,7 +141,10 @@ func WatchFlow(
 			CancelFunc: cancel,
 		}
 
-		w.registerWatch(varName, flowHandle)
+		if err := w.registerWatch(varName, flowHandle); err != nil {
+			cancel() // Clean up context
+			panic("WatchFlow: " + err.Error())
+		}
 
 		// Start watching channel
 		go flowWatchLoop(w, flowHandle, ctx)

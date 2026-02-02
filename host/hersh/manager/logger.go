@@ -96,8 +96,11 @@ func (l *Logger) LogReduce(action ReduceAction) {
 	}
 
 	l.reduceLog = append(l.reduceLog, entry)
-	if len(l.reduceLog) > l.maxEntries {
-		l.reduceLog = l.reduceLog[1:]
+	if len(l.reduceLog) >= l.maxEntries {
+		// Batch delete: remove first half for better performance
+		half := l.maxEntries / 2
+		copy(l.reduceLog, l.reduceLog[half:])
+		l.reduceLog = l.reduceLog[:half]
 	}
 }
 
@@ -113,8 +116,11 @@ func (l *Logger) LogEffect(msg string) {
 	}
 
 	l.effectLog = append(l.effectLog, entry)
-	if len(l.effectLog) > l.maxEntries {
-		l.effectLog = l.effectLog[1:]
+	if len(l.effectLog) >= l.maxEntries {
+		// Batch delete: remove first half for better performance
+		half := l.maxEntries / 2
+		copy(l.effectLog, l.effectLog[half:])
+		l.effectLog = l.effectLog[:half]
 	}
 }
 
@@ -124,8 +130,11 @@ func (l *Logger) LogEffectResult(result *EffectResult) {
 	defer l.mu.Unlock()
 
 	l.effectResults = append(l.effectResults, result)
-	if len(l.effectResults) > l.maxEntries {
-		l.effectResults = l.effectResults[1:]
+	if len(l.effectResults) >= l.maxEntries {
+		// Batch delete: remove first half for better performance
+		half := l.maxEntries / 2
+		copy(l.effectResults, l.effectResults[half:])
+		l.effectResults = l.effectResults[:half]
 	}
 }
 
@@ -159,8 +168,11 @@ func (l *Logger) LogWatchError(varName string, phase WatchErrorPhase, err error)
 	}
 
 	l.watchErrorLog = append(l.watchErrorLog, entry)
-	if len(l.watchErrorLog) > l.maxEntries {
-		l.watchErrorLog = l.watchErrorLog[1:]
+	if len(l.watchErrorLog) >= l.maxEntries {
+		// Batch delete: remove first half for better performance
+		half := l.maxEntries / 2
+		copy(l.watchErrorLog, l.watchErrorLog[half:])
+		l.watchErrorLog = l.watchErrorLog[:half]
 	}
 }
 
@@ -179,8 +191,11 @@ func (l *Logger) LogContextValue(key string, oldValue, newValue any, operation s
 	}
 
 	l.contextLog = append(l.contextLog, entry)
-	if len(l.contextLog) > l.maxEntries {
-		l.contextLog = l.contextLog[1:]
+	if len(l.contextLog) >= l.maxEntries {
+		// Batch delete: remove first half for better performance
+		half := l.maxEntries / 2
+		copy(l.contextLog, l.contextLog[half:])
+		l.contextLog = l.contextLog[:half]
 	}
 }
 
@@ -199,8 +214,11 @@ func (l *Logger) LogStateTransitionFault(from, to shared.ManagerInnerState, reas
 	}
 
 	l.stateTransitionFaultLog = append(l.stateTransitionFaultLog, entry)
-	if len(l.stateTransitionFaultLog) > l.maxEntries {
-		l.stateTransitionFaultLog = l.stateTransitionFaultLog[1:]
+	if len(l.stateTransitionFaultLog) >= l.maxEntries {
+		// Batch delete: remove first half for better performance
+		half := l.maxEntries / 2
+		copy(l.stateTransitionFaultLog, l.stateTransitionFaultLog[half:])
+		l.stateTransitionFaultLog = l.stateTransitionFaultLog[:half]
 	}
 }
 
@@ -231,6 +249,16 @@ func (l *Logger) GetWatchErrorLog() []WatchErrorLogEntry {
 
 	logCopy := make([]WatchErrorLogEntry, len(l.watchErrorLog))
 	copy(logCopy, l.watchErrorLog)
+	return logCopy
+}
+
+// GetContextLog returns a copy of the context log.
+func (l *Logger) GetContextLog() []ContextValueLogEntry {
+	l.mu.RLock()
+	defer l.mu.RUnlock()
+
+	logCopy := make([]ContextValueLogEntry, len(l.contextLog))
+	copy(logCopy, l.contextLog)
 	return logCopy
 }
 

@@ -15,8 +15,14 @@ import (
 // and do not trigger recovery mode.
 func TestRecovery_SuppressPhase(t *testing.T) {
 	config := shared.DefaultWatcherConfig()
-	config.RecoveryPolicy.MinConsecutiveFailures = 3
+	config.RecoveryPolicy.MinConsecutiveFailures = 5
 	config.RecoveryPolicy.MaxConsecutiveFailures = 6
+	// Use short lightweight retry delays for testing
+	config.RecoveryPolicy.LightweightRetryDelays = []time.Duration{
+		500 * time.Millisecond,  // 1st failure
+		1000 * time.Millisecond, // 2nd failure
+		3000 * time.Millisecond, // 3rd+ failures
+	}
 
 	watcher := hersh.NewWatcher(config, nil)
 
@@ -54,7 +60,8 @@ func TestRecovery_SuppressPhase(t *testing.T) {
 	}()
 
 	// Wait for executions to complete
-	time.Sleep(1500 * time.Millisecond)
+	// Need to account for: 100ms (1st failure delay) + 200ms (2nd failure delay) + execution time + WatchCall polls
+	time.Sleep(2000 * time.Millisecond)
 
 	// Stop
 	watcher.Stop()
@@ -78,6 +85,12 @@ func TestRecovery_EnterRecoveryMode(t *testing.T) {
 	config.RecoveryPolicy.MinConsecutiveFailures = 3
 	config.RecoveryPolicy.MaxConsecutiveFailures = 6
 	config.RecoveryPolicy.BaseRetryDelay = 200 * time.Millisecond
+	// Use short lightweight retry delays for testing
+	config.RecoveryPolicy.LightweightRetryDelays = []time.Duration{
+		100 * time.Millisecond, // 1st failure
+		200 * time.Millisecond, // 2nd failure
+		300 * time.Millisecond, // 3rd+ failures (though 3rd triggers WaitRecover)
+	}
 
 	watcher := hersh.NewWatcher(config, nil)
 
@@ -139,6 +152,12 @@ func TestRecovery_SuccessfulRecovery(t *testing.T) {
 	config.RecoveryPolicy.MinConsecutiveFailures = 3
 	config.RecoveryPolicy.MaxConsecutiveFailures = 6
 	config.RecoveryPolicy.BaseRetryDelay = 200 * time.Millisecond
+	// Use short lightweight retry delays for testing
+	config.RecoveryPolicy.LightweightRetryDelays = []time.Duration{
+		100 * time.Millisecond, // 1st failure
+		200 * time.Millisecond, // 2nd failure
+		300 * time.Millisecond, // 3rd failure (triggers WaitRecover)
+	}
 
 	watcher := hersh.NewWatcher(config, nil)
 
@@ -200,6 +219,12 @@ func TestRecovery_MaxFailureCrash(t *testing.T) {
 	config.RecoveryPolicy.MinConsecutiveFailures = 3
 	config.RecoveryPolicy.MaxConsecutiveFailures = 6
 	config.RecoveryPolicy.BaseRetryDelay = 100 * time.Millisecond
+	// Use short lightweight retry delays for testing
+	config.RecoveryPolicy.LightweightRetryDelays = []time.Duration{
+		100 * time.Millisecond, // 1st failure
+		200 * time.Millisecond, // 2nd failure
+		300 * time.Millisecond, // 3rd+ failures
+	}
 
 	watcher := hersh.NewWatcher(config, nil)
 
@@ -263,6 +288,12 @@ func TestRecovery_CounterReset(t *testing.T) {
 	config := shared.DefaultWatcherConfig()
 	config.RecoveryPolicy.MinConsecutiveFailures = 3
 	config.RecoveryPolicy.MaxConsecutiveFailures = 6
+	// Use short lightweight retry delays for testing
+	config.RecoveryPolicy.LightweightRetryDelays = []time.Duration{
+		100 * time.Millisecond, // 1st failure
+		200 * time.Millisecond, // 2nd failure
+		300 * time.Millisecond, // 3rd+ failures
+	}
 
 	watcher := hersh.NewWatcher(config, nil)
 

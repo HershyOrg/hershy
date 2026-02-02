@@ -1,7 +1,11 @@
 package main
 
 import (
+	"bytes"
+	"encoding/json"
 	"fmt"
+	"io"
+	"net/http"
 	"strconv"
 	"strings"
 	"time"
@@ -32,19 +36,11 @@ func tradingFunc(msg *hersh.Message, ctx hersh.HershContext) error {
 	fmt.Printf("[%s] Trading Cycle Started\n", time.Now().Format("15:04:05"))
 	fmt.Println(strings.Repeat("=", 60))
 
-	// Get watcher to access environment variables
-	watcherVal := ctx.GetWatcher()
-	if watcherVal == nil {
-		return fmt.Errorf("watcher not found in context")
-	}
-	watcher := watcherVal.(*hersh.Watcher)
-
 	// Load configuration from environment variables
-	apiKey, _ := watcher.GetEnv("API_KEY")
-	buyThresholdStr, _ := watcher.GetEnv("BUY_THRESHOLD")
-	sellThresholdStr, _ := watcher.GetEnv("SELL_THRESHOLD")
-	maxPositionStr, _ := watcher.GetEnv("MAX_POSITION")
-
+	apiKey, _ := ctx.GetEnv("API_KEY")
+	buyThresholdStr, _ := ctx.GetEnv("BUY_THRESHOLD")
+	sellThresholdStr, _ := ctx.GetEnv("SELL_THRESHOLD")
+	maxPositionStr, _ := ctx.GetEnv("MAX_POSITION")
 	buyThreshold, _ := strconv.ParseFloat(buyThresholdStr, 64)
 	sellThreshold, _ := strconv.ParseFloat(sellThresholdStr, 64)
 	maxPosition, _ := strconv.ParseFloat(maxPositionStr, 64)
@@ -251,38 +247,62 @@ func main() {
 
 	// Start watcher
 	fmt.Println("Starting trading bot...")
+	fmt.Printf("  [Before Start] State: %s\n", watcher.GetState())
+
 	err := watcher.Start()
 	if err != nil {
 		panic(err)
 	}
 
-	// Wait for initialization
-	time.Sleep(800 * time.Millisecond)
+	// Check state immediately after Start
+	fmt.Printf("  [After Start] State: %s\n", watcher.GetState())
+
+	// Wait for initialization and check states during startup
+	time.Sleep(300 * time.Millisecond)
+	fmt.Printf("  [+300ms] State: %s\n", watcher.GetState())
+
+	time.Sleep(500 * time.Millisecond)
+	fmt.Printf("  [+800ms] State: %s\n", watcher.GetState())
+
 	fmt.Printf("\n✅ Trading bot started (State: %s)\n", watcher.GetState())
+	fmt.Println("📡 WatcherAPI Server: http://localhost:8080")
+
+	// Test WatcherAPI endpoints with state checks
+	time.Sleep(500 * time.Millisecond)
+	testWatcherAPI()
 
 	// Simulate user interactions
 	fmt.Println("\n" + strings.Repeat("=", 60))
 	fmt.Println("Simulating User Commands...")
 	fmt.Println(strings.Repeat("=", 60))
+	fmt.Printf("  [During Operation] State: %s\n", watcher.GetState())
 
 	time.Sleep(2 * time.Second)
 	fmt.Println("\n→ Sending 'status' command...")
+	fmt.Printf("  [Before 'status'] State: %s\n", watcher.GetState())
 	watcher.SendMessage("status")
 
 	time.Sleep(2 * time.Second)
 	fmt.Println("\n→ Sending 'pause' command...")
+	fmt.Printf("  [Before 'pause'] State: %s\n", watcher.GetState())
 	watcher.SendMessage("pause")
 
 	time.Sleep(1 * time.Second)
 	fmt.Println("\n→ Sending 'resume' command...")
+	fmt.Printf("  [Before 'resume'] State: %s\n", watcher.GetState())
 	watcher.SendMessage("resume")
 
 	time.Sleep(2 * time.Second)
 	fmt.Println("\n→ Sending 'stop' command...")
+	fmt.Printf("  [Before 'stop'] State: %s\n", watcher.GetState())
 	watcher.SendMessage("stop")
 
 	// Wait for shutdown
-	time.Sleep(1 * time.Second)
+	time.Sleep(500 * time.Millisecond)
+	fmt.Printf("  [+500ms after 'stop'] State: %s\n", watcher.GetState())
+
+	time.Sleep(500 * time.Millisecond)
+	fmt.Printf("  [+1000ms after 'stop'] State: %s\n", watcher.GetState())
 
 	// Print logger summary
 	fmt.Println("\n" + strings.Repeat("=", 60))
@@ -291,12 +311,106 @@ func main() {
 	watcher.GetLogger().PrintSummary()
 
 	// Stop watcher
+	fmt.Printf("\n[Before watcher.Stop()] State: %s\n", watcher.GetState())
 	err = watcher.Stop()
 	if err != nil {
 		fmt.Printf("Error stopping: %v\n", err)
 	}
+	fmt.Printf("[After watcher.Stop()] State: %s\n", watcher.GetState())
 
 	fmt.Println("\n=== Demo Complete ===")
+}
+
+// testWatcherAPI tests all WatcherAPI endpoints with pretty-printed request/response
+func testWatcherAPI() {
+	fmt.Println("\n" + strings.Repeat("=", 60))
+	fmt.Println("Testing WatcherAPI Endpoints")
+	fmt.Println(strings.Repeat("=", 60))
+
+	baseURL := "http://localhost:8080"
+	client := &http.Client{Timeout: 5 * time.Second}
+
+	// Test 1: GET /watcher/status
+	fmt.Println("\n[Test 1] GET /watcher/status")
+	fmt.Println(strings.Repeat("-", 60))
+	resp, err := client.Get(baseURL + "/watcher/status")
+	if err != nil {
+		fmt.Printf("❌ Error: %v\n", err)
+	} else {
+		printResponse(resp)
+	}
+
+	// Test 2: GET /watcher/signals
+	fmt.Println("\n[Test 2] GET /watcher/signals")
+	fmt.Println(strings.Repeat("-", 60))
+	resp, err = client.Get(baseURL + "/watcher/signals")
+	if err != nil {
+		fmt.Printf("❌ Error: %v\n", err)
+	} else {
+		printResponse(resp)
+	}
+
+	// Test 3: GET /watcher/logs?type=effect&limit=5
+	fmt.Println("\n[Test 3] GET /watcher/logs?type=effect&limit=5")
+	fmt.Println(strings.Repeat("-", 60))
+	resp, err = client.Get(baseURL + "/watcher/logs?type=effect&limit=5")
+	if err != nil {
+		fmt.Printf("❌ Error: %v\n", err)
+	} else {
+		printResponse(resp)
+	}
+
+	// Test 4: GET /watcher/logs?type=context&limit=3
+	fmt.Println("\n[Test 4] GET /watcher/logs?type=context&limit=3")
+	fmt.Println(strings.Repeat("-", 60))
+	resp, err = client.Get(baseURL + "/watcher/logs?type=context&limit=3")
+	if err != nil {
+		fmt.Printf("❌ Error: %v\n", err)
+	} else {
+		printResponse(resp)
+	}
+
+	// Test 5: POST /watcher/message
+	fmt.Println("\n[Test 5] POST /watcher/message")
+	fmt.Println(strings.Repeat("-", 60))
+	reqBody := map[string]string{"content": "status"}
+	jsonData, _ := json.Marshal(reqBody)
+	fmt.Printf("Request Body: %s\n", string(jsonData))
+	resp, err = client.Post(
+		baseURL+"/watcher/message",
+		"application/json",
+		bytes.NewBuffer(jsonData),
+	)
+	if err != nil {
+		fmt.Printf("❌ Error: %v\n", err)
+	} else {
+		printResponse(resp)
+	}
+
+	fmt.Println("\n" + strings.Repeat("=", 60))
+	fmt.Println("WatcherAPI Tests Complete")
+	fmt.Println(strings.Repeat("=", 60))
+}
+
+// printResponse pretty-prints HTTP response
+func printResponse(resp *http.Response) {
+	defer resp.Body.Close()
+
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		fmt.Printf("❌ Error reading response: %v\n", err)
+		return
+	}
+
+	fmt.Printf("Status: %s\n", resp.Status)
+
+	// Try to pretty-print JSON
+	var prettyJSON bytes.Buffer
+	if err := json.Indent(&prettyJSON, body, "", "  "); err == nil {
+		fmt.Printf("Response:\n%s\n", prettyJSON.String())
+	} else {
+		fmt.Printf("Response: %s\n", string(body))
+	}
 }
 
 // Helper functions

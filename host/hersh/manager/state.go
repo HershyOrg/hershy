@@ -121,20 +121,20 @@ type ManagerState struct {
 
 	// State transition notification channels
 	// These channels are closed when the Manager reaches the corresponding state
-	stoppedChan       chan struct{}
-	readyChan         chan struct{}
-	stoppedChanClosed bool
-	readyChanClosed   bool
+	stoppedAfterCleanupChan              chan struct{}
+	readyAfterInitChan       chan struct{}
+	stoppedChanClosed        bool
+	readyAfterInitChanClosed bool
 }
 
 // NewManagerState creates a new ManagerState with initial ManagerInnerState.
 func NewManagerState(initialState shared.ManagerInnerState) *ManagerState {
 	return &ManagerState{
-		VarState:          NewVarState(),
-		UserState:         NewUserState(),
-		ManagerInnerState: initialState,
-		stoppedChan:       make(chan struct{}),
-		readyChan:         make(chan struct{}),
+		VarState:           NewVarState(),
+		UserState:          NewUserState(),
+		ManagerInnerState:  initialState,
+		stoppedAfterCleanupChan:        make(chan struct{}),
+		readyAfterInitChan: make(chan struct{}),
 	}
 }
 
@@ -155,29 +155,31 @@ func (ms *ManagerState) SetManagerInnerState(state shared.ManagerInnerState) {
 	// Close notification channels when reaching specific states (only once)
 	// This allows other components to wait deterministically without timeouts
 	if state == shared.StateStopped && !ms.stoppedChanClosed {
-		close(ms.stoppedChan)
+		//close로 신호 보낸 효과를 냄.
+		close(ms.stoppedAfterCleanupChan)
 		ms.stoppedChanClosed = true
 	}
-	if state == shared.StateReady && !ms.readyChanClosed {
-		close(ms.readyChan)
-		ms.readyChanClosed = true
+	if state == shared.StateReady && !ms.readyAfterInitChanClosed {
+		//close 로 신호 보낸 효과를 냄.
+		close(ms.readyAfterInitChan)
+		ms.readyAfterInitChanClosed = true
 	}
 }
 
-// WaitStopped returns a channel that closes when Manager reaches Stopped state.
+// WaitStoppedAfterCleanup returns a channel that closes when Manager reaches Stopped state.
 // This allows deterministic waiting without timeouts.
-func (ms *ManagerState) WaitStopped() <-chan struct{} {
+func (ms *ManagerState) WaitStoppedAfterCleanup() <-chan struct{} {
 	ms.mu.RLock()
 	defer ms.mu.RUnlock()
-	return ms.stoppedChan
+	return ms.stoppedAfterCleanupChan
 }
 
-// WaitReady returns a channel that closes when Manager reaches Ready state.
+// WaitReadyAfterInit returns a channel that closes when Manager reaches Ready state.
 // This allows deterministic waiting without timeouts.
-func (ms *ManagerState) WaitReady() <-chan struct{} {
+func (ms *ManagerState) WaitReadyAfterInit() <-chan struct{} {
 	ms.mu.RLock()
 	defer ms.mu.RUnlock()
-	return ms.readyChan
+	return ms.readyAfterInitChan
 }
 
 // Snapshot returns a complete state snapshot for logging.

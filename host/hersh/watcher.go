@@ -2,7 +2,9 @@ package hersh
 
 import (
 	"context"
+	"errors"
 	"fmt"
+	"sync"
 	"sync/atomic"
 	"time"
 
@@ -16,21 +18,20 @@ type Watcher struct {
 	config  WatcherConfig
 	manager *manager.Manager
 
-	// Environment variables (immutable after initialization)
-	// Can only be set during NewWatcher and accessed via GetEnv.
-	envVarMap map[string]string
-
 	// State
-	isRunning atomic.Bool
+	isRunning atomic.Bool // watcher자체가 실행중인지의 값. (Run/ Stop)
 
 	// Lifecycle
 	rootCtx    context.Context
 	rootCancel context.CancelFunc
+
+	// API Server
+	apiServer *WatcherAPIServer
 }
 
 // NewWatcher creates a new Watcher with the given configuration and environment variables.
 // The Manager is initialized during Watcher construction.
-// envVars are immutable after initialization and can only be accessed via GetEnv.
+// envVars are injected into HershContext and are immutable after initialization.
 // If envVars is nil, an empty map is created.
 func NewWatcher(config WatcherConfig, envVars map[string]string) *Watcher {
 	if config.DefaultTimeout == 0 {
@@ -42,18 +43,16 @@ func NewWatcher(config WatcherConfig, envVars map[string]string) *Watcher {
 	// Initialize Manager with config (no managed function yet)
 	mgr := manager.NewManager(config)
 
-	// Deep copy envVars to ensure immutability
-	envCopy := make(map[string]string)
-	if envVars != nil {
-		for k, v := range envVars {
-			envCopy[k] = v
-		}
+	// Inject environment variables into HershContext
+	// The HershContext is already created by EffectHandler during Manager initialization
+	hershCtx := mgr.GetEffectHandler().GetHershContext()
+	if hctxImpl, ok := hershCtx.(interface{ SetEnvVars(map[string]string) }); ok {
+		hctxImpl.SetEnvVars(envVars)
 	}
 
 	w := &Watcher{
 		config:     config,
 		manager:    mgr,
-		envVarMap:  envCopy,
 		rootCtx:    ctx,
 		rootCancel: cancel,
 	}
@@ -114,17 +113,24 @@ func (w *Watcher) Start() error {
 
 	// Wait for initialization to complete using channel (deterministic, no timeouts)
 	// The Manager will transition to Ready state when all variables are initialized
-	readyChan := w.manager.GetState().WaitReady()
-	<-readyChan
+	readyAfterInitChan := w.manager.GetState().WaitReadyAfterInit()
+	<-readyAfterInitChan
 
 	// Check final state - it should be Ready, but could be Crashed/Killed if init failed
 	finalState := w.manager.GetState().GetManagerInnerState()
-	if finalState == StateReady {
-		return nil
+	if finalState != StateReady {
+		// Initialization failed
+		return fmt.Errorf("initialization failed: watcher entered %s state", finalState)
 	}
 
-	// Initialization failed
-	return fmt.Errorf("initialization failed: watcher entered %s state", finalState)
+	// Start API server (non-blocking)
+	apiServer, err := w.StartAPIServer()
+	if err != nil {
+		return fmt.Errorf("failed to start API server: %w", err)
+	}
+	w.apiServer = apiServer
+
+	return nil
 }
 
 // Stop gracefully stops the Watcher.
@@ -153,10 +159,33 @@ func (w *Watcher) Stop() error {
 	<-cleanupDone
 
 	// 2. Wait for Manager to reach Stopped state
-	stoppedChan := w.manager.GetState().WaitStopped()
+	stoppedChan := w.manager.GetState().WaitStoppedAfterCleanup()
 	<-stoppedChan
 
-	// 3. Finalize Watcher shutdown
+	// 3. Shutdown API server
+	if w.apiServer != nil {
+		shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer shutdownCancel()
+
+		if err := w.apiServer.Shutdown(shutdownCtx); err != nil {
+			// Check if timeout occurred
+			if errors.Is(err, context.DeadlineExceeded) {
+				fmt.Println("[Watcher] API server shutdown timeout (5s), forcing close...")
+				// Force close
+				if closeErr := w.apiServer.Close(); closeErr != nil {
+					fmt.Printf("[Watcher] API server force close error: %v\n", closeErr)
+				} else {
+					fmt.Println("[Watcher] API server force closed successfully")
+				}
+			} else {
+				fmt.Printf("[Watcher] API server shutdown error: %v\n", err)
+			}
+		} else {
+			fmt.Println("[Watcher] API server stopped gracefully")
+		}
+	}
+
+	// 4. Finalize Watcher shutdown
 	w.stopAllWatches()
 	w.rootCancel()
 	w.isRunning.Store(false)
@@ -194,34 +223,66 @@ func (w *Watcher) GetLogger() *manager.Logger {
 	return w.manager.GetLogger()
 }
 
-// GetEnv returns the environment variable value for the given key.
-// The second return value (ok) is true if the key exists, false otherwise.
-// This method is safe for concurrent access as envVarMap is immutable after initialization.
-func (w *Watcher) GetEnv(key string) (string, bool) {
-	val, ok := w.envVarMap[key]
-	return val, ok
-}
-
-// registerWatch registers a Watch variable.
+// registerWatch registers a Watch variable with limit enforcement.
 // This is called by Watch/WatchCall/WatchFlow functions.
-func (w *Watcher) registerWatch(varName string, handle manager.WatchHandle) {
+// Returns error if watch limit is reached.
+func (w *Watcher) registerWatch(varName string, handle manager.WatchHandle) error {
 	watchRegistry := w.manager.GetWatchRegistry()
+
+	// Check if updating existing watch (allowed)
+	if _, exists := watchRegistry.Load(varName); !exists {
+		// New watch - check size limit
+		count := 0
+		watchRegistry.Range(func(_, _ any) bool {
+			count++
+			return true
+		})
+
+		if count >= w.config.MaxWatches {
+			return fmt.Errorf("watch registry limit reached: %d/%d (cannot register '%s')",
+				count, w.config.MaxWatches, varName)
+		}
+	}
+
 	watchRegistry.Store(varName, handle)
 
 	// Register with EffectHandler for initialization tracking
 	w.manager.GetEffectHandler().RegisterVar(varName)
+	return nil
 }
 
-// stopAllWatches stops all Watch goroutines.
+// stopAllWatches stops all Watch goroutines with 1 minute timeout.
 func (w *Watcher) stopAllWatches() {
+	var wg sync.WaitGroup
 	watchRegistry := w.manager.GetWatchRegistry()
+
 	watchRegistry.Range(func(key, value any) bool {
 		handle := value.(manager.WatchHandle)
-		if cancelFunc := handle.GetCancelFunc(); cancelFunc != nil {
-			cancelFunc()
-		}
+		wg.Add(1)
+
+		go func(h manager.WatchHandle) {
+			defer wg.Done()
+			if cancelFunc := h.GetCancelFunc(); cancelFunc != nil {
+				cancelFunc()
+			}
+		}(handle)
+
 		return true // continue iteration
 	})
+
+	// Wait for all watches to stop with 1 minute timeout
+	done := make(chan struct{})
+	go func() {
+		wg.Wait()
+		close(done)
+	}()
+
+	select {
+	case <-done:
+		fmt.Println("[Watcher] All watches stopped successfully")
+	case <-time.After(1 * time.Minute):
+		fmt.Println("[Watcher] Warning: Some watches did not stop within 1min timeout")
+	}
 }
 
 // CleanupBuilder provides a fluent interface for registering cleanup.

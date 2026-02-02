@@ -3,6 +3,7 @@ package manager
 import (
 	"context"
 	"fmt"
+	"runtime"
 	"time"
 
 	"hersh/shared"
@@ -47,7 +48,25 @@ func NewReducer(state *ManagerState, signals *SignalChannels, logger ReduceLogge
 // 4. Call EffectHandler synchronously
 // 5. If effect returns WatcherSig, process it recursively
 // Priority: WatcherSig > UserSig > VarSig
-func (r *Reducer) RunWithEffects(ctx context.Context, commander *EffectCommander, handler *EffectHandler) error {
+func (r *Reducer) RunWithEffects(ctx context.Context, commander *EffectCommander, handler *EffectHandler) (err error) {
+	defer func() {
+		if rec := recover(); rec != nil {
+			// Panic recovery
+			err = fmt.Errorf("reducer panic: %v", rec)
+
+			// Transition to Crashed state
+			r.state.SetManagerInnerState(shared.StateCrashed)
+
+			// Log panic with stack trace
+			fmt.Printf("[Reducer] PANIC RECOVERED: %v\n", rec)
+			fmt.Printf("[Reducer] Stack trace:\n")
+
+			buf := make([]byte, 4096)
+			n := runtime.Stack(buf, false)
+			fmt.Printf("%s\n", buf[:n])
+		}
+	}()
+
 	for {
 		select {
 		case <-ctx.Done():

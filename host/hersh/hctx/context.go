@@ -22,6 +22,7 @@ type HershContext struct {
 	message     *shared.Message
 	watcher     any // Watcher reference (stored as any to avoid circular dependency with hersh package)
 	valueStore  map[string]any
+	envVarMap   map[string]string // Environment variables (immutable after initialization)
 	valuesMutex sync.RWMutex
 	logger      Logger
 }
@@ -34,6 +35,7 @@ func New(ctx context.Context, watcherID string, logger Logger) *HershContext {
 		message:    nil,
 		watcher:    nil,
 		valueStore: make(map[string]any),
+		envVarMap:  make(map[string]string),
 		logger:     logger,
 	}
 }
@@ -119,4 +121,30 @@ func (hc *HershContext) SetMessage(msg *shared.Message) {
 // This is used by EffectHandler when creating execution contexts with timeouts.
 func (hc *HershContext) UpdateContext(ctx context.Context) {
 	hc.Context = ctx
+}
+
+// GetEnv returns the environment variable value for the given key.
+// The second return value (ok) is true if the key exists, false otherwise.
+// This method is safe for concurrent access as envVarMap is immutable after initialization.
+func (hc *HershContext) GetEnv(key string) (string, bool) {
+	hc.valuesMutex.RLock()
+	defer hc.valuesMutex.RUnlock()
+	val, ok := hc.envVarMap[key]
+	return val, ok
+}
+
+// SetEnvVars sets the environment variables for this context.
+// This should only be called during initialization (by Watcher.NewWatcher).
+// The envVars map is deep copied to ensure immutability.
+func (hc *HershContext) SetEnvVars(envVars map[string]string) {
+	hc.valuesMutex.Lock()
+	defer hc.valuesMutex.Unlock()
+
+	// Deep copy for immutability
+	hc.envVarMap = make(map[string]string)
+	if envVars != nil {
+		for k, v := range envVars {
+			hc.envVarMap[k] = v
+		}
+	}
 }
