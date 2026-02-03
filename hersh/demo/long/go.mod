@@ -9,4 +9,4 @@ require (
 
 require golang.org/x/net v0.18.0 // indirect
 
-replace hersh => ../../hersh
+replace hersh => ../../
