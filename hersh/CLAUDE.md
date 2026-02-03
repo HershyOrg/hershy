@@ -1,39 +1,3 @@
-# CLAUDE.md
-
-This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
-
-## Project Overview
-
-**Hersh** is a reactive framework for Go that implements a Reducer-Effect pattern for building reactive applications with monitoring and control capabilities. The framework is designed around deterministic state management with Watch-based reactivity.
-
-## Implementation Guide
-
-Before implementation, you must create a plan and have it reviewed.
-
-Implementation shall be carried out in a single Phase, and the Phase must be defined as As Is → To Be.
-
-Break the Phase down step by step, create a plan, and then implement accordingly.
-
-Follow Domain-Driven Design (DDD) principles and use granular, semantically meaningful types.
-
-During implementation, you must validate the work by following the Verification Guide.
-
-## Verification Guide
-
-After implementation, run and verify all builds and tests within the package.
-
-Confirm that the implementation matches the Phase’s As Is and To Be defined in the plan.
-
-Confirm that you did not “shortcut” by pretending to implement the To Be without actually doing so.
-
-### Core Framework Design: Reducer-Effect Pattern
-
-Hersh implements a **synchronous Reducer-Effect architecture** where all state transitions are deterministic and effects execute synchronously after state changes. This design ensures:
-
-1. **Deterministic execution**: No race conditions, predictable behavior
-2. **Synchronous flow**: Reducer → Commander → Handler (sequential, not concurrent)
-3. **Signal-based reactivity**: Priority-ordered signal processing
-4. **Fault tolerance**: Built-in recovery policies with exponential backoff
 
 ### Component Structure
 
