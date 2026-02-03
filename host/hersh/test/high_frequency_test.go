@@ -282,6 +282,7 @@ func TestHighFrequency_SignalsWithTimeout(t *testing.T) {
 	}
 
 	config := shared.DefaultWatcherConfig()
+	config.ServerPort = 0 // Random port for test isolation
 	config.DefaultTimeout = 150 * time.Millisecond // Short timeout
 
 	handler := manager.NewEffectHandler(

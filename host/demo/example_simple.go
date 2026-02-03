@@ -8,13 +8,13 @@ import (
 )
 
 // Simple counter example demonstrating hersh reactive framework
-func main2() {
+func main() {
 	fmt.Println("=== Hersh Reactive Framework Demo ===\n")
 
 	config := hersh.DefaultWatcherConfig()
 	config.DefaultTimeout = 5 * time.Second
 
-	watcher := hersh.NewWatcher(config, nil)
+	watcher := hersh.NewWatcher(config, nil, nil)
 
 	// Managed function with reactive state
 	counter := 0

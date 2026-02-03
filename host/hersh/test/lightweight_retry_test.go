@@ -14,6 +14,7 @@ import (
 // TestLightweightRetry_DelayVerification verifies that lightweight retry delays are actually applied
 func TestLightweightRetry_DelayVerification(t *testing.T) {
 	config := shared.DefaultWatcherConfig()
+	config.ServerPort = 0 // Random port for test isolation
 	config.RecoveryPolicy.MinConsecutiveFailures = 3
 	config.RecoveryPolicy.MaxConsecutiveFailures = 6
 	// Use measurable delays
@@ -23,7 +24,14 @@ func TestLightweightRetry_DelayVerification(t *testing.T) {
 		600 * time.Millisecond, // 3rd+ failures
 	}
 
-	watcher := hersh.NewWatcher(config, nil)
+	watcher := hersh.NewWatcher(config, nil, nil)
+
+	// Ensure watcher is stopped after test
+	t.Cleanup(func() {
+		if watcher != nil {
+			_ = watcher.Stop()
+		}
+	})
 
 	executionCount := int32(0)
 	failureCount := 2 // Fail twice, then succeed
@@ -103,6 +111,7 @@ func TestLightweightRetry_DelayVerification(t *testing.T) {
 // TestLightweightRetry_NoWatchCall tests delay without WatchCall interference
 func TestLightweightRetry_NoWatchCall(t *testing.T) {
 	config := shared.DefaultWatcherConfig()
+	config.ServerPort = 0 // Random port for test isolation
 	config.RecoveryPolicy.MinConsecutiveFailures = 3
 	config.RecoveryPolicy.LightweightRetryDelays = []time.Duration{
 		100 * time.Millisecond,
@@ -110,7 +119,14 @@ func TestLightweightRetry_NoWatchCall(t *testing.T) {
 		300 * time.Millisecond,
 	}
 
-	watcher := hersh.NewWatcher(config, nil)
+	watcher := hersh.NewWatcher(config, nil, nil)
+
+	// Ensure watcher is stopped after test
+	t.Cleanup(func() {
+		if watcher != nil {
+			_ = watcher.Stop()
+		}
+	})
 
 	executionCount := int32(0)
 	startTime := time.Now()

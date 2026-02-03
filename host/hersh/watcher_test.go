@@ -14,7 +14,7 @@ func TestWatchCall_BasicFunctionality(t *testing.T) {
 	config := DefaultWatcherConfig()
 	config.DefaultTimeout = 5 * time.Second
 
-	watcher := NewWatcher(config, nil)
+	watcher := NewWatcher(config, nil, nil)
 
 	executeCount := int32(0)
 	varValue := int32(0)
@@ -74,7 +74,7 @@ func TestWatchCall_BasicFunctionality(t *testing.T) {
 // TestWatchCall_ValuePersistence tests that WatchCall values persist across executions
 func TestWatchCall_ValuePersistence(t *testing.T) {
 	config := DefaultWatcherConfig()
-	watcher := NewWatcher(config, nil)
+	watcher := NewWatcher(config, nil, nil)
 
 	observedValues := make([]any, 0)
 	executionCount := 0
@@ -128,7 +128,7 @@ func TestWatchCall_ValuePersistence(t *testing.T) {
 // TestWatchCall_NoChangeDoesNotTrigger tests that unchanged values don't trigger re-execution
 func TestWatchCall_NoChangeDoesNotTrigger(t *testing.T) {
 	config := DefaultWatcherConfig()
-	watcher := NewWatcher(config, nil)
+	watcher := NewWatcher(config, nil, nil)
 
 	executeCount := int32(0)
 	computeCallCount := int32(0)
@@ -189,7 +189,7 @@ func TestWatchCall_NoChangeDoesNotTrigger(t *testing.T) {
 // TestWatchFlow_ChannelBased tests WatchFlow with channel-based reactive programming
 func TestWatchFlow_ChannelBased(t *testing.T) {
 	config := DefaultWatcherConfig()
-	watcher := NewWatcher(config, nil)
+	watcher := NewWatcher(config, nil, nil)
 
 	sourceChan := make(chan any, 10)
 	receivedValues := make([]any, 0)
@@ -248,7 +248,7 @@ func TestWatchFlow_ChannelBased(t *testing.T) {
 // TestWatchFlow_ChannelClosed tests WatchFlow behavior when channel is closed
 func TestWatchFlow_ChannelClosed(t *testing.T) {
 	config := DefaultWatcherConfig()
-	watcher := NewWatcher(config, nil)
+	watcher := NewWatcher(config, nil, nil)
 
 	sourceChan := make(chan any, 5)
 	receivedValues := make([]any, 0)
@@ -293,7 +293,7 @@ func TestWatchFlow_ChannelClosed(t *testing.T) {
 // TestMemo_BasicCaching tests basic Memo caching functionality
 func TestMemo_BasicCaching(t *testing.T) {
 	config := DefaultWatcherConfig()
-	watcher := NewWatcher(config, nil)
+	watcher := NewWatcher(config, nil, nil)
 
 	computeCount := int32(0)
 	executeCount := int32(0)
@@ -349,7 +349,7 @@ func TestMemo_BasicCaching(t *testing.T) {
 // TestMemo_ClearMemo tests ClearMemo functionality
 func TestMemo_ClearMemo(t *testing.T) {
 	config := DefaultWatcherConfig()
-	watcher := NewWatcher(config, nil)
+	watcher := NewWatcher(config, nil, nil)
 
 	computeCount := int32(0)
 
@@ -411,7 +411,7 @@ func TestMemo_ClearMemo(t *testing.T) {
 // TestWatcher_MultipleWatchVariables tests multiple Watch variables working together
 func TestWatcher_MultipleWatchVariables(t *testing.T) {
 	config := DefaultWatcherConfig()
-	watcher := NewWatcher(config, nil)
+	watcher := NewWatcher(config, nil, nil)
 
 	counter1 := int32(0)
 	counter2 := int32(0)
@@ -481,7 +481,7 @@ func TestWatcher_MultipleWatchVariables(t *testing.T) {
 // TestWatcher_WatchAndMemo tests Watch and Memo working together
 func TestWatcher_WatchAndMemo(t *testing.T) {
 	config := DefaultWatcherConfig()
-	watcher := NewWatcher(config, nil)
+	watcher := NewWatcher(config, nil, nil)
 
 	watchCounter := int32(0)
 	memoComputeCount := int32(0)
@@ -541,7 +541,7 @@ func TestWatcher_WatchAndMemo(t *testing.T) {
 // TestWatcher_HershContextAccess tests accessing Watcher through HershContext
 func TestWatcher_HershContextAccess(t *testing.T) {
 	config := DefaultWatcherConfig()
-	watcher := NewWatcher(config, nil)
+	watcher := NewWatcher(config, nil, nil)
 
 	contextValid := false
 
@@ -592,7 +592,7 @@ func TestWatcher_HershContextAccess(t *testing.T) {
 // TestWatcher_StopCancelsWatches tests that Stop() stops the watcher gracefully
 func TestWatcher_StopCancelsWatches(t *testing.T) {
 	config := DefaultWatcherConfig()
-	watcher := NewWatcher(config, nil)
+	watcher := NewWatcher(config, nil, nil)
 
 	watchCallCount := int32(0)
 
@@ -645,7 +645,7 @@ func TestWatcher_StopCancelsWatches(t *testing.T) {
 // TestWatchCall_ErrorHandling tests error handling in WatchCall compute function
 func TestWatchCall_ErrorHandling(t *testing.T) {
 	config := DefaultWatcherConfig()
-	watcher := NewWatcher(config, nil)
+	watcher := NewWatcher(config, nil, nil)
 
 	errorCount := int32(0)
 	successCount := int32(0)
@@ -697,4 +697,158 @@ func TestWatchCall_ErrorHandling(t *testing.T) {
 	}
 
 	t.Logf("Test complete - errors: %d, successes: %d", errors, successes)
+}
+
+// TestWatcher_ContextCancellation tests auto-stop when parent context is cancelled
+func TestWatcher_ContextCancellation(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	config := DefaultWatcherConfig()
+	config.ServerPort = 0 // Disable API server
+	watcher := NewWatcher(config, nil, ctx)
+
+	executionCount := int32(0)
+	managedFunc := func(msg *Message, hctx HershContext) error {
+		atomic.AddInt32(&executionCount, 1)
+		time.Sleep(10 * time.Millisecond)
+		return nil
+	}
+
+	watcher.Manage(managedFunc, "test")
+
+	err := watcher.Start()
+	if err != nil {
+		t.Fatalf("Failed to start watcher: %v", err)
+	}
+
+	// Let it run for a bit
+	time.Sleep(100 * time.Millisecond)
+
+	// Cancel context - should trigger auto-stop
+	t.Log("Cancelling context...")
+	cancel()
+
+	// Wait for auto-stop with timeout
+	timeout := time.After(10 * time.Second)
+	ticker := time.NewTicker(50 * time.Millisecond)
+	defer ticker.Stop()
+
+	for {
+		select {
+		case <-timeout:
+			t.Fatal("Timeout waiting for watcher to stop")
+		case <-ticker.C:
+			if !watcher.isRunning.Load() {
+				t.Logf("Test complete - executions before stop: %d", atomic.LoadInt32(&executionCount))
+				return
+			}
+		}
+	}
+}
+
+// TestWatcher_ContextTimeout tests auto-stop with context timeout
+func TestWatcher_ContextTimeout(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 200*time.Millisecond)
+	defer cancel()
+
+	config := DefaultWatcherConfig()
+	config.ServerPort = 0
+	watcher := NewWatcher(config, nil, ctx)
+
+	managedFunc := func(msg *Message, hctx HershContext) error {
+		time.Sleep(10 * time.Millisecond)
+		return nil
+	}
+
+	watcher.Manage(managedFunc, "test")
+
+	err := watcher.Start()
+	if err != nil {
+		t.Fatalf("Failed to start watcher: %v", err)
+	}
+
+	// Wait for context timeout + auto-stop
+	time.Sleep(400 * time.Millisecond)
+
+	if watcher.isRunning.Load() {
+		t.Error("Watcher still running after context timeout")
+	}
+
+	t.Log("Test complete - context timeout triggered auto-stop")
+}
+
+// TestWatcher_NilContext tests backward compatibility with nil context
+func TestWatcher_NilContext(t *testing.T) {
+	config := DefaultWatcherConfig()
+	config.ServerPort = 0
+
+	watcher := NewWatcher(config, nil, nil)
+
+	executionCount := int32(0)
+	managedFunc := func(msg *Message, hctx HershContext) error {
+		atomic.AddInt32(&executionCount, 1)
+		time.Sleep(10 * time.Millisecond)
+		return nil
+	}
+
+	watcher.Manage(managedFunc, "test")
+
+	err := watcher.Start()
+	if err != nil {
+		t.Fatalf("Failed to start watcher with nil context: %v", err)
+	}
+
+	// Let it run
+	time.Sleep(100 * time.Millisecond)
+
+	// Manual stop should work
+	err = watcher.Stop()
+	if err != nil {
+		t.Errorf("Stop failed: %v", err)
+	}
+
+	if executionCount == 0 {
+		t.Error("Expected at least one execution")
+	}
+
+	t.Logf("Test complete - nil context backward compatibility verified (executions: %d)", executionCount)
+}
+
+// TestWatcher_ManualStopAfterContextCancel tests manual Stop after context cancel
+func TestWatcher_ManualStopAfterContextCancel(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	config := DefaultWatcherConfig()
+	config.ServerPort = 0
+	watcher := NewWatcher(config, nil, ctx)
+
+	managedFunc := func(msg *Message, hctx HershContext) error {
+		time.Sleep(10 * time.Millisecond)
+		return nil
+	}
+
+	watcher.Manage(managedFunc, "test")
+
+	err := watcher.Start()
+	if err != nil {
+		t.Fatalf("Failed to start watcher: %v", err)
+	}
+
+	time.Sleep(50 * time.Millisecond)
+
+	// Cancel context first
+	cancel()
+
+	// Wait for auto-stop
+	time.Sleep(200 * time.Millisecond)
+
+	// Manual stop after auto-stop should return error (not running)
+	err = watcher.Stop()
+	if err == nil {
+		t.Error("Expected error from Stop() after auto-stop")
+	}
+
+	t.Logf("Test complete - manual Stop after auto-stop behaves correctly: %v", err)
 }

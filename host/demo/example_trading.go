@@ -224,7 +224,7 @@ func cleanupFunc(ctx hersh.HershContext) {
 	fmt.Println("\n✅ Cleanup complete")
 }
 
-func main() {
+func main2() {
 	fmt.Println("=== Hersh Trading Bot Demo ===")
 
 	fmt.Println("Polymarket + Bitcoin Price Monitor. \n")
@@ -240,7 +240,7 @@ func main() {
 	// Create watcher with environment variables
 	watcherConfig := hersh.DefaultWatcherConfig()
 	watcherConfig.DefaultTimeout = 10 * time.Second
-	watcher := hersh.NewWatcher(watcherConfig, envVars)
+	watcher := hersh.NewWatcher(watcherConfig, envVars, nil)
 
 	// Register global trading function with cleanup
 	watcher.Manage(tradingFunc, "tradingBot").Cleanup(cleanupFunc)

@@ -33,12 +33,25 @@ type Watcher struct {
 // The Manager is initialized during Watcher construction.
 // envVars are injected into HershContext and are immutable after initialization.
 // If envVars is nil, an empty map is created.
-func NewWatcher(config WatcherConfig, envVars map[string]string) *Watcher {
+//
+// parentCtx (optional): Parent context for lifecycle management.
+//   - If provided: Watcher automatically stops when context is cancelled
+//   - If nil: Uses context.Background() (backward compatibility)
+//   - Auto-stop has 5-minute timeout, then forces shutdown
+func NewWatcher(config WatcherConfig, envVars map[string]string, parentCtx context.Context) *Watcher {
 	if config.DefaultTimeout == 0 {
 		config = DefaultWatcherConfig()
 	}
 
-	ctx, cancel := context.WithCancel(context.Background())
+	// Use parent context if provided, otherwise use Background
+	if parentCtx == nil {
+		parentCtx = context.Background()
+	}
+
+	// Create independent context for Manager
+	// This ensures Manager continues running even when parentCtx is cancelled
+	// Only Stop() will cancel this context
+	rootCtx, cancel := context.WithCancel(context.Background())
 
 	// Initialize Manager with config (no managed function yet)
 	mgr := manager.NewManager(config)
@@ -53,12 +66,42 @@ func NewWatcher(config WatcherConfig, envVars map[string]string) *Watcher {
 	w := &Watcher{
 		config:     config,
 		manager:    mgr,
-		rootCtx:    ctx,
+		rootCtx:    rootCtx,
 		rootCancel: cancel,
 	}
 
 	// Set watcher reference in Manager's handler
 	mgr.GetEffectHandler().SetWatcher(w)
+
+	// 🎯 Auto-shutdown goroutine: monitors parent context
+	// When parent context is cancelled, automatically stops the watcher
+	go func() {
+		<-parentCtx.Done()
+
+		if !w.isRunning.Load() {
+			return // Already stopped
+		}
+
+		fmt.Println("[Watcher] Parent context cancelled, stopping...")
+
+		// Call Stop() with 5-minute timeout
+		stopDone := make(chan error, 1)
+		go func() {
+			stopDone <- w.Stop()
+		}()
+
+		select {
+		case err := <-stopDone:
+			// Stop completed
+			if err != nil {
+				fmt.Printf("[Watcher] Stop error: %v\n", err)
+			}
+		case <-time.After(5 * time.Minute):
+			// Stop() blocked for 5 minutes - force shutdown
+			fmt.Println("[Watcher] Stop timeout (5 min), forcing shutdown...")
+			w.forceShutdown()
+		}
+	}()
 
 	return w
 }
@@ -191,6 +234,31 @@ func (w *Watcher) Stop() error {
 	w.isRunning.Store(false)
 
 	return nil
+}
+
+// forceShutdown forcefully terminates the Watcher (last resort).
+// Called when Stop() times out after 5 minutes.
+// This bypasses normal cleanup and immediately shuts down all components.
+func (w *Watcher) forceShutdown() {
+	fmt.Println("[Watcher] Force shutdown initiated...")
+
+	// Cancel all contexts immediately
+	w.rootCancel()
+
+	// Force stop all watch goroutines
+	w.stopAllWatches()
+
+	// Force close API server without graceful shutdown
+	if w.apiServer != nil {
+		if err := w.apiServer.Close(); err != nil {
+			fmt.Printf("[Watcher] Force close API server error: %v\n", err)
+		}
+	}
+
+	// Mark as stopped
+	w.isRunning.Store(false)
+
+	fmt.Println("[Watcher] Force shutdown complete")
 }
 
 // SendMessage sends a user message to the managed function.

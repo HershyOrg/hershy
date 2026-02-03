@@ -212,7 +212,7 @@ func (ec *EffectCommander) fromWaitRecover(nextState shared.ManagerInnerState) E
 	switch nextState {
 	case shared.StateWaitRecover:
 		return &RecoverEffect{}
-	case shared.StateCrashed:
+	case shared.StateCrashed, shared.StateKilled, shared.StateStopped:
 		return &ClearRunScriptEffect{HookState: shared.StateCrashed}
 	case shared.StateInitRun:
 		return &InitRunScriptEffect{}

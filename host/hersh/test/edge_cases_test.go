@@ -14,7 +14,15 @@ import (
 // FIX: Updated expectation - cleanup may not be called if stopped during InitRun
 func TestEdgeCase_StopDuringInitRun(t *testing.T) {
 	config := shared.DefaultWatcherConfig()
-	watcher := hersh.NewWatcher(config, nil)
+	config.ServerPort = 0 // Random port for test isolation
+	watcher := hersh.NewWatcher(config, nil, nil)
+
+	// Ensure watcher is stopped after test
+	t.Cleanup(func() {
+		if watcher != nil {
+			_ = watcher.Stop()
+		}
+	})
 
 	cleanupCalled := int32(0)
 	executionCount := int32(0)
@@ -83,7 +91,15 @@ func TestEdgeCase_StopDuringInitRun(t *testing.T) {
 // TestEdgeCase_MultipleStops tests idempotent stop behavior
 func TestEdgeCase_MultipleStops(t *testing.T) {
 	config := shared.DefaultWatcherConfig()
-	watcher := hersh.NewWatcher(config, nil)
+	config.ServerPort = 0 // Random port for test isolation
+	watcher := hersh.NewWatcher(config, nil, nil)
+
+	// Ensure watcher is stopped after test
+	t.Cleanup(func() {
+		if watcher != nil {
+			_ = watcher.Stop()
+		}
+	})
 
 	cleanupCalled := int32(0)
 
@@ -141,7 +157,15 @@ func TestEdgeCase_MultipleStops(t *testing.T) {
 // FIX: Updated expectation - after StopError auto-stop, second Stop() may not error
 func TestEdgeCase_StopErrorHandling(t *testing.T) {
 	config := shared.DefaultWatcherConfig()
-	watcher := hersh.NewWatcher(config, nil)
+	config.ServerPort = 0 // Random port for test isolation
+	watcher := hersh.NewWatcher(config, nil, nil)
+
+	// Ensure watcher is stopped after test
+	t.Cleanup(func() {
+		if watcher != nil {
+			_ = watcher.Stop()
+		}
+	})
 
 	executionCount := int32(0)
 
@@ -188,7 +212,15 @@ func TestEdgeCase_StopErrorHandling(t *testing.T) {
 // FIX: Cleanup runs in background, Stop() may return before cleanup completes
 func TestEdgeCase_CleanupTimeout(t *testing.T) {
 	config := shared.DefaultWatcherConfig()
-	watcher := hersh.NewWatcher(config, nil)
+	config.ServerPort = 0 // Random port for test isolation
+	watcher := hersh.NewWatcher(config, nil, nil)
+
+	// Ensure watcher is stopped after test
+	t.Cleanup(func() {
+		if watcher != nil {
+			_ = watcher.Stop()
+		}
+	})
 
 	cleanupStarted := int32(0)
 	cleanupCompleted := int32(0)
@@ -256,7 +288,15 @@ func TestEdgeCase_CleanupTimeout(t *testing.T) {
 // TestEdgeCase_NilMessageHandling tests nil message handling
 func TestEdgeCase_NilMessageHandling(t *testing.T) {
 	config := shared.DefaultWatcherConfig()
-	watcher := hersh.NewWatcher(config, nil)
+	config.ServerPort = 0 // Random port for test isolation
+	watcher := hersh.NewWatcher(config, nil, nil)
+
+	// Ensure watcher is stopped after test
+	t.Cleanup(func() {
+		if watcher != nil {
+			_ = watcher.Stop()
+		}
+	})
 
 	nilCount := int32(0)
 	nonNilCount := int32(0)
@@ -318,7 +358,15 @@ func TestEdgeCase_NilMessageHandling(t *testing.T) {
 // TestEdgeCase_EmptyWatchVariables tests handling when no watches registered
 func TestEdgeCase_EmptyWatchVariables(t *testing.T) {
 	config := shared.DefaultWatcherConfig()
-	watcher := hersh.NewWatcher(config, nil)
+	config.ServerPort = 0 // Random port for test isolation
+	watcher := hersh.NewWatcher(config, nil, nil)
+
+	// Ensure watcher is stopped after test
+	t.Cleanup(func() {
+		if watcher != nil {
+			_ = watcher.Stop()
+		}
+	})
 
 	executionCount := int32(0)
 
@@ -355,13 +403,14 @@ func TestEdgeCase_EmptyWatchVariables(t *testing.T) {
 // TestEdgeCase_PanicRecovery tests panic recovery in managed function
 func TestEdgeCase_PanicRecovery(t *testing.T) {
 	config := shared.DefaultWatcherConfig()
+	config.ServerPort = 0 // Random port for test isolation
 	// Use short lightweight retry delays for testing (panic is treated as error)
 	config.RecoveryPolicy.LightweightRetryDelays = []time.Duration{
 		100 * time.Millisecond, // 1st failure
 		200 * time.Millisecond, // 2nd failure
 		300 * time.Millisecond, // 3rd+ failures
 	}
-	watcher := hersh.NewWatcher(config, nil)
+	watcher := hersh.NewWatcher(config, nil, nil)
 
 	executionCount := int32(0)
 	panicCount := int32(0)
@@ -432,8 +481,16 @@ func TestEdgeCase_PanicRecovery(t *testing.T) {
 // Note: Context timeout is enforced by the handler wrapper, not directly in user code
 func TestEdgeCase_ContextCancellation(t *testing.T) {
 	config := shared.DefaultWatcherConfig()
+	config.ServerPort = 0 // Random port for test isolation
 	config.DefaultTimeout = 200 * time.Millisecond // Short timeout
-	watcher := hersh.NewWatcher(config, nil)
+	watcher := hersh.NewWatcher(config, nil, nil)
+
+	// Ensure watcher is stopped after test
+	t.Cleanup(func() {
+		if watcher != nil {
+			_ = watcher.Stop()
+		}
+	})
 
 	executionCount := int32(0)
 	longOpCount := int32(0)

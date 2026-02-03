@@ -13,7 +13,15 @@ import (
 // TestConcurrentWatch_MultipleWatchCall tests multiple WatchCall instances with different intervals
 func TestConcurrentWatch_MultipleWatchCall(t *testing.T) {
 	config := shared.DefaultWatcherConfig()
-	watcher := hersh.NewWatcher(config, nil)
+	config.ServerPort = 0 // Random port for test isolation
+	watcher := hersh.NewWatcher(config, nil, nil)
+
+	// Ensure watcher is stopped after test
+	t.Cleanup(func() {
+		if watcher != nil {
+			_ = watcher.Stop()
+		}
+	})
 
 	watch1Count := int32(0)
 	watch2Count := int32(0)
@@ -103,7 +111,15 @@ func TestConcurrentWatch_MultipleWatchCall(t *testing.T) {
 // ORIGINAL TEST - checking for race condition
 func TestConcurrentWatch_WatchPlusMessages(t *testing.T) {
 	config := shared.DefaultWatcherConfig()
-	watcher := hersh.NewWatcher(config, nil)
+	config.ServerPort = 0 // Random port for test isolation
+	watcher := hersh.NewWatcher(config, nil, nil)
+
+	// Ensure watcher is stopped after test
+	t.Cleanup(func() {
+		if watcher != nil {
+			_ = watcher.Stop()
+		}
+	})
 
 	watchCounter := int32(0)
 	messagesReceived := []string{}
@@ -176,7 +192,15 @@ func TestConcurrentWatch_WatchPlusMessages(t *testing.T) {
 // ORIGINAL TEST - 20 watches with 30s Start() timeout
 func TestConcurrentWatch_ManyWatches(t *testing.T) {
 	config := shared.DefaultWatcherConfig()
-	watcher := hersh.NewWatcher(config, nil)
+	config.ServerPort = 0 // Random port for test isolation
+	watcher := hersh.NewWatcher(config, nil, nil)
+
+	// Ensure watcher is stopped after test
+	t.Cleanup(func() {
+		if watcher != nil {
+			_ = watcher.Stop()
+		}
+	})
 
 	watchCount := 20 // ORIGINAL: 20 watches
 	counters := make([]int32, watchCount)
@@ -249,7 +273,15 @@ func TestConcurrentWatch_ManyWatches(t *testing.T) {
 // TestConcurrentWatch_RapidStateChanges tests rapid watch updates and re-executions
 func TestConcurrentWatch_RapidStateChanges(t *testing.T) {
 	config := shared.DefaultWatcherConfig()
-	watcher := hersh.NewWatcher(config, nil)
+	config.ServerPort = 0 // Random port for test isolation
+	watcher := hersh.NewWatcher(config, nil, nil)
+
+	// Ensure watcher is stopped after test
+	t.Cleanup(func() {
+		if watcher != nil {
+			_ = watcher.Stop()
+		}
+	})
 
 	counter := int32(0)
 	executionCount := int32(0)

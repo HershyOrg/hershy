@@ -16,7 +16,7 @@ func TestWatchFlowBasic(t *testing.T) {
 
 	// Create Watcher
 	config := hersh.DefaultWatcherConfig()
-	watcher := hersh.NewWatcher(config, nil)
+	watcher := hersh.NewWatcher(config, nil, nil)
 
 	executionCount := 0
 

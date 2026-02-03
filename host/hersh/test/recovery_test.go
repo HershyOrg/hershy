@@ -15,6 +15,7 @@ import (
 // and do not trigger recovery mode.
 func TestRecovery_SuppressPhase(t *testing.T) {
 	config := shared.DefaultWatcherConfig()
+	config.ServerPort = 0 // Random port for test isolation
 	config.RecoveryPolicy.MinConsecutiveFailures = 5
 	config.RecoveryPolicy.MaxConsecutiveFailures = 6
 	// Use short lightweight retry delays for testing
@@ -24,7 +25,14 @@ func TestRecovery_SuppressPhase(t *testing.T) {
 		3000 * time.Millisecond, // 3rd+ failures
 	}
 
-	watcher := hersh.NewWatcher(config, nil)
+	watcher := hersh.NewWatcher(config, nil, nil)
+
+	// Ensure watcher is stopped after test
+	t.Cleanup(func() {
+		if watcher != nil {
+			_ = watcher.Stop()
+		}
+	})
 
 	executionCount := int32(0)
 	failureCount := 2 // Fail twice, then succeed
@@ -82,6 +90,7 @@ func TestRecovery_SuppressPhase(t *testing.T) {
 // StateWaitRecover transition.
 func TestRecovery_EnterRecoveryMode(t *testing.T) {
 	config := shared.DefaultWatcherConfig()
+	config.ServerPort = 0 // Random port for test isolation
 	config.RecoveryPolicy.MinConsecutiveFailures = 3
 	config.RecoveryPolicy.MaxConsecutiveFailures = 6
 	config.RecoveryPolicy.BaseRetryDelay = 200 * time.Millisecond
@@ -92,7 +101,14 @@ func TestRecovery_EnterRecoveryMode(t *testing.T) {
 		300 * time.Millisecond, // 3rd+ failures (though 3rd triggers WaitRecover)
 	}
 
-	watcher := hersh.NewWatcher(config, nil)
+	watcher := hersh.NewWatcher(config, nil, nil)
+
+	// Ensure watcher is stopped after test
+	t.Cleanup(func() {
+		if watcher != nil {
+			_ = watcher.Stop()
+		}
+	})
 
 	executionCount := int32(0)
 	failureCount := 4 // Fail 4 times to trigger recovery
@@ -149,6 +165,7 @@ func TestRecovery_EnterRecoveryMode(t *testing.T) {
 // WaitRecover state and transitions back to Ready via InitRun.
 func TestRecovery_SuccessfulRecovery(t *testing.T) {
 	config := shared.DefaultWatcherConfig()
+	config.ServerPort = 0 // Random port for test isolation
 	config.RecoveryPolicy.MinConsecutiveFailures = 3
 	config.RecoveryPolicy.MaxConsecutiveFailures = 6
 	config.RecoveryPolicy.BaseRetryDelay = 200 * time.Millisecond
@@ -159,7 +176,14 @@ func TestRecovery_SuccessfulRecovery(t *testing.T) {
 		300 * time.Millisecond, // 3rd failure (triggers WaitRecover)
 	}
 
-	watcher := hersh.NewWatcher(config, nil)
+	watcher := hersh.NewWatcher(config, nil, nil)
+
+	// Ensure watcher is stopped after test
+	t.Cleanup(func() {
+		if watcher != nil {
+			_ = watcher.Stop()
+		}
+	})
 
 	executionCount := int32(0)
 	failureCount := 3 // Fail 3 times, then succeed
@@ -216,6 +240,7 @@ func TestRecovery_SuccessfulRecovery(t *testing.T) {
 // transition to StateCrashed.
 func TestRecovery_MaxFailureCrash(t *testing.T) {
 	config := shared.DefaultWatcherConfig()
+	config.ServerPort = 0 // Random port for test isolation
 	config.RecoveryPolicy.MinConsecutiveFailures = 3
 	config.RecoveryPolicy.MaxConsecutiveFailures = 6
 	config.RecoveryPolicy.BaseRetryDelay = 100 * time.Millisecond
@@ -226,7 +251,14 @@ func TestRecovery_MaxFailureCrash(t *testing.T) {
 		300 * time.Millisecond, // 3rd+ failures
 	}
 
-	watcher := hersh.NewWatcher(config, nil)
+	watcher := hersh.NewWatcher(config, nil, nil)
+
+	// Ensure watcher is stopped after test
+	t.Cleanup(func() {
+		if watcher != nil {
+			_ = watcher.Stop()
+		}
+	})
 
 	executionCount := int32(0)
 
@@ -286,6 +318,7 @@ func TestRecovery_MaxFailureCrash(t *testing.T) {
 // consecutive failure counter.
 func TestRecovery_CounterReset(t *testing.T) {
 	config := shared.DefaultWatcherConfig()
+	config.ServerPort = 0 // Random port for test isolation
 	config.RecoveryPolicy.MinConsecutiveFailures = 3
 	config.RecoveryPolicy.MaxConsecutiveFailures = 6
 	// Use short lightweight retry delays for testing
@@ -295,7 +328,14 @@ func TestRecovery_CounterReset(t *testing.T) {
 		300 * time.Millisecond, // 3rd+ failures
 	}
 
-	watcher := hersh.NewWatcher(config, nil)
+	watcher := hersh.NewWatcher(config, nil, nil)
+
+	// Ensure watcher is stopped after test
+	t.Cleanup(func() {
+		if watcher != nil {
+			_ = watcher.Stop()
+		}
+	})
 
 	executionCount := int32(0)
 	failPattern := []bool{

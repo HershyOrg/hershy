@@ -2,6 +2,7 @@ package main
 
 import (
 	"bufio"
+	"context"
 	"fmt"
 	"os"
 	"os/signal"
@@ -10,13 +11,14 @@ import (
 	"time"
 
 	"hersh"
+	"hersh/hutil"
 )
 
 const (
 	// Demo configuration
 	DemoName          = "Long-Running Trading Simulator"
 	DemoVersion       = "1.0.0"
-	TargetDuration    = 4*time.Hour + 30*time.Minute // 4.5 hours
+	TargetDuration    = 10 * time.Minute // 10 minutes
 	StatsInterval     = 1 * time.Minute
 	RebalanceInterval = 1 * time.Hour
 	InitialCapital    = 10000.0 // $10,000 USD
@@ -69,44 +71,10 @@ func main() {
 		fmt.Println("   ⚠️  Initial prices not received, continuing anyway...")
 	}
 
-	// Create timer channels for WatchFlow
-	statsTickerChan := make(chan any, 10)
-	rebalanceTickerChan := make(chan any, 10)
-
-	// Start stats ticker (1 minute interval)
-	go func() {
-		// Send initial value immediately for Init completion
-		statsTickerChan <- time.Now()
-
-		ticker := time.NewTicker(StatsInterval)
-		defer ticker.Stop()
-		for range ticker.C {
-			select {
-			case statsTickerChan <- time.Now():
-			default:
-			}
-		}
-	}()
-
-	// Start rebalance ticker (1 hour interval)
-	go func() {
-		// Send initial value immediately for Init completion
-		rebalanceTickerChan <- time.Now()
-
-		ticker := time.NewTicker(RebalanceInterval)
-		defer ticker.Stop()
-		for range ticker.C {
-			select {
-			case rebalanceTickerChan <- time.Now():
-			default:
-			}
-		}
-	}()
-
-	// Create Watcher
+	// Create Watcher config
 	fmt.Println("\n🔍 Creating Hersh Watcher...")
 	config := hersh.DefaultWatcherConfig()
-	config.DefaultTimeout = 10 * time.Minute
+	config.DefaultTimeout = 5 * time.Minute
 	config.RecoveryPolicy.MinConsecutiveFailures = 5
 	config.RecoveryPolicy.MaxConsecutiveFailures = 10
 	config.RecoveryPolicy.BaseRetryDelay = 10 * time.Second
@@ -122,8 +90,17 @@ func main() {
 		"DEMO_VERSION": DemoVersion,
 	}
 
-	watcher := hersh.NewWatcher(config, envVars)
-	fmt.Println("   ✅ Watcher created with long-running config")
+	// Create context with 10-minute timeout for graceful shutdown
+	ctx, cancel := context.WithTimeout(context.Background(), TargetDuration)
+	defer cancel()
+
+	// Create Watcher with timeout context - it will auto-stop when context expires
+	watcher := hersh.NewWatcher(config, envVars, ctx)
+	fmt.Println("   ✅ Watcher created with 10-minute timeout context")
+
+	// Create ticker channels (once) to avoid goroutine leaks
+	statsTickerChan := hutil.TickerWithInit(StatsInterval)
+	rebalanceTickerChan := hutil.TickerWithInit(RebalanceInterval)
 
 	// Register managed function with closure
 	watcher.Manage(func(msg *hersh.Message, ctx hersh.HershContext) error {
@@ -140,34 +117,20 @@ func main() {
 		cleanup(ctx, stream, simulator, statsCollector)
 	})
 
-	// Setup signal handling BEFORE starting Watcher
+	// Setup signal handling
 	sigChan := make(chan os.Signal, 1)
 	signal.Notify(sigChan, os.Interrupt, syscall.SIGTERM)
 
-	// Start Watcher in goroutine to allow Ctrl+C during Init
+	// Start Watcher
 	fmt.Println("\n▶️  Starting main trading loop...")
 	fmt.Println("   Type 'help' for available commands")
 	fmt.Println("   Press Ctrl+C to stop")
+	fmt.Println("   Watcher will auto-stop after 10 minutes")
 	fmt.Println()
 
-	startErrChan := make(chan error, 1)
-	go func() {
-		if err := watcher.Start(); err != nil {
-			startErrChan <- err
-		}
-	}()
-
-	// Wait for either Watcher start error or user interrupt
-	select {
-	case err := <-startErrChan:
-		fmt.Printf("\n❌ Watcher failed to start: %v\n", err)
+	if err := watcher.Start(); err != nil {
+		fmt.Printf("❌ Initialization failed: %v\n", err)
 		os.Exit(1)
-	case <-sigChan:
-		fmt.Println("\n\n🛑 Interrupt received during startup, shutting down...")
-		watcher.Stop()
-		os.Exit(0)
-	case <-time.After(100 * time.Millisecond):
-		// Watcher started successfully, continue to main loop
 	}
 
 	// Start user input handler (only if stdin is available)
@@ -178,20 +141,25 @@ func main() {
 		}
 	}()
 
-	// Wait for shutdown signal
-	<-sigChan
-
-	// Graceful shutdown
-	fmt.Println("\n\n🛑 Shutting down...")
+	// Wait for either context timeout or OS signal
+	select {
+	case <-ctx.Done():
+		// Context timeout - watcher will auto-stop via parent context
+		fmt.Println("\n\n⏰ Target duration reached (10 minutes)")
+		fmt.Println("   Watcher auto-stopping gracefully...")
+		// Brief pause to allow auto-stop to complete
+		time.Sleep(200 * time.Millisecond)
+	case <-sigChan:
+		// User interrupt
+		fmt.Println("\n\n🛑 Interrupt signal received...")
+		watcher.Stop()
+	}
 
 	// Print logger summary
 	fmt.Println("\n" + strings.Repeat("═", 80))
 	fmt.Println("📋 EXECUTION LOGS")
 	fmt.Println(strings.Repeat("═", 80))
 	watcher.GetLogger().PrintSummary()
-
-	fmt.Println("\n   Stopping Watcher...")
-	watcher.Stop()
 
 	fmt.Println("\n✅ Demo completed successfully")
 	fmt.Println(strings.Repeat("═", 80))
@@ -208,22 +176,6 @@ func mainReducer(
 	statsTickerChan <-chan any,
 	rebalanceTickerChan <-chan any,
 ) error {
-	// Initialize start time on first run
-	if ctx.GetValue("start_time") == nil {
-		ctx.SetValue("start_time", time.Now())
-	}
-	startTime := ctx.GetValue("start_time").(time.Time)
-
-	// Check if target duration reached
-	elapsed := time.Since(startTime)
-	if elapsed >= TargetDuration {
-		if ctx.GetValue("target_reached") == nil {
-			fmt.Printf("\n🎯 Target duration reached: %s\n", TargetDuration)
-			fmt.Println("   Demo will continue until you press Ctrl+C")
-			ctx.SetValue("target_reached", true)
-		}
-	}
-
 	// WatchFlow: BTC price (real-time from WebSocket)
 	btcPrice := hersh.WatchFlow(stream.GetBTCPriceChan(), "btc_price", ctx)
 	if btcPrice != nil {

@@ -20,8 +20,16 @@ import (
 // This test exposes issues where batch updates lose intermediate states.
 func TestBatchUpdate_LongExecution(t *testing.T) {
 	config := shared.DefaultWatcherConfig()
+	config.ServerPort = 0 // Random port for test isolation
 	config.DefaultTimeout = 10 * time.Second // Long timeout for 3s execution
-	watcher := hersh.NewWatcher(config, nil)
+	watcher := hersh.NewWatcher(config, nil, nil)
+
+	// Ensure watcher is stopped after test (even if test fails)
+	t.Cleanup(func() {
+		if watcher != nil {
+			_ = watcher.Stop()
+		}
+	})
 
 	// Track execution count
 	executionCount := int32(0)
@@ -37,7 +45,7 @@ func TestBatchUpdate_LongExecution(t *testing.T) {
 	ticksC := int32(0)
 
 	// Create channel for WatchFlow
-	timeChan := make(chan any, 1000) // Buffered to avoid blocking
+	timeChan := make(chan any, 10000) // Buffered to avoid blocking
 
 	// Goroutine to feed channel
 	stopFeeding := make(chan struct{})
@@ -233,7 +241,15 @@ func TestBatchUpdate_LongExecution(t *testing.T) {
 // This uses shorter execution times (100ms) to trigger more frequent batch processing.
 func TestBatchUpdate_RapidExecutions(t *testing.T) {
 	config := shared.DefaultWatcherConfig()
-	watcher := hersh.NewWatcher(config, nil)
+	config.ServerPort = 0 // Random port for test isolation
+	watcher := hersh.NewWatcher(config, nil, nil)
+
+	// Ensure watcher is stopped after test
+	t.Cleanup(func() {
+		if watcher != nil {
+			_ = watcher.Stop()
+		}
+	})
 
 	executionCount := int32(0)
 	ticksA := int32(0)
