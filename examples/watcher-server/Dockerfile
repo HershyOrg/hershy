@@ -1,7 +1,7 @@
 FROM golang:1.24-alpine AS builder
 
 # Install git for go mod download
-RUN apk add --no-cache git
+RUN apk add --no-cache git ca-certificates
 
 WORKDIR /build
 
@@ -9,12 +9,11 @@ WORKDIR /build
 COPY go.mod go.sum ./
 COPY main.go .
 
-# Download dependencies (hersh framework from GitHub)
-# Use direct proxy and skip checksum verification for private/new modules
-RUN GOPROXY=direct GOSUMDB=off go mod download
+# Download dependencies (hersh framework from GitHub public repo)
+RUN go mod download
 
-# Build (skip checksum verification)
-RUN GOSUMDB=off go build -o watcher-server main.go
+# Build
+RUN go build -o watcher-server main.go
 
 FROM alpine:latest
 
