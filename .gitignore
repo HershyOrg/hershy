@@ -5,6 +5,8 @@
 *.out
 *.test
 
+/cmd
+
 # Go workspace
 /go.work
 /go.work.sum

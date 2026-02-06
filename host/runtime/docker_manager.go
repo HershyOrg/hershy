@@ -6,14 +6,17 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"net/netip"
 	"os"
 	"path/filepath"
 
-	"github.com/moby/go-archive"
-	"github.com/moby/moby/api/types/container"
-	"github.com/moby/moby/client"
 	"github.com/HershyOrg/hershy/host/compose"
 	"github.com/HershyOrg/hershy/program"
+	nat "github.com/docker/go-connections/nat"
+	"github.com/moby/go-archive"
+	"github.com/moby/moby/api/types/container"
+	"github.com/moby/moby/api/types/network"
+	"github.com/moby/moby/client"
 )
 
 // DockerManager handles Docker image building and container lifecycle
@@ -174,10 +177,68 @@ func (m *DockerManager) Start(ctx context.Context, opts StartOpts) (*StartResult
 		env = append(env, fmt.Sprintf("%s=%s", key, value))
 	}
 
+	// Parse port bindings (e.g., "127.0.0.1:19001:8080")
+	portBindings := nat.PortMap{}
+	exposedPorts := nat.PortSet{}
+
+	for _, portMapping := range appService.Ports {
+		// Use nat.ParsePortSpec to parse port mappings
+		portSpecs, err := nat.ParsePortSpec(portMapping)
+		if err != nil {
+			continue // Invalid format, skip
+		}
+
+		for _, portSpec := range portSpecs {
+			// Add to exposed ports
+			exposedPorts[portSpec.Port] = struct{}{}
+
+			// Add to port bindings
+			portBindings[portSpec.Port] = []nat.PortBinding{portSpec.Binding}
+		}
+	}
+
+	// Convert nat types to network types
+	networkExposedPorts := network.PortSet{}
+	for port := range exposedPorts {
+		networkPort, err := network.ParsePort(string(port))
+		if err != nil {
+			fmt.Printf("DockerManagerError: %s\n", err.Error())
+			continue // Skip invalid ports
+		}
+		networkExposedPorts[networkPort] = struct{}{}
+	}
+
+	networkPortBindings := network.PortMap{}
+	for port, bindings := range portBindings {
+		networkPort, err := network.ParsePort(string(port))
+		if err != nil {
+			continue // Skip invalid ports
+		}
+
+		networkBindings := make([]network.PortBinding, len(bindings))
+		for i, binding := range bindings {
+			// Parse HostIP to netip.Addr
+			var hostIP netip.Addr
+			if binding.HostIP != "" {
+				parsedIP, err := netip.ParseAddr(binding.HostIP)
+				if err == nil {
+					hostIP = parsedIP
+				}
+			}
+
+			networkBindings[i] = network.PortBinding{
+				HostIP:   hostIP,
+				HostPort: binding.HostPort,
+			}
+		}
+		networkPortBindings[networkPort] = networkBindings
+	}
+
 	// Create container configuration
 	config := &container.Config{
-		Image: appService.Image,
-		Env:   env,
+		Image:        appService.Image,
+		Env:          env,
+		ExposedPorts: networkExposedPorts,
 	}
 
 	// Create host configuration
@@ -187,6 +248,7 @@ func (m *DockerManager) Start(ctx context.Context, opts StartOpts) (*StartResult
 		ReadonlyRootfs: appService.ReadOnly,
 		SecurityOpt:    appService.SecurityOpt,
 		NetworkMode:    container.NetworkMode(appService.NetworkMode),
+		PortBindings:   networkPortBindings,
 	}
 
 	// Create container using new API

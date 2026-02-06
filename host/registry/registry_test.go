@@ -166,11 +166,11 @@ func TestRegistry_Register(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Failed to get registered program: %v", err)
 	}
-	if registered.ProxyPort == 0 {
-		t.Error("ProxyPort should be allocated")
+	if registered.PublishPort == 0 {
+		t.Error("PublishPort should be allocated")
 	}
-	if registered.ProxyPort < 9000 || registered.ProxyPort > 9999 {
-		t.Errorf("ProxyPort %d is outside valid range", registered.ProxyPort)
+	if registered.PublishPort < 19001 || registered.PublishPort > 29999 {
+		t.Errorf("PublishPort %d is outside valid range", registered.PublishPort)
 	}
 
 	// Try to register duplicate
@@ -303,7 +303,7 @@ func TestRegistry_Delete(t *testing.T) {
 
 	// Get port before deletion
 	registered, _ := r.Get(meta.ProgramID)
-	port := registered.ProxyPort
+	port := registered.PublishPort
 
 	// Delete program
 	if err := r.Delete(meta.ProgramID); err != nil {

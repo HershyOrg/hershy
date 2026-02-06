@@ -24,9 +24,10 @@ func (BuildRuntime) isEffect() {}
 
 // StartRuntime requests starting a container from built image
 type StartRuntime struct {
-	ProgramID ProgramID
-	ImageID   string
-	StatePath string // Path to /state volume
+	ProgramID   ProgramID
+	ImageID     string
+	StatePath   string // Path to /state volume
+	PublishPort int    // Localhost-only publish port (19001-29999)
 }
 
 func (StartRuntime) isEffect() {}

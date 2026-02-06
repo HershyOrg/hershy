@@ -9,7 +9,6 @@ import (
 	"net/http"
 	"time"
 
-	"github.com/HershyOrg/hershy/host/proxy"
 	"github.com/HershyOrg/hershy/program"
 )
 
@@ -50,14 +49,17 @@ func (hs *HostServer) startProgram(w http.ResponseWriter, r *http.Request, progr
 	ctx := context.Background()
 	go prog.Start(ctx)
 
-	// Send start event
-	if err := prog.SendEvent(program.UserStartRequested{ProgramID: programID}); err != nil {
+	// Send start event with publish port
+	if err := prog.SendEvent(program.UserStartRequested{
+		ProgramID:   programID,
+		PublishPort: meta.PublishPort,
+	}); err != nil {
 		hs.sendError(w, http.StatusInternalServerError, fmt.Sprintf("failed to start program: %v", err))
 		return
 	}
 
-	// Monitor state transitions and set up proxy when ready
-	go hs.monitorProgramState(programID, meta.ProxyPort)
+	// Monitor state transitions (no proxy setup needed - container publishes directly)
+	go hs.monitorProgramState(programID, meta.PublishPort)
 
 	response := LifecycleResponse{
 		ProgramID: programID,
@@ -69,8 +71,9 @@ func (hs *HostServer) startProgram(w http.ResponseWriter, r *http.Request, progr
 	json.NewEncoder(w).Encode(response)
 }
 
-// monitorProgramState monitors program state and sets up proxy when ready
-func (hs *HostServer) monitorProgramState(programID program.ProgramID, proxyPort int) {
+// monitorProgramState monitors program state and updates registry
+// Note: No proxy setup needed - container publishes directly to localhost:publishPort
+func (hs *HostServer) monitorProgramState(programID program.ProgramID, publishPort int) {
 	hs.mu.RLock()
 	prog, exists := hs.runningPrograms[programID]
 	hs.mu.RUnlock()
@@ -106,36 +109,10 @@ func (hs *HostServer) monitorProgramState(programID program.ProgramID, proxyPort
 			hs.programRegistry.Update(programID, updates)
 
 			if state.State == program.StateReady {
-				log.Printf("[PROXY-DEBUG] Program %s reached StateReady, starting proxy setup", programID)
-
-				// Get container IP
-				containerIP, err := hs.runtime.GetContainerIP(context.Background(), state.ContainerID)
-				if err != nil {
-					log.Printf("[PROXY-ERROR] Failed to get container IP for %s: %v", programID, err)
-					return
-				}
-				log.Printf("[PROXY-DEBUG] Container IP for %s: %s", programID, containerIP)
-
-				// Create and start proxy
-				targetAddr := fmt.Sprintf("%s:8080", containerIP)
-				log.Printf("[PROXY-DEBUG] Creating proxy server: programID=%s, hostPort=%d, targetAddr=%s",
-					programID, proxyPort, targetAddr)
-
-				proxyServer := proxy.NewProxyServer(programID, proxyPort, targetAddr)
-				if err := hs.proxyManager.Add(proxyServer); err != nil {
-					log.Printf("[PROXY-ERROR] Failed to add proxy to manager for %s: %v", programID, err)
-					return
-				}
-				log.Printf("[PROXY-DEBUG] Proxy added to manager, calling Start()...")
-
-				if err := proxyServer.Start(); err != nil {
-					log.Printf("[PROXY-ERROR] Failed to start proxy server for %s on port %d: %v",
-						programID, proxyPort, err)
-					return
-				}
-
-				log.Printf("[PROXY-SUCCESS] ✅ Proxy started successfully for %s on localhost:%d → %s",
-					programID, proxyPort, targetAddr)
+				log.Printf("[PROGRAM-READY] ✅ Program %s reached StateReady, accessible on localhost:%d",
+					programID, publishPort)
+				// Container is publishing directly to localhost:publishPort
+				// No proxy server needed
 				return
 			}
 
@@ -173,10 +150,7 @@ func (hs *HostServer) stopProgram(w http.ResponseWriter, r *http.Request, progra
 		return
 	}
 
-	// Stop and remove proxy
-	if err := hs.proxyManager.Remove(programID); err != nil {
-		// Log but don't fail
-	}
+	// No proxy cleanup needed - container publishes directly
 
 	// Monitor stop completion and cleanup
 	go func() {
@@ -255,24 +229,23 @@ func (hs *HostServer) restartProgram(w http.ResponseWriter, r *http.Request, pro
 }
 
 // handleProxy handles requests to /programs/{id}/proxy/*
-// 이는 이중 프록시 구조임. 
-// 요청이 들어오면, 이를 "프록시 수신 호스트 포트"로 전달.
-// 이후 "프록시 수신 호스트 포트"에서 "컨테이너 포트"로 재전달됨.
+// Direct proxy to container's published localhost port
 func (hs *HostServer) handleProxy(w http.ResponseWriter, r *http.Request, programID program.ProgramID, proxyPath string) {
-	// Get proxy server
-	proxyServer, err := hs.proxyManager.Get(programID)
+	// Get program metadata for publish port
+	meta, err := hs.programRegistry.Get(programID)
 	if err != nil {
-		hs.sendError(w, http.StatusNotFound, fmt.Sprintf("proxy not found: %v", err))
+		hs.sendError(w, http.StatusNotFound, fmt.Sprintf("program not found: %v", err))
 		return
 	}
 
-	if !proxyServer.IsRunning() {
-		hs.sendError(w, http.StatusServiceUnavailable, "proxy not running")
+	// Check if program is ready
+	if meta.State != program.StateReady {
+		hs.sendError(w, http.StatusServiceUnavailable, fmt.Sprintf("program not ready (current state: %s)", meta.State))
 		return
 	}
 
-	// Build target URL
-	targetURL := fmt.Sprintf("http://localhost:%d%s", proxyServer.GetHostPort(), proxyPath)
+	// Build target URL (direct to container's published port)
+	targetURL := fmt.Sprintf("http://localhost:%d%s", meta.PublishPort, proxyPath)
 	if r.URL.RawQuery != "" {
 		targetURL += "?" + r.URL.RawQuery
 	}
@@ -315,35 +288,4 @@ func (hs *HostServer) handleProxy(w http.ResponseWriter, r *http.Request, progra
 
 	// Copy response body
 	io.Copy(w, resp.Body)
-}
-
-// handleDebugProxy handles GET /debug/proxy/{program_id}
-func (hs *HostServer) handleDebugProxy(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodGet {
-		hs.sendError(w, http.StatusMethodNotAllowed, "method not allowed")
-		return
-	}
-
-	// Extract program ID from path
-	path := r.URL.Path[len("/debug/proxy/"):]
-	programID := program.ProgramID(path)
-
-	// Get proxy server
-	proxyServer, err := hs.proxyManager.Get(programID)
-	if err != nil {
-		hs.sendError(w, http.StatusNotFound, fmt.Sprintf("proxy not found: %v", err))
-		return
-	}
-
-	// Build debug response
-	debugInfo := map[string]interface{}{
-		"program_id":  programID,
-		"host_port":   proxyServer.GetHostPort(),
-		"target_addr": proxyServer.GetTargetAddr(),
-		"is_running":  proxyServer.IsRunning(),
-		"proxy_url":   fmt.Sprintf("http://localhost:%d", proxyServer.GetHostPort()),
-	}
-
-	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(debugInfo)
 }

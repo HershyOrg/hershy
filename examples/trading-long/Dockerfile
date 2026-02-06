@@ -6,7 +6,7 @@ WORKDIR /build
 RUN apk add --no-cache git ca-certificates
 
 # Copy go files
-COPY go.mod ./
+COPY go.mod go.sum ./
 COPY *.go ./
 
 # Download dependencies (hersh from Go proxy)

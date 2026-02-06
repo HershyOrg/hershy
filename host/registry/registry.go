@@ -20,7 +20,7 @@ type ProgramMetadata struct {
 	ErrorMsg    string            `json:"error_msg,omitempty"`
 	CreatedAt   time.Time         `json:"created_at"`
 	UpdatedAt   time.Time         `json:"updated_at"`
-	ProxyPort   int               `json:"proxy_port"` // Host가 할당한 프록시 포트
+	PublishPort int               `json:"publish_port"` // Localhost-only publish port (19001-29999)
 }
 
 // PortAllocator manages port allocation for proxy servers
@@ -125,11 +125,11 @@ type Registry struct {
 	portAlloc *PortAllocator
 }
 
-// NewRegistry creates a new registry with default port range (9000-9999)
+// NewRegistry creates a new registry with default port range (19001-29999)
 func NewRegistry() *Registry {
 	return &Registry{
 		programs:  make(map[program.ProgramID]*ProgramMetadata),
-		portAlloc: NewPortAllocator(9000, 9999),
+		portAlloc: NewPortAllocator(19001, 29999),
 	}
 }
 
@@ -150,13 +150,13 @@ func (r *Registry) Register(meta ProgramMetadata) error {
 		return fmt.Errorf("program %s already registered", meta.ProgramID)
 	}
 
-	// Allocate proxy port
+	// Allocate publish port
 	port, err := r.portAlloc.Allocate()
 	if err != nil {
 		return fmt.Errorf("failed to allocate port: %w", err)
 	}
 
-	meta.ProxyPort = port
+	meta.PublishPort = port
 	meta.CreatedAt = time.Now()
 	meta.UpdatedAt = meta.CreatedAt
 
@@ -238,7 +238,7 @@ func (r *Registry) Delete(id program.ProgramID) error {
 	}
 
 	// Release port
-	if err := r.portAlloc.Release(meta.ProxyPort); err != nil {
+	if err := r.portAlloc.Release(meta.PublishPort); err != nil {
 		return fmt.Errorf("failed to release port: %w", err)
 	}
 

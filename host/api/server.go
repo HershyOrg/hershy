@@ -82,9 +82,6 @@ func (hs *HostServer) Start(port int) error {
 	mux.HandleFunc("/programs", hs.handlePrograms)
 	mux.HandleFunc("/programs/", hs.handleProgramByID)
 
-	// Debug endpoints
-	mux.HandleFunc("/debug/proxy/", hs.handleDebugProxy)
-
 	hs.server = &http.Server{
 		Addr:    fmt.Sprintf(":%d", port),
 		Handler: mux,
@@ -203,9 +200,9 @@ func (hs *HostServer) createProgram(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Get assigned proxy port
+	// Get assigned publish port
 	registered, _ := hs.programRegistry.Get(programID)
-	proxyURL := fmt.Sprintf("http://localhost:%d", registered.ProxyPort)
+	proxyURL := fmt.Sprintf("http://localhost:%d", registered.PublishPort)
 
 	// Write source files to storage
 	if err := hs.storage.EnsureProgramFolders(programID); err != nil {
@@ -262,7 +259,7 @@ func (hs *HostServer) getProgram(w http.ResponseWriter, r *http.Request, program
 		state := prog.GetState()
 
 		// Update response with live state
-		proxyURL := fmt.Sprintf("http://localhost:%d", meta.ProxyPort)
+		proxyURL := fmt.Sprintf("http://localhost:%d", meta.PublishPort)
 		response := GetProgramResponse{
 			ProgramID:   state.ID,
 			BuildID:     state.BuildID,
@@ -282,7 +279,7 @@ func (hs *HostServer) getProgram(w http.ResponseWriter, r *http.Request, program
 	}
 
 	// Program not running, return registry data
-	proxyURL := fmt.Sprintf("http://localhost:%d", meta.ProxyPort)
+	proxyURL := fmt.Sprintf("http://localhost:%d", meta.PublishPort)
 
 	response := GetProgramResponse{
 		ProgramID:   meta.ProgramID,
@@ -307,7 +304,7 @@ func (hs *HostServer) listPrograms(w http.ResponseWriter, r *http.Request) {
 
 	programs := make([]GetProgramResponse, 0, len(metaList))
 	for _, meta := range metaList {
-		proxyURL := fmt.Sprintf("http://localhost:%d", meta.ProxyPort)
+		proxyURL := fmt.Sprintf("http://localhost:%d", meta.PublishPort)
 		programs = append(programs, GetProgramResponse{
 			ProgramID:   meta.ProgramID,
 			BuildID:     meta.BuildID,
@@ -351,10 +348,7 @@ func (hs *HostServer) deleteProgram(w http.ResponseWriter, r *http.Request, prog
 	}
 	hs.mu.Unlock()
 
-	// Stop and remove proxy
-	if err := hs.proxyManager.Remove(programID); err != nil {
-		// Log but don't fail
-	}
+	// No proxy cleanup needed - container publishes directly
 
 	// Delete program files
 	if err := hs.storage.DeleteProgram(programID); err != nil {

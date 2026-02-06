@@ -323,7 +323,7 @@ func TestProxyForwarding(t *testing.T) {
 
 	// Get assigned port
 	registered, _ := hs.programRegistry.Get(programID)
-	proxyPort := registered.ProxyPort
+	proxyPort := registered.PublishPort
 
 	// Create and start proxy pointing to mock backend
 	backendAddr := backend.URL[len("http://"):]

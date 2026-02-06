@@ -136,8 +136,10 @@ func (h *RealEffectHandler) handleStartRuntime(ctx context.Context, eff program.
 		StatePath:   statePath,
 		NetworkMode: "bridge", // Use bridge network for container-to-host communication
 		Runtime:     h.defaultRuntime,
+		PublishPort: eff.PublishPort,
 	}
-	fmt.Printf("[EFFECT]   Compose opts: runtime=%s, network=%s\n", composeOpts.Runtime, composeOpts.NetworkMode)
+	fmt.Printf("[EFFECT]   Compose opts: runtime=%s, network=%s, publishPort=%d\n",
+		composeOpts.Runtime, composeOpts.NetworkMode, composeOpts.PublishPort)
 
 	spec, err := h.compose.GenerateSpec(composeOpts)
 	if err != nil {
