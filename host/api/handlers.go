@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"log"
 	"net/http"
 	"time"
 
@@ -105,25 +106,36 @@ func (hs *HostServer) monitorProgramState(programID program.ProgramID, proxyPort
 			hs.programRegistry.Update(programID, updates)
 
 			if state.State == program.StateReady {
+				log.Printf("[PROXY-DEBUG] Program %s reached StateReady, starting proxy setup", programID)
+
 				// Get container IP
 				containerIP, err := hs.runtime.GetContainerIP(context.Background(), state.ContainerID)
 				if err != nil {
-					// Log error
+					log.Printf("[PROXY-ERROR] Failed to get container IP for %s: %v", programID, err)
 					return
 				}
+				log.Printf("[PROXY-DEBUG] Container IP for %s: %s", programID, containerIP)
 
 				// Create and start proxy
 				targetAddr := fmt.Sprintf("%s:8080", containerIP)
+				log.Printf("[PROXY-DEBUG] Creating proxy server: programID=%s, hostPort=%d, targetAddr=%s",
+					programID, proxyPort, targetAddr)
+
 				proxyServer := proxy.NewProxyServer(programID, proxyPort, targetAddr)
 				if err := hs.proxyManager.Add(proxyServer); err != nil {
-					// Log error
+					log.Printf("[PROXY-ERROR] Failed to add proxy to manager for %s: %v", programID, err)
 					return
 				}
+				log.Printf("[PROXY-DEBUG] Proxy added to manager, calling Start()...")
+
 				if err := proxyServer.Start(); err != nil {
-					// Log error
+					log.Printf("[PROXY-ERROR] Failed to start proxy server for %s on port %d: %v",
+						programID, proxyPort, err)
 					return
 				}
 
+				log.Printf("[PROXY-SUCCESS] ✅ Proxy started successfully for %s on localhost:%d → %s",
+					programID, proxyPort, targetAddr)
 				return
 			}
 
@@ -303,4 +315,35 @@ func (hs *HostServer) handleProxy(w http.ResponseWriter, r *http.Request, progra
 
 	// Copy response body
 	io.Copy(w, resp.Body)
+}
+
+// handleDebugProxy handles GET /debug/proxy/{program_id}
+func (hs *HostServer) handleDebugProxy(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		hs.sendError(w, http.StatusMethodNotAllowed, "method not allowed")
+		return
+	}
+
+	// Extract program ID from path
+	path := r.URL.Path[len("/debug/proxy/"):]
+	programID := program.ProgramID(path)
+
+	// Get proxy server
+	proxyServer, err := hs.proxyManager.Get(programID)
+	if err != nil {
+		hs.sendError(w, http.StatusNotFound, fmt.Sprintf("proxy not found: %v", err))
+		return
+	}
+
+	// Build debug response
+	debugInfo := map[string]interface{}{
+		"program_id":  programID,
+		"host_port":   proxyServer.GetHostPort(),
+		"target_addr": proxyServer.GetTargetAddr(),
+		"is_running":  proxyServer.IsRunning(),
+		"proxy_url":   fmt.Sprintf("http://localhost:%d", proxyServer.GetHostPort()),
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(debugInfo)
 }

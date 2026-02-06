@@ -3,7 +3,7 @@ package main
 import (
 	"context"
 	"log"
-	"monitor/market/api"
+	"github.com/HershyOrg/hershy/monitor/market/api"
 
 	"os"
 	"os/signal"

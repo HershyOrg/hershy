@@ -6,14 +6,11 @@ WORKDIR /build
 RUN apk add --no-cache git ca-certificates
 
 # Copy go files
-COPY go.mod go.sum ./
-RUN go mod download
-
-# Copy hersh framework
-COPY ../../hersh /build/hersh
-
-# Copy source files
+COPY go.mod ./
 COPY *.go ./
+
+# Download dependencies (hersh from Go proxy)
+RUN go mod download
 
 # Build binary
 RUN CGO_ENABLED=0 GOOS=linux go build -o trading-sim .

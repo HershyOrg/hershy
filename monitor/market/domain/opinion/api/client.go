@@ -6,7 +6,7 @@ import (
 	"fmt"
 	"io"
 	"log"
-	parser "monitor/market/domain/opinion/parser"
+	parser "github.com/HershyOrg/hershy/monitor/market/domain/opinion/parser"
 	"net/http"
 	"net/url"
 	"strconv"

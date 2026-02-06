@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"time"
 
-	"hersh"
+	"github.com/HershyOrg/hershy/hersh"
 )
 
 // Simple counter example demonstrating hersh reactive framework

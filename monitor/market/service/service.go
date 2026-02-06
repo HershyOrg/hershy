@@ -2,8 +2,8 @@ package service
 
 import (
 	"context"
-	"monitor/market/repository"
-	"monitor/market/repository/model"
+	"github.com/HershyOrg/hershy/monitor/market/repository"
+	"github.com/HershyOrg/hershy/monitor/market/repository/model"
 	"time"
 )
 

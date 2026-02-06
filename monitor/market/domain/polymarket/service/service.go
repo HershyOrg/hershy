@@ -5,9 +5,9 @@ import (
 	"log"
 	"time"
 
-	"monitor/market/domain/polymarket/api"
-	"monitor/market/domain/polymarket/parser"
-	"monitor/market/repository"
+	"github.com/HershyOrg/hershy/monitor/market/domain/polymarket/api"
+	"github.com/HershyOrg/hershy/monitor/market/domain/polymarket/parser"
+	"github.com/HershyOrg/hershy/monitor/market/repository"
 
 	"github.com/jackc/pgx/v5/pgxpool"
 )

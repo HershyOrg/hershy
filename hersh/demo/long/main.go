@@ -10,7 +10,7 @@ import (
 	"syscall"
 	"time"
 
-	"hersh"
+	"github.com/HershyOrg/hershy/hersh"
 	"github.com/HershyOrg/hershy/hersh/hutil"
 )
 

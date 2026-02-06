@@ -5,10 +5,10 @@ import (
 	"fmt"
 	"time"
 
-	"monitor/market/domain/kalshi/api"
-	"monitor/market/domain/kalshi/parser"
+	"github.com/HershyOrg/hershy/monitor/market/domain/kalshi/api"
+	"github.com/HershyOrg/hershy/monitor/market/domain/kalshi/parser"
 
-	"monitor/market/repository"
+	"github.com/HershyOrg/hershy/monitor/market/repository"
 
 	"github.com/jackc/pgx/v5/pgxpool"
 )

@@ -3,7 +3,7 @@ package repository
 import (
 	"context"
 	"fmt"
-	"monitor/market/repository/model"
+	"github.com/HershyOrg/hershy/monitor/market/repository/model"
 	"time"
 
 	"github.com/jackc/pgx/v5"

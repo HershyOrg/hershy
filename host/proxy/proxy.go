@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"io"
+	"log"
 	"net"
 	"net/http"
 	"net/url"
@@ -108,28 +109,64 @@ func (ps *ProxyServer) Start() error {
 		return fmt.Errorf("proxy server already running")
 	}
 
+	log.Printf("[PROXY-START] Starting proxy for %s on :%d → %s", ps.programID, ps.hostPort, ps.targetAddr)
+
 	//호스트포트로 리스닝 시작
 	ps.server = &http.Server{
 		Addr:    fmt.Sprintf(":%d", ps.hostPort),
 		Handler: ps.handler,
 	}
 
+	// Channel to capture goroutine startup errors
+	errChan := make(chan error, 1)
+
 	// Start server in goroutine
 	go func() {
+		log.Printf("[PROXY-START] Goroutine: Calling ListenAndServe on :%d", ps.hostPort)
 		if err := ps.server.ListenAndServe(); err != nil && err != http.ErrServerClosed {
-			// Log error in production
+			log.Printf("[PROXY-ERROR] ListenAndServe failed for %s on port %d: %v", ps.programID, ps.hostPort, err)
 			ps.mu.Lock()
 			ps.running = false
 			ps.mu.Unlock()
+			errChan <- err
+		} else {
+			log.Printf("[PROXY-START] Goroutine: ListenAndServe completed normally (or closed)")
 		}
 	}()
 
 	ps.running = true
+	log.Printf("[PROXY-START] Polling port :%d for listening status...", ps.hostPort)
 
-	// Wait for server to start
-	time.Sleep(100 * time.Millisecond)
+	// Poll for port to be listening (max 2 seconds)
+	maxAttempts := 20 // 20 * 100ms = 2 seconds
+	for i := 0; i < maxAttempts; i++ {
+		// Check if there was an error
+		select {
+		case err := <-errChan:
+			log.Printf("[PROXY-ERROR] Startup error detected: %v", err)
+			return fmt.Errorf("server failed to start: %w", err)
+		default:
+			// No error yet, check if port is listening
+			conn, err := net.DialTimeout("tcp", fmt.Sprintf("localhost:%d", ps.hostPort), 50*time.Millisecond)
+			if err == nil {
+				conn.Close()
+				log.Printf("[PROXY-START] ✅ Port :%d is listening (verified after %dms)", ps.hostPort, (i+1)*100)
+				return nil
+			}
 
-	return nil
+			// Port not ready yet, wait and retry
+			if i < maxAttempts-1 {
+				time.Sleep(100 * time.Millisecond)
+			}
+		}
+	}
+
+	// Timeout waiting for port to listen
+	log.Printf("[PROXY-ERROR] Timeout waiting for port :%d to start listening", ps.hostPort)
+	ps.mu.Lock()
+	ps.running = false
+	ps.mu.Unlock()
+	return fmt.Errorf("timeout waiting for server to start listening on port %d", ps.hostPort)
 }
 
 // Stop stops the proxy server

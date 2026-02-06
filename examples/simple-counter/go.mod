@@ -1,7 +1,5 @@
 module simple-counter
 
-go 1.22
+go 1.24.13
 
-require github.com/HershyOrg/hershy/hersh v0.1.1
-
-replace github.com/HershyOrg/hershy/hersh => ../../hersh
+require github.com/HershyOrg/hershy/hersh v0.1.3

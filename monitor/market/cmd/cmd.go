@@ -5,9 +5,9 @@ import (
 	"log"
 	"sync"
 
-	kalshiService "monitor/market/domain/kalshi/service"
-	opinionService "monitor/market/domain/opinion/service"
-	polyService "monitor/market/domain/polymarket/service"
+	kalshiService "github.com/HershyOrg/hershy/monitor/market/domain/kalshi/service"
+	opinionService "github.com/HershyOrg/hershy/monitor/market/domain/opinion/service"
+	polyService "github.com/HershyOrg/hershy/monitor/market/domain/polymarket/service"
 
 	"github.com/jackc/pgx/v5/pgxpool"
 )

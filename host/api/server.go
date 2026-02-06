@@ -82,6 +82,9 @@ func (hs *HostServer) Start(port int) error {
 	mux.HandleFunc("/programs", hs.handlePrograms)
 	mux.HandleFunc("/programs/", hs.handleProgramByID)
 
+	// Debug endpoints
+	mux.HandleFunc("/debug/proxy/", hs.handleDebugProxy)
+
 	hs.server = &http.Server{
 		Addr:    fmt.Sprintf(":%d", port),
 		Handler: mux,

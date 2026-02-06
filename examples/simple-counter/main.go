@@ -67,20 +67,13 @@ func main() {
 		log.Println("🧹 Cleanup called")
 	})
 
-	// Start Watcher
+	// Start Watcher (automatically starts API server on port 8080)
 	log.Println("▶️  Starting Watcher with API server on :8080")
 	if err := watcher.Start(); err != nil {
 		log.Printf("❌ Failed to start: %v\n", err)
 		os.Exit(1)
 	}
-
-	// Start WatcherAPI server
-	apiServer, err := watcher.StartAPIServer()
-	if err != nil {
-		log.Printf("❌ Failed to start API server: %v\n", err)
-		os.Exit(1)
-	}
-	log.Println("✅ WatcherAPI server started on :8080")
+	log.Println("✅ Watcher and WatcherAPI started successfully")
 
 	// Send tick messages every second
 	ticker := time.NewTicker(1 * time.Second)
@@ -92,16 +85,9 @@ func main() {
 		}
 	}()
 
-	// Run for 2 minutes then stop
-	log.Println("⏱️  Running for 2 minutes...")
-	time.Sleep(2 * time.Minute)
+	// Run indefinitely
+	log.Println("🔄 Running indefinitely (Ctrl+C to stop)...")
 
-	log.Println("\n⏰ Demo completed, shutting down...")
-	if apiServer != nil {
-		shutdownCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-		defer cancel()
-		apiServer.Shutdown(shutdownCtx)
-	}
-	watcher.Stop()
-	log.Println("👋 Goodbye!")
+	// Block forever
+	select {}
 }

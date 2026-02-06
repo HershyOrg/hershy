@@ -5,7 +5,7 @@ import (
 	"testing"
 	"time"
 
-	"hersh"
+	"github.com/HershyOrg/hershy/hersh"
 )
 
 func TestWatchFlowBasic(t *testing.T) {

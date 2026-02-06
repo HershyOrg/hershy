@@ -5,15 +5,14 @@ WORKDIR /build
 # Install build dependencies
 RUN apk add --no-cache git ca-certificates
 
-# Copy go.mod and source
-COPY go.mod .
+# Copy go.mod, go.sum and source
+COPY go.mod go.sum ./
 COPY main.go .
 
-# Copy hersh framework
-COPY ../../hersh /build/hersh
+# Download dependencies (hersh from Go proxy)
+RUN go mod download
 
 # Build
-RUN go mod download
 RUN CGO_ENABLED=0 GOOS=linux go build -o simple-counter main.go
 
 # Runtime stage

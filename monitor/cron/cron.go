@@ -4,7 +4,7 @@ import (
 	"context"
 	"errors"
 	"log"
-	"monitor/market/cmd"
+	"github.com/HershyOrg/hershy/monitor/market/cmd"
 	"os"
 	"time"
 
