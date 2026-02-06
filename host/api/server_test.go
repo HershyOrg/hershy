@@ -11,11 +11,11 @@ import (
 	"testing"
 	"time"
 
-	"github.com/rlaaudgjs5638/hersh/host/compose"
-	"github.com/rlaaudgjs5638/hersh/host/proxy"
-	"github.com/rlaaudgjs5638/hersh/host/registry"
-	"github.com/rlaaudgjs5638/hersh/host/storage"
-	"github.com/rlaaudgjs5638/hersh/program"
+	"github.com/HershyOrg/hershy/host/compose"
+	"github.com/HershyOrg/hershy/host/proxy"
+	"github.com/HershyOrg/hershy/host/registry"
+	"github.com/HershyOrg/hershy/host/storage"
+	"github.com/HershyOrg/hershy/program"
 )
 
 func setupTestServer(t *testing.T) (*HostServer, *httptest.Server, func()) {

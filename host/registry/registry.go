@@ -2,10 +2,11 @@ package registry
 
 import (
 	"fmt"
+	"net"
 	"sync"
 	"time"
 
-	"github.com/rlaaudgjs5638/hersh/program"
+	"github.com/HershyOrg/hershy/program"
 )
 
 // ProgramMetadata holds metadata about a registered program
@@ -16,6 +17,7 @@ type ProgramMetadata struct {
 	State       program.State     `json:"state"`
 	ImageID     string            `json:"image_id,omitempty"`
 	ContainerID string            `json:"container_id,omitempty"`
+	ErrorMsg    string            `json:"error_msg,omitempty"`
 	CreatedAt   time.Time         `json:"created_at"`
 	UpdatedAt   time.Time         `json:"updated_at"`
 	ProxyPort   int               `json:"proxy_port"` // Host가 할당한 프록시 포트
@@ -40,6 +42,16 @@ func NewPortAllocator(minPort, maxPort int) *PortAllocator {
 	}
 }
 
+// isPortAvailable checks if a port is actually available at the OS level
+func isPortAvailable(port int) bool {
+	ln, err := net.Listen("tcp", fmt.Sprintf(":%d", port))
+	if err != nil {
+		return false
+	}
+	ln.Close()
+	return true
+}
+
 // Allocate allocates a free port from the available range
 func (pa *PortAllocator) Allocate() (int, error) {
 	pa.mu.Lock()
@@ -49,13 +61,18 @@ func (pa *PortAllocator) Allocate() (int, error) {
 	startPort := pa.nextPort
 	for {
 		if !pa.allocated[pa.nextPort] {
-			port := pa.nextPort
-			pa.allocated[port] = true
-			pa.nextPort++
-			if pa.nextPort > pa.maxPort {
-				pa.nextPort = pa.minPort
+			// Map says not allocated, but check actual OS-level availability
+			if isPortAvailable(pa.nextPort) {
+				port := pa.nextPort
+				pa.allocated[port] = true
+				pa.nextPort++
+				if pa.nextPort > pa.maxPort {
+					pa.nextPort = pa.minPort
+				}
+				return port, nil
 			}
-			return port, nil
+			// Port is actually in use by another process, mark it and skip
+			pa.allocated[pa.nextPort] = true
 		}
 
 		pa.nextPort++

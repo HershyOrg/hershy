@@ -10,7 +10,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/rlaaudgjs5638/hersh/program"
+	"github.com/HershyOrg/hershy/program"
 )
 
 // ProxyServer represents a reverse proxy server for a single program

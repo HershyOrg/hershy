@@ -3,7 +3,7 @@ package manager
 import (
 	"testing"
 
-	"hersh/shared"
+	"github.com/HershyOrg/hershy/hersh/shared"
 )
 
 func TestVarState_BasicOperations(t *testing.T) {

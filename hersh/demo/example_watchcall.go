@@ -5,7 +5,7 @@ import (
 	"time"
 
 	"hersh"
-	"hersh/manager"
+	"github.com/HershyOrg/hershy/hersh/manager"
 )
 
 // Advanced example demonstrating WatchCall reactive mechanism

@@ -5,10 +5,10 @@ import (
 	"fmt"
 	"path/filepath"
 
-	"github.com/rlaaudgjs5638/hersh/host/compose"
-	"github.com/rlaaudgjs5638/hersh/host/runtime"
-	"github.com/rlaaudgjs5638/hersh/host/storage"
-	"github.com/rlaaudgjs5638/hersh/program"
+	"github.com/HershyOrg/hershy/host/compose"
+	"github.com/HershyOrg/hershy/host/runtime"
+	"github.com/HershyOrg/hershy/host/storage"
+	"github.com/HershyOrg/hershy/program"
 )
 
 // RealEffectHandler implements program.EffectHandler using real Docker and filesystem operations
@@ -120,11 +120,14 @@ func (h *RealEffectHandler) handleBuildRuntime(ctx context.Context, eff program.
 
 // handleStartRuntime starts container from built image
 func (h *RealEffectHandler) handleStartRuntime(ctx context.Context, eff program.StartRuntime) program.Event {
+	fmt.Printf("[EFFECT] StartRuntime for %s (image: %s)\n", eff.ProgramID, eff.ImageID)
+
 	// Get state path
 	statePath := eff.StatePath
 	if statePath == "" {
 		statePath = h.storage.GetStatePath(eff.ProgramID)
 	}
+	fmt.Printf("[EFFECT]   State path: %s\n", statePath)
 
 	// Generate compose spec with security contracts
 	composeOpts := compose.BuildOpts{
@@ -134,20 +137,27 @@ func (h *RealEffectHandler) handleStartRuntime(ctx context.Context, eff program.
 		NetworkMode: "bridge", // Use bridge network for container-to-host communication
 		Runtime:     h.defaultRuntime,
 	}
+	fmt.Printf("[EFFECT]   Compose opts: runtime=%s, network=%s\n", composeOpts.Runtime, composeOpts.NetworkMode)
 
 	spec, err := h.compose.GenerateSpec(composeOpts)
 	if err != nil {
+		errMsg := fmt.Sprintf("failed to generate compose spec: %v", err)
+		fmt.Printf("[EFFECT] ❌ %s\n", errMsg)
 		return program.StartFailed{
-			Reason: fmt.Sprintf("failed to generate compose spec: %v", err),
+			Reason: errMsg,
 		}
 	}
+	fmt.Printf("[EFFECT] ✅ Compose spec generated\n")
 
 	// Validate spec against security contracts
 	if err := h.compose.ValidateSpec(spec); err != nil {
+		errMsg := fmt.Sprintf("compose spec validation failed: %v", err)
+		fmt.Printf("[EFFECT] ❌ %s\n", errMsg)
 		return program.StartFailed{
-			Reason: fmt.Sprintf("compose spec validation failed: %v", err),
+			Reason: errMsg,
 		}
 	}
+	fmt.Printf("[EFFECT] ✅ Compose spec validated\n")
 
 	// Start container
 	startOpts := runtime.StartOpts{
@@ -155,13 +165,17 @@ func (h *RealEffectHandler) handleStartRuntime(ctx context.Context, eff program.
 		Spec:      spec,
 	}
 
+	fmt.Printf("[EFFECT]   Starting Docker container...\n")
 	result, err := h.runtime.Start(ctx, startOpts)
 	if err != nil {
+		errMsg := fmt.Sprintf("Docker container start failed: %v", err)
+		fmt.Printf("[EFFECT] ❌ %s\n", errMsg)
 		return program.StartFailed{
-			Reason: err.Error(),
+			Reason: errMsg,
 		}
 	}
 
+	fmt.Printf("[EFFECT] ✅ Container started: %s\n", result.ContainerID)
 	return program.RuntimeStarted{
 		ContainerID: result.ContainerID,
 	}

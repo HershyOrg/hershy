@@ -11,7 +11,7 @@ import (
 	"time"
 
 	"hersh"
-	"hersh/manager"
+	"github.com/HershyOrg/hershy/hersh/manager"
 )
 
 // Trading strategy configuration

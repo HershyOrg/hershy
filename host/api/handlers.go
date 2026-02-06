@@ -8,8 +8,8 @@ import (
 	"net/http"
 	"time"
 
-	"github.com/rlaaudgjs5638/hersh/host/proxy"
-	"github.com/rlaaudgjs5638/hersh/program"
+	"github.com/HershyOrg/hershy/host/proxy"
+	"github.com/HershyOrg/hershy/program"
 )
 
 // startProgram handles POST /programs/{id}/start
@@ -98,6 +98,9 @@ func (hs *HostServer) monitorProgramState(programID program.ProgramID, proxyPort
 			}
 			if state.ContainerID != "" {
 				updates["container_id"] = state.ContainerID
+			}
+			if state.ErrorMsg != "" {
+				updates["error_msg"] = state.ErrorMsg
 			}
 			hs.programRegistry.Update(programID, updates)
 

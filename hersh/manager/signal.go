@@ -6,7 +6,7 @@ import (
 	"fmt"
 	"time"
 
-	"hersh/shared"
+	"github.com/HershyOrg/hershy/hersh/shared"
 )
 
 // VarUpdateFunc is a function that updates a variable's state.

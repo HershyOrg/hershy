@@ -4,19 +4,20 @@ import (
 	"sync"
 	"testing"
 
-	"github.com/rlaaudgjs5638/hersh/program"
+	"github.com/HershyOrg/hershy/program"
 )
 
 func TestPortAllocator_Allocate(t *testing.T) {
-	pa := NewPortAllocator(9000, 9002)
+	// Use port range that doesn't conflict with running services
+	pa := NewPortAllocator(29000, 29002)
 
 	// Allocate first port
 	port1, err := pa.Allocate()
 	if err != nil {
 		t.Fatalf("Failed to allocate port: %v", err)
 	}
-	if port1 != 9000 {
-		t.Errorf("Expected port 9000, got %d", port1)
+	if port1 != 29000 {
+		t.Errorf("Expected port 29000, got %d", port1)
 	}
 
 	// Allocate second port
@@ -24,8 +25,8 @@ func TestPortAllocator_Allocate(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Failed to allocate port: %v", err)
 	}
-	if port2 != 9001 {
-		t.Errorf("Expected port 9001, got %d", port2)
+	if port2 != 29001 {
+		t.Errorf("Expected port 29001, got %d", port2)
 	}
 
 	// Allocate third port
@@ -33,8 +34,8 @@ func TestPortAllocator_Allocate(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Failed to allocate port: %v", err)
 	}
-	if port3 != 9002 {
-		t.Errorf("Expected port 9002, got %d", port3)
+	if port3 != 29002 {
+		t.Errorf("Expected port 29002, got %d", port3)
 	}
 
 	// Try to allocate when all ports are used
@@ -45,7 +46,8 @@ func TestPortAllocator_Allocate(t *testing.T) {
 }
 
 func TestPortAllocator_Release(t *testing.T) {
-	pa := NewPortAllocator(9000, 9002)
+	// Use port range that doesn't conflict with running services
+	pa := NewPortAllocator(29000, 29002)
 
 	// Allocate ports
 	port1, _ := pa.Allocate()
@@ -56,17 +58,17 @@ func TestPortAllocator_Release(t *testing.T) {
 		t.Errorf("Failed to release port %d: %v", port1, err)
 	}
 
-	// Verify port1 can be allocated again (may wrap around to 9002 first, then 9000)
+	// Verify port1 can be allocated again (may wrap around to 29002 first, then 29000)
 	newPort, err := pa.Allocate()
 	if err != nil {
 		t.Fatalf("Failed to allocate after release: %v", err)
 	}
-	if newPort != 9002 && newPort != port1 {
-		t.Errorf("Expected port 9002 or %d, got %d", port1, newPort)
+	if newPort != 29002 && newPort != port1 {
+		t.Errorf("Expected port 29002 or %d, got %d", port1, newPort)
 	}
 
-	// If we got 9002, allocate again to get the released port
-	if newPort == 9002 {
+	// If we got 29002, allocate again to get the released port
+	if newPort == 29002 {
 		newPort2, err := pa.Allocate()
 		if err != nil {
 			t.Fatalf("Failed to allocate second time: %v", err)
@@ -88,20 +90,22 @@ func TestPortAllocator_Release(t *testing.T) {
 }
 
 func TestPortAllocator_InvalidPort(t *testing.T) {
-	pa := NewPortAllocator(9000, 9002)
+	// Use port range that doesn't conflict with running services
+	pa := NewPortAllocator(29000, 29002)
 
 	// Try to release port outside range
-	if err := pa.Release(8999); err == nil {
+	if err := pa.Release(28999); err == nil {
 		t.Error("Expected error for port below range, got nil")
 	}
 
-	if err := pa.Release(9003); err == nil {
+	if err := pa.Release(29003); err == nil {
 		t.Error("Expected error for port above range, got nil")
 	}
 }
 
 func TestPortAllocator_Concurrent(t *testing.T) {
-	pa := NewPortAllocator(9000, 9099)
+	// Use port range that doesn't conflict with running services
+	pa := NewPortAllocator(29000, 29099)
 
 	var wg sync.WaitGroup
 	ports := make(chan int, 100)

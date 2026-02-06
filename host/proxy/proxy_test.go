@@ -10,7 +10,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/rlaaudgjs5638/hersh/program"
+	"github.com/HershyOrg/hershy/program"
 )
 
 func TestProxyServer_CreateAndGetters(t *testing.T) {

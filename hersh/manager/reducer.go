@@ -6,7 +6,7 @@ import (
 	"runtime"
 	"time"
 
-	"hersh/shared"
+	"github.com/HershyOrg/hershy/hersh/shared"
 )
 
 // ReduceAction represents a state transition that occurred.

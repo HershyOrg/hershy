@@ -1,13 +1,13 @@
 package test
 
 import (
-	"hersh/manager"
+	"github.com/HershyOrg/hershy/hersh/manager"
 	"sync/atomic"
 	"testing"
 	"time"
 
-	"hersh"
-	"hersh/shared"
+	"github.com/HershyOrg/hershy/hersh"
+	"github.com/HershyOrg/hershy/hersh/shared"
 )
 
 // ORIGINAL TESTS - Testing actual framework behavior expectations

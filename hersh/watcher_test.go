@@ -6,7 +6,7 @@ import (
 	"testing"
 	"time"
 
-	"hersh/manager"
+	"github.com/HershyOrg/hershy/hersh/manager"
 )
 
 // TestWatchCall_BasicFunctionality tests basic WatchCall behavior

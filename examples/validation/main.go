@@ -7,11 +7,11 @@ import (
 	"path/filepath"
 	"time"
 
-	"github.com/rlaaudgjs5638/hersh/host"
-	"github.com/rlaaudgjs5638/hersh/host/compose"
-	"github.com/rlaaudgjs5638/hersh/host/runtime"
-	"github.com/rlaaudgjs5638/hersh/host/storage"
-	"github.com/rlaaudgjs5638/hersh/program"
+	"github.com/HershyOrg/hershy/host"
+	"github.com/HershyOrg/hershy/host/compose"
+	"github.com/HershyOrg/hershy/host/runtime"
+	"github.com/HershyOrg/hershy/host/storage"
+	"github.com/HershyOrg/hershy/program"
 )
 
 func main() {

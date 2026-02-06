@@ -6,8 +6,8 @@ import (
 	"net/http"
 	"time"
 
-	"hersh/api"
-	"hersh/manager"
+	"github.com/HershyOrg/hershy/hersh/api"
+	"github.com/HershyOrg/hershy/hersh/manager"
 )
 
 // WatcherAPIServer provides HTTP API for Watcher monitoring and control

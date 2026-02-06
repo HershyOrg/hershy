@@ -7,8 +7,8 @@ import (
 	"testing"
 	"time"
 
-	"hersh"
-	"hersh/shared"
+	"github.com/HershyOrg/hershy/hersh"
+	"github.com/HershyOrg/hershy/hersh/shared"
 )
 
 // TestLightweightRetry_DelayVerification verifies that lightweight retry delays are actually applied

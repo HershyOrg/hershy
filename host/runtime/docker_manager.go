@@ -12,8 +12,8 @@ import (
 	"github.com/moby/go-archive"
 	"github.com/moby/moby/api/types/container"
 	"github.com/moby/moby/client"
-	"github.com/rlaaudgjs5638/hersh/host/compose"
-	"github.com/rlaaudgjs5638/hersh/program"
+	"github.com/HershyOrg/hershy/host/compose"
+	"github.com/HershyOrg/hershy/program"
 )
 
 // DockerManager handles Docker image building and container lifecycle

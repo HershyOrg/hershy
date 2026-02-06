@@ -14,12 +14,12 @@ import (
 	"time"
 
 	"github.com/google/uuid"
-	"github.com/rlaaudgjs5638/hersh/host/compose"
-	"github.com/rlaaudgjs5638/hersh/host/proxy"
-	"github.com/rlaaudgjs5638/hersh/host/registry"
-	"github.com/rlaaudgjs5638/hersh/host/runtime"
-	"github.com/rlaaudgjs5638/hersh/host/storage"
-	"github.com/rlaaudgjs5638/hersh/program"
+	"github.com/HershyOrg/hershy/host/compose"
+	"github.com/HershyOrg/hershy/host/proxy"
+	"github.com/HershyOrg/hershy/host/registry"
+	"github.com/HershyOrg/hershy/host/runtime"
+	"github.com/HershyOrg/hershy/host/storage"
+	"github.com/HershyOrg/hershy/program"
 )
 
 // HostServer orchestrates program lifecycle and HTTP API
@@ -268,6 +268,7 @@ func (hs *HostServer) getProgram(w http.ResponseWriter, r *http.Request, program
 			ImageID:     state.ImageID,
 			ContainerID: state.ContainerID,
 			ProxyURL:    proxyURL,
+			ErrorMsg:    state.ErrorMsg,
 			CreatedAt:   meta.CreatedAt,
 			UpdatedAt:   meta.UpdatedAt,
 		}
@@ -288,6 +289,7 @@ func (hs *HostServer) getProgram(w http.ResponseWriter, r *http.Request, program
 		ImageID:     meta.ImageID,
 		ContainerID: meta.ContainerID,
 		ProxyURL:    proxyURL,
+		ErrorMsg:    meta.ErrorMsg,
 		CreatedAt:   meta.CreatedAt,
 		UpdatedAt:   meta.UpdatedAt,
 	}
@@ -311,6 +313,7 @@ func (hs *HostServer) listPrograms(w http.ResponseWriter, r *http.Request) {
 			ImageID:     meta.ImageID,
 			ContainerID: meta.ContainerID,
 			ProxyURL:    proxyURL,
+			ErrorMsg:    meta.ErrorMsg,
 			CreatedAt:   meta.CreatedAt,
 			UpdatedAt:   meta.UpdatedAt,
 		})

@@ -1,4 +1,4 @@
-module github.com/rlaaudgjs5638/hersh
+module github.com/HershyOrg/hershy
 
 go 1.24.0
 

@@ -5,7 +5,7 @@ import (
 	"os"
 	"path/filepath"
 
-	"github.com/rlaaudgjs5638/hersh/program"
+	"github.com/HershyOrg/hershy/program"
 )
 
 // Manager handles program directory structure and file operations
@@ -15,8 +15,14 @@ type Manager struct {
 
 // NewManager creates a new StorageManager
 func NewManager(baseDir string) *Manager {
+	// Convert to absolute path if relative
+	absBaseDir, err := filepath.Abs(baseDir)
+	if err != nil {
+		// Fallback to original path if conversion fails
+		absBaseDir = baseDir
+	}
 	return &Manager{
-		baseDir: baseDir,
+		baseDir: absBaseDir,
 	}
 }
 

@@ -3,14 +3,32 @@ package main
 import (
 	"context"
 	"fmt"
+	"io"
+	"log"
 	"os"
+	"path/filepath"
 	"time"
 
-	"hersh"
+	"github.com/HershyOrg/hershy/hersh"
 )
 
 func main() {
-	fmt.Println("🚀 Starting Hersh WatcherServer Demo")
+	// Setup logging
+	logDir := "logs"
+	os.MkdirAll(logDir, 0755)
+	logFile, err := os.Create(filepath.Join(logDir, "watcher-server.log"))
+	if err != nil {
+		fmt.Printf("⚠️  Failed to create log file: %v\n", err)
+		logFile = nil
+	}
+	if logFile != nil {
+		defer logFile.Close()
+		log.SetOutput(io.MultiWriter(os.Stdout, logFile))
+	} else {
+		log.SetOutput(os.Stdout)
+	}
+
+	log.Println("🚀 Starting Hersh WatcherServer Demo")
 
 	// Create config with ServerPort enabled
 	config := hersh.DefaultWatcherConfig()
@@ -20,6 +38,7 @@ func main() {
 	envVars := map[string]string{
 		"DEMO_NAME":    "WatcherServer Demo",
 		"DEMO_VERSION": "1.0.0",
+		"COUNTER":      "0", // Initialize counter in envVars
 	}
 
 	// Create context
@@ -32,37 +51,44 @@ func main() {
 	watcher.Manage(func(msg *hersh.Message, ctx hersh.HershContext) error {
 		// Simple counter that increments every second
 		if msg.Content == "tick" {
-			counter := ctx.GetEnvInt("COUNTER", 0)
+			// Get counter from context value store (not envVars - they're immutable)
+			counterVal := ctx.GetValue("COUNTER")
+			counter := 0
+			if counterVal != nil {
+				counter = counterVal.(int)
+			}
 			counter++
-			ctx.SetEnv("COUNTER", fmt.Sprintf("%d", counter))
+			ctx.SetValue("COUNTER", counter)
 
-			// Write to /state file
-			stateFile := "/state/counter.txt"
+			// Write to /state file (create directory if needed)
+			stateDir := "/state"
+			os.MkdirAll(stateDir, 0755)
+			stateFile := filepath.Join(stateDir, "counter.txt")
 			if err := os.WriteFile(stateFile, []byte(fmt.Sprintf("%d\n", counter)), 0644); err != nil {
-				fmt.Printf("⚠️  Failed to write state file: %v\n", err)
+				log.Printf("⚠️  Failed to write state file: %v\n", err)
 			}
 
-			fmt.Printf("📊 Counter: %d (state file updated)\n", counter)
+			log.Printf("📊 Counter: %d (state file updated)\n", counter)
 		}
 		return nil
 	}, "Counter").Cleanup(func(ctx hersh.HershContext) {
-		fmt.Println("🧹 Cleanup called")
+		log.Println("🧹 Cleanup called")
 	})
 
 	// Start Watcher
-	fmt.Println("▶️  Starting Watcher with API server on :8080")
+	log.Println("▶️  Starting Watcher with API server on :8080")
 	if err := watcher.Start(); err != nil {
-		fmt.Printf("❌ Failed to start: %v\n", err)
+		log.Printf("❌ Failed to start: %v\n", err)
 		os.Exit(1)
 	}
 
 	// Start WatcherAPI server
 	apiServer, err := watcher.StartAPIServer()
 	if err != nil {
-		fmt.Printf("❌ Failed to start API server: %v\n", err)
+		log.Printf("❌ Failed to start API server: %v\n", err)
 		os.Exit(1)
 	}
-	fmt.Println("✅ WatcherAPI server started on :8080")
+	log.Println("✅ WatcherAPI server started on :8080")
 
 	// Send tick messages every second
 	ticker := time.NewTicker(1 * time.Second)
@@ -74,12 +100,15 @@ func main() {
 		}
 	}()
 
-	// Run for 5 minutes then stop
-	time.Sleep(5 * time.Minute)
+	// Run for 2 minutes then stop
+	time.Sleep(2 * time.Minute)
 
-	fmt.Println("\n⏰ Demo completed, shutting down...")
+	log.Println("\n⏰ Demo completed, shutting down...")
 	if apiServer != nil {
-		apiServer.Stop()
+		shutdownCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		apiServer.Shutdown(shutdownCtx)
 	}
 	watcher.Stop()
+	log.Println("👋 Goodbye!")
 }

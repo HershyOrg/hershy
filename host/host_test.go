@@ -10,10 +10,10 @@ import (
 	"testing"
 	"time"
 
-	"github.com/rlaaudgjs5638/hersh/host/compose"
-	"github.com/rlaaudgjs5638/hersh/host/runtime"
-	"github.com/rlaaudgjs5638/hersh/host/storage"
-	"github.com/rlaaudgjs5638/hersh/program"
+	"github.com/HershyOrg/hershy/host/compose"
+	"github.com/HershyOrg/hershy/host/runtime"
+	"github.com/HershyOrg/hershy/host/storage"
+	"github.com/HershyOrg/hershy/program"
 )
 
 func TestRealEffectHandler_FullLifecycle(t *testing.T) {

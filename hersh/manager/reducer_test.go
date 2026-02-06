@@ -5,7 +5,7 @@ import (
 	"testing"
 	"time"
 
-	"hersh/shared"
+	"github.com/HershyOrg/hershy/hersh/shared"
 )
 
 // Helper function to create a full logger for tests

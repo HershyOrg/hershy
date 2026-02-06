@@ -11,7 +11,7 @@ import (
 	"time"
 
 	"hersh"
-	"hersh/hutil"
+	"github.com/HershyOrg/hershy/hersh/hutil"
 )
 
 const (
