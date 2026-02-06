@@ -1,0 +1,11 @@
+Step 1/13 : FROM golang:1.21-alpine AS builder
+ ---> 2414035b086e
+Step 2/13 : WORKDIR /build
+ ---> Running in afdc21ced45f
+ ---> Removed intermediate container afdc21ced45f
+ ---> c10a3210f509
+Step 3/13 : COPY go.mod .
+ ---> ab74906f49bd
+Step 4/13 : COPY main.go .
+ ---> 58b0d5760062
+Step 5/13 : COPY hersh /build/hersh

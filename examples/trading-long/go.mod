@@ -1,9 +1,9 @@
 module trading-long
 
-go 1.24.0
+go 1.22
 
 require (
-	github.com/HershyOrg/hershy/hersh v0.1.0
+	github.com/HershyOrg/hershy/hersh v0.1.1
 	github.com/gorilla/websocket v1.5.1
 )
 

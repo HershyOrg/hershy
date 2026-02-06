@@ -1,0 +1,9 @@
+Step 1/2 : FROM alpine:latest
+ ---> 25109184c71b
+Step 2/2 : CMD ["sleep", "60"]
+ ---> Running in 93e20189b495
+ ---> Removed intermediate container 93e20189b495
+ ---> c175959107c5
+Successfully built c175959107c5
+Successfully tagged build-a1bb30116879:latest
+Successfully tagged bob-build-a1bb30116879-2d340b64:latest

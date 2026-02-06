@@ -1,0 +1,7 @@
+[HOST] 2026/02/07 03:04:53 🚀 Starting Hersh Host Server
+[HOST] 2026/02/07 03:04:53    Port: 9000
+[HOST] 2026/02/07 03:04:53    Storage: ./host-storage
+[HOST] 2026/02/07 03:04:53    Runtime: runc (contracts enforced)
+[HOST] 2026/02/07 03:04:53 ✅ Host initialized
+[HOST] 2026/02/07 03:04:53    🔒 Contracts: Port 8080 blocked, /state:rw, read-only rootfs
+[HOST] 2026/02/07 03:04:53 🌐 HTTP API: http://localhost:9000
