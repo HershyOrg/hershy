@@ -5,7 +5,7 @@
 *.out
 *.test
 
-/cmd
+
 
 # Go workspace
 /go.work

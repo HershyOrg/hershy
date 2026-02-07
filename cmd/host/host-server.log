@@ -1,0 +1,430 @@
+[HOST] 2026/02/07 07:11:02 🚀 Starting Hersh Host Server
+[HOST] 2026/02/07 07:11:02    Port: 9000
+[HOST] 2026/02/07 07:11:02    Storage: ./host-storage
+[HOST] 2026/02/07 07:11:02    Runtime: runc (contracts enforced)
+[HOST] 2026/02/07 07:11:02 ✅ Host initialized
+[HOST] 2026/02/07 07:11:02    🔒 Contracts: Port 8080 blocked, /state:rw, read-only rootfs
+[HOST] 2026/02/07 07:11:02 🌐 HTTP API: http://localhost:9000
+Step 1/14 : FROM golang:1.24-alpine AS builder
+ ---> 6b597b1078d0
+Step 2/14 : WORKDIR /build
+ ---> Using cache
+ ---> 5fb774a526d7
+Step 3/14 : RUN apk add --no-cache git ca-certificates
+ ---> Using cache
+ ---> 684cbb0b8739
+Step 4/14 : COPY go.mod go.sum ./
+ ---> Using cache
+ ---> dd7039aff9b5
+Step 5/14 : COPY main.go .
+ ---> Using cache
+ ---> 3acc7195228b
+Step 6/14 : RUN go mod download
+ ---> Using cache
+ ---> 60fc19270539
+Step 7/14 : RUN CGO_ENABLED=0 GOOS=linux go build -o simple-counter main.go
+ ---> Using cache
+ ---> 44f9868c9f35
+Step 8/14 : FROM alpine:latest
+ ---> 25109184c71b
+Step 9/14 : RUN apk add --no-cache ca-certificates
+ ---> Using cache
+ ---> 697dffbf2147
+Step 10/14 : WORKDIR /app
+ ---> Using cache
+ ---> aca38aed8a08
+Step 11/14 : COPY --from=builder /build/simple-counter /app/
+ ---> Using cache
+ ---> df543edf6da7
+Step 12/14 : RUN mkdir -p /state
+ ---> Using cache
+ ---> aa3a854f5bc8
+Step 13/14 : EXPOSE 8080
+ ---> Using cache
+ ---> 3b6150d5aa47
+Step 14/14 : CMD ["/app/simple-counter"]
+ ---> Using cache
+ ---> 95e28568726c
+Successfully built 95e28568726c
+Successfully tagged build-ec5a5a719102:latest
+Successfully tagged test-user-build-ec5a5a719102-18728430:latest
+[EFFECT] StartRuntime for test-user-build-ec5a5a719102-18728430 (image: sha256:95e28568726cedb7da49f89743e75e3c6d313b91749b2f40974973b7f0e1e24a)
+[EFFECT]   State path: /home/rlaaudgjs5638/hersh/cmd/host/host-storage/test-user-build-ec5a5a719102-18728430/state
+[EFFECT]   Compose opts: runtime=runc, network=bridge, publishPort=19001
+[EFFECT] ✅ Compose spec generated
+[EFFECT] ✅ Compose spec validated
+[EFFECT]   Starting Docker container...
+[EFFECT] ✅ Container started: 75b02199528aa20620cb2ba9364952023e5be344fbfb85f65d1d544235184db9
+2026/02/07 07:11:36 [PROGRAM-READY] ✅ Program test-user-build-ec5a5a719102-18728430 reached StateReady, accessible on localhost:19001
+Step 1/14 : FROM golang:1.24-alpine AS builder
+Step 1/14 : FROM golang:1.24-alpine AS builder
+ ---> 6b597b1078d0
+Step 2/14 : WORKDIR /build
+Step 1/14 : FROM golang:1.24-alpine AS builder
+ ---> Using cache
+ ---> 5fb774a526d7
+Step 3/14 : RUN apk add --no-cache git ca-certificates
+ ---> Using cache
+ ---> 684cbb0b8739
+Step 4/14 : COPY go.mod go.sum ./
+ ---> Using cache
+ ---> dd7039aff9b5
+Step 5/14 : COPY main.go .
+ ---> Using cache
+ ---> 3acc7195228b
+Step 6/14 : RUN go mod download
+ ---> Using cache
+ ---> 60fc19270539
+Step 7/14 : RUN CGO_ENABLED=0 GOOS=linux go build -o simple-counter main.go
+ ---> Using cache
+ ---> 44f9868c9f35
+Step 8/14 : FROM alpine:latest
+ ---> 6b597b1078d0
+Step 2/14 : WORKDIR /build
+ ---> Using cache
+ ---> 5fb774a526d7
+Step 3/14 : RUN apk add --no-cache git ca-certificates
+ ---> Using cache
+ ---> 684cbb0b8739
+Step 4/14 : COPY go.mod go.sum ./
+ ---> Using cache
+ ---> dd7039aff9b5
+Step 5/14 : COPY main.go .
+ ---> Using cache
+ ---> 3acc7195228b
+Step 6/14 : RUN go mod download
+ ---> Using cache
+ ---> 60fc19270539
+Step 7/14 : RUN CGO_ENABLED=0 GOOS=linux go build -o simple-counter main.go
+ ---> Using cache
+ ---> 44f9868c9f35
+Step 8/14 : FROM alpine:latest
+ ---> 6b597b1078d0
+Step 2/14 : WORKDIR /build
+ ---> Using cache
+ ---> 5fb774a526d7
+Step 3/14 : RUN apk add --no-cache git ca-certificates
+ ---> Using cache
+ ---> 684cbb0b8739
+Step 4/14 : COPY go.mod go.sum ./
+ ---> 25109184c71b
+Step 9/14 : RUN apk add --no-cache ca-certificates
+ ---> Using cache
+ ---> dd7039aff9b5
+Step 5/14 : COPY main.go .
+ ---> Using cache
+ ---> 3acc7195228b
+Step 6/14 : RUN go mod download
+ ---> Using cache
+ ---> 60fc19270539
+Step 7/14 : RUN CGO_ENABLED=0 GOOS=linux go build -o simple-counter main.go
+ ---> Using cache
+ ---> 44f9868c9f35
+Step 8/14 : FROM alpine:latest
+ ---> 25109184c71b
+Step 9/14 : RUN apk add --no-cache ca-certificates
+ ---> Using cache
+ ---> 697dffbf2147
+Step 10/14 : WORKDIR /app
+ ---> Using cache
+ ---> aca38aed8a08
+Step 11/14 : COPY --from=builder /build/simple-counter /app/
+ ---> Using cache
+ ---> 697dffbf2147
+Step 10/14 : WORKDIR /app
+ ---> Using cache
+ ---> df543edf6da7
+Step 12/14 : RUN mkdir -p /state
+ ---> Using cache
+ ---> aca38aed8a08
+Step 11/14 : COPY --from=builder /build/simple-counter /app/
+ ---> Using cache
+ ---> aa3a854f5bc8
+Step 13/14 : EXPOSE 8080
+ ---> Using cache
+ ---> 3b6150d5aa47
+Step 14/14 : CMD ["/app/simple-counter"]
+ ---> Using cache
+ ---> Using cache
+ ---> 95e28568726c
+ ---> df543edf6da7
+Step 12/14 : RUN mkdir -p /state
+Successfully built 95e28568726c
+ ---> Using cache
+ ---> aa3a854f5bc8
+Step 13/14 : EXPOSE 8080
+Successfully tagged build-ec5a5a719102:latest
+Successfully tagged multi-user-1-build-ec5a5a719102-9c027775:latest
+ ---> Using cache
+ ---> 3b6150d5aa47
+Step 14/14 : CMD ["/app/simple-counter"]
+[EFFECT] StartRuntime for multi-user-1-build-ec5a5a719102-9c027775 (image: sha256:95e28568726cedb7da49f89743e75e3c6d313b91749b2f40974973b7f0e1e24a)
+[EFFECT]   State path: /home/rlaaudgjs5638/hersh/cmd/host/host-storage/multi-user-1-build-ec5a5a719102-9c027775/state
+[EFFECT]   Compose opts: runtime=runc, network=bridge, publishPort=19002
+[EFFECT] ✅ Compose spec generated
+[EFFECT] ✅ Compose spec validated
+[EFFECT]   Starting Docker container...
+ ---> Using cache
+ ---> 95e28568726c
+Successfully built 95e28568726c
+Successfully tagged build-ec5a5a719102:latest
+Successfully tagged multi-user-2-build-ec5a5a719102-c6f1074a:latest
+[EFFECT] StartRuntime for multi-user-2-build-ec5a5a719102-c6f1074a (image: sha256:95e28568726cedb7da49f89743e75e3c6d313b91749b2f40974973b7f0e1e24a)
+[EFFECT]   State path: /home/rlaaudgjs5638/hersh/cmd/host/host-storage/multi-user-2-build-ec5a5a719102-c6f1074a/state
+[EFFECT]   Compose opts: runtime=runc, network=bridge, publishPort=19003
+[EFFECT] ✅ Compose spec generated
+[EFFECT] ✅ Compose spec validated
+[EFFECT]   Starting Docker container...
+ ---> 25109184c71b
+Step 9/14 : RUN apk add --no-cache ca-certificates
+[EFFECT] ✅ Container started: 965d768af5789e8786ecbcfc0f9c043760138d2693680b07cee4251bec4cc3b4
+2026/02/07 07:18:21 [PROGRAM-READY] ✅ Program multi-user-1-build-ec5a5a719102-9c027775 reached StateReady, accessible on localhost:19002
+[EFFECT] ✅ Container started: da8f6eb83660f9f5f3b1986d7cd7dbca6b498d5918890ccb0d7b1f64f67b3b3d
+2026/02/07 07:18:22 [PROGRAM-READY] ✅ Program multi-user-2-build-ec5a5a719102-c6f1074a reached StateReady, accessible on localhost:19003
+ ---> Using cache
+ ---> 697dffbf2147
+Step 10/14 : WORKDIR /app
+ ---> Using cache
+ ---> aca38aed8a08
+Step 11/14 : COPY --from=builder /build/simple-counter /app/
+ ---> Using cache
+ ---> df543edf6da7
+Step 12/14 : RUN mkdir -p /state
+ ---> Using cache
+ ---> aa3a854f5bc8
+Step 13/14 : EXPOSE 8080
+ ---> Using cache
+ ---> 3b6150d5aa47
+Step 14/14 : CMD ["/app/simple-counter"]
+ ---> Using cache
+ ---> 95e28568726c
+Successfully built 95e28568726c
+Successfully tagged build-ec5a5a719102:latest
+Successfully tagged multi-user-3-build-ec5a5a719102-2e4d6237:latest
+[EFFECT] StartRuntime for multi-user-3-build-ec5a5a719102-2e4d6237 (image: sha256:95e28568726cedb7da49f89743e75e3c6d313b91749b2f40974973b7f0e1e24a)
+[EFFECT]   State path: /home/rlaaudgjs5638/hersh/cmd/host/host-storage/multi-user-3-build-ec5a5a719102-2e4d6237/state
+[EFFECT]   Compose opts: runtime=runc, network=bridge, publishPort=19004
+[EFFECT] ✅ Compose spec generated
+[EFFECT] ✅ Compose spec validated
+[EFFECT]   Starting Docker container...
+[EFFECT] ✅ Container started: 58aa1a6efb0e66828b60cd1788499282e8c77afa775f6e93392d4ba757e5fa70
+2026/02/07 07:18:23 [PROGRAM-READY] ✅ Program multi-user-3-build-ec5a5a719102-2e4d6237 reached StateReady, accessible on localhost:19004
+Step 1/14 : FROM golang:1.24-alpine AS builder
+ ---> 6b597b1078d0
+Step 2/14 : WORKDIR /build
+ ---> Using cache
+ ---> 5fb774a526d7
+Step 3/14 : RUN apk add --no-cache git ca-certificates
+ ---> Using cache
+ ---> 684cbb0b8739
+Step 4/14 : COPY go.mod ./
+ ---> 1cf8f3ba6bbc
+Step 5/14 : COPY *.go ./
+ ---> 0e710ecc4686
+Step 6/14 : RUN go mod download
+ ---> Running in 91d08bbd148d
+ ---> Removed intermediate container 91d08bbd148d
+ ---> 763c9977e3b1
+Step 7/14 : RUN CGO_ENABLED=0 GOOS=linux go build -o trading-sim .
+ ---> Running in 51a32e5bfd4a
+[91mmain.go:16:2: missing go.sum entry for module providing package github.com/HershyOrg/hershy/hersh (imported by trading-long); to add:
+	go get trading-long
+main.go:17:2: missing go.sum entry for module providing package github.com/HershyOrg/hershy/hersh/hutil (imported by trading-long); to add:
+	go get trading-long
+binance_stream.go:9:2: missing go.sum entry for module providing package github.com/gorilla/websocket (imported by trading-long); to add:
+	go get trading-long
+[0mStep 1/14 : FROM golang:1.24-alpine AS builder
+ ---> 6b597b1078d0
+Step 2/14 : WORKDIR /build
+ ---> Using cache
+ ---> 5fb774a526d7
+Step 3/14 : RUN apk add --no-cache git ca-certificates
+ ---> Using cache
+ ---> 684cbb0b8739
+Step 4/14 : COPY go.mod ./
+ ---> Using cache
+ ---> 1cf8f3ba6bbc
+Step 5/14 : COPY *.go ./
+ ---> Using cache
+ ---> 0e710ecc4686
+Step 6/14 : RUN go mod download
+ ---> Using cache
+ ---> 763c9977e3b1
+Step 7/14 : RUN CGO_ENABLED=0 GOOS=linux go build -o trading-sim .
+ ---> Running in 5a9054bf1679
+[91mmain.go:16:2: missing go.sum entry for module providing package github.com/HershyOrg/hershy/hersh (imported by trading-long); to add:
+	go get trading-long
+main.go:17:2: missing go.sum entry for module providing package github.com/HershyOrg/hershy/hersh/hutil (imported by trading-long); to add:
+	go get trading-long
+binance_stream.go:9:2: missing go.sum entry for module providing package github.com/gorilla/websocket (imported by trading-long); to add:
+	go get trading-long
+[0mStep 1/14 : FROM golang:1.24-alpine AS builder
+ ---> 6b597b1078d0
+Step 2/14 : WORKDIR /build
+ ---> Using cache
+ ---> 5fb774a526d7
+Step 3/14 : RUN apk add --no-cache git ca-certificates
+ ---> Using cache
+ ---> 684cbb0b8739
+Step 4/14 : COPY go.mod go.sum ./
+ ---> 210a9e2def9a
+Step 5/14 : COPY *.go ./
+ ---> 8953af45f453
+Step 6/14 : RUN go mod download
+ ---> Running in 4d8bb5fa8fc5
+ ---> Removed intermediate container 4d8bb5fa8fc5
+ ---> 8d96bfdf4891
+Step 7/14 : RUN CGO_ENABLED=0 GOOS=linux go build -o trading-sim .
+ ---> Running in d579a55e48c3
+ ---> Removed intermediate container d579a55e48c3
+ ---> d392e6b34f05
+Step 8/14 : FROM alpine:latest
+ ---> 25109184c71b
+Step 9/14 : RUN apk add --no-cache ca-certificates
+ ---> Using cache
+ ---> 697dffbf2147
+Step 10/14 : WORKDIR /app
+ ---> Using cache
+ ---> aca38aed8a08
+Step 11/14 : COPY --from=builder /build/trading-sim /app/
+ ---> ed14ab00665e
+Step 12/14 : RUN mkdir -p /state
+ ---> Running in 99ddccaab6b8
+ ---> Removed intermediate container 99ddccaab6b8
+ ---> b0f5e2e9e3d9
+Step 13/14 : EXPOSE 8080
+ ---> Running in ff16e152acd1
+ ---> Removed intermediate container ff16e152acd1
+ ---> a94165d07a01
+Step 14/14 : CMD ["/app/trading-sim"]
+ ---> Running in 96758c2ccc58
+ ---> Removed intermediate container 96758c2ccc58
+ ---> 09edbae96312
+Successfully built 09edbae96312
+Successfully tagged build-7e418ec04c6a:latest
+Successfully tagged trading-user-build-7e418ec04c6a-4fae1d4b:latest
+[EFFECT] StartRuntime for trading-user-build-7e418ec04c6a-4fae1d4b (image: sha256:09edbae9631267b90f3f534c78662993f02c8839188b2b9d8ea21a09190fd6b7)
+[EFFECT]   State path: /home/rlaaudgjs5638/hersh/cmd/host/host-storage/trading-user-build-7e418ec04c6a-4fae1d4b/state
+[EFFECT]   Compose opts: runtime=runc, network=bridge, publishPort=19007
+[EFFECT] ✅ Compose spec generated
+[EFFECT] ✅ Compose spec validated
+[EFFECT]   Starting Docker container...
+[EFFECT] ✅ Container started: cbe01a1049ce5ab109e0f6db839ce11c6563c81629ce6c7c7df175de19add76a
+2026/02/07 07:39:49 [PROGRAM-READY] ✅ Program trading-user-build-7e418ec04c6a-4fae1d4b reached StateReady, accessible on localhost:19007
+Step 1/13 : FROM golang:1.24-alpine AS builder
+ ---> 6b597b1078d0
+Step 2/13 : RUN apk add --no-cache git ca-certificates
+ ---> Running in 635a49fcfd43
+( 1/13) Installing brotli-libs (1.2.0-r0)
+( 2/13) Installing c-ares (1.34.6-r0)
+( 3/13) Installing libunistring (1.4.1-r0)
+( 4/13) Installing libidn2 (2.3.8-r0)
+( 5/13) Installing nghttp2-libs (1.68.0-r0)
+( 6/13) Installing nghttp3 (1.13.1-r0)
+( 7/13) Installing libpsl (0.21.5-r3)
+( 8/13) Installing zstd-libs (1.5.7-r2)
+( 9/13) Installing libcurl (8.17.0-r1)
+(10/13) Installing libexpat (2.7.4-r0)
+(11/13) Installing pcre2 (10.47-r0)
+(12/13) Installing git (2.52.0-r0)
+(13/13) Installing git-init-template (2.52.0-r0)
+Executing busybox-1.37.0-r30.trigger
+OK: 20.6 MiB in 30 packages
+ ---> Removed intermediate container 635a49fcfd43
+ ---> 3cf22f16c4e7
+Step 3/13 : WORKDIR /build
+ ---> Running in 06def4c78ecb
+ ---> Removed intermediate container 06def4c78ecb
+ ---> 1bea4b50b9c5
+Step 4/13 : COPY go.mod go.sum ./
+ ---> d3567c93f4a4
+Step 5/13 : COPY main.go .
+ ---> 18488bb52988
+Step 6/13 : RUN go mod download
+ ---> Running in 7bcca2c659ca
+ ---> Removed intermediate container 7bcca2c659ca
+ ---> f6dfb245d455
+Step 7/13 : RUN go build -o watcher-server main.go
+ ---> Running in a9469af16c07
+ ---> Removed intermediate container a9469af16c07
+ ---> 2e184db0b1bc
+Step 8/13 : FROM alpine:latest
+ ---> 25109184c71b
+Step 9/13 : RUN apk add --no-cache ca-certificates
+ ---> Using cache
+ ---> 697dffbf2147
+Step 10/13 : WORKDIR /app
+ ---> Using cache
+ ---> aca38aed8a08
+Step 11/13 : COPY --from=builder /build/watcher-server /app/
+ ---> 883f8f4a0e08
+Step 12/13 : EXPOSE 8080
+ ---> Running in b58f7f03ea87
+ ---> Removed intermediate container b58f7f03ea87
+ ---> d387e997d9ff
+Step 13/13 : CMD ["/app/watcher-server"]
+ ---> Running in 15d239c6d0c6
+ ---> Removed intermediate container 15d239c6d0c6
+ ---> 2c5812022f47
+Successfully built 2c5812022f47
+Successfully tagged build-d2f59a8a80ae:latest
+Successfully tagged watcher-user-build-d2f59a8a80ae-f57215a7:latest
+[EFFECT] StartRuntime for watcher-user-build-d2f59a8a80ae-f57215a7 (image: sha256:2c5812022f477f626f6fbf7881d892f8effe0aa1e7f77496f83ede8234a5f020)
+[EFFECT]   State path: /home/rlaaudgjs5638/hersh/cmd/host/host-storage/watcher-user-build-d2f59a8a80ae-f57215a7/state
+[EFFECT]   Compose opts: runtime=runc, network=bridge, publishPort=19008
+[EFFECT] ✅ Compose spec generated
+[EFFECT] ✅ Compose spec validated
+[EFFECT]   Starting Docker container...
+[EFFECT] ✅ Container started: 15269d3b4e29abd10b861d7fe796422047989f3b36d7bd6ee673a9377a8cff43
+2026/02/07 07:45:30 [PROGRAM-READY] ✅ Program watcher-user-build-d2f59a8a80ae-f57215a7 reached StateReady, accessible on localhost:19008
+Step 1/14 : FROM golang:1.24-alpine AS builder
+ ---> 6b597b1078d0
+Step 2/14 : WORKDIR /build
+ ---> Using cache
+ ---> 5fb774a526d7
+Step 3/14 : RUN apk add --no-cache git ca-certificates
+ ---> Using cache
+ ---> 684cbb0b8739
+Step 4/14 : COPY go.mod go.sum ./
+ ---> Using cache
+ ---> dd7039aff9b5
+Step 5/14 : COPY main.go .
+ ---> Using cache
+ ---> 3acc7195228b
+Step 6/14 : RUN go mod download
+ ---> Using cache
+ ---> 60fc19270539
+Step 7/14 : RUN CGO_ENABLED=0 GOOS=linux go build -o simple-counter main.go
+ ---> Using cache
+ ---> 44f9868c9f35
+Step 8/14 : FROM alpine:latest
+ ---> 25109184c71b
+Step 9/14 : RUN apk add --no-cache ca-certificates
+ ---> Using cache
+ ---> 697dffbf2147
+Step 10/14 : WORKDIR /app
+ ---> Using cache
+ ---> aca38aed8a08
+Step 11/14 : COPY --from=builder /build/simple-counter /app/
+ ---> Using cache
+ ---> df543edf6da7
+Step 12/14 : RUN mkdir -p /state
+ ---> Using cache
+ ---> aa3a854f5bc8
+Step 13/14 : EXPOSE 8080
+ ---> Using cache
+ ---> 3b6150d5aa47
+Step 14/14 : CMD ["/app/simple-counter"]
+ ---> Using cache
+ ---> 95e28568726c
+Successfully built 95e28568726c
+Successfully tagged build-ec5a5a719102:latest
+Successfully tagged multi-user-1-build-ec5a5a719102-9c027775:latest
+[EFFECT] StartRuntime for multi-user-1-build-ec5a5a719102-9c027775 (image: sha256:95e28568726cedb7da49f89743e75e3c6d313b91749b2f40974973b7f0e1e24a)
+[EFFECT]   State path: /home/rlaaudgjs5638/hersh/cmd/host/host-storage/multi-user-1-build-ec5a5a719102-9c027775/state
+[EFFECT]   Compose opts: runtime=runc, network=bridge, publishPort=19002
+[EFFECT] ✅ Compose spec generated
+[EFFECT] ✅ Compose spec validated
+[EFFECT]   Starting Docker container...
+[EFFECT] ✅ Container started: 211fab3ed89147dff2e1dc33b61aeff267bb29b31f9788d59d041a292b31b54e
+2026/02/07 07:51:19 [PROGRAM-READY] ✅ Program multi-user-1-build-ec5a5a719102-9c027775 reached StateReady, accessible on localhost:19002
