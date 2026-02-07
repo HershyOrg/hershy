@@ -39,9 +39,9 @@ type StopRuntime struct {
 
 func (StopRuntime) isEffect() {}
 
-// FetchRuntimeStatus requests current status of a container
-type FetchRuntimeStatus struct {
-	ContainerID string
-}
+// // FetchRuntimeStatus requests current status of a container
+// type FetchRuntimeStatus struct {
+// 	ContainerID string
+// }
 
-func (FetchRuntimeStatus) isEffect() {}
+// func (FetchRuntimeStatus) isEffect() {}

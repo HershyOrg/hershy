@@ -9,18 +9,14 @@ import (
 	"github.com/HershyOrg/hershy/program"
 )
 
-// ProgramMetadata holds metadata about a registered program
+// ProgramMetadata holds immutable metadata about a registered program
+// Runtime state (State, ImageID, ContainerID, ErrorMsg) is managed by Program supervisor
 type ProgramMetadata struct {
 	ProgramID   program.ProgramID `json:"program_id"`
 	BuildID     program.BuildID   `json:"build_id"`
 	UserID      string            `json:"user_id"`
-	State       program.State     `json:"state"`
-	ImageID     string            `json:"image_id,omitempty"`
-	ContainerID string            `json:"container_id,omitempty"`
-	ErrorMsg    string            `json:"error_msg,omitempty"`
-	CreatedAt   time.Time         `json:"created_at"`
-	UpdatedAt   time.Time         `json:"updated_at"`
 	PublishPort int               `json:"publish_port"` // Localhost-only publish port (19001-29999)
+	CreatedAt   time.Time         `json:"created_at"`
 }
 
 // PortAllocator manages port allocation for proxy servers
@@ -158,7 +154,6 @@ func (r *Registry) Register(meta ProgramMetadata) error {
 
 	meta.PublishPort = port
 	meta.CreatedAt = time.Now()
-	meta.UpdatedAt = meta.CreatedAt
 
 	r.programs[meta.ProgramID] = &meta
 	return nil
@@ -191,40 +186,6 @@ func (r *Registry) List() []*ProgramMetadata {
 	}
 
 	return result
-}
-
-// Update updates specific fields of a program's metadata
-func (r *Registry) Update(id program.ProgramID, updates map[string]interface{}) error {
-	r.mu.Lock()
-	defer r.mu.Unlock()
-
-	meta, exists := r.programs[id]
-	if !exists {
-		return fmt.Errorf("program %s not found", id)
-	}
-
-	// Apply updates
-	for key, value := range updates {
-		switch key {
-		case "state":
-			if state, ok := value.(program.State); ok {
-				meta.State = state
-			}
-		case "image_id":
-			if imageID, ok := value.(string); ok {
-				meta.ImageID = imageID
-			}
-		case "container_id":
-			if containerID, ok := value.(string); ok {
-				meta.ContainerID = containerID
-			}
-		default:
-			return fmt.Errorf("unknown field: %s", key)
-		}
-	}
-
-	meta.UpdatedAt = time.Now()
-	return nil
 }
 
 // Delete removes a program from the registry and releases its port

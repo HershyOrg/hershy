@@ -29,12 +29,16 @@ type HostServer struct {
 	storage         *storage.Manager
 	compose         *compose.Builder
 	runtime         *runtime.DockerManager
-	runningPrograms map[program.ProgramID]*program.Program // Running program supervisors
-	mu              sync.RWMutex
+	runningPrograms *sync.Map // program.ProgramID -> *program.Program (all running programs)
+	readyPrograms   *sync.Map // program.ProgramID -> *program.Program (Ready state only, for slow health check)
 	server          *http.Server
 	effectHandlerFn func() program.EffectHandler // Factory function for creating effect handlers
 	defaultRuntime  string                       // Default container runtime (runsc or runc)
-}
+
+	// Health check loop control
+	healthCtx    context.Context
+	healthCancel context.CancelFunc
+ }
 
 // NewHostServer creates a new host server
 func NewHostServer(
@@ -44,15 +48,25 @@ func NewHostServer(
 	comp *compose.Builder,
 	rt *runtime.DockerManager,
 ) *HostServer {
-	return &HostServer{
+	runningProgs := &sync.Map{}
+	readyProgs := &sync.Map{}
+
+	hs := &HostServer{
 		programRegistry: reg,
 		proxyManager:    pm,
 		storage:         stor,
 		compose:         comp,
 		runtime:         rt,
-		runningPrograms: make(map[program.ProgramID]*program.Program),
+		runningPrograms: runningProgs,
+		readyPrograms:   readyProgs,
 		defaultRuntime:  "runc", // Default to runc, can be changed via SetDefaultRuntime
 	}
+
+	// Start health check loop
+	hs.healthCtx, hs.healthCancel = context.WithCancel(context.Background())
+	go hs.startHealthCheckLoop()
+
+	return hs
 }
 
 // SetEffectHandlerFactory sets the factory function for creating effect handlers
@@ -92,15 +106,20 @@ func (hs *HostServer) Start(port int) error {
 
 // Stop stops the HTTP API server
 func (hs *HostServer) Stop(ctx context.Context) error {
+	// Stop health check loop
+	hs.healthCancel()
+
+	// Then stop HTTP server
 	return hs.server.Shutdown(ctx)
 }
 
 // GetProgram returns the program supervisor for a given program ID (for testing)
 func (hs *HostServer) GetProgram(id program.ProgramID) (*program.Program, bool) {
-	hs.mu.RLock()
-	defer hs.mu.RUnlock()
-	prog, exists := hs.runningPrograms[id]
-	return prog, exists
+	value, exists := hs.runningPrograms.Load(id)
+	if !exists {
+		return nil, false
+	}
+	return value.(*program.Program), true
 }
 
 // GetRuntime returns the Docker runtime manager (for testing)
@@ -187,12 +206,11 @@ func (hs *HostServer) createProgram(w http.ResponseWriter, r *http.Request) {
 	programUUID := uuid.New().String()[:8]
 	programID := program.ProgramID(fmt.Sprintf("%s-%s-%s", req.UserID, buildID, programUUID))
 
-	// Register program in registry
+	// Register program in registry (immutable metadata only)
 	meta := registry.ProgramMetadata{
 		ProgramID: programID,
 		BuildID:   buildID,
 		UserID:    req.UserID,
-		State:     program.StateCreated,
 	}
 
 	if err := hs.programRegistry.Register(meta); err != nil {
@@ -242,11 +260,6 @@ func (hs *HostServer) createProgram(w http.ResponseWriter, r *http.Request) {
 
 // getProgram handles GET /programs/{id}
 func (hs *HostServer) getProgram(w http.ResponseWriter, r *http.Request, programID program.ProgramID) {
-	// First check if program is running (has active supervisor)
-	hs.mu.RLock()
-	prog, isRunning := hs.runningPrograms[programID]
-	hs.mu.RUnlock()
-
 	// Get metadata from registry
 	meta, err := hs.programRegistry.Get(programID)
 	if err != nil {
@@ -254,12 +267,16 @@ func (hs *HostServer) getProgram(w http.ResponseWriter, r *http.Request, program
 		return
 	}
 
-	// If program is running, get real-time state from supervisor
+	proxyURL := fmt.Sprintf("http://localhost:%d", meta.PublishPort)
+
+	// Check if program is running (has active supervisor)
+	value, isRunning := hs.runningPrograms.Load(programID)
+
 	if isRunning {
+		// Running program: get real-time state from supervisor
+		prog := value.(*program.Program)
 		state := prog.GetState()
 
-		// Update response with live state
-		proxyURL := fmt.Sprintf("http://localhost:%d", meta.PublishPort)
 		response := GetProgramResponse{
 			ProgramID:   state.ID,
 			BuildID:     state.BuildID,
@@ -267,10 +284,10 @@ func (hs *HostServer) getProgram(w http.ResponseWriter, r *http.Request, program
 			State:       state.State.String(),
 			ImageID:     state.ImageID,
 			ContainerID: state.ContainerID,
-			ProxyURL:    proxyURL,
 			ErrorMsg:    state.ErrorMsg,
+			ProxyURL:    proxyURL,
 			CreatedAt:   meta.CreatedAt,
-			UpdatedAt:   meta.UpdatedAt,
+			UpdatedAt:   time.Now(), // Real-time query
 		}
 
 		w.Header().Set("Content-Type", "application/json")
@@ -278,20 +295,18 @@ func (hs *HostServer) getProgram(w http.ResponseWriter, r *http.Request, program
 		return
 	}
 
-	// Program not running, return registry data
-	proxyURL := fmt.Sprintf("http://localhost:%d", meta.PublishPort)
-
+	// Not running: return created state (registry metadata only)
 	response := GetProgramResponse{
 		ProgramID:   meta.ProgramID,
 		BuildID:     meta.BuildID,
 		UserID:      meta.UserID,
-		State:       meta.State.String(),
-		ImageID:     meta.ImageID,
-		ContainerID: meta.ContainerID,
+		State:       "created", // Fixed value
+		ImageID:     "",
+		ContainerID: "",
+		ErrorMsg:    "",
 		ProxyURL:    proxyURL,
-		ErrorMsg:    meta.ErrorMsg,
 		CreatedAt:   meta.CreatedAt,
-		UpdatedAt:   meta.UpdatedAt,
+		UpdatedAt:   meta.CreatedAt, // Same as created
 	}
 
 	w.Header().Set("Content-Type", "application/json")
@@ -305,18 +320,42 @@ func (hs *HostServer) listPrograms(w http.ResponseWriter, r *http.Request) {
 	programs := make([]GetProgramResponse, 0, len(metaList))
 	for _, meta := range metaList {
 		proxyURL := fmt.Sprintf("http://localhost:%d", meta.PublishPort)
-		programs = append(programs, GetProgramResponse{
-			ProgramID:   meta.ProgramID,
-			BuildID:     meta.BuildID,
-			UserID:      meta.UserID,
-			State:       meta.State.String(),
-			ImageID:     meta.ImageID,
-			ContainerID: meta.ContainerID,
-			ProxyURL:    proxyURL,
-			ErrorMsg:    meta.ErrorMsg,
-			CreatedAt:   meta.CreatedAt,
-			UpdatedAt:   meta.UpdatedAt,
-		})
+
+		// Check if program is running for real-time state
+		value, isRunning := hs.runningPrograms.Load(meta.ProgramID)
+
+		if isRunning {
+			// Running: get real-time state
+			prog := value.(*program.Program)
+			state := prog.GetState()
+
+			programs = append(programs, GetProgramResponse{
+				ProgramID:   state.ID,
+				BuildID:     state.BuildID,
+				UserID:      meta.UserID,
+				State:       state.State.String(),
+				ImageID:     state.ImageID,
+				ContainerID: state.ContainerID,
+				ErrorMsg:    state.ErrorMsg,
+				ProxyURL:    proxyURL,
+				CreatedAt:   meta.CreatedAt,
+				UpdatedAt:   time.Now(),
+			})
+		} else {
+			// Not running: created state
+			programs = append(programs, GetProgramResponse{
+				ProgramID:   meta.ProgramID,
+				BuildID:     meta.BuildID,
+				UserID:      meta.UserID,
+				State:       "created",
+				ImageID:     "",
+				ContainerID: "",
+				ErrorMsg:    "",
+				ProxyURL:    proxyURL,
+				CreatedAt:   meta.CreatedAt,
+				UpdatedAt:   meta.CreatedAt,
+			})
+		}
 	}
 
 	response := ListProgramsResponse{
@@ -330,23 +369,22 @@ func (hs *HostServer) listPrograms(w http.ResponseWriter, r *http.Request) {
 
 // deleteProgram handles DELETE /programs/{id}
 func (hs *HostServer) deleteProgram(w http.ResponseWriter, r *http.Request, programID program.ProgramID) {
-	// Get program metadata
-	meta, err := hs.programRegistry.Get(programID)
-	if err != nil {
-		hs.sendError(w, http.StatusNotFound, fmt.Sprintf("program not found: %v", err))
+	// Verify program exists
+	if !hs.programRegistry.Exists(programID) {
+		hs.sendError(w, http.StatusNotFound, "program not found")
 		return
 	}
 
 	// Stop program if running
-	hs.mu.Lock()
-	if prog, exists := hs.runningPrograms[programID]; exists {
+	if value, exists := hs.runningPrograms.Load(programID); exists {
+		prog := value.(*program.Program)
 		prog.SendEvent(program.UserStopRequested{ProgramID: programID})
-		//TODO 굉장히 위험.
+
 		// Wait a bit for graceful shutdown
-		time.Sleep(10 * time.Second)
-		delete(hs.runningPrograms, programID)
+		time.Sleep(5 * time.Second)
+
+		// HealthMonitor will handle cleanup automatically
 	}
-	hs.mu.Unlock()
 
 	// No proxy cleanup needed - container publishes directly
 
@@ -363,7 +401,7 @@ func (hs *HostServer) deleteProgram(w http.ResponseWriter, r *http.Request, prog
 
 	response := LifecycleResponse{
 		ProgramID: programID,
-		State:     meta.State.String(),
+		State:     "deleted",
 		Message:   "program deleted successfully",
 	}
 
@@ -392,4 +430,148 @@ func (hs *HostServer) sendError(w http.ResponseWriter, code int, message string)
 		Code:    code,
 		Message: message,
 	})
+}
+
+// Health check methods
+
+// startHealthCheckLoop runs background health checks with dual-interval strategy
+func (hs *HostServer) startHealthCheckLoop() {
+	fastTicker := time.NewTicker(100 * time.Millisecond)
+	slowTicker := time.NewTicker(5 * time.Second)
+	defer fastTicker.Stop()
+	defer slowTicker.Stop()
+
+	fmt.Println("[HealthCheck] 🚀 Starting dual-interval health check (fast: 100ms, slow: 5s)")
+
+	for {
+		select {
+		case <-fastTicker.C:
+			// Fast check: runningPrograms for non-Ready programs
+			toCleanup := hs.checkNonReadyPrograms()
+			if len(toCleanup) > 0 {
+				hs.cleanupPrograms(toCleanup)
+			}
+
+		case <-slowTicker.C:
+			// Slow check: readyPrograms for container health
+			toCleanup := hs.checkReadyPrograms()
+			if len(toCleanup) > 0 {
+				hs.cleanupPrograms(toCleanup)
+			}
+
+		case <-hs.healthCtx.Done():
+			fmt.Println("[HealthCheck] 🛑 Stopping health check loop")
+			return
+		}
+	}
+}
+
+// checkNonReadyPrograms checks programs in runningPrograms for Ready transition or cleanup
+func (hs *HostServer) checkNonReadyPrograms() []program.ProgramID {
+	var toCleanup []program.ProgramID
+	checkCount := 0
+
+	hs.runningPrograms.Range(func(key, value interface{}) bool {
+		programID := key.(program.ProgramID)
+		prog := value.(*program.Program)
+		state := prog.GetState()
+		checkCount++
+
+		// DEBUG: 모든 프로그램 상태 로깅
+		fmt.Printf("[HealthCheck-DEBUG] Checking %s: State=%s, ImageID=%s, ContainerID=%s, Error=%v\n",
+			programID, state.State, state.ImageID, state.ContainerID, state.ErrorMsg)
+
+		// Ready 도달 → readyPrograms로 이동
+		if state.State == program.StateReady {
+			hs.readyPrograms.Store(programID, prog)
+			fmt.Printf("[HealthCheck] ✅ Program %s reached Ready state\n", programID)
+			return true
+		}
+
+		// Error/Stopped → cleanup 대상
+		if state.State == program.StateError || state.State == program.StateStopped {
+			fmt.Printf("[HealthCheck-CLEANUP] ❌ Program %s marked for cleanup: State=%s, Error=%v\n",
+				programID, state.State, state.ErrorMsg)
+			toCleanup = append(toCleanup, programID)
+		}
+
+		return true
+	})
+
+	if checkCount > 0 {
+		fmt.Printf("[HealthCheck-DEBUG] Checked %d non-ready programs, %d marked for cleanup\n", checkCount, len(toCleanup))
+	}
+
+	return toCleanup
+}
+
+// checkReadyPrograms checks Ready programs for container health
+func (hs *HostServer) checkReadyPrograms() []program.ProgramID {
+	var toCleanup []program.ProgramID
+	readyCount := 0
+
+	hs.readyPrograms.Range(func(key, value interface{}) bool {
+		programID := key.(program.ProgramID)
+		prog := value.(*program.Program)
+		state := prog.GetState()
+
+		// Ready 벗어남 → readyPrograms에서 제거
+		if state.State != program.StateReady {
+			hs.readyPrograms.Delete(programID)
+			fmt.Printf("[HealthCheck] ⚠️ Program %s left Ready state: %s\n", programID, state.State)
+
+			if state.State == program.StateError || state.State == program.StateStopped {
+				toCleanup = append(toCleanup, programID)
+			}
+			return true
+		}
+
+		readyCount++
+
+		// 컨테이너 헬스체크
+		if state.ContainerID == "" {
+			fmt.Printf("[HealthCheck] ⚠️ Ready program %s has no containerID\n", programID)
+			return true
+		}
+
+		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+		defer cancel()
+
+		status, err := hs.runtime.GetContainerStatus(ctx, state.ContainerID)
+
+		if err != nil {
+			fmt.Printf("[HealthCheck] ⚠️ Container %s not found: %v\n", state.ContainerID, err)
+			prog.SendEvent(program.RuntimeExited{ExitCode: -1})
+			toCleanup = append(toCleanup, programID)
+		} else if status != "running" {
+			fmt.Printf("[HealthCheck] 📡 Container %s has exited (status: %s)\n", state.ContainerID, status)
+			prog.SendEvent(program.RuntimeExited{ExitCode: 0})
+			toCleanup = append(toCleanup, programID)
+		}
+
+		return true
+	})
+
+	if readyCount > 0 {
+		fmt.Printf("[HealthCheck] 🏥 Health checked %d ready programs\n", readyCount)
+	}
+
+	return toCleanup
+}
+
+// cleanupPrograms removes programs from runningPrograms and readyPrograms
+func (hs *HostServer) cleanupPrograms(programIDs []program.ProgramID) {
+	for _, programID := range programIDs {
+		// runningPrograms에서 제거
+		hs.runningPrograms.Delete(programID)
+
+		// readyPrograms에서도 제거 (있을 경우)
+		hs.readyPrograms.Delete(programID)
+
+		fmt.Printf("[HealthCheck] 🧹 Cleaned up %s from running/ready programs\n", programID)
+	}
+
+	if len(programIDs) > 0 {
+		fmt.Printf("[HealthCheck] ✅ Total cleaned up: %d programs\n", len(programIDs))
+	}
 }

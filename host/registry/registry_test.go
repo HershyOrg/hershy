@@ -148,7 +148,6 @@ func TestRegistry_Register(t *testing.T) {
 		ProgramID: program.ProgramID("test-prog-1"),
 		BuildID:   program.BuildID("build-123"),
 		UserID:    "user-1",
-		State:     program.StateCreated,
 	}
 
 	// Register program
@@ -186,7 +185,6 @@ func TestRegistry_Get(t *testing.T) {
 		ProgramID: program.ProgramID("test-prog-1"),
 		BuildID:   program.BuildID("build-123"),
 		UserID:    "user-1",
-		State:     program.StateCreated,
 	}
 
 	r.Register(meta)
@@ -207,9 +205,9 @@ func TestRegistry_Get(t *testing.T) {
 	}
 
 	// Verify returned copy doesn't affect registry
-	retrieved.State = program.StateReady
+	retrieved.UserID = "modified"
 	updated, _ := r.Get(meta.ProgramID)
-	if updated.State == program.StateReady {
+	if updated.UserID == "modified" {
 		t.Error("Modifying returned metadata should not affect registry")
 	}
 }
@@ -228,7 +226,6 @@ func TestRegistry_List(t *testing.T) {
 			ProgramID: program.ProgramID(string(rune('a' + i))),
 			BuildID:   program.BuildID("build-123"),
 			UserID:    "user-1",
-			State:     program.StateCreated,
 		}
 		r.Register(meta)
 	}
@@ -240,55 +237,6 @@ func TestRegistry_List(t *testing.T) {
 	}
 }
 
-func TestRegistry_Update(t *testing.T) {
-	r := NewRegistry()
-
-	meta := ProgramMetadata{
-		ProgramID: program.ProgramID("test-prog-1"),
-		BuildID:   program.BuildID("build-123"),
-		UserID:    "user-1",
-		State:     program.StateCreated,
-	}
-
-	r.Register(meta)
-
-	// Update state
-	updates := map[string]interface{}{
-		"state":        program.StateReady,
-		"image_id":     "image-abc",
-		"container_id": "container-xyz",
-	}
-
-	if err := r.Update(meta.ProgramID, updates); err != nil {
-		t.Fatalf("Failed to update program: %v", err)
-	}
-
-	// Verify updates
-	updated, _ := r.Get(meta.ProgramID)
-	if updated.State != program.StateReady {
-		t.Errorf("Expected State %v, got %v", program.StateReady, updated.State)
-	}
-	if updated.ImageID != "image-abc" {
-		t.Errorf("Expected ImageID 'image-abc', got '%s'", updated.ImageID)
-	}
-	if updated.ContainerID != "container-xyz" {
-		t.Errorf("Expected ContainerID 'container-xyz', got '%s'", updated.ContainerID)
-	}
-
-	// Try to update non-existent program
-	if err := r.Update(program.ProgramID("non-existent"), updates); err == nil {
-		t.Error("Expected error when updating non-existent program, got nil")
-	}
-
-	// Try to update with invalid field
-	invalidUpdates := map[string]interface{}{
-		"invalid_field": "value",
-	}
-	if err := r.Update(meta.ProgramID, invalidUpdates); err == nil {
-		t.Error("Expected error when updating with invalid field, got nil")
-	}
-}
-
 func TestRegistry_Delete(t *testing.T) {
 	r := NewRegistry()
 
@@ -296,7 +244,6 @@ func TestRegistry_Delete(t *testing.T) {
 		ProgramID: program.ProgramID("test-prog-1"),
 		BuildID:   program.BuildID("build-123"),
 		UserID:    "user-1",
-		State:     program.StateCreated,
 	}
 
 	r.Register(meta)
@@ -340,7 +287,6 @@ func TestRegistry_Concurrent(t *testing.T) {
 				ProgramID: program.ProgramID(string(rune('a' + i))),
 				BuildID:   program.BuildID("build-123"),
 				UserID:    "user-1",
-				State:     program.StateCreated,
 			}
 			if err := r.Register(meta); err != nil {
 				t.Errorf("Failed to register program: %v", err)

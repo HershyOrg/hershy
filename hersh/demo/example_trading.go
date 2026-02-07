@@ -32,7 +32,8 @@ type TradingState struct {
 
 // Global trading function - uses Watcher environment variables
 func tradingFunc(msg *hersh.Message, ctx hersh.HershContext) error {
-	fmt.Println("\n" + strings.Repeat("=", 60))
+	fmt.Println()
+	fmt.Println(strings.Repeat("=", 60))
 	fmt.Printf("[%s] Trading Cycle Started\n", time.Now().Format("15:04:05"))
 	fmt.Println(strings.Repeat("=", 60))
 
@@ -55,7 +56,7 @@ func tradingFunc(msg *hersh.Message, ctx hersh.HershContext) error {
 
 	// Initialize MarketClient with Memo (expensive operation, cached)
 	client := hersh.Memo(func() any {
-		fmt.Println("\n[MEMO] Creating MarketClient (this happens only once)...")
+		fmt.Printf("\n[MEMO] Creating MarketClient (this happens only once)...")
 		return NewMarketClient(apiKey)
 	}, "marketClient", ctx).(*MarketClient)
 
@@ -193,13 +194,15 @@ func tradingFunc(msg *hersh.Message, ctx hersh.HershContext) error {
 		}
 	}
 
-	fmt.Println("\n" + strings.Repeat("-", 60))
+	fmt.Println()
+	fmt.Println(strings.Repeat("-", 60))
 	return nil
 }
 
 // Global cleanup function
 func cleanupFunc(ctx hersh.HershContext) {
-	fmt.Println("\n" + strings.Repeat("=", 60))
+	fmt.Println()
+	fmt.Println(strings.Repeat("=", 60))
 	fmt.Println("[CLEANUP] Shutting down trading bot...")
 	fmt.Println(strings.Repeat("=", 60))
 
@@ -226,8 +229,8 @@ func cleanupFunc(ctx hersh.HershContext) {
 
 func main2() {
 	fmt.Println("=== Hersh Trading Bot Demo ===")
-
-	fmt.Println("Polymarket + Bitcoin Price Monitor. \n")
+	fmt.Println()
+	fmt.Println("Polymarket + Bitcoin Price Monitor.")
 
 	// Create environment variables for watcher
 	envVars := map[string]string{
@@ -272,7 +275,8 @@ func main2() {
 	testWatcherAPI()
 
 	// Simulate user interactions
-	fmt.Println("\n" + strings.Repeat("=", 60))
+	fmt.Println()
+	fmt.Println(strings.Repeat("=", 60))
 	fmt.Println("Simulating User Commands...")
 	fmt.Println(strings.Repeat("=", 60))
 	fmt.Printf("  [During Operation] State: %s\n", watcher.GetState())
@@ -305,7 +309,8 @@ func main2() {
 	fmt.Printf("  [+1000ms after 'stop'] State: %s\n", watcher.GetState())
 
 	// Print logger summary
-	fmt.Println("\n" + strings.Repeat("=", 60))
+	fmt.Println()
+	fmt.Println(strings.Repeat("=", 60))
 	fmt.Println("Execution Summary")
 	fmt.Println(strings.Repeat("=", 60))
 	watcher.GetLogger().PrintSummary()
@@ -323,7 +328,8 @@ func main2() {
 
 // testWatcherAPI tests all WatcherAPI endpoints with pretty-printed request/response
 func testWatcherAPI() {
-	fmt.Println("\n" + strings.Repeat("=", 60))
+	fmt.Println()
+	fmt.Println(strings.Repeat("=", 60))
 	fmt.Println("Testing WatcherAPI Endpoints")
 	fmt.Println(strings.Repeat("=", 60))
 
@@ -387,7 +393,8 @@ func testWatcherAPI() {
 		printResponse(resp)
 	}
 
-	fmt.Println("\n" + strings.Repeat("=", 60))
+	fmt.Println()
+	fmt.Println(strings.Repeat("=", 60))
 	fmt.Println("WatcherAPI Tests Complete")
 	fmt.Println(strings.Repeat("=", 60))
 }

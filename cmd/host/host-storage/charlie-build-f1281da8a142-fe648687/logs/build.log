@@ -1,9 +1,0 @@
-Step 1/2 : FROM alpine:latest
- ---> 25109184c71b
-Step 2/2 : CMD ["sleep", "90"]
- ---> Running in 2e43eaf794f1
- ---> Removed intermediate container 2e43eaf794f1
- ---> 2150c3c4c87c
-Successfully built 2150c3c4c87c
-Successfully tagged build-f1281da8a142:latest
-Successfully tagged charlie-build-f1281da8a142-fe648687:latest

@@ -70,6 +70,7 @@ func (b *Builder) GenerateSpec(opts BuildOpts) (*ComposeSpec, error) {
 
 	// Default network mode to "none" for isolation
 	networkMode := opts.NetworkMode
+	//* 없는 경우엔 none으로 처리하지만, effect_handler에선 bridge모드로 준다.
 	if networkMode == "" {
 		networkMode = "none"
 	}

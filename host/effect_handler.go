@@ -49,8 +49,8 @@ func (h *RealEffectHandler) Execute(ctx context.Context, eff program.Effect) pro
 	case program.StopRuntime:
 		return h.handleStopRuntime(ctx, e)
 
-	case program.FetchRuntimeStatus:
-		return h.handleFetchRuntimeStatus(ctx, e)
+	// case program.FetchRuntimeStatus:
+	// 	return h.handleFetchRuntimeStatus(ctx, e)
 
 	default:
 		// Unknown effect type, return nil
@@ -197,23 +197,23 @@ func (h *RealEffectHandler) handleStopRuntime(ctx context.Context, eff program.S
 	}
 }
 
-// handleFetchRuntimeStatus fetches container status
-func (h *RealEffectHandler) handleFetchRuntimeStatus(ctx context.Context, eff program.FetchRuntimeStatus) program.Event {
-	status, err := h.runtime.GetContainerStatus(ctx, eff.ContainerID)
-	if err != nil {
-		// Container not found or error
-		return program.RuntimeExited{
-			ExitCode: -1,
-		}
-	}
+// // handleFetchRuntimeStatus fetches container status
+// func (h *RealEffectHandler) handleFetchRuntimeStatus(ctx context.Context, eff program.FetchRuntimeStatus) program.Event {
+// 	status, err := h.runtime.GetContainerStatus(ctx, eff.ContainerID)
+// 	if err != nil {
+// 		// Container not found or error
+// 		return program.RuntimeExited{
+// 			ExitCode: -1,
+// 		}
+// 	}
 
-	// Check if container has exited
-	if status != "running" {
-		return program.RuntimeExited{
-			ExitCode: 0, // We don't have exit code info in this simple implementation
-		}
-	}
+// 	// Check if container has exited
+// 	if status != "running" {
+// 		return program.RuntimeExited{
+// 			ExitCode: 0, // We don't have exit code info in this simple implementation
+// 		}
+// 	}
 
-	// Container is still running, return nil (no event)
-	return nil
-}
+// 	// Container is still running, return nil (no event)
+// 	return nil
+// }

@@ -1,0 +1,4 @@
+2026/02/07 09:57:41 🚀 Starting Simple Counter Demo
+2026/02/07 09:57:41 ▶️  Starting Watcher with API server on :8080
+2026/02/07 09:57:56 [09:57:56] Counter: 1
+2026/02/07 09:57:56 ❌ Failed to start: initialization failed: watcher entered Running state

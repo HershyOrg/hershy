@@ -1,0 +1,196 @@
+========================================================================
+Examples E2E Integration Test
+========================================================================
+
+==========================================
+Phase 1: Environment Setup
+==========================================
+
+[0;34mℹ️  INFO[0m: Building Host server...
+[0;32m✅ PASS[0m: Host server build
+[0;34mℹ️  INFO[0m: Starting Host server...
+[0;32m✅ PASS[0m: Host server started (PID: 37100)
+
+==========================================
+Phase 2: simple-counter E2E Test
+==========================================
+
+[0;34mℹ️  INFO[0m: Deploying simple-counter...
+[0;32m✅ PASS[0m: Created simple-counter: e2e-test-simple-counter-build-04605c50b124-987ba563
+[0;32m✅ PASS[0m: Started simple-counter
+[0;34mℹ️  INFO[0m: Waiting for state: ready (timeout: 180s)
+....[0;32m✅ PASS[0m: Reached state: Ready
+[0;34mℹ️  INFO[0m: Proxy URL: http://localhost:19001
+[0;34mℹ️  INFO[0m: Waiting for WatcherAPI to be ready (timeout: 30s)
+[0;32m✅ PASS[0m: WatcherAPI is ready
+[0;34mℹ️  INFO[0m: Testing security contract for simple-counter...
+[0;32m✅ PASS[0m: Port 8080 blocked (expected)
+[0;34mℹ️  INFO[0m: Testing WatcherAPI status for simple-counter...
+[0;32m✅ PASS[0m: WatcherAPI status: state=InitRun, running=true, uptime=1.894512992s
+[0;34mℹ️  INFO[0m: Testing WatcherAPI logs for simple-counter...
+[0;32m✅ PASS[0m: WatcherAPI logs: effectLogs=0, reduceLogs=1
+[0;34mℹ️  INFO[0m: Testing WatcherAPI signals for simple-counter...
+[0;32m✅ PASS[0m: WatcherAPI signals: total=0 (var=0, user=0, watcher=0)
+[0;34mℹ️  INFO[0m: Sending multiple tick messages...
+[0;34mℹ️  INFO[0m: Sending message to simple-counter: 'tick'...
+[0;32m✅ PASS[0m: Message sent successfully: 'tick'
+[0;34mℹ️  INFO[0m: Sending message to simple-counter: 'tick'...
+[0;32m✅ PASS[0m: Message sent successfully: 'tick'
+[0;34mℹ️  INFO[0m: Sending message to simple-counter: 'tick'...
+[0;32m✅ PASS[0m: Message sent successfully: 'tick'
+[0;34mℹ️  INFO[0m: Container ID: 1716c5327b2ff2f7f1b8fea5d714da76aed64a34e78144cb775ce24e29fd897b
+[0;34mℹ️  INFO[0m: Verifying container logs for simple-counter...
+[1;33m⚠️  WARN[0m: Expected pattern not found in logs: Counter:
+[0;34mℹ️  INFO[0m: Stopping simple-counter...
+[0;34mℹ️  INFO[0m: Stop response: program stop initiated
+[0;34mℹ️  INFO[0m: Program state after stop: created
+[0;32m✅ PASS[0m: Stop command accepted (cleanup may vary)
+[0;34mℹ️  INFO[0m: Deleting simple-counter...
+[0;32m✅ PASS[0m: Program deleted successfully
+
+==========================================
+Phase 3: trading-long E2E Test
+==========================================
+
+[0;34mℹ️  INFO[0m: Deploying trading-long...
+[0;32m✅ PASS[0m: Created trading-long: e2e-test-trading-long-build-5691895aeaf1-81ba5185
+[0;32m✅ PASS[0m: Started trading-long
+[0;34mℹ️  INFO[0m: Waiting for state: ready (timeout: 240s)
+...[0;32m✅ PASS[0m: Reached state: Ready
+[0;34mℹ️  INFO[0m: Proxy URL: http://localhost:19002
+[0;34mℹ️  INFO[0m: Waiting for WatcherAPI to be ready (timeout: 60s)
+.[0;32m✅ PASS[0m: WatcherAPI is ready
+[0;34mℹ️  INFO[0m: Testing security contract for trading-long...
+[0;32m✅ PASS[0m: Port 8080 blocked (expected)
+[0;34mℹ️  INFO[0m: Testing WatcherAPI status for trading-long...
+[0;32m✅ PASS[0m: WatcherAPI status: state=Ready, running=true, uptime=1.855323213s
+[0;34mℹ️  INFO[0m: Testing WatcherAPI logs for trading-long...
+[1;33m⚠️  WARN[0m: WatcherAPI logs request failed or empty response
+[0;34mℹ️  INFO[0m: Testing WatcherAPI signals for trading-long...
+[0;32m✅ PASS[0m: WatcherAPI signals: total=0 (var=0, user=0, watcher=0)
+[0;34mℹ️  INFO[0m: Sending message to trading-long: 'status'...
+[0;32m✅ PASS[0m: Message sent successfully: 'status'
+[0;34mℹ️  INFO[0m: Sending message to trading-long: 'prices'...
+[0;32m✅ PASS[0m: Message sent successfully: 'prices'
+[0;34mℹ️  INFO[0m: Sending message to trading-long: 'portfolio'...
+[0;32m✅ PASS[0m: Message sent successfully: 'portfolio'
+[0;34mℹ️  INFO[0m: Container ID: 4fb2212d01c88ba59d3b40e30a353b46c05c383b474fd61881c13de72883a3a3
+[0;34mℹ️  INFO[0m: Verifying container logs for trading-long...
+[0;32m✅ PASS[0m: Found expected pattern in logs: Portfolio Value
+[0;34mℹ️  INFO[0m: Stopping trading-long...
+[0;34mℹ️  INFO[0m: Stop response: program stop initiated
+[0;34mℹ️  INFO[0m: Trading state after stop: created
+[0;32m✅ PASS[0m: Stop command accepted (cleanup may vary)
+[0;34mℹ️  INFO[0m: Deleting trading-long...
+[0;32m✅ PASS[0m: Trading deleted successfully
+
+==========================================
+Phase 4: watcher-server E2E Test
+==========================================
+
+[0;34mℹ️  INFO[0m: Deploying watcher-server...
+[0;32m✅ PASS[0m: Created watcher-server: e2e-test-watcher-server-build-39f8c959aeee-16b0a507
+[0;32m✅ PASS[0m: Started watcher-server
+[0;34mℹ️  INFO[0m: Waiting for state: ready (timeout: 180s)
+...[0;32m✅ PASS[0m: Reached state: Ready
+[0;34mℹ️  INFO[0m: Proxy URL: http://localhost:19003
+[0;34mℹ️  INFO[0m: Waiting for WatcherAPI to be ready (timeout: 30s)
+[0;32m✅ PASS[0m: WatcherAPI is ready
+[0;34mℹ️  INFO[0m: Waiting for automatic ticker to generate ticks (3 seconds)...
+[0;34mℹ️  INFO[0m: Testing security contract for watcher-server...
+[0;32m✅ PASS[0m: Port 8080 blocked (expected)
+[0;34mℹ️  INFO[0m: Testing WatcherAPI status for watcher-server...
+[0;32m✅ PASS[0m: WatcherAPI status: state=Ready, running=true, uptime=4.085342258s
+[0;34mℹ️  INFO[0m: Testing WatcherAPI logs for watcher-server...
+[0;32m✅ PASS[0m: WatcherAPI logs: effectLogs=0, reduceLogs=10
+[0;34mℹ️  INFO[0m: Testing WatcherAPI signals for watcher-server...
+[0;32m✅ PASS[0m: WatcherAPI signals: total=0 (var=0, user=0, watcher=0)
+[0;34mℹ️  INFO[0m: Sending manual tick messages...
+[0;34mℹ️  INFO[0m: Sending message to watcher-server: 'tick'...
+[0;32m✅ PASS[0m: Message sent successfully: 'tick'
+[0;34mℹ️  INFO[0m: Sending message to watcher-server: 'tick'...
+[0;32m✅ PASS[0m: Message sent successfully: 'tick'
+[0;34mℹ️  INFO[0m: Container ID: 89371d1e6f0927669d53f163c641aafdc923b83865e853f2f912a454c429481e
+[0;34mℹ️  INFO[0m: Verifying container logs for watcher-server...
+[0;32m✅ PASS[0m: Found expected pattern in logs: Counter:
+[0;34mℹ️  INFO[0m: Verifying /state volume for watcher-server...
+[0;34mℹ️  INFO[0m: Contents of /state directory:
+total 12
+drwxr-xr-x    2 1000     1000          4096 Feb  7 10:52 .
+drwxr-xr-x    1 root     root          4096 Feb  7 10:52 ..
+-rw-r--r--    1 root     root             2 Feb  7 10:52 counter.txt
+[0;32m✅ PASS[0m: /state/counter.txt exists
+[0;32m✅ PASS[0m: /state/counter.txt content: 10
+[0;34mℹ️  INFO[0m: Stopping watcher-server...
+[0;34mℹ️  INFO[0m: Stop response: program stop initiated
+[0;34mℹ️  INFO[0m: Watcher state after stop: created
+[0;32m✅ PASS[0m: Stop command accepted (cleanup may vary)
+[0;34mℹ️  INFO[0m: Deleting watcher-server...
+[0;32m✅ PASS[0m: Watcher deleted successfully
+
+==========================================
+Phase 5: Multi-Program Concurrent Test
+==========================================
+
+[0;34mℹ️  INFO[0m: Deploying 3 programs simultaneously...
+[0;34mℹ️  INFO[0m: Deploying simple-counter...
+[0;32m✅ PASS[0m: Created simple-counter: e2e-test-simple-counter-build-14b4b63fb777-9976499d
+[0;32m✅ PASS[0m: Started simple-counter
+[0;34mℹ️  INFO[0m: Deploying trading-long...
+[0;32m✅ PASS[0m: Created trading-long: e2e-test-trading-long-build-8a1f24e2760d-b154a036
+[0;32m✅ PASS[0m: Started trading-long
+[0;34mℹ️  INFO[0m: Deploying watcher-server...
+[0;32m✅ PASS[0m: Created watcher-server: e2e-test-watcher-server-build-39f8c959aeee-45408b9a
+[0;32m✅ PASS[0m: Started watcher-server
+[0;34mℹ️  INFO[0m: Waiting for all programs to reach Ready state...
+[0;34mℹ️  INFO[0m: Waiting for state: ready (timeout: 180s)
+[0;34mℹ️  INFO[0m: Waiting for state: ready (timeout: 240s)
+[0;34mℹ️  INFO[0m: Waiting for state: ready (timeout: 180s)
+...........[0;32m✅ PASS[0m: Reached state: Ready
+[0;32m✅ PASS[0m: Reached state: Ready
+[0;32m✅ PASS[0m: Reached state: Ready
+[0;32m✅ PASS[0m: simple-counter reached Ready
+[0;32m✅ PASS[0m: trading-long reached Ready
+[0;32m✅ PASS[0m: watcher-server reached Ready
+[0;34mℹ️  INFO[0m: Waiting for all WatcherAPIs to be ready...
+[0;34mℹ️  INFO[0m: Waiting for WatcherAPI to be ready (timeout: 30s)
+[0;32m✅ PASS[0m: WatcherAPI is ready
+[0;34mℹ️  INFO[0m: Waiting for WatcherAPI to be ready (timeout: 30s)
+[0;32m✅ PASS[0m: WatcherAPI is ready
+[0;34mℹ️  INFO[0m: Waiting for WatcherAPI to be ready (timeout: 30s)
+[0;32m✅ PASS[0m: WatcherAPI is ready
+[0;34mℹ️  INFO[0m: Testing WatcherAPI independence...
+[0;34mℹ️  INFO[0m: Testing WatcherAPI status for multi-counter...
+[0;32m✅ PASS[0m: WatcherAPI status: state=InitRun, running=true, uptime=1.685931587s
+[0;34mℹ️  INFO[0m: Testing WatcherAPI status for multi-trading...
+[0;32m✅ PASS[0m: WatcherAPI status: state=Ready, running=true, uptime=1.288298769s
+[0;34mℹ️  INFO[0m: Testing WatcherAPI status for multi-watcher...
+[0;32m✅ PASS[0m: WatcherAPI status: state=Ready, running=true, uptime=2.865020037s
+[0;34mℹ️  INFO[0m: Testing message independence...
+[0;34mℹ️  INFO[0m: Sending message to multi-counter: 'tick'...
+[0;32m✅ PASS[0m: Message sent successfully: 'tick'
+[0;34mℹ️  INFO[0m: Sending message to multi-trading: 'status'...
+[0;32m✅ PASS[0m: Message sent successfully: 'status'
+[0;34mℹ️  INFO[0m: Sending message to multi-watcher: 'tick'...
+[0;32m✅ PASS[0m: Message sent successfully: 'tick'
+[0;32m✅ PASS[0m: All 3 programs received messages independently
+[0;34mℹ️  INFO[0m: Testing security contract for multi-program...
+[0;32m✅ PASS[0m: Port 8080 blocked (expected)
+[0;32m✅ PASS[0m: Multi-program deployment: 3 programs running
+[0;34mℹ️  INFO[0m: Stopping all programs...
+[0;32m✅ PASS[0m: All programs stopped
+[0;34mℹ️  INFO[0m: Deleting all programs...
+[0;32m✅ PASS[0m: All programs deleted
+
+[0;34mℹ️  INFO[0m: E2E testing completed!
+
+[0;34mℹ️  INFO[0m: Cleaning up...
+[0;34mℹ️  INFO[0m: Stopping Host server (PID: 37100)
+
+========================================================================
+Test Results
+========================================================================
+Passed: [0;32m54[0m
+Failed: [0;31m0[0m
+========================================================================
+[0;32mAll tests passed![0m

@@ -1,0 +1,4 @@
+github.com/HershyOrg/hershy/hersh v0.1.3 h1:leugIvj969WHuzqrmfRnQTUXC0j4i3GTcJWsusJ5F00=
+github.com/HershyOrg/hershy/hersh v0.1.3/go.mod h1:0TEZ5QOq4+hzWAd/hNbpNbG5EUIgiT0bpwEi98va8A0=
+github.com/gorilla/websocket v1.5.3 h1:saDtZ6Pbx/0u+bgYQ3q96pZgCzfhKXGPqt7kZ72aNNg=
+github.com/gorilla/websocket v1.5.3/go.mod h1:YR8l580nyteQvAITg2hZ9XVh4b55+EU/adAjf1fMHhE=

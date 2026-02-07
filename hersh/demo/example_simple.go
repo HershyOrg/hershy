@@ -9,7 +9,7 @@ import (
 
 // Simple counter example demonstrating hersh reactive framework
 func main() {
-	fmt.Println("=== Hersh Reactive Framework Demo ===\n")
+	fmt.Printf("=== Hersh Reactive Framework Demo ===\n")
 
 	config := hersh.DefaultWatcherConfig()
 	config.DefaultTimeout = 5 * time.Second

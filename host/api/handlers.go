@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
-	"log"
 	"net/http"
 	"time"
 
@@ -27,103 +26,52 @@ func (hs *HostServer) startProgram(w http.ResponseWriter, r *http.Request, progr
 	}
 
 	// Check if already running
-	hs.mu.Lock()
-	if _, exists := hs.runningPrograms[programID]; exists {
-		hs.mu.Unlock()
+	if _, exists := hs.runningPrograms.Load(programID); exists {
 		hs.sendError(w, http.StatusConflict, "program already running")
 		return
 	}
-	hs.mu.Unlock()
 
 	// Create effect handler using factory function
 	handler := hs.createEffectHandler()
 
 	// Create and start program supervisor
 	prog := program.NewProgram(programID, meta.BuildID, handler)
+	fmt.Printf("[START-DEBUG] Created Program supervisor for %s\n", programID)
 
-	hs.mu.Lock()
-	hs.runningPrograms[programID] = prog
-	hs.mu.Unlock()
+	// Store in runningPrograms (sync.Map is thread-safe)
+	hs.runningPrograms.Store(programID, prog)
+	fmt.Printf("[START-DEBUG] Stored %s in runningPrograms\n", programID)
 
 	// Start supervisor in background
 	ctx := context.Background()
-	go prog.Start(ctx)
+	go func() {
+		fmt.Printf("[START-DEBUG] Starting supervisor goroutine for %s\n", programID)
+		prog.Start(ctx)
+		fmt.Printf("[START-DEBUG] Supervisor goroutine completed for %s\n", programID)
+	}()
 
 	// Send start event with publish port
+	fmt.Printf("[START-DEBUG] Sending UserStartRequested event for %s (port: %d)\n", programID, meta.PublishPort)
 	if err := prog.SendEvent(program.UserStartRequested{
 		ProgramID:   programID,
 		PublishPort: meta.PublishPort,
 	}); err != nil {
+		fmt.Printf("[START-ERROR] Failed to send start event for %s: %v\n", programID, err)
 		hs.sendError(w, http.StatusInternalServerError, fmt.Sprintf("failed to start program: %v", err))
 		return
 	}
+	fmt.Printf("[START-DEBUG] UserStartRequested event sent successfully for %s\n", programID)
 
-	// Monitor state transitions (no proxy setup needed - container publishes directly)
-	go hs.monitorProgramState(programID, meta.PublishPort)
+	// Health check loop will automatically detect and monitor this program
 
 	response := LifecycleResponse{
 		ProgramID: programID,
-		State:     meta.State.String(),
+		State:     "starting",
 		Message:   "program start initiated",
 	}
 
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(response)
-}
-
-// monitorProgramState monitors program state and updates registry
-// Note: No proxy setup needed - container publishes directly to localhost:publishPort
-func (hs *HostServer) monitorProgramState(programID program.ProgramID, publishPort int) {
-	hs.mu.RLock()
-	prog, exists := hs.runningPrograms[programID]
-	hs.mu.RUnlock()
-
-	if !exists {
-		return
-	}
-
-	// Poll state until Ready or Error
-	ticker := time.NewTicker(100 * time.Millisecond)
-	defer ticker.Stop()
-
-	timeout := time.After(5 * time.Minute)
-
-	for {
-		select {
-		case <-ticker.C:
-			state := prog.GetState()
-
-			// Update registry
-			updates := map[string]interface{}{
-				"state": state.State,
-			}
-			if state.ImageID != "" {
-				updates["image_id"] = state.ImageID
-			}
-			if state.ContainerID != "" {
-				updates["container_id"] = state.ContainerID
-			}
-			if state.ErrorMsg != "" {
-				updates["error_msg"] = state.ErrorMsg
-			}
-			hs.programRegistry.Update(programID, updates)
-
-			if state.State == program.StateReady {
-				log.Printf("[PROGRAM-READY] ✅ Program %s reached StateReady, accessible on localhost:%d",
-					programID, publishPort)
-				// Container is publishing directly to localhost:publishPort
-				// No proxy server needed
-				return
-			}
-
-			if state.State == program.StateError || state.State == program.StateStopped {
-				return
-			}
-
-		case <-timeout:
-			return
-		}
-	}
 }
 
 // stopProgram handles POST /programs/{id}/stop
@@ -134,14 +82,13 @@ func (hs *HostServer) stopProgram(w http.ResponseWriter, r *http.Request, progra
 	}
 
 	// Check if program is running
-	hs.mu.Lock()
-	prog, exists := hs.runningPrograms[programID]
+	value, exists := hs.runningPrograms.Load(programID)
 	if !exists {
-		hs.mu.Unlock()
 		hs.sendError(w, http.StatusNotFound, "program not running")
 		return
 	}
-	hs.mu.Unlock()
+
+	prog := value.(*program.Program)
 
 	// Send stop event
 	stopEvent := program.UserStopRequested{ProgramID: programID}
@@ -150,40 +97,7 @@ func (hs *HostServer) stopProgram(w http.ResponseWriter, r *http.Request, progra
 		return
 	}
 
-	// No proxy cleanup needed - container publishes directly
-
-	// Monitor stop completion and cleanup
-	go func() {
-		// Wait for Stopped state (with timeout)
-		timeout := time.After(30 * time.Second)
-		ticker := time.NewTicker(100 * time.Millisecond)
-		defer ticker.Stop()
-
-		for {
-			select {
-			case <-ticker.C:
-				state := prog.GetState()
-				if state.State == program.StateStopped {
-					// Update registry first to reflect Stopped state
-					hs.programRegistry.Update(programID, map[string]interface{}{
-						"state": program.StateStopped,
-					})
-
-					// Remove from programs map
-					hs.mu.Lock()
-					delete(hs.runningPrograms, programID)
-					hs.mu.Unlock()
-					return
-				}
-			case <-timeout:
-				// Force cleanup after timeout
-				hs.mu.Lock()
-				delete(hs.runningPrograms, programID)
-				hs.mu.Unlock()
-				return
-			}
-		}
-	}()
+	// HealthMonitor will handle cleanup automatically after detecting Stopped state
 
 	response := LifecycleResponse{
 		ProgramID: programID,
@@ -203,14 +117,13 @@ func (hs *HostServer) restartProgram(w http.ResponseWriter, r *http.Request, pro
 	}
 
 	// Check if program is running
-	hs.mu.Lock()
-	prog, exists := hs.runningPrograms[programID]
+	value, exists := hs.runningPrograms.Load(programID)
 	if !exists {
-		hs.mu.Unlock()
 		hs.sendError(w, http.StatusNotFound, "program not running")
 		return
 	}
-	hs.mu.Unlock()
+
+	prog := value.(*program.Program)
 
 	// Send restart event
 	if err := prog.SendEvent(program.UserRestartRequested{ProgramID: programID}); err != nil {
@@ -238,9 +151,17 @@ func (hs *HostServer) handleProxy(w http.ResponseWriter, r *http.Request, progra
 		return
 	}
 
-	// Check if program is ready
-	if meta.State != program.StateReady {
-		hs.sendError(w, http.StatusServiceUnavailable, fmt.Sprintf("program not ready (current state: %s)", meta.State))
+	// Check if program is running and in Ready state
+	value, exists := hs.runningPrograms.Load(programID)
+	if !exists {
+		hs.sendError(w, http.StatusServiceUnavailable, "program not running")
+		return
+	}
+
+	prog := value.(*program.Program)
+	state := prog.GetState()
+	if state.State != program.StateReady {
+		hs.sendError(w, http.StatusServiceUnavailable, fmt.Sprintf("program not ready (current state: %s)", state.State))
 		return
 	}
 
