@@ -17,6 +17,9 @@ type WatcherAPIHandlers struct {
 	getLogger     func() LoggerInterface
 	getSignals    func() SignalsInterface
 	sendMessage   func(string) error
+	getManager    func() ManagerInterface
+	getVarState   func() VarStateInterface
+	getConfig     func() ConfigInterface
 	startTime     time.Time
 }
 
@@ -34,6 +37,37 @@ type SignalsInterface interface {
 	GetVarSigCount() int
 	GetUserSigCount() int
 	GetWatcherSigCount() int
+	// For peek functionality
+	PeekSignals(maxCount int) []SignalEntry
+}
+
+// ManagerInterface defines methods needed from manager.Manager
+type ManagerInterface interface {
+	GetWatchRegistry() WatchRegistryInterface
+	GetMemoCache() MemoCacheInterface
+}
+
+// WatchRegistryInterface defines methods for accessing watch registry
+type WatchRegistryInterface interface {
+	GetAllVarNames() []string
+}
+
+// MemoCacheInterface defines methods for accessing memo cache
+type MemoCacheInterface interface {
+	GetAllEntries() map[string]interface{}
+}
+
+// VarStateInterface defines methods needed from manager.VarState
+type VarStateInterface interface {
+	GetAll() map[string]interface{}
+}
+
+// ConfigInterface defines methods needed from WatcherConfig
+type ConfigInterface interface {
+	GetServerPort() int
+	GetSignalChanCapacity() int
+	GetMaxLogEntries() int
+	GetMaxMemoEntries() int
 }
 
 // NewWatcherAPIHandlers creates a new API handlers instance
@@ -44,6 +78,9 @@ func NewWatcherAPIHandlers(
 	getLogger func() LoggerInterface,
 	getSignals func() SignalsInterface,
 	sendMessage func(string) error,
+	getManager func() ManagerInterface,
+	getVarState func() VarStateInterface,
+	getConfig func() ConfigInterface,
 ) *WatcherAPIHandlers {
 	return &WatcherAPIHandlers{
 		getState:     getState,
@@ -52,6 +89,9 @@ func NewWatcherAPIHandlers(
 		getLogger:    getLogger,
 		getSignals:   getSignals,
 		sendMessage:  sendMessage,
+		getManager:   getManager,
+		getVarState:  getVarState,
+		getConfig:    getConfig,
 		startTime:    time.Now(),
 	}
 }
@@ -169,11 +209,15 @@ func (h *WatcherAPIHandlers) HandleSignals(w http.ResponseWriter, r *http.Reques
 	userCount := signals.GetUserSigCount()
 	watcherCount := signals.GetWatcherSigCount()
 
+	// Peek recent signals (max 30)
+	recentSignals := signals.PeekSignals(30)
+
 	response := SignalsResponse{
 		VarSigCount:     varCount,
 		UserSigCount:    userCount,
 		WatcherSigCount: watcherCount,
 		TotalPending:    varCount + userCount + watcherCount,
+		RecentSignals:   recentSignals,
 		Timestamp:       time.Now(),
 	}
 
@@ -213,4 +257,75 @@ func (h *WatcherAPIHandlers) HandleMessage(w http.ResponseWriter, r *http.Reques
 
 	w.WriteHeader(http.StatusOK)
 	json.NewEncoder(w).Encode(map[string]string{"status": "message sent"})
+}
+
+// HandleWatching handles GET /watcher/watching
+func (h *WatcherAPIHandlers) HandleWatching(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+
+	manager := h.getManager()
+	watchRegistry := manager.GetWatchRegistry()
+	watchedVars := watchRegistry.GetAllVarNames()
+
+	response := WatchingResponse{
+		WatchedVars: watchedVars,
+		Count:       len(watchedVars),
+		Timestamp:   time.Now(),
+	}
+
+	json.NewEncoder(w).Encode(response)
+}
+
+// HandleMemoCache handles GET /watcher/memoCache
+func (h *WatcherAPIHandlers) HandleMemoCache(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+
+	manager := h.getManager()
+	memoCache := manager.GetMemoCache()
+	entries := memoCache.GetAllEntries()
+
+	response := MemoCacheResponse{
+		Entries:   entries,
+		Count:     len(entries),
+		Timestamp: time.Now(),
+	}
+
+	json.NewEncoder(w).Encode(response)
+}
+
+// HandleVarState handles GET /watcher/varState
+func (h *WatcherAPIHandlers) HandleVarState(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+
+	varState := h.getVarState()
+	variables := varState.GetAll()
+
+	response := VarStateResponse{
+		Variables: variables,
+		Count:     len(variables),
+		Timestamp: time.Now(),
+	}
+
+	json.NewEncoder(w).Encode(response)
+}
+
+// HandleConfig handles GET /watcher/config
+func (h *WatcherAPIHandlers) HandleConfig(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+
+	config := h.getConfig()
+
+	configData := WatcherConfigData{
+		ServerPort:         config.GetServerPort(),
+		SignalChanCapacity: config.GetSignalChanCapacity(),
+		MaxLogEntries:      config.GetMaxLogEntries(),
+		MaxMemoEntries:     config.GetMaxMemoEntries(),
+	}
+
+	response := ConfigResponse{
+		Config:    configData,
+		Timestamp: time.Now(),
+	}
+
+	json.NewEncoder(w).Encode(response)
 }
