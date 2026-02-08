@@ -11,8 +11,9 @@ import (
 	"github.com/HershyOrg/hershy/program"
 )
 
-// startProgram handles POST /programs/{id}/start
-func (hs *HostServer) startProgram(w http.ResponseWriter, r *http.Request, programID program.ProgramID) {
+// buildAndStartProgram handles POST /programs/{id}/start
+// Program은 동적인 정보이므로, 시작 요청을 받으면 그때 생성 후 리듀서루틴 시작함.
+func (hs *HostServer) buildAndStartProgram(w http.ResponseWriter, r *http.Request, programID program.ProgramID) {
 	if r.Method != http.MethodPost {
 		hs.sendError(w, http.StatusMethodNotAllowed, "method not allowed")
 		return

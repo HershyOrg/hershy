@@ -13,20 +13,20 @@ import (
 	"sync"
 	"time"
 
-	"github.com/google/uuid"
 	"github.com/HershyOrg/hershy/host/compose"
 	"github.com/HershyOrg/hershy/host/proxy"
 	"github.com/HershyOrg/hershy/host/registry"
 	"github.com/HershyOrg/hershy/host/runtime"
 	"github.com/HershyOrg/hershy/host/storage"
 	"github.com/HershyOrg/hershy/program"
+	"github.com/google/uuid"
 )
 
 // HostServer orchestrates program lifecycle and HTTP API
 type HostServer struct {
 	programRegistry *registry.Registry
 	proxyManager    *proxy.ProxyManager
-	storage         *storage.Manager
+	storage         *storage.StorageManager
 	compose         *compose.Builder
 	runtime         *runtime.DockerManager
 	runningPrograms *sync.Map // program.ProgramID -> *program.Program (all running programs)
@@ -38,13 +38,13 @@ type HostServer struct {
 	// Health check loop control
 	healthCtx    context.Context
 	healthCancel context.CancelFunc
- }
+}
 
 // NewHostServer creates a new host server
 func NewHostServer(
 	reg *registry.Registry,
 	pm *proxy.ProxyManager,
-	stor *storage.Manager,
+	stor *storage.StorageManager,
 	comp *compose.Builder,
 	rt *runtime.DockerManager,
 ) *HostServer {
@@ -131,7 +131,7 @@ func (hs *HostServer) GetRuntime() *runtime.DockerManager {
 func (hs *HostServer) handlePrograms(w http.ResponseWriter, r *http.Request) {
 	switch r.Method {
 	case http.MethodPost:
-		hs.createProgram(w, r)
+		hs.createProgramMeta(w, r)
 	case http.MethodGet:
 		hs.listPrograms(w, r)
 	default:
@@ -159,7 +159,7 @@ func (hs *HostServer) handleProgramByID(w http.ResponseWriter, r *http.Request) 
 		action := parts[1]
 		switch action {
 		case "start":
-			hs.startProgram(w, r, programID)
+			hs.buildAndStartProgram(w, r, programID)
 			return
 		case "stop":
 			hs.stopProgram(w, r, programID)
@@ -181,8 +181,10 @@ func (hs *HostServer) handleProgramByID(w http.ResponseWriter, r *http.Request) 
 	}
 }
 
-// createProgram handles POST /programs
-func (hs *HostServer) createProgram(w http.ResponseWriter, r *http.Request) {
+// createProgramMeta handles POST /programs
+// 정적인 정보인 programMeta까지를 만들어 놓음.
+// 동적 정보인 program은 실행 요청이 오면 만들고, 이미지빌드-컨테이너 실행함
+func (hs *HostServer) createProgramMeta(w http.ResponseWriter, r *http.Request) {
 	var req CreateProgramRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		hs.sendError(w, http.StatusBadRequest, fmt.Sprintf("invalid request body: %v", err))

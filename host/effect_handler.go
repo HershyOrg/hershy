@@ -13,14 +13,14 @@ import (
 
 // RealEffectHandler implements program.EffectHandler using real Docker and filesystem operations
 type RealEffectHandler struct {
-	storage        *storage.Manager
+	storage        *storage.StorageManager
 	compose        *compose.Builder
 	runtime        *runtime.DockerManager
 	defaultRuntime string // Default container runtime (runsc or runc)
 }
 
 // NewRealEffectHandler creates a new RealEffectHandler
-func NewRealEffectHandler(storage *storage.Manager, compose *compose.Builder, runtime *runtime.DockerManager) *RealEffectHandler {
+func NewRealEffectHandler(storage *storage.StorageManager, compose *compose.Builder, runtime *runtime.DockerManager) *RealEffectHandler {
 	return &RealEffectHandler{
 		storage:        storage,
 		compose:        compose,
