@@ -2,15 +2,67 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"io"
 	"log"
+	"net/http"
 	"os"
 	"path/filepath"
 	"time"
 
 	"github.com/HershyOrg/hershy/hersh"
 )
+
+// testNewAPIs calls all new WatcherAPI endpoints and logs results
+func testNewAPIs() {
+	baseURL := "http://localhost:8080"
+
+	// 1. GET /watcher/watching
+	resp, err := http.Get(baseURL + "/watcher/watching")
+	if err == nil && resp != nil {
+		var watching map[string]interface{}
+		json.NewDecoder(resp.Body).Decode(&watching)
+		resp.Body.Close()
+		log.Printf("📋 Watching: %+v\n", watching)
+	}
+
+	// 2. GET /watcher/memoCache
+	resp, err = http.Get(baseURL + "/watcher/memoCache")
+	if err == nil && resp != nil {
+		var memoCache map[string]interface{}
+		json.NewDecoder(resp.Body).Decode(&memoCache)
+		resp.Body.Close()
+		log.Printf("💾 MemoCache: %+v\n", memoCache)
+	}
+
+	// 3. GET /watcher/varState
+	resp, err = http.Get(baseURL + "/watcher/varState")
+	if err == nil && resp != nil {
+		var varState map[string]interface{}
+		json.NewDecoder(resp.Body).Decode(&varState)
+		resp.Body.Close()
+		log.Printf("📊 VarState: %+v\n", varState)
+	}
+
+	// 4. GET /watcher/config
+	resp, err = http.Get(baseURL + "/watcher/config")
+	if err == nil && resp != nil {
+		var config map[string]interface{}
+		json.NewDecoder(resp.Body).Decode(&config)
+		resp.Body.Close()
+		log.Printf("⚙️  Config: %+v\n", config)
+	}
+
+	// 5. GET /watcher/signals (improved with recent signals)
+	resp, err = http.Get(baseURL + "/watcher/signals")
+	if err == nil && resp != nil {
+		var signals map[string]interface{}
+		json.NewDecoder(resp.Body).Decode(&signals)
+		resp.Body.Close()
+		log.Printf("📡 Signals: %+v\n", signals)
+	}
+}
 
 func main() {
 	// Setup logging
@@ -92,6 +144,25 @@ func main() {
 		os.Exit(1)
 	}
 	log.Println("✅ Watcher started successfully")
+
+	// Wait for API server to be ready
+	time.Sleep(2 * time.Second)
+
+	// Start API testing goroutine
+	go func() {
+		apiTicker := time.NewTicker(10 * time.Second)
+		defer apiTicker.Stop()
+
+		// Test immediately once
+		log.Println("\n🧪 Testing new WatcherAPI endpoints...")
+		testNewAPIs()
+
+		// Then test every 10 seconds
+		for range apiTicker.C {
+			log.Println("\n🧪 Testing new WatcherAPI endpoints...")
+			testNewAPIs()
+		}
+	}()
 
 	// Run for 2 minutes then stop
 	time.Sleep(2 * time.Minute)
