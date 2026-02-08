@@ -19,6 +19,12 @@ type ProgramMetadata struct {
 	CreatedAt   time.Time         `json:"created_at"`
 }
 
+// RegistryEntry holds both metadata and runtime Program instance
+type RegistryEntry struct {
+	Metadata ProgramMetadata
+	Program  *program.Program // nil if not running
+}
+
 // PortAllocator manages port allocation for proxy servers
 type PortAllocator struct {
 	mu        sync.Mutex
@@ -114,17 +120,17 @@ func (pa *PortAllocator) AllocatedCount() int {
 	return len(pa.allocated)
 }
 
-// Registry manages program metadata and port allocation
+// Registry manages program metadata, runtime instances, and port allocation
 type Registry struct {
 	mu        sync.RWMutex
-	programs  map[program.ProgramID]*ProgramMetadata
+	programs  map[program.ProgramID]*RegistryEntry
 	portAlloc *PortAllocator
 }
 
 // NewRegistry creates a new registry with default port range (19001-29999)
 func NewRegistry() *Registry {
 	return &Registry{
-		programs:  make(map[program.ProgramID]*ProgramMetadata),
+		programs:  make(map[program.ProgramID]*RegistryEntry),
 		portAlloc: NewPortAllocator(19001, 29999),
 	}
 }
@@ -132,7 +138,7 @@ func NewRegistry() *Registry {
 // NewRegistryWithPortRange creates a new registry with custom port range
 func NewRegistryWithPortRange(minPort, maxPort int) *Registry {
 	return &Registry{
-		programs:  make(map[program.ProgramID]*ProgramMetadata),
+		programs:  make(map[program.ProgramID]*RegistryEntry),
 		portAlloc: NewPortAllocator(minPort, maxPort),
 	}
 }
@@ -155,7 +161,12 @@ func (r *Registry) Register(meta ProgramMetadata) error {
 	meta.PublishPort = port
 	meta.CreatedAt = time.Now()
 
-	r.programs[meta.ProgramID] = &meta
+	entry := &RegistryEntry{
+		Metadata: meta,
+		Program:  nil, // Not running yet
+	}
+
+	r.programs[meta.ProgramID] = entry
 	return nil
 }
 
@@ -164,13 +175,13 @@ func (r *Registry) Get(id program.ProgramID) (*ProgramMetadata, error) {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
 
-	meta, exists := r.programs[id]
+	entry, exists := r.programs[id]
 	if !exists {
 		return nil, fmt.Errorf("program %s not found", id)
 	}
 
 	// Return a copy to prevent external modification
-	metaCopy := *meta
+	metaCopy := entry.Metadata
 	return &metaCopy, nil
 }
 
@@ -180,30 +191,48 @@ func (r *Registry) List() []*ProgramMetadata {
 	defer r.mu.RUnlock()
 
 	result := make([]*ProgramMetadata, 0, len(r.programs))
-	for _, meta := range r.programs {
-		metaCopy := *meta
+	for _, entry := range r.programs {
+		metaCopy := entry.Metadata
 		result = append(result, &metaCopy)
 	}
 
 	return result
 }
 
-// Delete removes a program from the registry and releases its port
-func (r *Registry) Delete(id program.ProgramID) error {
+// Purge physically removes a program from the registry and releases its port
+// This is an admin-only operation. Normal DELETE API should not call this.
+// Programs should remain in registry for lifecycle tracking and restart capability.
+// Use this only for permanent removal (e.g., admin cleanup, testing)
+func (r *Registry) Purge(id program.ProgramID) error {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 
-	meta, exists := r.programs[id]
+	entry, exists := r.programs[id]
 	if !exists {
 		return fmt.Errorf("program %s not found", id)
 	}
 
 	// Release port
-	if err := r.portAlloc.Release(meta.PublishPort); err != nil {
+	if err := r.portAlloc.Release(entry.Metadata.PublishPort); err != nil {
 		return fmt.Errorf("failed to release port: %w", err)
 	}
 
 	delete(r.programs, id)
+	return nil
+}
+
+// SetProgram updates the Program instance for a registered program
+// This is used internally by cleanup operations (not recommended for normal use)
+func (r *Registry) SetProgram(id program.ProgramID, prog *program.Program) error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
+	entry, exists := r.programs[id]
+	if !exists {
+		return fmt.Errorf("program %s not found in registry", id)
+	}
+
+	entry.Program = prog
 	return nil
 }
 
@@ -220,4 +249,80 @@ func (r *Registry) Count() int {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
 	return len(r.programs)
+}
+
+// SetProgramOnce sets the Program instance for a registered program (only once during creation)
+func (r *Registry) SetProgramOnce(id program.ProgramID, prog *program.Program) error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
+	entry, exists := r.programs[id]
+	if !exists {
+		return fmt.Errorf("program %s not found in registry", id)
+	}
+
+	if entry.Program != nil {
+		return fmt.Errorf("program %s already has a Program instance", id)
+	}
+
+	entry.Program = prog
+	return nil
+}
+
+// GetProgram retrieves the Program instance for a specific program
+// Program is never nil after SetProgramOnce is called
+func (r *Registry) GetProgram(id program.ProgramID) (*program.Program, bool) {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+
+	entry, exists := r.programs[id]
+	if !exists {
+		return nil, false
+	}
+
+	// Program should never be nil (set during createProgramMeta)
+	return entry.Program, true
+}
+
+// RangeAll iterates over all registered programs
+func (r *Registry) RangeAll(fn func(id program.ProgramID, meta *ProgramMetadata, prog *program.Program) bool) {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+
+	for id, entry := range r.programs {
+		if !fn(id, &entry.Metadata, entry.Program) {
+			break
+		}
+	}
+}
+
+// RangeRunning iterates over programs with non-nil Program instances
+func (r *Registry) RangeRunning(fn func(id program.ProgramID, prog *program.Program) bool) {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+
+	for id, entry := range r.programs {
+		if entry.Program != nil {
+			if !fn(id, entry.Program) {
+				break
+			}
+		}
+	}
+}
+
+// RangeByState iterates over programs with specific State
+func (r *Registry) RangeByState(state program.State, fn func(id program.ProgramID, prog *program.Program) bool) {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+
+	for id, entry := range r.programs {
+		if entry.Program != nil {
+			progState := entry.Program.GetState()
+			if progState.State == state {
+				if !fn(id, entry.Program) {
+					break
+				}
+			}
+		}
+	}
 }

@@ -344,11 +344,17 @@ func (m *DockerManager) IsContainerRunning(ctx context.Context, containerID stri
 
 // GetLogs retrieves logs from a container
 func (m *DockerManager) GetLogs(ctx context.Context, containerID string) (string, error) {
+	return m.GetContainerLogs(ctx, containerID, 100)
+}
+
+// GetContainerLogs retrieves logs from a container with custom tail lines
+func (m *DockerManager) GetContainerLogs(ctx context.Context, containerID string, tailLines int) (string, error) {
+	tail := fmt.Sprintf("%d", tailLines)
 	options := client.ContainerLogsOptions{
 		ShowStdout: true,
 		ShowStderr: true,
 		Timestamps: true,
-		Tail:       "100", // Last 100 lines
+		Tail:       tail,
 	}
 
 	reader, err := m.cli.ContainerLogs(ctx, containerID, options)

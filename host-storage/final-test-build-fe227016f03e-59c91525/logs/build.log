@@ -1,0 +1,57 @@
+Step 1/13 : FROM golang:1.24-alpine AS builder
+ ---> 8bee1901f1e5
+Step 2/13 : RUN apk add --no-cache git ca-certificates
+ ---> Running in a1f8a41103e9
+( 1/13) Installing brotli-libs (1.2.0-r0)
+( 2/13) Installing c-ares (1.34.6-r0)
+( 3/13) Installing libunistring (1.4.1-r0)
+( 4/13) Installing libidn2 (2.3.8-r0)
+( 5/13) Installing nghttp2-libs (1.68.0-r0)
+( 6/13) Installing nghttp3 (1.13.1-r0)
+( 7/13) Installing libpsl (0.21.5-r3)
+( 8/13) Installing zstd-libs (1.5.7-r2)
+( 9/13) Installing libcurl (8.17.0-r1)
+(10/13) Installing libexpat (2.7.4-r0)
+(11/13) Installing pcre2 (10.47-r0)
+(12/13) Installing git (2.52.0-r0)
+(13/13) Installing git-init-template (2.52.0-r0)
+Executing busybox-1.37.0-r30.trigger
+OK: 20.6 MiB in 30 packages
+ ---> Removed intermediate container a1f8a41103e9
+ ---> 2319c770b1d1
+Step 3/13 : WORKDIR /build
+ ---> Running in 4d0770c55f83
+ ---> Removed intermediate container 4d0770c55f83
+ ---> 0d7b003583ef
+Step 4/13 : COPY go.mod go.sum ./
+ ---> 73f90f213f5e
+Step 5/13 : COPY main.go .
+ ---> e19631e5d3cd
+Step 6/13 : RUN go mod download
+ ---> Running in 6aaf222af18d
+ ---> Removed intermediate container 6aaf222af18d
+ ---> 8ea567343a3e
+Step 7/13 : RUN go build -o watcher-server main.go
+ ---> Running in 8e7ab497306f
+ ---> Removed intermediate container 8e7ab497306f
+ ---> ece86400c6a0
+Step 8/13 : FROM alpine:latest
+ ---> 25109184c71b
+Step 9/13 : RUN apk add --no-cache ca-certificates
+ ---> Using cache
+ ---> 697dffbf2147
+Step 10/13 : WORKDIR /app
+ ---> Using cache
+ ---> aca38aed8a08
+Step 11/13 : COPY --from=builder /build/watcher-server /app/
+ ---> Using cache
+ ---> c4cafd1dc651
+Step 12/13 : EXPOSE 8080
+ ---> Using cache
+ ---> 3b757745ad2d
+Step 13/13 : CMD ["/app/watcher-server"]
+ ---> Using cache
+ ---> 5c08fc614482
+Successfully built 5c08fc614482
+Successfully tagged build-fe227016f03e:latest
+Successfully tagged final-test-build-fe227016f03e-59c91525:latest

@@ -1,0 +1,46 @@
+===========================
+Deploy watcher-server
+===========================
+Creating program...
+{
+  "program_id": "final-test-build-fe227016f03e-59c91525",
+  "build_id": "build-fe227016f03e",
+  "state": "Created",
+  "proxy_url": "http://localhost:19011",
+  "created_at": "2026-02-08T23:03:45.528630928+09:00"
+}
+
+✅ Program created: final-test-build-fe227016f03e-59c91525
+   Proxy URL: http://localhost:19011
+
+Starting program...
+{
+  "program_id": "final-test-build-fe227016f03e-59c91525",
+  "state": "starting",
+  "message": "program start initiated"
+}
+
+Waiting for Ready state...
+  [1] State: Building
+  [2] State: Building
+  [3] State: Building
+  [4] State: Building
+  [5] State: Building
+  [6] State: Building
+  [7] State: Building
+  [8] State: Building
+  [9] State: Building
+  [10] State: Building
+  [11] State: Building
+  [12] State: Ready
+
+✅ Program Ready!
+
+Access Web UI:
+  Dashboard: http://localhost:9000/ui/programs
+  Detail: http://localhost:9000/ui/programs/final-test-build-fe227016f03e-59c91525
+  Watcher: http://localhost:9000/ui/programs/final-test-build-fe227016f03e-59c91525/watcher
+
+Test APIs:
+  curl http://localhost:19011/watcher/status
+  curl http://localhost:9000/programs/final-test-build-fe227016f03e-59c91525/logs

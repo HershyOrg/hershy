@@ -118,3 +118,34 @@ func (m *StorageManager) getProgramDir(id program.ProgramID) string {
 func (m *StorageManager) GetBaseDir() string {
 	return m.baseDir
 }
+
+// GetSrcDir returns the full path to program source directory (alias for GetSrcPath)
+func (m *StorageManager) GetSrcDir(id program.ProgramID) string {
+	return m.GetSrcPath(id)
+}
+
+// ReadAllFiles reads all files in a directory and returns a map of filename -> content
+func (m *StorageManager) ReadAllFiles(dirPath string) (map[string]string, error) {
+	files := make(map[string]string)
+
+	entries, err := os.ReadDir(dirPath)
+	if err != nil {
+		return nil, fmt.Errorf("failed to read directory: %w", err)
+	}
+
+	for _, entry := range entries {
+		if entry.IsDir() {
+			continue // Skip subdirectories
+		}
+
+		filePath := filepath.Join(dirPath, entry.Name())
+		content, err := os.ReadFile(filePath)
+		if err != nil {
+			return nil, fmt.Errorf("failed to read file %s: %w", entry.Name(), err)
+		}
+
+		files[entry.Name()] = string(content)
+	}
+
+	return files, nil
+}

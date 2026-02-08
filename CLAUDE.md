@@ -111,6 +111,35 @@ cd examples/simple-counter && ./deploy-to-host.sh
 cd examples/trading-long && ./e2e_test.sh
 ```
 
+### Web UI Debugging
+
+```bash
+# Start Chromium for debugging
+./cmd/start_chrome.sh
+
+# Verify all web UI pages (automated DOM verification)
+./verify_web_ui.py
+
+# View detailed results
+cat web_ui_dom_report.txt
+cat web_ui_dom_report.json
+```
+
+**Web UI Pages**:
+- **Dashboard**: http://localhost:9000/ui/programs
+- **ProgramDetail**: http://localhost:9000/ui/programs/{id}
+- **WatcherPage**: http://localhost:9000/ui/programs/{id}/watcher
+
+**DOM Verification Features**:
+- React root existence check
+- Headings, buttons, inputs, links detection
+- Visibility status (visible/hidden)
+- Button states (enabled/disabled)
+- ARIA roles and accessibility
+- Error and loading state detection
+
+**See**: [WEB_UI_DEBUG_GUIDE.md](./WEB_UI_DEBUG_GUIDE.md) for detailed debugging guide.
+
 ## Implementation Guide
 
 Before implementation, you must create a plan and have it reviewed.

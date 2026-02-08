@@ -49,6 +49,13 @@ type LifecycleResponse struct {
 	Message   string            `json:"message"`
 }
 
+// SourceCodeResponse represents the response for getting program source code
+type SourceCodeResponse struct {
+	ProgramID   program.ProgramID `json:"program_id"`
+	Files       map[string]string `json:"files"` // filename -> content
+	RetrievedAt time.Time         `json:"retrieved_at"`
+}
+
 // ErrorResponse represents an error response
 type ErrorResponse struct {
 	Error   string `json:"error"`

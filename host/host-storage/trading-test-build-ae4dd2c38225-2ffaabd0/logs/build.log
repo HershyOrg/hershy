@@ -1,0 +1,46 @@
+Step 1/14 : FROM golang:1.24-alpine AS builder
+ ---> 8bee1901f1e5
+Step 2/14 : WORKDIR /build
+ ---> Using cache
+ ---> dadfbcd2f178
+Step 3/14 : RUN apk add --no-cache git ca-certificates
+ ---> Using cache
+ ---> 283a2e1f6c6c
+Step 4/14 : COPY go.mod go.sum ./
+ ---> Using cache
+ ---> 7045b9d3b3c2
+Step 5/14 : COPY *.go ./
+ ---> 60e617ff5af7
+Step 6/14 : RUN go mod download
+ ---> Running in 01f6fb042c08
+ ---> Removed intermediate container 01f6fb042c08
+ ---> cb928d845c9d
+Step 7/14 : RUN CGO_ENABLED=0 GOOS=linux go build -o trading-sim .
+ ---> Running in f9c7bd2b2e9f
+ ---> Removed intermediate container f9c7bd2b2e9f
+ ---> b45c1184d7e9
+Step 8/14 : FROM alpine:latest
+ ---> 25109184c71b
+Step 9/14 : RUN apk add --no-cache ca-certificates
+ ---> Using cache
+ ---> 697dffbf2147
+Step 10/14 : WORKDIR /app
+ ---> Using cache
+ ---> aca38aed8a08
+Step 11/14 : COPY --from=builder /build/trading-sim /app/
+ ---> 0ad3f5931c4d
+Step 12/14 : RUN mkdir -p /state
+ ---> Running in e83e4b55b447
+ ---> Removed intermediate container e83e4b55b447
+ ---> 93f5f1b161b2
+Step 13/14 : EXPOSE 8080
+ ---> Running in c2e32d4f0144
+ ---> Removed intermediate container c2e32d4f0144
+ ---> 75612e7ffa04
+Step 14/14 : CMD ["/app/trading-sim"]
+ ---> Running in ac2029c77b4b
+ ---> Removed intermediate container ac2029c77b4b
+ ---> e704672859b0
+Successfully built e704672859b0
+Successfully tagged build-ae4dd2c38225:latest
+Successfully tagged trading-test-build-ae4dd2c38225-2ffaabd0:latest

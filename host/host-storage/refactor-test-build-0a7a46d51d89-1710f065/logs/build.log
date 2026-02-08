@@ -1,0 +1,9 @@
+Step 1/2 : FROM alpine:latest
+ ---> 25109184c71b
+Step 2/2 : CMD ["sleep", "300"]
+ ---> Running in 41489b528722
+ ---> Removed intermediate container 41489b528722
+ ---> 454954ed2abd
+Successfully built 454954ed2abd
+Successfully tagged build-0a7a46d51d89:latest
+Successfully tagged refactor-test-build-0a7a46d51d89-1710f065:latest

@@ -159,6 +159,11 @@ func TestGetProgram(t *testing.T) {
 	}
 	hs.programRegistry.Register(meta)
 
+	// Create Program supervisor (required after refactoring)
+	fakeHandler := &program.FakeEffectHandler{}
+	prog := program.NewProgram(programID, buildID, fakeHandler)
+	hs.programRegistry.SetProgramOnce(programID, prog)
+
 	// Get program
 	resp, err := http.Get(ts.URL + "/programs/" + string(programID))
 	if err != nil {
@@ -204,12 +209,19 @@ func TestListPrograms(t *testing.T) {
 
 	// Create multiple programs
 	for i := 0; i < 3; i++ {
+		programID := program.ProgramID(fmt.Sprintf("prog-%d", i))
+		buildID := program.BuildID("build-123")
 		meta := registry.ProgramMetadata{
-			ProgramID: program.ProgramID(fmt.Sprintf("prog-%d", i)),
-			BuildID:   program.BuildID("build-123"),
+			ProgramID: programID,
+			BuildID:   buildID,
 			UserID:    "user-123",
 		}
 		hs.programRegistry.Register(meta)
+
+		// Create Program supervisor (required after refactoring)
+		fakeHandler := &program.FakeEffectHandler{}
+		prog := program.NewProgram(programID, buildID, fakeHandler)
+		hs.programRegistry.SetProgramOnce(programID, prog)
 	}
 
 	// List programs
@@ -242,15 +254,21 @@ func TestDeleteProgram(t *testing.T) {
 
 	// Create program
 	programID := program.ProgramID("test-prog-1")
+	buildID := program.BuildID("build-123")
 	meta := registry.ProgramMetadata{
 		ProgramID: programID,
-		BuildID:   program.BuildID("build-123"),
+		BuildID:   buildID,
 		UserID:    "user-123",
 	}
 	hs.programRegistry.Register(meta)
 	hs.storage.EnsureProgramFolders(programID)
 
-	// Delete program
+	// Create Program supervisor (required after refactoring)
+	fakeHandler := &program.FakeEffectHandler{}
+	prog := program.NewProgram(programID, buildID, fakeHandler)
+	hs.programRegistry.SetProgramOnce(programID, prog)
+
+	// Delete program (now just sends stop event)
 	req, _ := http.NewRequest(http.MethodDelete, ts.URL+"/programs/"+string(programID), nil)
 	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
@@ -262,9 +280,14 @@ func TestDeleteProgram(t *testing.T) {
 		t.Errorf("Expected status 200, got %d", resp.StatusCode)
 	}
 
-	// Verify program is deleted
-	if hs.programRegistry.Exists(programID) {
-		t.Error("Program should be deleted from registry")
+	// Verify program is NOT deleted from registry (永久 보존)
+	if !hs.programRegistry.Exists(programID) {
+		t.Error("Program should remain in registry after DELETE")
+	}
+
+	// Verify Program instance still exists for restart
+	if _, exists := hs.programRegistry.GetProgram(programID); !exists {
+		t.Error("Program instance should remain for restart capability")
 	}
 }
 
@@ -296,20 +319,26 @@ func TestProxyForwarding(t *testing.T) {
 	hs, ts, cleanup := setupTestServer(t)
 	defer cleanup()
 
-	// Note: This test requires a running Program instance in runningPrograms
+	// Note: This test requires a running Program instance
 	// and Ready state. Full proxy forwarding testing should be done in integration tests
 	// with real Program supervisors and containers.
 
 	// Test that proxy endpoint requires running program
 	programID := program.ProgramID("test-prog-1")
+	buildID := program.BuildID("build-123")
 	meta := registry.ProgramMetadata{
 		ProgramID: programID,
-		BuildID:   program.BuildID("build-123"),
+		BuildID:   buildID,
 		UserID:    "user-123",
 	}
 	hs.programRegistry.Register(meta)
 
-	// Try to access proxy without running program
+	// Create Program supervisor (required after refactoring)
+	fakeHandler := &program.FakeEffectHandler{}
+	prog := program.NewProgram(programID, buildID, fakeHandler)
+	hs.programRegistry.SetProgramOnce(programID, prog)
+
+	// Try to access proxy without Ready state
 	resp, err := http.Get(ts.URL + "/programs/" + string(programID) + "/proxy/watcher/status")
 	if err != nil {
 		t.Fatalf("Failed to send request: %v", err)
@@ -369,47 +398,26 @@ func TestMethodNotAllowed(t *testing.T) {
 	}
 }
 
-// TestHealthCheck_NonReadyPrograms tests checkNonReadyPrograms logic
-func TestHealthCheck_NonReadyPrograms(t *testing.T) {
+// TestHealthCheck_AllPrograms tests checkAllPrograms logic
+func TestHealthCheck_AllPrograms(t *testing.T) {
 	hs, _, cleanup := setupTestServer(t)
 	defer cleanup()
 
-	// Test checkNonReadyPrograms returns empty when no programs
-	toCleanup := hs.checkNonReadyPrograms()
-	if len(toCleanup) != 0 {
-		t.Errorf("Expected empty cleanup list, got %d items", len(toCleanup))
-	}
+	// Test checkAllPrograms with no programs (should not crash)
+	hs.checkAllPrograms()
 
 	// Note: Full testing requires mock Program instances with controllable GetState()
 	// This would be added in integration tests with real Program supervisors
-	t.Log("checkNonReadyPrograms basic validation passed")
+	t.Log("checkAllPrograms basic validation passed")
 }
 
-// TestHealthCheck_ReadyPrograms tests checkReadyPrograms logic
-func TestHealthCheck_ReadyPrograms(t *testing.T) {
-	hs, _, cleanup := setupTestServer(t)
-	defer cleanup()
-
-	// Test checkReadyPrograms returns empty when no programs
-	toCleanup := hs.checkReadyPrograms()
-	if len(toCleanup) != 0 {
-		t.Errorf("Expected empty cleanup list, got %d items", len(toCleanup))
-	}
-
-	// Note: Full testing requires:
-	// 1. Mock Program instances in readyPrograms map
-	// 2. Mock runtime.GetContainerStatus() responses
-	// This would be added in integration tests
-	t.Log("checkReadyPrograms basic validation passed")
-}
-
-// TestHealthCheck_CleanupPrograms tests cleanupPrograms logic
-func TestHealthCheck_CleanupPrograms(t *testing.T) {
+// TestHealthCheck_ProgramPersistence tests永久保존 design
+func TestHealthCheck_ProgramPersistence(t *testing.T) {
 	hs, _, cleanup := setupTestServer(t)
 	defer cleanup()
 
 	// Register a program
-	programID := program.ProgramID("test-prog-cleanup")
+	programID := program.ProgramID("test-prog-persist")
 	meta := registry.ProgramMetadata{
 		ProgramID: programID,
 		BuildID:   program.BuildID("build-123"),
@@ -418,41 +426,35 @@ func TestHealthCheck_CleanupPrograms(t *testing.T) {
 	hs.programRegistry.Register(meta)
 	hs.storage.EnsureProgramFolders(programID)
 
-	// Add to runningPrograms (simulate running)
-	// Note: Would need mock Program for full test, but we can test map cleanup
-	// hs.runningPrograms.Store(programID, mockProgram)
+	// Create a fake Program and store in Registry
+	fakeHandler := &program.FakeEffectHandler{}
+	prog := program.NewProgram(programID, meta.BuildID, fakeHandler)
+	hs.programRegistry.SetProgramOnce(programID, prog)
 
-	// Test cleanup with empty list
-	hs.cleanupPrograms([]program.ProgramID{})
+	// Verify Program is stored
+	if storedProg, exists := hs.programRegistry.GetProgram(programID); !exists || storedProg == nil {
+		t.Error("Program should be stored in registry")
+	}
 
-	// Registry should still have the program (Registry never deleted by cleanupPrograms)
+	// Send stop event (simulates normal DELETE API)
+	prog.SendEvent(program.UserStopRequested{ProgramID: programID})
+
+	// Wait for state transition
+	time.Sleep(100 * time.Millisecond)
+
+	// Verify Program still exists in Registry (永久 보존)
 	if !hs.programRegistry.Exists(programID) {
-		t.Error("Program should remain in registry after empty cleanup")
+		t.Error("Program should remain in registry after stop")
 	}
 
-	// Add to running and ready maps
-	hs.runningPrograms.Store(programID, nil) // nil for test purposes
-	hs.readyPrograms.Store(programID, nil)
-
-	// Test cleanup with program ID
-	hs.cleanupPrograms([]program.ProgramID{programID})
-
-	// Verify removed from maps
-	if _, exists := hs.runningPrograms.Load(programID); exists {
-		t.Error("Program should be removed from runningPrograms")
-	}
-	if _, exists := hs.readyPrograms.Load(programID); exists {
-		t.Error("Program should be removed from readyPrograms")
-	}
-
-	// Registry should still have the program (cleanupPrograms only removes from runtime maps)
-	if !hs.programRegistry.Exists(programID) {
-		t.Error("Program should remain in registry (cleanupPrograms doesn't delete from registry)")
+	// Verify Program instance is still accessible
+	if storedProg, exists := hs.programRegistry.GetProgram(programID); !exists || storedProg == nil {
+		t.Error("Program instance should remain accessible for restart")
 	}
 }
 
-// TestHealthCheck_DualIntervalStrategy validates the dual-interval design
-func TestHealthCheck_DualIntervalStrategy(t *testing.T) {
+// TestHealthCheck_SingleInterval validates the single-interval design
+func TestHealthCheck_SingleInterval(t *testing.T) {
 	hs, _, cleanup := setupTestServer(t)
 	defer cleanup()
 

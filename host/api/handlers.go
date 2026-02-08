@@ -26,33 +26,22 @@ func (hs *HostServer) buildAndStartProgram(w http.ResponseWriter, r *http.Reques
 		return
 	}
 
-	// Check if already running
-	if _, exists := hs.runningPrograms.Load(programID); exists {
-		hs.sendError(w, http.StatusConflict, "program already running")
+	// Get existing Program (created in createProgramMeta)
+	prog, exists := hs.programRegistry.GetProgram(programID)
+	if !exists {
+		hs.sendError(w, http.StatusInternalServerError, "program not registered")
 		return
 	}
 
-	// Create effect handler using factory function
-	handler := hs.createEffectHandler()
-
-	// Create and start program supervisor
-	prog := program.NewProgram(programID, meta.BuildID, handler)
-	fmt.Printf("[START-DEBUG] Created Program supervisor for %s\n", programID)
-
-	// Store in runningPrograms (sync.Map is thread-safe)
-	hs.runningPrograms.Store(programID, prog)
-	fmt.Printf("[START-DEBUG] Stored %s in runningPrograms\n", programID)
-
-	// Start supervisor in background
-	ctx := context.Background()
-	go func() {
-		fmt.Printf("[START-DEBUG] Starting supervisor goroutine for %s\n", programID)
-		prog.Start(ctx)
-		fmt.Printf("[START-DEBUG] Supervisor goroutine completed for %s\n", programID)
-	}()
+	// Check current state
+	state := prog.GetState()
+	if state.State != program.StateCreated && state.State != program.StateStopped {
+		hs.sendError(w, http.StatusConflict, fmt.Sprintf("program cannot start from state: %s", state.State))
+		return
+	}
 
 	// Send start event with publish port
-	fmt.Printf("[START-DEBUG] Sending UserStartRequested event for %s (port: %d)\n", programID, meta.PublishPort)
+	fmt.Printf("[START] Sending UserStartRequested for %s (port: %d)\n", programID, meta.PublishPort)
 	if err := prog.SendEvent(program.UserStartRequested{
 		ProgramID:   programID,
 		PublishPort: meta.PublishPort,
@@ -61,7 +50,6 @@ func (hs *HostServer) buildAndStartProgram(w http.ResponseWriter, r *http.Reques
 		hs.sendError(w, http.StatusInternalServerError, fmt.Sprintf("failed to start program: %v", err))
 		return
 	}
-	fmt.Printf("[START-DEBUG] UserStartRequested event sent successfully for %s\n", programID)
 
 	// Health check loop will automatically detect and monitor this program
 
@@ -83,13 +71,11 @@ func (hs *HostServer) stopProgram(w http.ResponseWriter, r *http.Request, progra
 	}
 
 	// Check if program is running
-	value, exists := hs.runningPrograms.Load(programID)
+	prog, exists := hs.programRegistry.GetProgram(programID)
 	if !exists {
 		hs.sendError(w, http.StatusNotFound, "program not running")
 		return
 	}
-
-	prog := value.(*program.Program)
 
 	// Send stop event
 	stopEvent := program.UserStopRequested{ProgramID: programID}
@@ -118,13 +104,11 @@ func (hs *HostServer) restartProgram(w http.ResponseWriter, r *http.Request, pro
 	}
 
 	// Check if program is running
-	value, exists := hs.runningPrograms.Load(programID)
+	prog, exists := hs.programRegistry.GetProgram(programID)
 	if !exists {
 		hs.sendError(w, http.StatusNotFound, "program not running")
 		return
 	}
-
-	prog := value.(*program.Program)
 
 	// Send restart event
 	if err := prog.SendEvent(program.UserRestartRequested{ProgramID: programID}); err != nil {
@@ -153,13 +137,11 @@ func (hs *HostServer) handleProxy(w http.ResponseWriter, r *http.Request, progra
 	}
 
 	// Check if program is running and in Ready state
-	value, exists := hs.runningPrograms.Load(programID)
+	prog, exists := hs.programRegistry.GetProgram(programID)
 	if !exists {
 		hs.sendError(w, http.StatusServiceUnavailable, "program not running")
 		return
 	}
-
-	prog := value.(*program.Program)
 	state := prog.GetState()
 	if state.State != program.StateReady {
 		hs.sendError(w, http.StatusServiceUnavailable, fmt.Sprintf("program not ready (current state: %s)", state.State))
@@ -210,4 +192,87 @@ func (hs *HostServer) handleProxy(w http.ResponseWriter, r *http.Request, progra
 
 	// Copy response body
 	io.Copy(w, resp.Body)
+}
+
+// getContainerLogs handles GET /programs/{id}/logs
+func (hs *HostServer) getContainerLogs(w http.ResponseWriter, r *http.Request, programID program.ProgramID) {
+	if r.Method != http.MethodGet {
+		hs.sendError(w, http.StatusMethodNotAllowed, "method not allowed")
+		return
+	}
+
+	// Check if program exists in registry
+	_, err := hs.programRegistry.Get(programID)
+	if err != nil {
+		hs.sendError(w, http.StatusNotFound, fmt.Sprintf("program not found: %v", err))
+		return
+	}
+
+	// Get running program to access ContainerID from ProgramState
+	prog, exists := hs.programRegistry.GetProgram(programID)
+	if !exists {
+		hs.sendError(w, http.StatusNotFound, "program not running")
+		return
+	}
+	state := prog.GetState()
+
+	// Check if container exists
+	if state.ContainerID == "" {
+		hs.sendError(w, http.StatusNotFound, "container not started yet")
+		return
+	}
+
+	// Get logs from Docker runtime
+	logs, err := hs.runtime.GetContainerLogs(context.Background(), state.ContainerID, 200)
+	if err != nil {
+		hs.sendError(w, http.StatusInternalServerError, fmt.Sprintf("failed to get container logs: %v", err))
+		return
+	}
+
+	// Return logs as JSON
+	response := map[string]interface{}{
+		"program_id":   programID,
+		"container_id": state.ContainerID,
+		"logs":         logs,
+		"timestamp":    time.Now().Format(time.RFC3339),
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(response)
+}
+
+// getSourceCode handles GET /programs/{id}/source
+// Returns Dockerfile and source files used for program build
+func (hs *HostServer) getSourceCode(w http.ResponseWriter, r *http.Request, programID program.ProgramID) {
+	if r.Method != http.MethodGet {
+		hs.sendError(w, http.StatusMethodNotAllowed, "method not allowed")
+		return
+	}
+
+	// Check if program exists in registry
+	_, err := hs.programRegistry.Get(programID)
+	if err != nil {
+		hs.sendError(w, http.StatusNotFound, fmt.Sprintf("program not found: %v", err))
+		return
+	}
+
+	// Read source files from storage
+	// Storage structure: {storageRoot}/{programID}/src/*
+	srcDir := hs.storage.GetSrcDir(programID)
+
+	files, err := hs.storage.ReadAllFiles(srcDir)
+	if err != nil {
+		hs.sendError(w, http.StatusInternalServerError, fmt.Sprintf("failed to read source files: %v", err))
+		return
+	}
+
+	// Return source code response
+	response := SourceCodeResponse{
+		ProgramID:   programID,
+		Files:       files,
+		RetrievedAt: time.Now(),
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(response)
 }

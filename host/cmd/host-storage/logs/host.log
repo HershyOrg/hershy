@@ -1,0 +1,8 @@
+[HOST] 2026/02/08 18:28:42 🚀 Starting Hersh Host Server
+[HOST] 2026/02/08 18:28:42    Port: 9000
+[HOST] 2026/02/08 18:28:42    Storage: ./host-storage
+[HOST] 2026/02/08 18:28:42    Runtime: runc (contracts enforced)
+[HOST] 2026/02/08 18:28:42 ✅ Host initialized
+[HOST] 2026/02/08 18:28:42    🔒 Contracts: Port 8080 blocked, /state:rw, read-only rootfs
+[HOST] 2026/02/08 18:28:42 🌐 HTTP API: http://localhost:9000
+[HOST] 2026/02/08 18:28:42 Server error: listen tcp :9000: bind: address already in use

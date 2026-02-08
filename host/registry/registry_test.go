@@ -248,28 +248,28 @@ func TestRegistry_Delete(t *testing.T) {
 
 	r.Register(meta)
 
-	// Get port before deletion
+	// Get port before purge
 	registered, _ := r.Get(meta.ProgramID)
 	port := registered.PublishPort
 
-	// Delete program
-	if err := r.Delete(meta.ProgramID); err != nil {
-		t.Fatalf("Failed to delete program: %v", err)
+	// Purge program (admin operation)
+	if err := r.Purge(meta.ProgramID); err != nil {
+		t.Fatalf("Failed to purge program: %v", err)
 	}
 
-	// Verify program is deleted
+	// Verify program is purged
 	if r.Exists(meta.ProgramID) {
-		t.Error("Program should not exist after deletion")
+		t.Error("Program should not exist after purge")
 	}
 
 	// Verify port is released
 	if r.portAlloc.IsAllocated(port) {
-		t.Error("Port should be released after program deletion")
+		t.Error("Port should be released after program purge")
 	}
 
-	// Try to delete non-existent program
-	if err := r.Delete(meta.ProgramID); err == nil {
-		t.Error("Expected error when deleting non-existent program, got nil")
+	// Try to purge non-existent program
+	if err := r.Purge(meta.ProgramID); err == nil {
+		t.Error("Expected error when purging non-existent program, got nil")
 	}
 }
 
