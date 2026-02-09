@@ -1,0 +1,45 @@
+2026/02/09 02:43:10 🚀 Starting Hersh WatcherServer Demo
+2026/02/09 02:43:10 ▶️  Starting Watcher with API server on :8080
+2026/02/09 02:43:10 ✅ Watcher started successfully
+2026/02/09 02:43:11 ⚠️  Failed to write state file: open /state/counter.txt: no such file or directory
+2026/02/09 02:43:11 📊 Counter: 1 (state file updated)
+2026/02/09 02:43:12 ⚠️  Failed to write state file: open /state/counter.txt: no such file or directory
+2026/02/09 02:43:12 📊 Counter: 2 (state file updated)
+2026/02/09 02:43:12 
+🧪 Testing new WatcherAPI endpoints...
+2026/02/09 02:43:12 📋 Watching: map[count:0 timestamp:2026-02-09T02:43:12.440748658+09:00 watchedVars:[]]
+2026/02/09 02:43:12 💾 MemoCache: map[count:0 entries:map[] timestamp:2026-02-09T02:43:12.442058419+09:00]
+2026/02/09 02:43:12 📊 VarState: map[count:0 timestamp:2026-02-09T02:43:12.443244959+09:00 variables:map[]]
+2026/02/09 02:43:12 ⚙️  Config: map[config:map[maxLogEntries:50000 maxMemoEntries:1000 serverPort:8080 signalChanCapacity:50000] timestamp:2026-02-09T02:43:12.444126336+09:00]
+2026/02/09 02:43:12 📡 Signals: map[recentSignals:[] timestamp:2026-02-09T02:43:12.444997835+09:00 totalPending:0 userSigCount:0 varSigCount:0 watcherSigCount:0]
+2026/02/09 02:43:13 ⚠️  Failed to write state file: open /state/counter.txt: no such file or directory
+2026/02/09 02:43:13 📊 Counter: 3 (state file updated)
+2026/02/09 02:43:14 ⚠️  Failed to write state file: open /state/counter.txt: no such file or directory
+2026/02/09 02:43:14 📊 Counter: 4 (state file updated)
+2026/02/09 02:43:15 ⚠️  Failed to write state file: open /state/counter.txt: no such file or directory
+2026/02/09 02:43:15 📊 Counter: 5 (state file updated)
+2026/02/09 02:43:16 ⚠️  Failed to write state file: open /state/counter.txt: no such file or directory
+2026/02/09 02:43:16 📊 Counter: 6 (state file updated)
+2026/02/09 02:43:17 ⚠️  Failed to write state file: open /state/counter.txt: no such file or directory
+2026/02/09 02:43:17 📊 Counter: 7 (state file updated)
+2026/02/09 02:43:18 ⚠️  Failed to write state file: open /state/counter.txt: no such file or directory
+2026/02/09 02:43:18 📊 Counter: 8 (state file updated)
+2026/02/09 02:43:19 ⚠️  Failed to write state file: open /state/counter.txt: no such file or directory
+2026/02/09 02:43:19 📊 Counter: 9 (state file updated)
+2026/02/09 02:43:20 ⚠️  Failed to write state file: open /state/counter.txt: no such file or directory
+2026/02/09 02:43:20 📊 Counter: 10 (state file updated)
+2026/02/09 02:43:21 ⚠️  Failed to write state file: open /state/counter.txt: no such file or directory
+2026/02/09 02:43:21 📊 Counter: 11 (state file updated)
+2026/02/09 02:43:22 ⚠️  Failed to write state file: open /state/counter.txt: no such file or directory
+2026/02/09 02:43:22 📊 Counter: 12 (state file updated)
+2026/02/09 02:43:22 
+🧪 Testing new WatcherAPI endpoints...
+2026/02/09 02:43:22 📋 Watching: map[count:0 timestamp:2026-02-09T02:43:22.438989831+09:00 watchedVars:[]]
+2026/02/09 02:43:22 💾 MemoCache: map[count:0 entries:map[] timestamp:2026-02-09T02:43:22.439919153+09:00]
+2026/02/09 02:43:22 📊 VarState: map[count:0 timestamp:2026-02-09T02:43:22.440686407+09:00 variables:map[]]
+2026/02/09 02:43:22 ⚙️  Config: map[config:map[maxLogEntries:50000 maxMemoEntries:1000 serverPort:8080 signalChanCapacity:50000] timestamp:2026-02-09T02:43:22.441415534+09:00]
+2026/02/09 02:43:22 📡 Signals: map[recentSignals:[] timestamp:2026-02-09T02:43:22.4420533+09:00 totalPending:0 userSigCount:0 varSigCount:0 watcherSigCount:0]
+2026/02/09 02:43:23 ⚠️  Failed to write state file: open /state/counter.txt: no such file or directory
+2026/02/09 02:43:23 📊 Counter: 13 (state file updated)
+2026/02/09 02:43:24 ⚠️  Failed to write state file: open /state/counter.txt: no such file or directory
+2026/02/09 02:43:24 📊 Counter: 14 (state file updated)

@@ -83,9 +83,9 @@ func (h *FakeEffectHandler) Execute(ctx context.Context, eff Effect) Event {
 		}
 		return StopFinished{Success: true}
 
-	case FetchRuntimeStatus:
-		// Not implemented in fake handler
-		return nil
+	// case FetchRuntimeStatus:
+	// 	// Not implemented in fake handler
+	// 	return nil
 
 	default:
 		return nil

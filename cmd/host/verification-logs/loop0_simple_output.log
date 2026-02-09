@@ -1,0 +1,200 @@
+=== Loop 0: Multi-Container Test (Simplified) ===
+Testing 3 Alpine containers simultaneously
+
+=== Program 1: user-alice/alpine-30s ===
+{"program_id":"alice-build-a7eded80350b-5d5d509a","build_id":"build-a7eded80350b","state":"Created","proxy_url":"http://localhost:9002","created_at":"2026-02-07T03:17:28.659258909+09:00"}
+   Program ID: alice-build-a7eded80350b-5d5d509a
+
+▶️  Starting program alice-build-a7eded80350b-5d5d509a...
+{"program_id":"alice-build-a7eded80350b-5d5d509a","state":"Created","message":"program start initiated"}
+
+⏳ Waiting for alice-build-a7eded80350b-5d5d509a to reach Ready state...
+   [1/30] Current state: Building
+   [2/30] Current state: Building
+   [3/30] Current state: Ready
+   ✅ Reached Ready
+
+=== Program 2: user-bob/alpine-60s ===
+{"program_id":"bob-build-a1bb30116879-2d340b64","build_id":"build-a1bb30116879","state":"Created","proxy_url":"http://localhost:9003","created_at":"2026-02-07T03:17:32.773156413+09:00"}
+   Program ID: bob-build-a1bb30116879-2d340b64
+
+▶️  Starting program bob-build-a1bb30116879-2d340b64...
+{"program_id":"bob-build-a1bb30116879-2d340b64","state":"Created","message":"program start initiated"}
+
+⏳ Waiting for bob-build-a1bb30116879-2d340b64 to reach Ready state...
+   [1/30] Current state: Building
+   [2/30] Current state: Building
+   [3/30] Current state: Ready
+   ✅ Reached Ready
+
+=== Program 3: user-charlie/alpine-90s ===
+{"program_id":"charlie-build-f1281da8a142-fe648687","build_id":"build-f1281da8a142","state":"Created","proxy_url":"http://localhost:9004","created_at":"2026-02-07T03:17:37.0481068+09:00"}
+   Program ID: charlie-build-f1281da8a142-fe648687
+
+▶️  Starting program charlie-build-f1281da8a142-fe648687...
+{"program_id":"charlie-build-f1281da8a142-fe648687","state":"Created","message":"program start initiated"}
+
+⏳ Waiting for charlie-build-f1281da8a142-fe648687 to reach Ready state...
+   [1/30] Current state: Building
+   [2/30] Current state: Building
+   [3/30] Current state: Ready
+   ✅ Reached Ready
+
+=== All Programs Status ===
+{
+    "programs": [
+        {
+            "program_id": "charlie-build-f1281da8a142-fe648687",
+            "build_id": "build-f1281da8a142",
+            "user_id": "charlie",
+            "state": "Ready",
+            "image_id": "sha256:2150c3c4c87cffa42c90334198ae55db3ab5f6b182b7a0f6f41c28adbf8ded9e",
+            "container_id": "3d55457e025878e38428899cc28358fb66c6009117877424b6b53480d320f6d2",
+            "proxy_url": "http://localhost:9004",
+            "created_at": "2026-02-07T03:17:37.0481068+09:00",
+            "updated_at": "2026-02-07T03:17:40.07949773+09:00"
+        },
+        {
+            "program_id": "test-build-a7eded80350b-76d55801",
+            "build_id": "build-a7eded80350b",
+            "user_id": "test",
+            "state": "Ready",
+            "image_id": "sha256:081798b283e2317cf576e722a92fa7155380c598e11abbf76834c44c1a6edc84",
+            "container_id": "1ec1ae16de8256d60622cd5d05bbc99eccb892bfed506eef297bb053decb6a20",
+            "proxy_url": "http://localhost:9000",
+            "created_at": "2026-02-07T03:04:58.9778521+09:00",
+            "updated_at": "2026-02-07T03:05:05.269209404+09:00"
+        },
+        {
+            "program_id": "alice-build-7a4745b1d4cd-1020fe6e",
+            "build_id": "build-7a4745b1d4cd",
+            "user_id": "alice",
+            "state": "Error",
+            "proxy_url": "http://localhost:9001",
+            "created_at": "2026-02-07T03:05:46.954894684+09:00",
+            "updated_at": "2026-02-07T03:15:30.762132503+09:00"
+        },
+        {
+            "program_id": "alice-build-a7eded80350b-5d5d509a",
+            "build_id": "build-a7eded80350b",
+            "user_id": "alice",
+            "state": "Ready",
+            "image_id": "sha256:081798b283e2317cf576e722a92fa7155380c598e11abbf76834c44c1a6edc84",
+            "container_id": "c674ef3ff36cc97d5a3f0d33b147aa45d1f9f0864c0b4b2505d32d254f6bb1a8",
+            "proxy_url": "http://localhost:9002",
+            "created_at": "2026-02-07T03:17:28.659258909+09:00",
+            "updated_at": "2026-02-07T03:17:31.480811966+09:00"
+        },
+        {
+            "program_id": "bob-build-a1bb30116879-2d340b64",
+            "build_id": "build-a1bb30116879",
+            "user_id": "bob",
+            "state": "Ready",
+            "image_id": "sha256:c175959107c5485a7d3ed7bae471b8a1fb1aaddddf25c3e5c341e1be2c633670",
+            "container_id": "9ff70a41e751e66016af66fc408e249f3e70ef0f3d4b750d72a7c323ef8e3c78",
+            "proxy_url": "http://localhost:9003",
+            "created_at": "2026-02-07T03:17:32.773156413+09:00",
+            "updated_at": "2026-02-07T03:17:35.842428823+09:00"
+        }
+    ],
+    "count": 5
+}
+
+=== Docker Containers ===
+NAMES                                               STATUS          PORTS
+hersh-program-charlie-build-f1281da8a142-fe648687   Up 1 second     
+hersh-program-bob-build-a1bb30116879-2d340b64       Up 6 seconds    
+hersh-program-alice-build-a7eded80350b-5d5d509a     Up 10 seconds   
+
+=== Monitoring All Programs (20 seconds) ===
+--- Check 1/4 (10s) ---
+   Alice (alice-build-a7eded80350b-5d5d509a): Ready
+   Bob (bob-build-a1bb30116879-2d340b64): Ready
+   Charlie (charlie-build-f1281da8a142-fe648687): Ready
+--- Check 2/4 (20s) ---
+   Alice (alice-build-a7eded80350b-5d5d509a): Ready
+   Bob (bob-build-a1bb30116879-2d340b64): Ready
+   Charlie (charlie-build-f1281da8a142-fe648687): Ready
+--- Check 3/4 (30s) ---
+   Alice (alice-build-a7eded80350b-5d5d509a): Ready
+   Bob (bob-build-a1bb30116879-2d340b64): Ready
+   Charlie (charlie-build-f1281da8a142-fe648687): Ready
+--- Check 4/4 (40s) ---
+   Alice (alice-build-a7eded80350b-5d5d509a): Ready
+   Bob (bob-build-a1bb30116879-2d340b64): Ready
+   Charlie (charlie-build-f1281da8a142-fe648687): Ready
+
+=== Contract Verification ===
+Testing port 8080 direct access (should fail):
+   ⚠️  Port 8080 test inconclusive (no WatcherAPI in Alpine)
+
+=== State Directory Verification ===
+   ✅ Alice state directory exists
+   ✅ Bob state directory exists
+   ✅ Charlie state directory exists
+
+=== Final Summary ===
+{
+    "programs": [
+        {
+            "program_id": "test-build-a7eded80350b-76d55801",
+            "build_id": "build-a7eded80350b",
+            "user_id": "test",
+            "state": "Ready",
+            "image_id": "sha256:081798b283e2317cf576e722a92fa7155380c598e11abbf76834c44c1a6edc84",
+            "container_id": "1ec1ae16de8256d60622cd5d05bbc99eccb892bfed506eef297bb053decb6a20",
+            "proxy_url": "http://localhost:9000",
+            "created_at": "2026-02-07T03:04:58.9778521+09:00",
+            "updated_at": "2026-02-07T03:05:05.269209404+09:00"
+        },
+        {
+            "program_id": "alice-build-7a4745b1d4cd-1020fe6e",
+            "build_id": "build-7a4745b1d4cd",
+            "user_id": "alice",
+            "state": "Error",
+            "proxy_url": "http://localhost:9001",
+            "created_at": "2026-02-07T03:05:46.954894684+09:00",
+            "updated_at": "2026-02-07T03:15:30.762132503+09:00"
+        },
+        {
+            "program_id": "alice-build-a7eded80350b-5d5d509a",
+            "build_id": "build-a7eded80350b",
+            "user_id": "alice",
+            "state": "Ready",
+            "image_id": "sha256:081798b283e2317cf576e722a92fa7155380c598e11abbf76834c44c1a6edc84",
+            "container_id": "c674ef3ff36cc97d5a3f0d33b147aa45d1f9f0864c0b4b2505d32d254f6bb1a8",
+            "proxy_url": "http://localhost:9002",
+            "created_at": "2026-02-07T03:17:28.659258909+09:00",
+            "updated_at": "2026-02-07T03:17:31.480811966+09:00"
+        },
+        {
+            "program_id": "bob-build-a1bb30116879-2d340b64",
+            "build_id": "build-a1bb30116879",
+            "user_id": "bob",
+            "state": "Ready",
+            "image_id": "sha256:c175959107c5485a7d3ed7bae471b8a1fb1aaddddf25c3e5c341e1be2c633670",
+            "container_id": "9ff70a41e751e66016af66fc408e249f3e70ef0f3d4b750d72a7c323ef8e3c78",
+            "proxy_url": "http://localhost:9003",
+            "created_at": "2026-02-07T03:17:32.773156413+09:00",
+            "updated_at": "2026-02-07T03:17:35.842428823+09:00"
+        },
+        {
+            "program_id": "charlie-build-f1281da8a142-fe648687",
+            "build_id": "build-f1281da8a142",
+            "user_id": "charlie",
+            "state": "Ready",
+            "image_id": "sha256:2150c3c4c87cffa42c90334198ae55db3ab5f6b182b7a0f6f41c28adbf8ded9e",
+            "container_id": "3d55457e025878e38428899cc28358fb66c6009117877424b6b53480d320f6d2",
+            "proxy_url": "http://localhost:9004",
+            "created_at": "2026-02-07T03:17:37.0481068+09:00",
+            "updated_at": "2026-02-07T03:17:40.07949773+09:00"
+        }
+    ],
+    "count": 5
+}
+
+=== Loop 0 Complete ===
+To cleanup (run these manually):
+  curl -X POST http://localhost:9000/programs/alice-build-a7eded80350b-5d5d509a/stop
+  curl -X POST http://localhost:9000/programs/bob-build-a1bb30116879-2d340b64/stop
+  curl -X POST http://localhost:9000/programs/charlie-build-f1281da8a142-fe648687/stop

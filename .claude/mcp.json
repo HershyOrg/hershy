@@ -1,0 +1,24 @@
+{
+  "servers": {
+    "chrome-devtools": {
+      "command": "node",
+      "args": [
+        "/home/rlaaudgjs5638/.nvm/versions/node/v22.14.0/bin/claude-mcp-chrome-devtools"
+      ],
+      "env": {
+        "CHROME_PATH": "/usr/bin/google-chrome",
+        "HEADLESS": "true"
+      }
+    },
+
+    "playwright": {
+      "command": "node",
+      "args": [
+        "/home/rlaaudgjs5638/.nvm/versions/node/v22.14.0/bin/claude-mcp-playwright"
+      ],
+      "env": {
+        "PLAYWRIGHT_BROWSERS_PATH": "0"
+      }
+    }
+  }
+}

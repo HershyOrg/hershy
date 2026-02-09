@@ -4,10 +4,12 @@ import (
 	"context"
 	"fmt"
 	"net/http"
+	"sync"
 	"time"
 
-	"hersh/api"
-	"hersh/manager"
+	"github.com/HershyOrg/hershy/hersh/api"
+	"github.com/HershyOrg/hershy/hersh/manager"
+	"github.com/HershyOrg/hershy/hersh/shared"
 )
 
 // WatcherAPIServer provides HTTP API for Watcher monitoring and control
@@ -84,6 +86,150 @@ func (sa *signalsAdapter) GetWatcherSigCount() int {
 	return len(sa.signals.WatcherSigChan)
 }
 
+func (sa *signalsAdapter) PeekSignals(maxCount int) []api.SignalEntry {
+	entries := []api.SignalEntry{}
+
+	// Peek from each channel (non-blocking read and write back)
+	varCount := len(sa.signals.VarSigChan)
+	userCount := len(sa.signals.UserSigChan)
+	watcherCount := len(sa.signals.WatcherSigChan)
+
+	// Distribute maxCount across channels proportionally
+	varLimit := min(varCount, maxCount/3)
+	userLimit := min(userCount, maxCount/3)
+	watcherLimit := min(watcherCount, maxCount/3)
+
+	// Peek VarSig
+	for i := 0; i < varLimit && i < varCount; i++ {
+		select {
+		case sig := <-sa.signals.VarSigChan:
+			entries = append(entries, api.SignalEntry{
+				Type:      "var",
+				Content:   sig.String(),
+				CreatedAt: sig.CreatedAt(),
+			})
+			// Write back to preserve the signal
+			sa.signals.VarSigChan <- sig
+		default:
+			break
+		}
+	}
+
+	// Peek UserSig
+	for i := 0; i < userLimit && i < userCount; i++ {
+		select {
+		case sig := <-sa.signals.UserSigChan:
+			entries = append(entries, api.SignalEntry{
+				Type:      "user",
+				Content:   sig.String(),
+				CreatedAt: sig.CreatedAt(),
+			})
+			sa.signals.UserSigChan <- sig
+		default:
+			break
+		}
+	}
+
+	// Peek WatcherSig
+	for i := 0; i < watcherLimit && i < watcherCount; i++ {
+		select {
+		case sig := <-sa.signals.WatcherSigChan:
+			entries = append(entries, api.SignalEntry{
+				Type:      "watcher",
+				Content:   sig.String(),
+				CreatedAt: sig.CreatedAt(),
+			})
+			sa.signals.WatcherSigChan <- sig
+		default:
+			break
+		}
+	}
+
+	return entries
+}
+
+func min(a, b int) int {
+	if a < b {
+		return a
+	}
+	return b
+}
+
+// managerAdapter adapts manager.Manager to api.ManagerInterface
+type managerAdapter struct {
+	manager *manager.Manager
+}
+
+func (ma *managerAdapter) GetWatchRegistry() api.WatchRegistryInterface {
+	return &watchRegistryAdapter{registry: ma.manager.GetWatchRegistry()}
+}
+
+func (ma *managerAdapter) GetMemoCache() api.MemoCacheInterface {
+	return &memoCacheAdapter{cache: ma.manager.GetMemoCache()}
+}
+
+// watchRegistryAdapter adapts sync.Map watch registry
+type watchRegistryAdapter struct {
+	registry *sync.Map
+}
+
+func (wra *watchRegistryAdapter) GetAllVarNames() []string {
+	varNames := []string{}
+	wra.registry.Range(func(key, value interface{}) bool {
+		if handle, ok := value.(manager.WatchHandle); ok {
+			varNames = append(varNames, handle.GetVarName())
+		}
+		return true
+	})
+	return varNames
+}
+
+// memoCacheAdapter adapts sync.Map memo cache
+type memoCacheAdapter struct {
+	cache *sync.Map
+}
+
+func (mca *memoCacheAdapter) GetAllEntries() map[string]interface{} {
+	entries := make(map[string]interface{})
+	mca.cache.Range(func(key, value interface{}) bool {
+		if k, ok := key.(string); ok {
+			entries[k] = value
+		}
+		return true
+	})
+	return entries
+}
+
+// varStateAdapter adapts manager.VarState to api.VarStateInterface
+type varStateAdapter struct {
+	state *manager.VarState
+}
+
+func (vsa *varStateAdapter) GetAll() map[string]interface{} {
+	return vsa.state.GetAll()
+}
+
+// configAdapter adapts shared.WatcherConfig to api.ConfigInterface
+type configAdapter struct {
+	config *shared.WatcherConfig
+}
+
+func (ca *configAdapter) GetServerPort() int {
+	return ca.config.ServerPort
+}
+
+func (ca *configAdapter) GetSignalChanCapacity() int {
+	return ca.config.SignalChanCapacity
+}
+
+func (ca *configAdapter) GetMaxLogEntries() int {
+	return ca.config.MaxLogEntries
+}
+
+func (ca *configAdapter) GetMaxMemoEntries() int {
+	return ca.config.MaxMemoEntries
+}
+
 // StartAPIServer starts the HTTP API server (non-blocking)
 func (w *Watcher) StartAPIServer() (*WatcherAPIServer, error) {
 	if w.config.ServerPort == 0 {
@@ -93,6 +239,9 @@ func (w *Watcher) StartAPIServer() (*WatcherAPIServer, error) {
 	// Create adapters
 	loggerAdp := &loggerAdapter{logger: w.manager.GetLogger()}
 	signalsAdp := &signalsAdapter{signals: w.manager.GetSignals()}
+	managerAdp := &managerAdapter{manager: w.manager}
+	varStateAdp := &varStateAdapter{state: w.manager.GetState().VarState}
+	configAdp := &configAdapter{config: &w.config}
 
 	// Create handlers with closures
 	handlers := api.NewWatcherAPIHandlers(
@@ -114,6 +263,15 @@ func (w *Watcher) StartAPIServer() (*WatcherAPIServer, error) {
 		func(content string) error {
 			return w.SendMessage(content)
 		},
+		func() api.ManagerInterface {
+			return managerAdp
+		},
+		func() api.VarStateInterface {
+			return varStateAdp
+		},
+		func() api.ConfigInterface {
+			return configAdp
+		},
 	)
 
 	mux := http.NewServeMux()
@@ -123,6 +281,10 @@ func (w *Watcher) StartAPIServer() (*WatcherAPIServer, error) {
 	mux.HandleFunc("GET /watcher/logs", handlers.HandleLogs)
 	mux.HandleFunc("GET /watcher/signals", handlers.HandleSignals)
 	mux.HandleFunc("POST /watcher/message", handlers.HandleMessage)
+	mux.HandleFunc("GET /watcher/watching", handlers.HandleWatching)
+	mux.HandleFunc("GET /watcher/memoCache", handlers.HandleMemoCache)
+	mux.HandleFunc("GET /watcher/varState", handlers.HandleVarState)
+	mux.HandleFunc("GET /watcher/config", handlers.HandleConfig)
 
 	server := &http.Server{
 		Addr:         fmt.Sprintf(":%d", w.config.ServerPort),

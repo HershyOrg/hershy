@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/rlaaudgjs5638/hersh/program"
+	"github.com/HershyOrg/hershy/program"
 )
 
 var (
@@ -37,6 +37,7 @@ type BuildOpts struct {
 	StatePath   string // Host path to state directory
 	NetworkMode string // Network mode (default: "none")
 	Runtime     string // Container runtime (default: "runsc", can use "runc" for testing)
+	PublishPort int    // Localhost-only publish port (19001-29999)
 }
 
 // ComposeSpec represents a Docker Compose specification
@@ -69,6 +70,7 @@ func (b *Builder) GenerateSpec(opts BuildOpts) (*ComposeSpec, error) {
 
 	// Default network mode to "none" for isolation
 	networkMode := opts.NetworkMode
+	//* 없는 경우엔 none으로 처리하지만, effect_handler에선 bridge모드로 준다.
 	if networkMode == "" {
 		networkMode = "none"
 	}
@@ -85,9 +87,12 @@ func (b *Builder) GenerateSpec(opts BuildOpts) (*ComposeSpec, error) {
 		Version: "3.8",
 		Services: map[string]Service{
 			"app": {
-				Image:       opts.ImageID,
-				Runtime:     runtime,
-				Ports:       []string{}, // :8080 external publish forbidden
+				Image:   opts.ImageID,
+				Runtime: runtime,
+				Ports: []string{
+					// Localhost-only publish: 127.0.0.1:publishPort:8080
+					fmt.Sprintf("127.0.0.1:%d:8080", opts.PublishPort),
+				},
 				Volumes: []string{
 					// State directory is the ONLY read-write volume
 					fmt.Sprintf("%s:/state:rw", opts.StatePath),
@@ -117,17 +122,15 @@ func (b *Builder) ValidateSpec(spec *ComposeSpec) error {
 		return errors.New("app service not found")
 	}
 
-	// Contract 1: :8080 external publish forbidden
-	for _, port := range appService.Ports {
-		// Check for patterns like "8080:8080", "0.0.0.0:8080:8080", etc.
-		if strings.Contains(port, ":8080") && strings.Count(port, ":") > 1 {
-			return ErrPort8080Published
-		}
-		// Also check for single port mapping (host side)
-		parts := strings.Split(port, ":")
-		if len(parts) >= 2 && parts[0] == "8080" {
-			return ErrPort8080Published
-		}
+	// Contract 1: Port must be localhost-only (127.0.0.1:xxxxx:8080)
+	if len(appService.Ports) != 1 {
+		return errors.New("exactly one port binding required (127.0.0.1:publishPort:8080)")
+	}
+
+	port := appService.Ports[0]
+	// Must start with "127.0.0.1:" and end with ":8080"
+	if !strings.HasPrefix(port, "127.0.0.1:") || !strings.HasSuffix(port, ":8080") {
+		return errors.New("port must be localhost-only (127.0.0.1:publishPort:8080)")
 	}
 
 	// Contract 2: Runtime should be runsc (gVisor) for production
@@ -202,7 +205,7 @@ func (b *Builder) ToDockerRunArgs(spec *ComposeSpec) ([]string, error) {
 		args = append(args, "-e", fmt.Sprintf("%s=%s", key, value))
 	}
 
-	// Ports (should be empty due to contract)
+	// Ports (localhost-only publish)
 	for _, port := range appService.Ports {
 		args = append(args, "-p", port)
 	}

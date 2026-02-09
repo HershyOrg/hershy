@@ -6,7 +6,7 @@ import (
 	"net/http"
 	"strconv"
 
-	"monitor/market/service"
+	"github.com/HershyOrg/hershy/monitor/market/service"
 )
 
 type MarketHandlers struct {

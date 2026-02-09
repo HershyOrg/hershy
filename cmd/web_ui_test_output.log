@@ -1,0 +1,78 @@
+=========================================
+Complete Web UI Test
+=========================================
+Log directory: /home/rlaaudgjs5638/hersh/cmd/logs/web-ui-test-20260208-225409
+
+Step 1: Testing Host API endpoints...
+  1.1: GET /programs
+      ✓ Programs count: 4
+
+Step 2: Deploying trading-long program...
+      ✓ Program created: web-ui-test-build-c094ab47e5ae-c5d20580
+      ✓ Proxy URL: http://localhost:19010
+
+Step 3: Starting program...
+      ✓ Start initiated
+
+Step 4: Waiting for Ready state...
+      [1] State: Building
+      [2] State: Ready
+      ✅ Program Ready!
+
+Step 5: Testing all Host API endpoints...
+  5.1: GET /programs (list)
+      ✓ Programs list retrieved
+  5.2: GET /programs/web-ui-test-build-c094ab47e5ae-c5d20580 (detail)
+      ✓ Program detail retrieved
+  5.3: GET /programs/web-ui-test-build-c094ab47e5ae-c5d20580/logs (Docker logs)
+      ✓ Docker logs retrieved (75 lines)
+
+Step 6: Testing all WatcherAPI endpoints (via proxy)...
+  6.1: GET /watcher/status
+      ✓ Watcher status: Ready
+  6.2: GET /watcher/logs?type=all&limit=10
+      ✓ Watcher logs retrieved
+  6.3: GET /watcher/signals
+      ✓ Watcher signals: 0 pending
+  6.4: POST /watcher/message
+      ✓ Message sent
+
+Step 7: Testing direct WatcherAPI access (via proxy_url)...
+  7.1: GET http://localhost:19010/watcher/status
+      ✓ Direct status retrieved
+  7.2: GET http://localhost:19010/watcher/logs
+      ✓ Direct logs retrieved
+
+Step 8: Testing web UI pages...
+  8.1: GET /ui/programs (Dashboard)
+      ✓ Dashboard HTML loaded
+  8.2: GET /ui/programs/web-ui-test-build-c094ab47e5ae-c5d20580 (ProgramDetail)
+      ✓ ProgramDetail HTML loaded
+  8.3: GET /ui/programs/web-ui-test-build-c094ab47e5ae-c5d20580/watcher (WatcherPage)
+      ✓ WatcherPage HTML loaded
+
+Step 9: Cleanup...
+      ✓ Program stopped
+      ✓ Program deleted
+
+=========================================
+✅ Complete Web UI Test PASSED
+=========================================
+
+Results:
+  Program ID: web-ui-test-build-c094ab47e5ae-c5d20580
+  Container ID: 1ba0ba427e8abd04454f253e1834386a316284d40df46e0fa546dfbde2760c56
+  Docker Logs: 75 lines
+  Watcher Signals: 0 pending
+
+Logs saved to: /home/rlaaudgjs5638/hersh/cmd/logs/web-ui-test-20260208-225409
+
+Next steps:
+1. Review API responses in /home/rlaaudgjs5638/hersh/cmd/logs/web-ui-test-20260208-225409/*.json
+2. Open browser to http://localhost:9000/ui/programs
+3. Manually verify:
+   - Dashboard displays programs
+   - ProgramDetail shows all information
+   - WatcherPage loads all components
+   - Docker logs display correctly
+   - WatcherAPI message system works

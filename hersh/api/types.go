@@ -25,16 +25,59 @@ type LogsResponse struct {
 
 // SignalsResponse represents the response for GET /watcher/signals
 type SignalsResponse struct {
-	VarSigCount     int       `json:"varSigCount"`
-	UserSigCount    int       `json:"userSigCount"`
-	WatcherSigCount int       `json:"watcherSigCount"`
-	TotalPending    int       `json:"totalPending"`
-	Timestamp       time.Time `json:"timestamp"`
+	VarSigCount     int           `json:"varSigCount"`
+	UserSigCount    int           `json:"userSigCount"`
+	WatcherSigCount int           `json:"watcherSigCount"`
+	TotalPending    int           `json:"totalPending"`
+	RecentSignals   []SignalEntry `json:"recentSignals"` // Recent signals (max 30)
+	Timestamp       time.Time     `json:"timestamp"`
+}
+
+// SignalEntry represents a single signal entry
+type SignalEntry struct {
+	Type      string    `json:"type"`      // "var", "user", "watcher"
+	Content   string    `json:"content"`   // Signal string representation
+	CreatedAt time.Time `json:"createdAt"` // Signal creation time
 }
 
 // MessageRequest represents the request body for POST /watcher/message
 type MessageRequest struct {
 	Content string `json:"content"`
+}
+
+// WatchingResponse represents the response for GET /watcher/watching
+type WatchingResponse struct {
+	WatchedVars []string  `json:"watchedVars"` // List of watched variable names
+	Count       int       `json:"count"`
+	Timestamp   time.Time `json:"timestamp"`
+}
+
+// MemoCacheResponse represents the response for GET /watcher/memoCache
+type MemoCacheResponse struct {
+	Entries   map[string]interface{} `json:"entries"` // Memo cache key-value pairs
+	Count     int                    `json:"count"`
+	Timestamp time.Time              `json:"timestamp"`
+}
+
+// VarStateResponse represents the response for GET /watcher/varState
+type VarStateResponse struct {
+	Variables map[string]interface{} `json:"variables"` // Current variable state snapshot
+	Count     int                    `json:"count"`
+	Timestamp time.Time              `json:"timestamp"`
+}
+
+// ConfigResponse represents the response for GET /watcher/config
+type ConfigResponse struct {
+	Config    WatcherConfigData `json:"config"`
+	Timestamp time.Time         `json:"timestamp"`
+}
+
+// WatcherConfigData holds WatcherConfig field values
+type WatcherConfigData struct {
+	ServerPort         int `json:"serverPort"`
+	SignalChanCapacity int `json:"signalChanCapacity"`
+	MaxLogEntries      int `json:"maxLogEntries"`
+	MaxMemoEntries     int `json:"maxMemoEntries"`
 }
 
 // ErrorResponse represents an error response

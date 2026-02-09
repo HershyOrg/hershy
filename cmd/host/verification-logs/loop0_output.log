@@ -1,0 +1,70 @@
+=== Loop 0: Multi-Container Real-World Scenario ===
+Testing 3 programs simultaneously with different users
+
+=== Program 1: user-alice/watcher-server ===
+⏳ Waiting for 📦 Creating program for user: alice (watcher-server)
+{"program_id":"alice-build-7a4745b1d4cd-a5526c85","build_id":"build-7a4745b1d4cd","state":"Created","proxy_url":"http://localhost:9000","created_at":"2026-02-07T02:40:39.775910113+09:00"}
+   Program ID: alice-build-7a4745b1d4cd-a5526c85
+
+alice-build-7a4745b1d4cd-a5526c85 to reach Ready state...
+   [1/60] Current state: 
+   [2/60] Current state: 
+   [3/60] Current state: 
+   [4/60] Current state: 
+   [5/60] Current state: 
+   [6/60] Current state: 
+   [7/60] Current state: 
+   [8/60] Current state: 
+   [9/60] Current state: 
+   [10/60] Current state: 
+   [11/60] Current state: 
+   [12/60] Current state: 
+   [13/60] Current state: 
+   [14/60] Current state: 
+   [15/60] Current state: 
+   [16/60] Current state: 
+   [17/60] Current state: 
+   [18/60] Current state: 
+   [19/60] Current state: 
+   [20/60] Current state: 
+   [21/60] Current state: 
+   [22/60] Current state: 
+   [23/60] Current state: 
+   [24/60] Current state: 
+   [25/60] Current state: 
+   [26/60] Current state: 
+   [27/60] Current state: 
+   [28/60] Current state: 
+   [29/60] Current state: 
+   [30/60] Current state: 
+   [31/60] Current state: 
+   [32/60] Current state: 
+   [33/60] Current state: 
+   [34/60] Current state: 
+   [35/60] Current state: 
+   [36/60] Current state: 
+   [37/60] Current state: 
+   [38/60] Current state: 
+   [39/60] Current state: 
+   [40/60] Current state: 
+   [41/60] Current state: 
+   [42/60] Current state: 
+   [43/60] Current state: 
+   [44/60] Current state: 
+   [45/60] Current state: 
+   [46/60] Current state: 
+   [47/60] Current state: 
+   [48/60] Current state: 
+   [49/60] Current state: 
+   [50/60] Current state: 
+   [51/60] Current state: 
+   [52/60] Current state: 
+   [53/60] Current state: 
+   [54/60] Current state: 
+   [55/60] Current state: 
+   [56/60] Current state: 
+   [57/60] Current state: 
+   [58/60] Current state: 
+   [59/60] Current state: 
+   [60/60] Current state: 
+   ❌ Timeout waiting for Ready

@@ -1,16 +1,18 @@
-FROM golang:1.21-alpine AS builder
+FROM golang:1.24-alpine AS builder
+
+# Install git for go mod download
+RUN apk add --no-cache git ca-certificates
 
 WORKDIR /build
 
-# Copy go.mod and source
-COPY go.mod .
+# Copy go.mod, go.sum and source
+COPY go.mod go.sum ./
 COPY main.go .
 
-# Copy hersh framework
-COPY hersh /build/hersh
+# Download dependencies (hersh framework from GitHub public repo)
+RUN go mod download
 
 # Build
-RUN go mod download
 RUN go build -o watcher-server main.go
 
 FROM alpine:latest

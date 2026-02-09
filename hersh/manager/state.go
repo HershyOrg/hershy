@@ -3,7 +3,7 @@ package manager
 import (
 	"sync"
 
-	"hersh/shared"
+	"github.com/HershyOrg/hershy/hersh/shared"
 )
 
 // VarState holds the state of all watched variables.

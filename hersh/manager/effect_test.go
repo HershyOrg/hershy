@@ -3,7 +3,7 @@ package manager
 import (
 	"testing"
 
-	"hersh/shared"
+	"github.com/HershyOrg/hershy/hersh/shared"
 )
 
 // TestEffectCommander_RunScriptEffect tests Ready -> Running transition.

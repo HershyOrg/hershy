@@ -9,7 +9,8 @@ type Event interface {
 
 // UserStartRequested is sent when user requests to start a program
 type UserStartRequested struct {
-	ProgramID ProgramID
+	ProgramID   ProgramID
+	PublishPort int // Localhost-only publish port (set by Host, 19001-29999)
 }
 
 func (UserStartRequested) isEvent() {}

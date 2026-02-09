@@ -3,7 +3,7 @@ package api
 import (
 	"time"
 
-	"github.com/rlaaudgjs5638/hersh/program"
+	"github.com/HershyOrg/hershy/program"
 )
 
 // CreateProgramRequest represents the request body for creating a program
@@ -31,6 +31,7 @@ type GetProgramResponse struct {
 	ImageID     string            `json:"image_id,omitempty"`
 	ContainerID string            `json:"container_id,omitempty"`
 	ProxyURL    string            `json:"proxy_url"`
+	ErrorMsg    string            `json:"error_msg,omitempty"`
 	CreatedAt   time.Time         `json:"created_at"`
 	UpdatedAt   time.Time         `json:"updated_at"`
 }
@@ -46,6 +47,13 @@ type LifecycleResponse struct {
 	ProgramID program.ProgramID `json:"program_id"`
 	State     string            `json:"state"`
 	Message   string            `json:"message"`
+}
+
+// SourceCodeResponse represents the response for getting program source code
+type SourceCodeResponse struct {
+	ProgramID   program.ProgramID `json:"program_id"`
+	Files       map[string]string `json:"files"` // filename -> content
+	RetrievedAt time.Time         `json:"retrieved_at"`
 }
 
 // ErrorResponse represents an error response

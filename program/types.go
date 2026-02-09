@@ -66,6 +66,7 @@ type ProgramState struct {
 	BuildID     BuildID
 	ImageID     string // Set after successful build
 	ContainerID string // Set after successful runtime start
+	PublishPort int    // Localhost-only publish port (set by Host, 19001-29999)
 	ErrorMsg    string // Set when State == StateError
 }
 

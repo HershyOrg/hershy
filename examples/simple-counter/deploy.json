@@ -1,0 +1,9 @@
+{
+  "user_id": "test-user",
+  "dockerfile": "FROM golang:1.24-alpine AS builder\n\nWORKDIR /build\n\nRUN apk add --no-cache git ca-certificates\n\nCOPY go.mod go.sum ./\nCOPY main.go .\n\nRUN go mod download\n\nRUN CGO_ENABLED=0 GOOS=linux go build -o simple-counter main.go\n\nFROM alpine:latest\n\nRUN apk add --no-cache ca-certificates\n\nWORKDIR /app\n\nCOPY --from=builder /build/simple-counter /app/\n\nRUN mkdir -p /state\n\nEXPOSE 8080\n\nCMD [\"/app/simple-counter\"]",
+  "src_files": {
+    "main.go": "",
+    "go.mod": "module simple-counter\n\ngo 1.24.13\n\nrequire github.com/HershyOrg/hershy/hersh v0.1.3\n",
+    "go.sum": ""
+  }
+}

@@ -8,7 +8,7 @@ import (
 	"sync/atomic"
 	"time"
 
-	"hersh/manager"
+	"github.com/HershyOrg/hershy/hersh/manager"
 )
 
 // Watcher is the core reactive framework engine.

@@ -3,9 +3,9 @@ package api
 import (
 	"context"
 	"log"
-	"monitor/market/handler"
-	"monitor/market/repository"
-	"monitor/market/service"
+	"github.com/HershyOrg/hershy/monitor/market/handler"
+	"github.com/HershyOrg/hershy/monitor/market/repository"
+	"github.com/HershyOrg/hershy/monitor/market/service"
 	"net"
 	"net/http"
 

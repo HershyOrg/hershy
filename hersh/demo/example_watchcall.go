@@ -4,13 +4,14 @@ import (
 	"fmt"
 	"time"
 
-	"hersh"
-	"hersh/manager"
+	"github.com/HershyOrg/hershy/hersh"
+	"github.com/HershyOrg/hershy/hersh/manager"
 )
 
 // Advanced example demonstrating WatchCall reactive mechanism
 func main1() {
-	fmt.Println("=== Hersh WatchCall Demo ===\n")
+	fmt.Println("=== Hersh WatchCall Demo ===")
+	fmt.Println()
 
 	config := hersh.DefaultWatcherConfig()
 	watcher := hersh.NewWatcher(config, nil, nil)

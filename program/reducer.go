@@ -25,11 +25,12 @@ func Reduce(state ProgramState, event Event) (ProgramState, []Effect) {
 }
 
 func reduceCreated(state ProgramState, event Event) (ProgramState, []Effect) {
-	switch event.(type) {
+	switch evt := event.(type) {
 	case UserStartRequested:
 		// Transition to Building, request folder creation and build
 		nextState := state
 		nextState.State = StateBuilding
+		nextState.PublishPort = evt.PublishPort // Set publish port from Host
 
 		effects := []Effect{
 			EnsureProgramFolders{ProgramID: state.ID},
@@ -70,9 +71,10 @@ func reduceBuilding(state ProgramState, event Event) (ProgramState, []Effect) {
 
 			effects := []Effect{
 				StartRuntime{
-					ProgramID: state.ID,
-					ImageID:   evt.ImageID,
-					StatePath: "", // Will be set by effect handler
+					ProgramID:   state.ID,
+					ImageID:     evt.ImageID,
+					StatePath:   "", // Will be set by effect handler
+					PublishPort: state.PublishPort,
 				},
 			}
 

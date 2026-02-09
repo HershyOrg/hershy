@@ -71,7 +71,7 @@ func (mc *MarketClient) PlaceOrder(side string, amount float64) error {
 	// Simulate order processing
 	time.Sleep(50 * time.Millisecond)
 
-	fmt.Printf("  [MarketClient] ✓ Order executed\n")
+	fmt.Println("  [MarketClient] ✓ Order executed")
 	return nil
 }
 

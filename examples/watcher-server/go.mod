@@ -1,7 +1,5 @@
 module watcher-server
 
-go 1.21
+go 1.24.13
 
-replace hersh => ../../hersh
-
-require hersh v0.0.0-00010101000000-000000000000
+require github.com/HershyOrg/hershy/hersh v0.2.0

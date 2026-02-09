@@ -2,7 +2,7 @@ package parser
 
 import (
 	"encoding/json"
-	"monitor/market/repository/model"
+	"github.com/HershyOrg/hershy/monitor/market/repository/model"
 	"time"
 )
 

@@ -4,19 +4,20 @@ import (
 	"sync"
 	"testing"
 
-	"github.com/rlaaudgjs5638/hersh/program"
+	"github.com/HershyOrg/hershy/program"
 )
 
 func TestPortAllocator_Allocate(t *testing.T) {
-	pa := NewPortAllocator(9000, 9002)
+	// Use port range that doesn't conflict with running services
+	pa := NewPortAllocator(29000, 29002)
 
 	// Allocate first port
 	port1, err := pa.Allocate()
 	if err != nil {
 		t.Fatalf("Failed to allocate port: %v", err)
 	}
-	if port1 != 9000 {
-		t.Errorf("Expected port 9000, got %d", port1)
+	if port1 != 29000 {
+		t.Errorf("Expected port 29000, got %d", port1)
 	}
 
 	// Allocate second port
@@ -24,8 +25,8 @@ func TestPortAllocator_Allocate(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Failed to allocate port: %v", err)
 	}
-	if port2 != 9001 {
-		t.Errorf("Expected port 9001, got %d", port2)
+	if port2 != 29001 {
+		t.Errorf("Expected port 29001, got %d", port2)
 	}
 
 	// Allocate third port
@@ -33,8 +34,8 @@ func TestPortAllocator_Allocate(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Failed to allocate port: %v", err)
 	}
-	if port3 != 9002 {
-		t.Errorf("Expected port 9002, got %d", port3)
+	if port3 != 29002 {
+		t.Errorf("Expected port 29002, got %d", port3)
 	}
 
 	// Try to allocate when all ports are used
@@ -45,7 +46,8 @@ func TestPortAllocator_Allocate(t *testing.T) {
 }
 
 func TestPortAllocator_Release(t *testing.T) {
-	pa := NewPortAllocator(9000, 9002)
+	// Use port range that doesn't conflict with running services
+	pa := NewPortAllocator(29000, 29002)
 
 	// Allocate ports
 	port1, _ := pa.Allocate()
@@ -56,17 +58,17 @@ func TestPortAllocator_Release(t *testing.T) {
 		t.Errorf("Failed to release port %d: %v", port1, err)
 	}
 
-	// Verify port1 can be allocated again (may wrap around to 9002 first, then 9000)
+	// Verify port1 can be allocated again (may wrap around to 29002 first, then 29000)
 	newPort, err := pa.Allocate()
 	if err != nil {
 		t.Fatalf("Failed to allocate after release: %v", err)
 	}
-	if newPort != 9002 && newPort != port1 {
-		t.Errorf("Expected port 9002 or %d, got %d", port1, newPort)
+	if newPort != 29002 && newPort != port1 {
+		t.Errorf("Expected port 29002 or %d, got %d", port1, newPort)
 	}
 
-	// If we got 9002, allocate again to get the released port
-	if newPort == 9002 {
+	// If we got 29002, allocate again to get the released port
+	if newPort == 29002 {
 		newPort2, err := pa.Allocate()
 		if err != nil {
 			t.Fatalf("Failed to allocate second time: %v", err)
@@ -88,20 +90,22 @@ func TestPortAllocator_Release(t *testing.T) {
 }
 
 func TestPortAllocator_InvalidPort(t *testing.T) {
-	pa := NewPortAllocator(9000, 9002)
+	// Use port range that doesn't conflict with running services
+	pa := NewPortAllocator(29000, 29002)
 
 	// Try to release port outside range
-	if err := pa.Release(8999); err == nil {
+	if err := pa.Release(28999); err == nil {
 		t.Error("Expected error for port below range, got nil")
 	}
 
-	if err := pa.Release(9003); err == nil {
+	if err := pa.Release(29003); err == nil {
 		t.Error("Expected error for port above range, got nil")
 	}
 }
 
 func TestPortAllocator_Concurrent(t *testing.T) {
-	pa := NewPortAllocator(9000, 9099)
+	// Use port range that doesn't conflict with running services
+	pa := NewPortAllocator(29000, 29099)
 
 	var wg sync.WaitGroup
 	ports := make(chan int, 100)
@@ -144,7 +148,6 @@ func TestRegistry_Register(t *testing.T) {
 		ProgramID: program.ProgramID("test-prog-1"),
 		BuildID:   program.BuildID("build-123"),
 		UserID:    "user-1",
-		State:     program.StateCreated,
 	}
 
 	// Register program
@@ -162,11 +165,11 @@ func TestRegistry_Register(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Failed to get registered program: %v", err)
 	}
-	if registered.ProxyPort == 0 {
-		t.Error("ProxyPort should be allocated")
+	if registered.PublishPort == 0 {
+		t.Error("PublishPort should be allocated")
 	}
-	if registered.ProxyPort < 9000 || registered.ProxyPort > 9999 {
-		t.Errorf("ProxyPort %d is outside valid range", registered.ProxyPort)
+	if registered.PublishPort < 19001 || registered.PublishPort > 29999 {
+		t.Errorf("PublishPort %d is outside valid range", registered.PublishPort)
 	}
 
 	// Try to register duplicate
@@ -182,7 +185,6 @@ func TestRegistry_Get(t *testing.T) {
 		ProgramID: program.ProgramID("test-prog-1"),
 		BuildID:   program.BuildID("build-123"),
 		UserID:    "user-1",
-		State:     program.StateCreated,
 	}
 
 	r.Register(meta)
@@ -203,9 +205,9 @@ func TestRegistry_Get(t *testing.T) {
 	}
 
 	// Verify returned copy doesn't affect registry
-	retrieved.State = program.StateReady
+	retrieved.UserID = "modified"
 	updated, _ := r.Get(meta.ProgramID)
-	if updated.State == program.StateReady {
+	if updated.UserID == "modified" {
 		t.Error("Modifying returned metadata should not affect registry")
 	}
 }
@@ -224,7 +226,6 @@ func TestRegistry_List(t *testing.T) {
 			ProgramID: program.ProgramID(string(rune('a' + i))),
 			BuildID:   program.BuildID("build-123"),
 			UserID:    "user-1",
-			State:     program.StateCreated,
 		}
 		r.Register(meta)
 	}
@@ -236,55 +237,6 @@ func TestRegistry_List(t *testing.T) {
 	}
 }
 
-func TestRegistry_Update(t *testing.T) {
-	r := NewRegistry()
-
-	meta := ProgramMetadata{
-		ProgramID: program.ProgramID("test-prog-1"),
-		BuildID:   program.BuildID("build-123"),
-		UserID:    "user-1",
-		State:     program.StateCreated,
-	}
-
-	r.Register(meta)
-
-	// Update state
-	updates := map[string]interface{}{
-		"state":        program.StateReady,
-		"image_id":     "image-abc",
-		"container_id": "container-xyz",
-	}
-
-	if err := r.Update(meta.ProgramID, updates); err != nil {
-		t.Fatalf("Failed to update program: %v", err)
-	}
-
-	// Verify updates
-	updated, _ := r.Get(meta.ProgramID)
-	if updated.State != program.StateReady {
-		t.Errorf("Expected State %v, got %v", program.StateReady, updated.State)
-	}
-	if updated.ImageID != "image-abc" {
-		t.Errorf("Expected ImageID 'image-abc', got '%s'", updated.ImageID)
-	}
-	if updated.ContainerID != "container-xyz" {
-		t.Errorf("Expected ContainerID 'container-xyz', got '%s'", updated.ContainerID)
-	}
-
-	// Try to update non-existent program
-	if err := r.Update(program.ProgramID("non-existent"), updates); err == nil {
-		t.Error("Expected error when updating non-existent program, got nil")
-	}
-
-	// Try to update with invalid field
-	invalidUpdates := map[string]interface{}{
-		"invalid_field": "value",
-	}
-	if err := r.Update(meta.ProgramID, invalidUpdates); err == nil {
-		t.Error("Expected error when updating with invalid field, got nil")
-	}
-}
-
 func TestRegistry_Delete(t *testing.T) {
 	r := NewRegistry()
 
@@ -292,33 +244,32 @@ func TestRegistry_Delete(t *testing.T) {
 		ProgramID: program.ProgramID("test-prog-1"),
 		BuildID:   program.BuildID("build-123"),
 		UserID:    "user-1",
-		State:     program.StateCreated,
 	}
 
 	r.Register(meta)
 
-	// Get port before deletion
+	// Get port before purge
 	registered, _ := r.Get(meta.ProgramID)
-	port := registered.ProxyPort
+	port := registered.PublishPort
 
-	// Delete program
-	if err := r.Delete(meta.ProgramID); err != nil {
-		t.Fatalf("Failed to delete program: %v", err)
+	// Purge program (admin operation)
+	if err := r.Purge(meta.ProgramID); err != nil {
+		t.Fatalf("Failed to purge program: %v", err)
 	}
 
-	// Verify program is deleted
+	// Verify program is purged
 	if r.Exists(meta.ProgramID) {
-		t.Error("Program should not exist after deletion")
+		t.Error("Program should not exist after purge")
 	}
 
 	// Verify port is released
 	if r.portAlloc.IsAllocated(port) {
-		t.Error("Port should be released after program deletion")
+		t.Error("Port should be released after program purge")
 	}
 
-	// Try to delete non-existent program
-	if err := r.Delete(meta.ProgramID); err == nil {
-		t.Error("Expected error when deleting non-existent program, got nil")
+	// Try to purge non-existent program
+	if err := r.Purge(meta.ProgramID); err == nil {
+		t.Error("Expected error when purging non-existent program, got nil")
 	}
 }
 
@@ -336,7 +287,6 @@ func TestRegistry_Concurrent(t *testing.T) {
 				ProgramID: program.ProgramID(string(rune('a' + i))),
 				BuildID:   program.BuildID("build-123"),
 				UserID:    "user-1",
-				State:     program.StateCreated,
 			}
 			if err := r.Register(meta); err != nil {
 				t.Errorf("Failed to register program: %v", err)

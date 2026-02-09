@@ -2,7 +2,7 @@ package api
 
 import (
 	"encoding/json"
-	"monitor/market/domain/polymarket/parser"
+	"github.com/HershyOrg/hershy/monitor/market/domain/polymarket/parser"
 	"net/http"
 	"time"
 )

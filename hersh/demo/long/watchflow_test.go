@@ -5,7 +5,7 @@ import (
 	"testing"
 	"time"
 
-	"hersh"
+	"github.com/HershyOrg/hershy/hersh"
 )
 
 func TestWatchFlowBasic(t *testing.T) {
@@ -19,6 +19,10 @@ func TestWatchFlowBasic(t *testing.T) {
 	watcher := hersh.NewWatcher(config, nil, nil)
 
 	executionCount := 0
+	// Send initial value BEFORE starting Watcher
+	// This ensures WatchFlow will receive data during InitRun
+	fmt.Println("Sending initial value to channel...")
+	testChan <- 0
 
 	// Register managed function
 	watcher.Manage(func(msg *hersh.Message, ctx hersh.HershContext) error {
@@ -36,13 +40,13 @@ func TestWatchFlowBasic(t *testing.T) {
 		return nil
 	}, "TestFunc")
 
-	// Start Watcher
+	// Start Watcher (will block until Ready)
 	if err := watcher.Start(); err != nil {
 		t.Fatalf("Failed to start: %v", err)
 	}
 
-	fmt.Println("Watcher started, waiting for InitRun...")
-	time.Sleep(500 * time.Millisecond)
+	fmt.Println("Watcher started (Ready state)")
+	time.Sleep(200 * time.Millisecond)
 
 	// Send test values
 	fmt.Println("\nSending values to channel...")

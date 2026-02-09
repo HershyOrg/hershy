@@ -1,7 +1,7 @@
 package parser
 
 import (
-	"monitor/market/repository/model"
+	"github.com/HershyOrg/hershy/monitor/market/repository/model"
 	"strconv"
 	"time"
 )
