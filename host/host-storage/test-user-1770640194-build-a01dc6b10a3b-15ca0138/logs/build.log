@@ -1,0 +1,9 @@
+Step 1/14 : FROM golang:1.24-alpine AS builder
+ ---> 8bee1901f1e5
+Step 2/14 : WORKDIR /build
+ ---> Using cache
+ ---> dadfbcd2f178
+Step 3/14 : RUN apk add --no-cache git ca-certificates
+ ---> Using cache
+ ---> 283a2e1f6c6c
+Step 4/14 : COPY go.mod go.sum ./
