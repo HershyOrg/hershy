@@ -17,6 +17,19 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
 
+      - name: Set up Bun (for host frontend build)
+        if: matrix.service == 'host'
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+
+      - name: Build Frontend (host only)
+        if: matrix.service == 'host'
+        working-directory: ./host/api/web
+        run: |
+          bun install
+          bun run build
+
       - name: Set up Go
         uses: actions/setup-go@v5
         with:
