@@ -1,1 +1,0 @@
-module simple-counter\n\ngo 1.24.13\n\nrequire github.com/HershyOrg/hersh v0.2.0\n
