@@ -5,22 +5,24 @@ TEST_USER="test-user-$(date +%s)"
 
 echo "📦 Preparing simple-counter deployment..."
 
-# Read source files
-dockerfile=$(cat Dockerfile | sed 's/"/\\"/g' | sed ':a;N;$!ba;s/\n/\\n/g')
-main_go=$(cat main.go | sed 's/"/\\"/g' | sed ':a;N;$!ba;s/\n/\\n/g')
-go_mod=$(cat go.mod | sed 's/"/\\"/g' | sed ':a;N;$!ba;s/\n/\\n/g')
+# Read source files and convert to JSON strings using jq
+DOCKERFILE=$(cat Dockerfile | jq -Rs .)
+MAIN_GO=$(cat main.go | jq -Rs .)
+GO_MOD=$(cat go.mod | jq -Rs .)
+GO_SUM=$(cat go.sum | jq -Rs .)
 
 # Create payload
-payload=$(cat <<PAYLOAD
+payload=$(cat <<EOF
 {
     "user_id": "$TEST_USER",
-    "dockerfile": "$dockerfile",
+    "dockerfile": $DOCKERFILE,
     "src_files": {
-        "main.go": "$main_go",
-        "go.mod": "$go_mod"
+        "main.go": $MAIN_GO,
+        "go.mod": $GO_MOD,
+        "go.sum": $GO_SUM
     }
 }
-PAYLOAD
+EOF
 )
 
 echo "🚀 Creating program..."

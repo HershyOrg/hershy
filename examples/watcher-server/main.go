@@ -11,7 +11,7 @@ import (
 	"path/filepath"
 	"time"
 
-	"github.com/HershyOrg/hershy/hersh"
+	"github.com/HershyOrg/hersh"
 )
 
 // testNewAPIs calls all new WatcherAPI endpoints and logs results

@@ -4,11 +4,14 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-**Hersh** is a reactive framework and container orchestration system for Go. The project consists of three main layers:
+**Hershy** is a container orchestration system for Go using the Hersh reactive framework. The project consists of two main layers:
 
-1. **hersh/** - Reactive framework library (Reducer-Effect pattern, WatchCall, Memo, WatcherAPI)
-2. **program/** - Program domain layer (pure state machine logic using Reducer-Effect pattern)
-3. **host/** - Host components (IO layer: Docker runtime, storage, HTTP API server)
+1. **program/** - Program domain layer (pure state machine logic using Reducer-Effect pattern)
+2. **host/** - Host components (IO layer: Docker runtime, storage, HTTP API server)
+
+### External Dependencies
+
+- **[Hersh Framework](https://github.com/HershyOrg/hersh)** (`github.com/HershyOrg/hersh@v0.2.0`) - Reactive framework library providing Reducer-Effect pattern, WatchCall, Memo, and WatcherAPI
 
 ### Architecture
 
@@ -18,22 +21,27 @@ User Dockerfile → Host API:9000 → Program (state machine) → Docker/gVisor 
                                                     localhost:19001-29999 (PublishPort)
 ```
 
-**Three-Layer Architecture**:
+**Two-Layer Architecture**:
 
-- **hersh/** = Reactive framework (library users import)
 - **program/** = Pure domain logic (state transitions, no IO)
 - **host/** = IO implementation (Docker SDK, filesystem, HTTP server)
+- **External: Hersh** = Reactive framework (imported by user programs)
 
 ## Common Commands
+
+### Installing Hersh
+
+User programs require the Hersh framework to use reactive features:
+
+```bash
+go get github.com/HershyOrg/hersh@v0.2.0
+```
+
+See [Hersh repository](https://github.com/HershyOrg/hersh) for framework documentation and examples.
 
 ### Running Tests
 
 ```bash
-# Hersh framework tests (80+ tests)
-cd hersh && go test ./... -v
-cd hersh && go test ./... -race  # with race detector
-cd hersh && go test ./... -cover # with coverage
-
 # Program domain tests (28+ tests, no Docker required)
 cd program && go test ./... -v
 cd program && go test ./... -race -cover
@@ -43,26 +51,7 @@ cd host && go test ./... -v
 cd host && go test -tags=integration ./... -v
 
 # Run single test
-cd hersh && go test -run TestWatchCall_BasicFunctionality -v
 cd program && go test -run TestReducer_FullSuccessFlow -v
-```
-
-### Running Examples
-
-```bash
-# Simple counter example
-cd hersh/demo && go run example_simple.go
-
-# WatchCall reactive variable example
-cd hersh/demo && go run example_watchcall.go
-
-# Trading simulation (requires binance stream)
-cd hersh/demo && go run example_trading.go market_client.go
-
-# Run with timeout (recommended for long-running demos)
-timeout 15 go run hersh/demo/example_simple.go
-timeout 15 go run hersh/demo/example_watchcall.go
-timeout 10 go run hersh/demo/example_trading.go hersh/demo/market_client.go
 ```
 
 ### Running Host Server
@@ -162,9 +151,9 @@ Confirm that you did not "shortcut" by pretending to implement the To Be without
 
 ## Core Design Principles
 
-### Reducer-Effect Pattern (Both Hersh & Program)
+### Reducer-Effect Pattern (Hersh & Program)
 
-Both **hersh/** and **program/** implement the Reducer-Effect pattern:
+Both **Hersh framework** (external) and **program/** implement the Reducer-Effect pattern:
 
 - **Pure Reducers**: State transitions are pure functions (no side effects)
 - **Effect Declarations**: Reducers return effects to be executed
@@ -184,7 +173,7 @@ Both **hersh/** and **program/** implement the Reducer-Effect pattern:
 
 - **Domain Layer** (program/): Pure business logic, state machine
 - **Infrastructure Layer** (host/): IO operations (Docker, filesystem, HTTP)
-- **Application Layer** (hersh/): Framework library for user programs
+- **Application Layer** (external Hersh): Framework library for user programs
 
 **Interface-Based Design**:
 
@@ -208,34 +197,6 @@ Both **hersh/** and **program/** implement the Reducer-Effect pattern:
 ### Core Packages
 
 ```
-hersh/                      # Reactive framework library
-├── watcher.go              # Core Watcher (state management, lifecycle)
-├── watcher_api.go          # HTTP API server (port 8080)
-├── watch.go                # WatchCall reactive variables
-├── memo.go                 # Memo caching mechanism
-├── types.go                # Core types (WatcherConfig, Message, etc)
-├── manager/                # Reducer-Effect implementation
-│   ├── manager.go          # Manager orchestrator
-│   ├── reducer.go          # Pure state transition logic
-│   ├── effect.go           # Effect definitions
-│   ├── effect_handler.go   # Effect execution interface
-│   ├── signal.go           # Signal-based reactivity
-│   └── state.go            # State management
-├── hctx/                   # HershContext (key-value state)
-│   └── context.go
-├── api/                    # WatcherAPI HTTP handlers
-│   ├── types.go            # Request/response types
-│   └── handlers.go         # HTTP endpoints
-├── demo/                   # Usage examples
-│   ├── example_simple.go   # Basic Watcher example
-│   ├── example_watchcall.go # WatchCall example
-│   ├── example_trading.go  # Trading simulator example
-│   └── market_client.go    # Market data client
-└── test/                   # Integration tests
-    ├── concurrent_watch_test.go
-    ├── recovery_test.go
-    └── manager_integration_test.go
-
 program/                    # Program domain (pure state machine)
 ├── types.go                # ProgramID, State, ProgramState
 ├── event.go                # User and system events
@@ -294,7 +255,9 @@ cmd/                        # Test scripts
 
 ## High-Level Architecture
 
-### 1. Hersh Framework: Reducer-Effect Pattern
+### 1. Hersh Framework (External Library)
+
+**Repository**: [github.com/HershyOrg/hersh](https://github.com/HershyOrg/hersh)
 
 **Core Concept**: Synchronous, deterministic state management with reactive variables.
 
@@ -305,35 +268,27 @@ cmd/                        # Test scripts
 - **Memo**: Caching mechanism for expensive computations
 - **WatcherAPI**: HTTP server on port 8080 for external control
 
-**Signal Processing Priority**: `WatcherSig > UserSig > VarSig`
+**Installation**:
+```bash
+go get github.com/HershyOrg/hersh@v0.2.0
+```
 
-**State Lifecycle**: `NotRun → InitRun → Ready → Stopping → Stopped`
-
-**Example**:
+**Usage Example**:
 ```go
+import "github.com/HershyOrg/hersh"
+
 watcher := hersh.NewWatcher(config, envVars, nil)
-
-// WatchCall: reactive variable
 counter := hersh.NewWatchCall(0)
-counter.Watch(func(newVal int) {
-    fmt.Printf("Counter changed: %d\n", newVal)
-})
-
-// Start Watcher
-watcher.Run()
-
-// Manage function: main reducer
 watcher.Manage(func(msg *hersh.Message, ctx hersh.HershContext) error {
-    // Handle WatcherAPI messages
     if msg != nil && msg.Content == "increment" {
         counter.Set(counter.Get() + 1)
     }
     return nil
 }, "MyProgram")
-
-// Start WatcherAPI server
 watcher.StartAPIServer(8080)
 ```
+
+See [Hersh documentation](https://github.com/HershyOrg/hersh) for detailed API reference and examples.
 
 ### 2. Program Domain: Pure State Machine
 
