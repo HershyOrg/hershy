@@ -9,7 +9,7 @@ import (
 	"path/filepath"
 	"time"
 
-	"github.com/HershyOrg/hershy/hersh"
+	"github.com/HershyOrg/hersh"
 )
 
 func main() {

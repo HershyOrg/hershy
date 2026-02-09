@@ -13,8 +13,8 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/HershyOrg/hershy/hersh"
-	"github.com/HershyOrg/hershy/hersh/hutil"
+	"github.com/HershyOrg/hersh"
+	"github.com/HershyOrg/hersh/hutil"
 )
 
 const (
