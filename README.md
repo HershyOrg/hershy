@@ -1,30 +1,39 @@
-# Hersh
+# Hershy
 
-**Hersh** is a reactive framework and container orchestration system for Go, implementing a Reducer-Effect pattern with gVisor-based security isolation.
+**Container orchestration system for Go using reactive state management**
+
+Hershy is a container orchestration system that manages Docker/gVisor containers using the **[Hersh](https://github.com/HershyOrg/hersh)** reactive framework.
 
 ## 🏗️ Architecture
 
-Hersh consists of three main layers:
-
 ```
-User Dockerfile → Program (build/run/proxy) → gVisor Container (hersh.Watcher + WatcherAPI:8080) ← Host Registry
+User Dockerfile → Host API:9000 → Program (state machine) → Docker/gVisor Container → WatcherAPI:8080
+                                                              ↓
+                                                    localhost:19001-29999 (PublishPort)
 ```
 
-### 1. **hersh/** - Reactive Framework Library
-- **Reducer-Effect pattern**: Deterministic state management with synchronous effects
-- **WatchCall**: Reactive variable monitoring
-- **Memo**: Expensive computation caching
+### Main Components
+
+### 1. **[Hersh Framework](https://github.com/HershyOrg/hersh)** (External Library)
+- **Repository**: `github.com/HershyOrg/hersh@v0.2.0`
+- **Managed Execution**: Single managed function with reactive triggers
+- **WatchCall**: Polling-based reactive variables
+- **WatchFlow**: Channel-based reactive variables
+- **Memo**: Session-scoped caching
+- **HershContext**: Persistent state storage
 - **WatcherAPI**: HTTP server for external control (port 8080)
 
-### 2. **program/** - Container Manager
-- Builds Dockerfile → Docker image
-- Runs gVisor container
-- Proxies WatcherAPI endpoints
-- Self-contained orchestration system
+### 2. **program/** - Program Domain (Pure State Machine)
+- Pure state transitions (no IO)
+- State machine: `Created → Building → Starting → Ready → Stopping → Stopped`
+- Reducer-Effect pattern
+- 28+ tests, 100% mock-based
 
-### 3. **host/** - Thin Registry
-- Program discovery and metadata storage
-- No runtime management (delegated to Program)
+### 3. **host/** - Host Components (IO Layer)
+- Docker runtime integration
+- Filesystem management
+- HTTP API server (port 9000)
+- WatcherAPI proxy manager
 
 ## ✨ Key Features
 
@@ -50,61 +59,73 @@ User Dockerfile → Program (build/run/proxy) → gVisor Container (hersh.Watche
 ## 📦 Project Structure
 
 ```
-hersh/
-├── program/                    # Program Domain (Core Logic)
+hershy/
+├── program/                    # Program Domain (Pure State Machine)
 │   ├── types.go               # ProgramID, State, ProgramState
 │   ├── event.go               # User and system events
 │   ├── effect.go              # Side effects to be executed
 │   ├── reducer.go             # Pure state transition logic
 │   ├── supervisor.go          # Goroutine-based event loop
 │   ├── effect_handler.go      # Effect execution interface
-│   ├── fake_handler.go        # Test implementation
-│   └── *_test.go              # 28 tests, 82.7% coverage
+│   └── fake_handler.go        # Test implementation (mock)
 │
 ├── host/                       # Host Components (IO Layer)
-│   ├── storage/
-│   │   └── manager.go         # Filesystem management
-│   ├── compose/
-│   │   └── builder.go         # ComposeSpec generation + security contracts
-│   ├── runtime/
-│   │   └── docker_manager.go # Docker SDK wrapper
-│   ├── effect_handler.go      # Real IO integration
-│   └── host_test.go           # Integration tests
+│   ├── cmd/main.go            # Host server entrypoint
+│   ├── api/                   # HTTP API server (port 9000)
+│   ├── registry/              # Program registry (in-memory)
+│   ├── proxy/                 # WatcherAPI proxy manager
+│   ├── storage/               # Filesystem management
+│   ├── compose/               # Docker Compose spec generation
+│   ├── runtime/               # Docker runtime integration
+│   └── effect_handler.go      # Real IO implementation
 │
-├── hersh/                      # Reactive Framework (Future)
-│   ├── watcher.go
-│   └── watcher_api.go
-│
-└── examples/
-    ├── validation/             # Validation example
-    └── integration-test/       # Integration test files
+└── examples/                   # Example programs (use Hersh framework)
+    ├── simple-counter/         # Basic counter with WatcherAPI
+    ├── trading-long/           # Trading simulator
+    └── watcher-server/         # Minimal WatcherAPI server
 ```
+
+**Note**: Hersh framework is now a separate library at [github.com/HershyOrg/hersh](https://github.com/HershyOrg/hersh)
 
 ## 🚀 Quick Start
 
 ### Prerequisites
-- Go 1.21+
+- Go 1.24+
 - Docker 20.10+
 - gVisor (runsc) - optional for testing, required for production
+
+### Installing Hersh
+
+User programs require the Hersh framework:
+
+```bash
+go get github.com/HershyOrg/hersh@v0.2.0
+```
+
+See [Hersh documentation](https://github.com/HershyOrg/hersh) for complete API reference, examples, and usage guides.
 
 ### Run Tests
 
 ```bash
-# Unit tests (no Docker required)
-go test ./program -v -race
+# Program domain tests (28+ tests, no Docker required)
+cd program && go test ./... -v
+cd program && go test ./... -race -cover
 
-# Integration tests (Docker required)
-go test -tags=integration ./host -v
-
-# All tests with coverage
-go test ./program -cover
+# Host integration tests (requires Docker)
+cd host && go test ./... -v
+cd host && go test -tags=integration ./... -v
 ```
 
-### Run Validation Example
+### Run Example Programs
 
 ```bash
-cd examples/validation
-go run main.go
+# Start Host server (default: port 9000, runc runtime)
+cd host && go run cmd/main.go
+
+# Deploy example programs (requires Host running on :9000)
+cd examples/simple-counter && ./deploy-to-host.sh
+cd examples/trading-long && ./e2e_test.sh
+cd examples/watcher-server && ./deploy-to-host.sh
 ```
 
 ## 🔒 Security Contracts
