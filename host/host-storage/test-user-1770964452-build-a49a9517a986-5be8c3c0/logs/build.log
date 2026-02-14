@@ -1,0 +1,54 @@
+Step 1/17 : FROM golang:1.24-alpine AS builder
+ ---> fa0811e6d279
+Step 2/17 : WORKDIR /build
+ ---> Using cache
+ ---> db4d7898f2ab
+Step 3/17 : RUN apk add --no-cache git ca-certificates
+ ---> Using cache
+ ---> 0964c5853192
+Step 4/17 : COPY go.mod go.sum ./
+ ---> Using cache
+ ---> c66f3e6b91a0
+Step 5/17 : COPY *.go ./
+ ---> b0997e5cd1cd
+Step 6/17 : COPY cctx.tgz.b64 ./
+ ---> 385d9ddf016e
+Step 7/17 : RUN mkdir -p /build/cctx     && base64 -d cctx.tgz.b64 | tar -xz -C /build/cctx
+ ---> Running in f1568a3072c4
+ ---> Removed intermediate container f1568a3072c4
+ ---> eed9e6d546a0
+Step 8/17 : RUN go mod edit -replace github.com/HershyOrg/hershy/cctx=./cctx
+ ---> Running in 90a0fee7448b
+ ---> Removed intermediate container 90a0fee7448b
+ ---> 617868cec9f8
+Step 9/17 : RUN go mod download
+ ---> Running in 399f41d9200e
+ ---> Removed intermediate container 399f41d9200e
+ ---> 3952e0285d25
+Step 10/17 : RUN CGO_ENABLED=0 GOOS=linux go build -o polymarket-trader .
+ ---> Running in 5e50e942bcb3
+ ---> Removed intermediate container 5e50e942bcb3
+ ---> 10269d582907
+Step 11/17 : FROM alpine:latest
+ ---> 1ab49c19c53e
+Step 12/17 : RUN apk add --no-cache ca-certificates
+ ---> Using cache
+ ---> 9cf5d67238fd
+Step 13/17 : WORKDIR /app
+ ---> Using cache
+ ---> 2323551201ef
+Step 14/17 : COPY --from=builder /build/polymarket-trader /app/
+ ---> f796c1876e6a
+Step 15/17 : COPY prob_model_logit_all.json /app/
+ ---> f88f615d9dad
+Step 16/17 : EXPOSE 8080
+ ---> Running in 5955c123bcf5
+ ---> Removed intermediate container 5955c123bcf5
+ ---> 51ca25631726
+Step 17/17 : CMD ["/app/polymarket-trader", "--model-path", "/app/prob_model_logit_all.json", "--slug", "test-market", "--paper", "--signals-only", "--token-id-up", "1", "--token-id-down", "2", "--run-for-sec", "600"]
+ ---> Running in 0607804ececd
+ ---> Removed intermediate container 0607804ececd
+ ---> 61a4fc3f855f
+Successfully built 61a4fc3f855f
+Successfully tagged build-a49a9517a986:latest
+Successfully tagged test-user-1770964452-build-a49a9517a986-5be8c3c0:latest

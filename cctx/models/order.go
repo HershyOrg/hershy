@@ -3,7 +3,7 @@ package models
 import (
 	"time"
 
-	"cctx/utils"
+	"github.com/HershyOrg/hershy/cctx/utils"
 )
 
 type OrderSide string

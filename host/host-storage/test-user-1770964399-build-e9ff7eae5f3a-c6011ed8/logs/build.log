@@ -1,0 +1,55 @@
+Step 1/17 : FROM golang:1.24-alpine AS builder
+ ---> fa0811e6d279
+Step 2/17 : WORKDIR /build
+ ---> Using cache
+ ---> db4d7898f2ab
+Step 3/17 : RUN apk add --no-cache git ca-certificates
+ ---> Using cache
+ ---> 0964c5853192
+Step 4/17 : COPY go.mod go.sum ./
+ ---> Using cache
+ ---> c66f3e6b91a0
+Step 5/17 : COPY *.go ./
+ ---> Using cache
+ ---> b8a5728b0072
+Step 6/17 : COPY cctx.tgz.b64 ./
+ ---> 9a40fee64dfc
+Step 7/17 : RUN mkdir -p /build/cctx     && base64 -d cctx.tgz.b64 | tar -xz -C /build/cctx
+ ---> Running in f460395476da
+ ---> Removed intermediate container f460395476da
+ ---> fafbfbd42873
+Step 8/17 : RUN go mod edit -replace github.com/HershyOrg/hershy/cctx=./cctx
+ ---> Running in ed338ef8e281
+ ---> Removed intermediate container ed338ef8e281
+ ---> 91bbe9994c42
+Step 9/17 : RUN go mod download
+ ---> Running in ccf6da7f389d
+ ---> Removed intermediate container ccf6da7f389d
+ ---> 3b4fa61d212f
+Step 10/17 : RUN CGO_ENABLED=0 GOOS=linux go build -o polymarket-trader .
+ ---> Running in 9cf6634d09d5
+ ---> Removed intermediate container 9cf6634d09d5
+ ---> 0c796bdfbce3
+Step 11/17 : FROM alpine:latest
+ ---> 1ab49c19c53e
+Step 12/17 : RUN apk add --no-cache ca-certificates
+ ---> Using cache
+ ---> 9cf5d67238fd
+Step 13/17 : WORKDIR /app
+ ---> Using cache
+ ---> 2323551201ef
+Step 14/17 : COPY --from=builder /build/polymarket-trader /app/
+ ---> Using cache
+ ---> cdca93bc6c4f
+Step 15/17 : COPY prob_model_logit_all.json /app/
+ ---> Using cache
+ ---> 81c3ecde20bf
+Step 16/17 : EXPOSE 8080
+ ---> Using cache
+ ---> 71be110b7976
+Step 17/17 : CMD ["/app/polymarket-trader", "--model-path", "/app/prob_model_logit_all.json", "--slug", "test-market", "--paper", "--signals-only", "--token-id-up", "1", "--token-id-down", "2", "--run-for-sec", "600"]
+ ---> Using cache
+ ---> 3e4b82323e40
+Successfully built 3e4b82323e40
+Successfully tagged build-e9ff7eae5f3a:latest
+Successfully tagged test-user-1770964399-build-e9ff7eae5f3a-c6011ed8:latest

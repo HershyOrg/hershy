@@ -1,0 +1,54 @@
+Step 1/17 : FROM golang:1.24-alpine AS builder
+ ---> fa0811e6d279
+Step 2/17 : WORKDIR /build
+ ---> Using cache
+ ---> db4d7898f2ab
+Step 3/17 : RUN apk add --no-cache git ca-certificates
+ ---> Using cache
+ ---> 0964c5853192
+Step 4/17 : COPY go.mod go.sum ./
+ ---> Using cache
+ ---> c66f3e6b91a0
+Step 5/17 : COPY *.go ./
+ ---> 3b7e86750b1f
+Step 6/17 : COPY cctx.tgz.b64 ./
+ ---> e330654eb624
+Step 7/17 : RUN mkdir -p /build/cctx     && base64 -d cctx.tgz.b64 | tar -xz -C /build/cctx
+ ---> Running in 40202901784d
+ ---> Removed intermediate container 40202901784d
+ ---> 3e2b4359422a
+Step 8/17 : RUN go mod edit -replace github.com/HershyOrg/hershy/cctx=./cctx
+ ---> Running in 2e09510b76dc
+ ---> Removed intermediate container 2e09510b76dc
+ ---> 213fd71fdfad
+Step 9/17 : RUN go mod download
+ ---> Running in fe2458c29fd3
+ ---> Removed intermediate container fe2458c29fd3
+ ---> 6a21e7751680
+Step 10/17 : RUN CGO_ENABLED=0 GOOS=linux go build -o polymarket-trader .
+ ---> Running in b4124a442ce8
+ ---> Removed intermediate container b4124a442ce8
+ ---> db4549ecdb87
+Step 11/17 : FROM alpine:latest
+ ---> 1ab49c19c53e
+Step 12/17 : RUN apk add --no-cache ca-certificates
+ ---> Using cache
+ ---> 9cf5d67238fd
+Step 13/17 : WORKDIR /app
+ ---> Using cache
+ ---> 2323551201ef
+Step 14/17 : COPY --from=builder /build/polymarket-trader /app/
+ ---> 2a5cf9e37bbc
+Step 15/17 : COPY prob_model_logit_all.json /app/
+ ---> 1a43e17b0dd2
+Step 16/17 : EXPOSE 8080
+ ---> Running in f5ed5e6e8d91
+ ---> Removed intermediate container f5ed5e6e8d91
+ ---> ae83bbd937a8
+Step 17/17 : CMD ["/app/polymarket-trader", "--model-path", "/app/prob_model_logit_all.json", "--slug", "test-market", "--paper", "--signals-only", "--token-id-up", "1", "--token-id-down", "2", "--run-for-sec", "600"]
+ ---> Running in 149c44d88819
+ ---> Removed intermediate container 149c44d88819
+ ---> 2f1f84e1063c
+Successfully built 2f1f84e1063c
+Successfully tagged build-891d5bb26207:latest
+Successfully tagged test-user-1770964242-build-891d5bb26207-86003ace:latest

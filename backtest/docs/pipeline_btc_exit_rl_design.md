@@ -174,7 +174,7 @@ SGD 기반 로지스틱 회귀.
 
 별도 스크립트:
 
-- `src/backtest_report_window.py`
+- `bots/backtest_tools/backtest_report_window.py`
 
 역할:
 
@@ -183,7 +183,7 @@ SGD 기반 로지스틱 회귀.
 
 ## CLI 진입점
 
-메인 파일: `src/pipeline_btc_exit_rl.py`
+메인 파일: `bots/backtest_tools/pipeline_btc_exit_rl.py`
 
 일반 실행 순서:
 
@@ -236,7 +236,7 @@ SGD 기반 로지스틱 회귀.
 
 리포팅(별도 파일):
 
-- `src/backtest_report_window.py`의 `run_report`
+- `bots/backtest_tools/backtest_report_window.py`의 `run_report`
 
 ## 사용 순서 다이어그램
 

@@ -6,8 +6,8 @@ import (
 	"strings"
 	"time"
 
-	"cctx/models"
-	"cctx/utils"
+	"github.com/HershyOrg/hershy/cctx/models"
+	"github.com/HershyOrg/hershy/cctx/utils"
 )
 
 // MarketClient provides market-scoped helpers without scheduling logic.

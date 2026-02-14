@@ -21,9 +21,9 @@ import (
 	"github.com/ethereum/go-ethereum/crypto"
 	"github.com/ethereum/go-ethereum/signer/core/apitypes"
 
-	"cctx/base"
-	"cctx/models"
-	"cctx/utils"
+	"github.com/HershyOrg/hershy/cctx/base"
+	"github.com/HershyOrg/hershy/cctx/models"
+	"github.com/HershyOrg/hershy/cctx/utils"
 )
 
 // Limitless exchange implementation.

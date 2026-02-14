@@ -1,0 +1,54 @@
+Step 1/17 : FROM golang:1.24-alpine AS builder
+ ---> fa0811e6d279
+Step 2/17 : WORKDIR /build
+ ---> Using cache
+ ---> db4d7898f2ab
+Step 3/17 : RUN apk add --no-cache git ca-certificates
+ ---> Using cache
+ ---> 0964c5853192
+Step 4/17 : COPY go.mod go.sum ./
+ ---> Using cache
+ ---> c66f3e6b91a0
+Step 5/17 : COPY *.go ./
+ ---> a0c87b4e443b
+Step 6/17 : COPY cctx.tgz.b64 ./
+ ---> 5183ff80f6bb
+Step 7/17 : RUN mkdir -p /build/cctx     && base64 -d cctx.tgz.b64 | tar -xz -C /build/cctx
+ ---> Running in 1b666bf095e6
+ ---> Removed intermediate container 1b666bf095e6
+ ---> 765ca1e357a7
+Step 8/17 : RUN go mod edit -replace github.com/HershyOrg/hershy/cctx=./cctx
+ ---> Running in adc88d3069c7
+ ---> Removed intermediate container adc88d3069c7
+ ---> e5fab702026e
+Step 9/17 : RUN go mod download
+ ---> Running in 0f9a481d4949
+ ---> Removed intermediate container 0f9a481d4949
+ ---> d9163b086869
+Step 10/17 : RUN CGO_ENABLED=0 GOOS=linux go build -o polymarket-trader .
+ ---> Running in 0d4e11252f1e
+ ---> Removed intermediate container 0d4e11252f1e
+ ---> 2d7de6b46376
+Step 11/17 : FROM alpine:latest
+ ---> 1ab49c19c53e
+Step 12/17 : RUN apk add --no-cache ca-certificates
+ ---> Using cache
+ ---> 9cf5d67238fd
+Step 13/17 : WORKDIR /app
+ ---> Using cache
+ ---> 2323551201ef
+Step 14/17 : COPY --from=builder /build/polymarket-trader /app/
+ ---> 88406a8e6622
+Step 15/17 : COPY prob_model_logit_all.json /app/
+ ---> 365f430f0f37
+Step 16/17 : EXPOSE 8080
+ ---> Running in 3b63bdbb51ad
+ ---> Removed intermediate container 3b63bdbb51ad
+ ---> fa52a31827ba
+Step 17/17 : CMD ["/app/polymarket-trader", "--model-path", "/app/prob_model_logit_all.json", "--slug", "test-market", "--signals-only", "--paper", "--token-id-up", "yes", "--token-id-down", "no", "--log-every-sec", "1"]
+ ---> Running in 48372352d880
+ ---> Removed intermediate container 48372352d880
+ ---> 6bb89dc20ff2
+Successfully built 6bb89dc20ff2
+Successfully tagged build-c2b1871864b0:latest
+Successfully tagged test-user-1770970614-build-c2b1871864b0-de82ae83:latest

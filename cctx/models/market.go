@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"time"
 
-	"cctx/utils"
+	"github.com/HershyOrg/hershy/cctx/utils"
 )
 
 // ReadableMarketID is a path-like list for market identifiers.
