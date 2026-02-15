@@ -276,6 +276,7 @@ Contributions are welcome! Please ensure:
 
 - [CLAUDE.md](CLAUDE.md) - Project overview and implementation guide
 - [API Reference](docs/API.md) - Detailed API documentation (TBD)
+- [Host AI Provider Guide](host/AI_PROVIDER_GUIDE.md) - AI provider setup and usage for `/ai/strategy-draft`
 - [Examples](examples/) - Usage examples and validation
 
 ---

@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import ChromeTabs from './ChromeTabs';
 import Sidebar from './Sidebar';
 import Canvas from './Canvas';
@@ -10,6 +10,15 @@ import NormalBlocksPanel from './panels/NormalBlocksPanel';
 import TriggerBlocksPanel from './panels/TriggerBlocksPanel';
 import ActionBlocksPanel from './panels/ActionBlocksPanel';
 import MonitoringBlocksPanel from './panels/MonitoringBlocksPanel';
+import {
+  buildStrategyDefinition,
+  buildStrategyFilename,
+  strategyDefinitionToCanvas,
+  strategyToPrettyJson,
+  validateStrategyDefinition
+} from '../lib/strategyCompiler';
+import { buildStrategyRunnerPayload } from '../lib/hostRunnerTemplates';
+import { generateStrategyDraft } from '../lib/strategyAssistant';
 
 const DEFAULT_LIVE_INTERVAL = 1200;
 const MAX_SNAPSHOT_RECORDS = 30;
@@ -54,6 +63,23 @@ const buildSnapshotValues = (fields, seq, previousValues) => (
   }, {})
 );
 
+const resolveDefaultHostBase = () => {
+  if (typeof window === 'undefined') {
+    return 'http://localhost:9000';
+  }
+
+  const saved = window.localStorage.getItem('hershy.hostBase');
+  if (saved) {
+    return saved;
+  }
+
+  if (window.location.port === '9000') {
+    return window.location.origin;
+  }
+
+  return 'http://localhost:9000';
+};
+
 export default function BackendTab() {
   const initialTabs = [{ id: 'strategy-1', label: 'Strategy 1' }];
   const nextTabIdRef = useRef(2);
@@ -79,6 +105,15 @@ export default function BackendTab() {
     [initialTabs[0].id]: []
   }));
   const [savedTemplates, setSavedTemplates] = useState([]);
+  const [strategyNotice, setStrategyNotice] = useState(null);
+  const [strategyReport, setStrategyReport] = useState(null);
+  const [aiPrompt, setAiPrompt] = useState('BTCUSDT 1시간 마켓 전략으로 만들어줘. 최근 가격 기준 상단/하단 임계값을 자동 추정하고, 1시간 내 단기 돌파는 매수, 이탈은 매도하도록 구성해줘.');
+  const [aiNotice, setAiNotice] = useState(null);
+  const [aiBusy, setAiBusy] = useState(false);
+  const [aiPanelOpen, setAiPanelOpen] = useState(false);
+  const [hostBaseUrl, setHostBaseUrl] = useState(resolveDefaultHostBase);
+  const [hostProgram, setHostProgram] = useState(null);
+  const [hostBusy, setHostBusy] = useState(false);
 
   const handleIconClick = (panelType) => {
     setActivePanel(activePanel === panelType ? null : panelType);
@@ -151,6 +186,13 @@ export default function BackendTab() {
     ));
   }, [activeTabId]);
 
+  useEffect(() => {
+    if (typeof window === 'undefined') {
+      return;
+    }
+    window.localStorage.setItem('hershy.hostBase', hostBaseUrl);
+  }, [hostBaseUrl]);
+
   const getDefaultPosition = (blocks) => {
     const index = blocks.length;
     const column = index % spawnColumnCount;
@@ -164,6 +206,335 @@ export default function BackendTab() {
   const activeBlocks = activeTabId ? blocksByTab[activeTabId] || [] : [];
   const activeConnections = activeTabId ? connectionsByTab[activeTabId] || [] : [];
   const activeSelectedIds = activeTabId ? selectedBlockIdsByTab[activeTabId] || [] : [];
+  const activeTabLabel = useMemo(
+    () => tabs.find((tab) => tab.id === activeTabId)?.label || '',
+    [tabs, activeTabId]
+  );
+
+  const setNotice = (type, message) => {
+    setStrategyNotice({
+      type,
+      message,
+      at: Date.now()
+    });
+  };
+
+  const compileActiveStrategy = () => {
+    if (!activeTabId) {
+      return null;
+    }
+
+    const strategy = buildStrategyDefinition({
+      tabId: activeTabId,
+      tabLabel: activeTabLabel,
+      blocks: activeBlocks,
+      connections: activeConnections
+    });
+    const report = validateStrategyDefinition(strategy);
+    setStrategyReport(report);
+
+    return {
+      strategy,
+      report,
+      json: strategyToPrettyJson(strategy)
+    };
+  };
+
+  const resetNextBlockId = (blocks) => {
+    let maxSuffix = 0;
+    (blocks || []).forEach((block) => {
+      const match = String(block?.id || '').match(/-(\d+)$/);
+      if (match) {
+        maxSuffix = Math.max(maxSuffix, Number(match[1]));
+      }
+    });
+    nextBlockIdRef.current = Math.max(maxSuffix + 1, (blocks?.length || 0) + 1);
+  };
+
+  const applyStrategyToActiveTab = (strategy) => {
+    if (!activeTabId) {
+      return false;
+    }
+    const canvasState = strategyDefinitionToCanvas(strategy);
+    resetNextBlockId(canvasState.blocks);
+
+    setBlocksByTab((prevBlocks) => ({
+      ...prevBlocks,
+      [activeTabId]: canvasState.blocks
+    }));
+    setConnectionsByTab((prevConnections) => ({
+      ...prevConnections,
+      [activeTabId]: canvasState.connections
+    }));
+    setSelectedBlockIdsByTab((prevSelected) => ({
+      ...prevSelected,
+      [activeTabId]: []
+    }));
+    return true;
+  };
+
+  const handleGenerateAIStrategy = async () => {
+    if (!activeTabId) {
+      setNotice('error', '활성 전략 탭이 없습니다.');
+      return;
+    }
+    if (!aiPrompt.trim()) {
+      setNotice('error', 'AI 프롬프트를 입력하세요.');
+      return;
+    }
+
+    const current = compileActiveStrategy();
+    const hostBase = hostBaseUrl.trim().replace(/\/+$/, '');
+    const aiEndpoint = hostBase ? `${hostBase}/ai/strategy-draft` : '';
+    setAiBusy(true);
+    setAiNotice(null);
+    try {
+      const generated = await generateStrategyDraft({
+        prompt: aiPrompt,
+        currentStrategy: current?.strategy || null,
+        endpoint: aiEndpoint
+      });
+      const report = validateStrategyDefinition(generated.strategy);
+      setStrategyReport(report);
+
+      if (!report.valid) {
+        setNotice('error', `AI 전략 검증 실패 (에러 ${report.errors.length}건).`);
+        setAiNotice({
+          type: 'error',
+          message: generated.message || 'AI가 유효하지 않은 전략을 반환했습니다.',
+          at: Date.now()
+        });
+        return;
+      }
+
+      applyStrategyToActiveTab(generated.strategy);
+      setAiNotice({
+        type: 'success',
+        message: generated.message || `AI 전략 적용 완료 (${generated.source})`,
+        at: Date.now()
+      });
+      setNotice('success', `AI 전략 적용 완료 (${generated.source}).`);
+    } catch (error) {
+      setAiNotice({
+        type: 'error',
+        message: error.message || 'AI 전략 생성 실패',
+        at: Date.now()
+      });
+      setNotice('error', `AI 전략 생성 실패: ${error.message}`);
+    } finally {
+      setAiBusy(false);
+    }
+  };
+
+  const handleValidateStrategy = () => {
+    const result = compileActiveStrategy();
+    if (!result) {
+      setNotice('error', '활성 전략 탭이 없습니다.');
+      return;
+    }
+
+    if (result.report.valid) {
+      if (result.report.warnings.length > 0) {
+        setNotice(
+          'warn',
+          `검증 통과 (경고 ${result.report.warnings.length}건).`
+        );
+      } else {
+        setNotice('success', '검증 통과. 배포 가능한 전략 형식입니다.');
+      }
+      return;
+    }
+
+    setNotice(
+      'error',
+      `검증 실패 (에러 ${result.report.errors.length}건).`
+    );
+  };
+
+  const handleCopyStrategyJson = async () => {
+    const result = compileActiveStrategy();
+    if (!result) {
+      setNotice('error', '활성 전략 탭이 없습니다.');
+      return;
+    }
+
+    try {
+      if (!navigator?.clipboard?.writeText) {
+        throw new Error('clipboard unavailable');
+      }
+      await navigator.clipboard.writeText(result.json);
+      setNotice('success', '전략 JSON을 클립보드에 복사했습니다.');
+    } catch {
+      setNotice('error', '클립보드 복사에 실패했습니다.');
+    }
+  };
+
+  const handleDownloadStrategyJson = () => {
+    const result = compileActiveStrategy();
+    if (!result) {
+      setNotice('error', '활성 전략 탭이 없습니다.');
+      return;
+    }
+
+    const filename = buildStrategyFilename(result.strategy?.strategy?.name || activeTabLabel);
+    const blob = new Blob([result.json], { type: 'application/json;charset=utf-8' });
+    const url = URL.createObjectURL(blob);
+    const anchor = document.createElement('a');
+    anchor.href = url;
+    anchor.download = filename;
+    document.body.appendChild(anchor);
+    anchor.click();
+    document.body.removeChild(anchor);
+    URL.revokeObjectURL(url);
+    setNotice('success', `${filename} 파일로 저장했습니다.`);
+  };
+
+  const handleOpenHostUI = () => {
+    if (typeof window === 'undefined') {
+      return;
+    }
+    const base = hostBaseUrl.replace(/\/+$/, '');
+    window.open(`${base}/ui/programs`, '_blank', 'noopener,noreferrer');
+  };
+
+  const callHost = async (path, options = {}) => {
+    const base = hostBaseUrl.trim().replace(/\/+$/, '');
+    if (!base) {
+      throw new Error('Host Base URL이 비어 있습니다.');
+    }
+    const url = `${base}${path}`;
+    let response;
+
+    try {
+      response = await fetch(url, options);
+    } catch (error) {
+      throw new Error(
+        `Host API 연결 실패 (${url}). Host가 실행 중인지, CORS/프록시 설정이 맞는지 확인하세요.`
+      );
+    }
+
+    const payload = await response.json().catch(() => ({}));
+    if (!response.ok) {
+      const message = payload?.error || payload?.message || `HTTP ${response.status}`;
+      throw new Error(message);
+    }
+    return payload;
+  };
+
+  const handleDeployHostProgram = async () => {
+    const compiled = compileActiveStrategy();
+    if (!compiled) {
+      setNotice('error', '활성 전략 탭이 없습니다.');
+      return;
+    }
+    if (!compiled.report.valid) {
+      setNotice('error', '전략 검증을 먼저 통과시켜야 배포할 수 있습니다.');
+      return;
+    }
+
+    setHostBusy(true);
+    try {
+      const payload = buildStrategyRunnerPayload(compiled.json, {
+        userHint: activeTabLabel || activeTabId || 'strategy'
+      });
+      const created = await callHost('/programs', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload)
+      });
+      setHostProgram({
+        programId: created.program_id,
+        buildId: created.build_id,
+        state: created.state,
+        proxyUrl: created.proxy_url
+      });
+      setNotice('success', `Host 프로그램 생성 완료: ${created.program_id}`);
+    } catch (error) {
+      setNotice('error', `배포 실패: ${error.message}`);
+    } finally {
+      setHostBusy(false);
+    }
+  };
+
+  const handleStartHostProgram = async () => {
+    if (!hostProgram?.programId) {
+      setNotice('error', '먼저 Host 배포를 실행하세요.');
+      return;
+    }
+    setHostBusy(true);
+    try {
+      const started = await callHost(`/programs/${hostProgram.programId}/start`, {
+        method: 'POST'
+      });
+      setHostProgram((prev) => ({
+        ...prev,
+        state: started.state
+      }));
+      setNotice('success', `실행 요청 완료: ${hostProgram.programId}`);
+    } catch (error) {
+      setNotice('error', `시작 실패: ${error.message}`);
+    } finally {
+      setHostBusy(false);
+    }
+  };
+
+  const handleRefreshHostProgram = async () => {
+    if (!hostProgram?.programId) {
+      return;
+    }
+    setHostBusy(true);
+    try {
+      const item = await callHost(`/programs/${hostProgram.programId}`);
+      setHostProgram({
+        programId: item.program_id,
+        buildId: item.build_id,
+        state: item.state,
+        proxyUrl: item.proxy_url,
+        errorMsg: item.error_msg
+      });
+      if (item.state === 'Ready') {
+        setNotice('success', `프로그램 Ready: ${item.program_id}`);
+      } else {
+        setNotice('warn', `프로그램 상태: ${item.state}`);
+      }
+    } catch (error) {
+      setNotice('error', `상태 조회 실패: ${error.message}`);
+    } finally {
+      setHostBusy(false);
+    }
+  };
+
+  const handleStopHostProgram = async () => {
+    if (!hostProgram?.programId) {
+      return;
+    }
+    setHostBusy(true);
+    try {
+      const stopped = await callHost(`/programs/${hostProgram.programId}/stop`, {
+        method: 'POST'
+      });
+      setHostProgram((prev) => ({
+        ...prev,
+        state: stopped.state
+      }));
+      setNotice('warn', `중지 요청 완료: ${hostProgram.programId}`);
+    } catch (error) {
+      setNotice('error', `중지 실패: ${error.message}`);
+    } finally {
+      setHostBusy(false);
+    }
+  };
+
+  const handleOpenWatcherStatus = () => {
+    if (typeof window === 'undefined' || !hostProgram?.programId) {
+      return;
+    }
+    const base = hostBaseUrl.trim().replace(/\/+$/, '');
+    if (!base) {
+      return;
+    }
+    window.open(`${base}/programs/${hostProgram.programId}/proxy/watcher/status`, '_blank', 'noopener,noreferrer');
+  };
 
   const serializeBlocks = (blocks) => {
     const positions = blocks.map((block) => block.position || { x: 0, y: 0 });
@@ -898,6 +1269,44 @@ export default function BackendTab() {
         <div className="backend-view-toggle">
           <button
             type="button"
+            className="strategy-tool-btn"
+            onClick={handleValidateStrategy}
+            disabled={!activeTabId}
+          >
+            전략 검증
+          </button>
+          <button
+            type="button"
+            className="strategy-tool-btn"
+            onClick={handleCopyStrategyJson}
+            disabled={!activeTabId}
+          >
+            JSON 복사
+          </button>
+          <button
+            type="button"
+            className="strategy-tool-btn"
+            onClick={handleDownloadStrategyJson}
+            disabled={!activeTabId}
+          >
+            JSON 저장
+          </button>
+          <button
+            type="button"
+            className="strategy-tool-btn host"
+            onClick={handleOpenHostUI}
+          >
+            Host UI
+          </button>
+          <button
+            type="button"
+            className={`strategy-tool-btn ai${aiPanelOpen ? ' active' : ''}`}
+            onClick={() => setAiPanelOpen((prev) => !prev)}
+          >
+            AI 전략
+          </button>
+          <button
+            type="button"
             className={`backend-view-btn${viewMode === 'backend' ? ' active' : ''}`}
             onClick={() => {
               setViewMode('backend');
@@ -918,6 +1327,95 @@ export default function BackendTab() {
           </button>
         </div>
       </div>
+      <div className="strategy-feedback-bar">
+        <div className={`strategy-feedback-chip ${strategyReport?.valid ? 'valid' : 'invalid'}`}>
+          {strategyReport
+            ? `검증: ${strategyReport.valid ? '통과' : '실패'}`
+            : '검증: 미실행'}
+        </div>
+        {strategyReport && (
+          <div className="strategy-feedback-summary">
+            blocks {strategyReport.stats?.blocks ?? 0} · links {strategyReport.stats?.connections ?? 0}
+            {' '}· errors {strategyReport.errors.length} · warnings {strategyReport.warnings.length}
+          </div>
+        )}
+        {strategyNotice && (
+          <div className={`strategy-feedback-message ${strategyNotice.type}`}>
+            {strategyNotice.message}
+          </div>
+        )}
+      </div>
+      <div className="host-control-bar">
+        <label htmlFor="host-base-url" className="host-control-label">Host API</label>
+        <input
+          id="host-base-url"
+          type="text"
+          className="host-control-input"
+          value={hostBaseUrl}
+          onChange={(event) => setHostBaseUrl(event.target.value)}
+          placeholder="http://localhost:9000"
+          spellCheck={false}
+        />
+        <button
+          type="button"
+          className="strategy-tool-btn host"
+          onClick={handleDeployHostProgram}
+          disabled={!activeTabId || hostBusy}
+        >
+          {hostBusy ? '처리중...' : 'Host 배포'}
+        </button>
+        <button
+          type="button"
+          className="strategy-tool-btn"
+          onClick={handleStartHostProgram}
+          disabled={!hostProgram?.programId || hostBusy}
+        >
+          시작
+        </button>
+        <button
+          type="button"
+          className="strategy-tool-btn"
+          onClick={handleRefreshHostProgram}
+          disabled={!hostProgram?.programId || hostBusy}
+        >
+          상태
+        </button>
+        <button
+          type="button"
+          className="strategy-tool-btn"
+          onClick={handleStopHostProgram}
+          disabled={!hostProgram?.programId || hostBusy}
+        >
+          중지
+        </button>
+        <button
+          type="button"
+          className="strategy-tool-btn"
+          onClick={handleOpenWatcherStatus}
+          disabled={!hostProgram?.programId}
+        >
+          Watcher 상태
+        </button>
+        {hostProgram && (
+          <div className="host-program-summary">
+            id {hostProgram.programId} · build {hostProgram.buildId} · state {hostProgram.state}
+          </div>
+        )}
+      </div>
+      {strategyReport && (strategyReport.errors.length > 0 || strategyReport.warnings.length > 0) && (
+        <div className="strategy-feedback-issues">
+          {strategyReport.errors.slice(0, 3).map((item) => (
+            <div key={`err-${item.code}-${item.message}`} className="strategy-feedback-issue error">
+              [ERR] {item.message}
+            </div>
+          ))}
+          {strategyReport.warnings.slice(0, 3).map((item) => (
+            <div key={`warn-${item.code}-${item.message}`} className="strategy-feedback-issue warn">
+              [WARN] {item.message}
+            </div>
+          ))}
+        </div>
+      )}
       
       {viewMode === 'backend' ? (
         <div className="backend-content">
@@ -996,6 +1494,55 @@ export default function BackendTab() {
           onUpdateBlock={handleUpdateBlock}
         />
       )}
+      <div className={`ai-side-panel${aiPanelOpen ? ' open' : ''}`}>
+        <div className="ai-side-header">
+          <div className="ai-side-title">AI 전략</div>
+          <button
+            type="button"
+            className="ai-side-close"
+            onClick={() => setAiPanelOpen(false)}
+          >
+            닫기
+          </button>
+        </div>
+        <div className="ai-side-body">
+          <label htmlFor="ai-strategy-prompt" className="ai-control-label">요청 프롬프트</label>
+          <textarea
+            id="ai-strategy-prompt"
+            className="ai-control-input"
+            value={aiPrompt}
+            onChange={(event) => setAiPrompt(event.target.value)}
+            placeholder="예: BTCUSDT 1시간 마켓 기준으로 돌파 매수/이탈 매도 전략 만들어줘"
+            rows={7}
+          />
+          <div className="ai-control-actions">
+            <button
+              type="button"
+              className="strategy-tool-btn host"
+              onClick={handleGenerateAIStrategy}
+              disabled={!activeTabId || aiBusy}
+            >
+              {aiBusy ? 'AI 생성중...' : 'AI로 전략 생성'}
+            </button>
+            <button
+              type="button"
+              className="strategy-tool-btn"
+              onClick={() => setAiPrompt('BTCUSDT 1시간 마켓 전략으로 만들어줘. 최근 가격 기준 상단/하단 임계값을 자동 추정하고, 1시간 내 단기 돌파는 매수, 이탈은 매도하도록 구성해줘.')}
+              disabled={aiBusy}
+            >
+              예시 입력
+            </button>
+          </div>
+          <div className="ai-control-hint">
+            Host API의 `/ai/strategy-draft`를 우선 호출하고, 실패하면 로컬 규칙 생성으로 대체합니다.
+          </div>
+          {aiNotice && (
+            <div className={`ai-control-message ${aiNotice.type}`}>
+              {aiNotice.message}
+            </div>
+          )}
+        </div>
+      </div>
     </div>
   );
 }

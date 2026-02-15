@@ -92,10 +92,11 @@ func (hs *HostServer) Start(port int) error {
 	// Program CRUD endpoints
 	mux.HandleFunc("/programs", hs.handlePrograms)
 	mux.HandleFunc("/programs/", hs.handleProgramByID)
+	mux.HandleFunc("/ai/strategy-draft", hs.handleAIStrategyDraft)
 
 	hs.server = &http.Server{
 		Addr:    fmt.Sprintf(":%d", port),
-		Handler: mux,
+		Handler: hs.withCORS(mux),
 	}
 
 	return hs.server.ListenAndServe()
@@ -404,6 +405,19 @@ func (hs *HostServer) sendError(w http.ResponseWriter, code int, message string)
 		Error:   http.StatusText(code),
 		Code:    code,
 		Message: message,
+	})
+}
+
+func (hs *HostServer) withCORS(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Access-Control-Allow-Origin", "*")
+		w.Header().Set("Access-Control-Allow-Methods", "GET,POST,PUT,PATCH,DELETE,OPTIONS")
+		w.Header().Set("Access-Control-Allow-Headers", "Content-Type, Authorization")
+		if r.Method == http.MethodOptions {
+			w.WriteHeader(http.StatusNoContent)
+			return
+		}
+		next.ServeHTTP(w, r)
 	})
 }
 

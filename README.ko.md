@@ -276,6 +276,7 @@ MIT License - 자세한 내용은 LICENSE 파일 참고
 
 - [CLAUDE.md](CLAUDE.md) - 프로젝트 개요 및 구현 가이드
 - [API Reference](docs/API.md) - 상세 API 문서(TBD)
+- [Host AI Provider Guide](host/AI_PROVIDER_GUIDE.md) - `/ai/strategy-draft`용 AI provider 설정/사용 가이드
 - [Examples](examples/) - 사용 예제 및 검증
 
 ---
