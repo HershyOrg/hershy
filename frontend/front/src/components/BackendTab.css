@@ -236,29 +236,12 @@
   flex-wrap: wrap;
 }
 
-.host-control-label {
+.host-control-target {
   color: #94a3b8;
   font-family: Inter, -apple-system, Roboto, Helvetica, sans-serif;
   font-size: 12px;
   font-weight: 700;
-}
-
-.host-control-input {
-  height: 28px;
-  min-width: 220px;
-  border-radius: 8px;
-  border: 1px solid #334155;
-  background: #020617;
-  color: #e2e8f0;
-  padding: 0 10px;
-  font-family: Inter, -apple-system, Roboto, Helvetica, sans-serif;
-  font-size: 12px;
-}
-
-.host-control-input:focus {
-  outline: none;
-  border-color: #0f766e;
-  box-shadow: 0 0 0 2px rgba(15, 118, 110, 0.18);
+  padding-right: 8px;
 }
 
 .host-program-summary {

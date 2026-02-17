@@ -22,6 +22,9 @@ import { generateStrategyDraft } from '../lib/strategyAssistant';
 
 const DEFAULT_LIVE_INTERVAL = 1200;
 const MAX_SNAPSHOT_RECORDS = 30;
+const FRONT_AI_ENDPOINT = '/api/ai/strategy-draft';
+const FRONT_HOST_PROXY_PREFIX = '/api/host';
+const DEFAULT_HOST_TARGET = 'http://localhost:9000';
 
 const buildSnapshotValue = (field, seq, previousValues = {}) => {
   const lower = field.toLowerCase();
@@ -63,23 +66,6 @@ const buildSnapshotValues = (fields, seq, previousValues) => (
   }, {})
 );
 
-const resolveDefaultHostBase = () => {
-  if (typeof window === 'undefined') {
-    return 'http://localhost:9000';
-  }
-
-  const saved = window.localStorage.getItem('hershy.hostBase');
-  if (saved) {
-    return saved;
-  }
-
-  if (window.location.port === '9000') {
-    return window.location.origin;
-  }
-
-  return 'http://localhost:9000';
-};
-
 export default function BackendTab() {
   const initialTabs = [{ id: 'strategy-1', label: 'Strategy 1' }];
   const nextTabIdRef = useRef(2);
@@ -111,7 +97,7 @@ export default function BackendTab() {
   const [aiNotice, setAiNotice] = useState(null);
   const [aiBusy, setAiBusy] = useState(false);
   const [aiPanelOpen, setAiPanelOpen] = useState(false);
-  const [hostBaseUrl, setHostBaseUrl] = useState(resolveDefaultHostBase);
+  const [hostTarget, setHostTarget] = useState(DEFAULT_HOST_TARGET);
   const [hostProgram, setHostProgram] = useState(null);
   const [hostBusy, setHostBusy] = useState(false);
 
@@ -187,11 +173,24 @@ export default function BackendTab() {
   }, [activeTabId]);
 
   useEffect(() => {
-    if (typeof window === 'undefined') {
-      return;
-    }
-    window.localStorage.setItem('hershy.hostBase', hostBaseUrl);
-  }, [hostBaseUrl]);
+    let mounted = true;
+    fetch('/api/config')
+      .then((response) => response.json())
+      .then((payload) => {
+        if (!mounted) {
+          return;
+        }
+        if (typeof payload?.host_api_base === 'string' && payload.host_api_base.trim()) {
+          setHostTarget(payload.host_api_base.trim());
+        }
+      })
+      .catch(() => {
+        // Keep default when front server config endpoint is unavailable.
+      });
+    return () => {
+      mounted = false;
+    };
+  }, []);
 
   const getDefaultPosition = (blocks) => {
     const index = blocks.length;
@@ -284,15 +283,13 @@ export default function BackendTab() {
     }
 
     const current = compileActiveStrategy();
-    const hostBase = hostBaseUrl.trim().replace(/\/+$/, '');
-    const aiEndpoint = hostBase ? `${hostBase}/ai/strategy-draft` : '';
     setAiBusy(true);
     setAiNotice(null);
     try {
       const generated = await generateStrategyDraft({
         prompt: aiPrompt,
         currentStrategy: current?.strategy || null,
-        endpoint: aiEndpoint
+        endpoint: FRONT_AI_ENDPOINT
       });
       const report = validateStrategyDefinition(generated.strategy);
       setStrategyReport(report);
@@ -393,23 +390,19 @@ export default function BackendTab() {
     if (typeof window === 'undefined') {
       return;
     }
-    const base = hostBaseUrl.replace(/\/+$/, '');
+    const base = hostTarget.trim().replace(/\/+$/, '') || DEFAULT_HOST_TARGET;
     window.open(`${base}/ui/programs`, '_blank', 'noopener,noreferrer');
   };
 
   const callHost = async (path, options = {}) => {
-    const base = hostBaseUrl.trim().replace(/\/+$/, '');
-    if (!base) {
-      throw new Error('Host Base URL이 비어 있습니다.');
-    }
-    const url = `${base}${path}`;
+    const url = `${FRONT_HOST_PROXY_PREFIX}${path}`;
     let response;
 
     try {
       response = await fetch(url, options);
-    } catch (error) {
+    } catch {
       throw new Error(
-        `Host API 연결 실패 (${url}). Host가 실행 중인지, CORS/프록시 설정이 맞는지 확인하세요.`
+        `Host API 연결 실패 (${url}). front 서버 프록시와 host(:9000) 상태를 확인하세요.`
       );
     }
 
@@ -529,11 +522,12 @@ export default function BackendTab() {
     if (typeof window === 'undefined' || !hostProgram?.programId) {
       return;
     }
-    const base = hostBaseUrl.trim().replace(/\/+$/, '');
-    if (!base) {
-      return;
-    }
-    window.open(`${base}/programs/${hostProgram.programId}/proxy/watcher/status`, '_blank', 'noopener,noreferrer');
+    const base = hostTarget.trim().replace(/\/+$/, '') || DEFAULT_HOST_TARGET;
+    window.open(
+      `${base}/programs/${hostProgram.programId}/proxy/watcher/status`,
+      '_blank',
+      'noopener,noreferrer'
+    );
   };
 
   const serializeBlocks = (blocks) => {
@@ -1346,16 +1340,9 @@ export default function BackendTab() {
         )}
       </div>
       <div className="host-control-bar">
-        <label htmlFor="host-base-url" className="host-control-label">Host API</label>
-        <input
-          id="host-base-url"
-          type="text"
-          className="host-control-input"
-          value={hostBaseUrl}
-          onChange={(event) => setHostBaseUrl(event.target.value)}
-          placeholder="http://localhost:9000"
-          spellCheck={false}
-        />
+        <div className="host-control-target">
+          Host API Target: {hostTarget}
+        </div>
         <button
           type="button"
           className="strategy-tool-btn host"
@@ -1534,7 +1521,7 @@ export default function BackendTab() {
             </button>
           </div>
           <div className="ai-control-hint">
-            Host API의 `/ai/strategy-draft`를 우선 호출하고, 실패하면 로컬 규칙 생성으로 대체합니다.
+            front 서버의 `/api/ai/strategy-draft`를 우선 호출하고, 실패하면 로컬 규칙 생성으로 대체합니다.
           </div>
           {aiNotice && (
             <div className={`ai-control-message ${aiNotice.type}`}>
