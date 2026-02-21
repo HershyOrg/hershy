@@ -3,6 +3,7 @@ import ChromeTabs from './ChromeTabs';
 import Sidebar from './Sidebar';
 import Canvas from './Canvas';
 import FrontTab from './FrontTab';
+import PreAuthTab from './PreAuthTab';
 import BlockListPanel from './panels/BlockListPanel';
 import SavedBlocksPanel from './panels/SavedBlocksPanel';
 import StreamingBlocksPanel from './panels/StreamingBlocksPanel';
@@ -19,6 +20,12 @@ import {
 } from '../lib/strategyCompiler';
 import { buildStrategyRunnerPayload } from '../lib/hostRunnerTemplates';
 import { generateStrategyDraft } from '../lib/strategyAssistant';
+import {
+  createEmptyActionAuthState,
+  getProviderCredentials,
+  isProviderAuthorized,
+  resolveActionAuthRequirement
+} from '../lib/actionAuth';
 
 const DEFAULT_LIVE_INTERVAL = 1200;
 const MAX_SNAPSHOT_RECORDS = 30;
@@ -66,6 +73,19 @@ const buildSnapshotValues = (fields, seq, previousValues) => (
   }, {})
 );
 
+const buildAIAuthContext = (actionAuthState = {}) => {
+  const evmCredentials = getProviderCredentials(actionAuthState, 'evm');
+  const explorerApiKey = String(evmCredentials?.explorerApiKey || '').trim();
+  if (!explorerApiKey) {
+    return null;
+  }
+  return {
+    evm: {
+      explorerApiKey
+    }
+  };
+};
+
 export default function BackendTab() {
   const initialTabs = [{ id: 'strategy-1', label: 'Strategy 1' }];
   const nextTabIdRef = useRef(2);
@@ -89,6 +109,9 @@ export default function BackendTab() {
   }));
   const [selectedBlockIdsByTab, setSelectedBlockIdsByTab] = useState(() => ({
     [initialTabs[0].id]: []
+  }));
+  const [actionAuthByTab, setActionAuthByTab] = useState(() => ({
+    [initialTabs[0].id]: createEmptyActionAuthState()
   }));
   const [savedTemplates, setSavedTemplates] = useState([]);
   const [strategyNotice, setStrategyNotice] = useState(null);
@@ -122,6 +145,10 @@ export default function BackendTab() {
     setSelectedBlockIdsByTab((prevSelected) => ({
       ...prevSelected,
       [nextId]: []
+    }));
+    setActionAuthByTab((prevAuth) => ({
+      ...prevAuth,
+      [nextId]: createEmptyActionAuthState()
     }));
     setActiveTabId(nextId);
   };
@@ -160,6 +187,12 @@ export default function BackendTab() {
       delete nextSelected[tabId];
       return nextSelected;
     });
+
+    setActionAuthByTab((prevAuth) => {
+      const nextAuth = { ...prevAuth };
+      delete nextAuth[tabId];
+      return nextAuth;
+    });
   };
 
   useEffect(() => {
@@ -169,6 +202,17 @@ export default function BackendTab() {
 
     setSelectedBlockIdsByTab((prevSelected) => (
       prevSelected[activeTabId] ? prevSelected : { ...prevSelected, [activeTabId]: [] }
+    ));
+  }, [activeTabId]);
+
+  useEffect(() => {
+    if (!activeTabId) {
+      return;
+    }
+    setActionAuthByTab((prevAuth) => (
+      prevAuth[activeTabId]
+        ? prevAuth
+        : { ...prevAuth, [activeTabId]: createEmptyActionAuthState() }
     ));
   }, [activeTabId]);
 
@@ -205,10 +249,31 @@ export default function BackendTab() {
   const activeBlocks = activeTabId ? blocksByTab[activeTabId] || [] : [];
   const activeConnections = activeTabId ? connectionsByTab[activeTabId] || [] : [];
   const activeSelectedIds = activeTabId ? selectedBlockIdsByTab[activeTabId] || [] : [];
+  const activeActionAuth = activeTabId ? actionAuthByTab[activeTabId] || createEmptyActionAuthState() : createEmptyActionAuthState();
   const activeTabLabel = useMemo(
     () => tabs.find((tab) => tab.id === activeTabId)?.label || '',
     [tabs, activeTabId]
   );
+
+  const updateProviderAuth = (providerId, updates) => {
+    if (!activeTabId || !providerId) {
+      return;
+    }
+    setActionAuthByTab((prevAuth) => {
+      const currentTab = prevAuth[activeTabId] || createEmptyActionAuthState();
+      const currentProvider = currentTab[providerId] || {};
+      return {
+        ...prevAuth,
+        [activeTabId]: {
+          ...currentTab,
+          [providerId]: {
+            ...currentProvider,
+            ...updates
+          }
+        }
+      };
+    });
+  };
 
   const setNotice = (type, message) => {
     setStrategyNotice({
@@ -289,6 +354,7 @@ export default function BackendTab() {
       const generated = await generateStrategyDraft({
         prompt: aiPrompt,
         currentStrategy: current?.strategy || null,
+        authContext: buildAIAuthContext(activeActionAuth),
         endpoint: FRONT_AI_ENDPOINT
       });
       const report = validateStrategyDefinition(generated.strategy);
@@ -428,7 +494,8 @@ export default function BackendTab() {
     setHostBusy(true);
     try {
       const payload = buildStrategyRunnerPayload(compiled.json, {
-        userHint: activeTabLabel || activeTabId || 'strategy'
+        userHint: activeTabLabel || activeTabId || 'strategy',
+        actionAuth: activeActionAuth
       });
       const created = await callHost('/programs', {
         method: 'POST',
@@ -760,6 +827,14 @@ export default function BackendTab() {
   };
 
   const handleCreateActionBlock = (blockData) => {
+    const requirement = resolveActionAuthRequirement(blockData);
+    if (requirement && !isProviderAuthorized(activeActionAuth, requirement.id)) {
+      setNotice('error', `${requirement.label} 사전인증을 완료해야 액션 블록을 생성할 수 있습니다.`);
+      setViewMode('preauth');
+      setActivePanel(null);
+      return;
+    }
+
     addBlockToActiveTab({
       id: `action-${nextBlockIdRef.current++}`,
       type: 'action',
@@ -941,6 +1016,11 @@ export default function BackendTab() {
       type: 'streaming',
       name: `${sourceBlock.name || sourceBlock.id}_${fieldName}`,
       fields: [fieldName],
+      apiUrl: sourceBlock.apiUrl || '',
+      streamKind: sourceBlock.streamKind || 'url',
+      streamChain: sourceBlock.streamChain || '',
+      streamMethod: sourceBlock.streamMethod || '',
+      streamParamsJson: sourceBlock.streamParamsJson || '',
       updateMode: sourceBlock.updateMode || 'periodic',
       updateInterval: sourceBlock.updateInterval || 1000,
       position: {
@@ -1319,6 +1399,16 @@ export default function BackendTab() {
           >
             프론트
           </button>
+          <button
+            type="button"
+            className={`backend-view-btn${viewMode === 'preauth' ? ' active' : ''}`}
+            onClick={() => {
+              setViewMode('preauth');
+              setActivePanel(null);
+            }}
+          >
+            사전인증
+          </button>
         </div>
       </div>
       <div className="strategy-feedback-bar">
@@ -1465,6 +1555,11 @@ export default function BackendTab() {
             <ActionBlocksPanel
               onClose={() => setActivePanel(null)}
               onCreate={handleCreateActionBlock}
+              authState={activeActionAuth}
+              onRequestAuth={() => {
+                setViewMode('preauth');
+                setActivePanel(null);
+              }}
             />
           )}
           {activePanel === 'monitoring-blocks' && (
@@ -1474,11 +1569,18 @@ export default function BackendTab() {
             />
           )}
         </div>
-      ) : (
+      ) : viewMode === 'front' ? (
         <FrontTab
           blocks={activeBlocks}
           connections={activeConnections}
           onUpdateBlock={handleUpdateBlock}
+          authState={activeActionAuth}
+        />
+      ) : (
+        <PreAuthTab
+          authState={activeActionAuth}
+          onUpdateProvider={updateProviderAuth}
+          onExit={() => setViewMode('backend')}
         />
       )}
       <div className={`ai-side-panel${aiPanelOpen ? ' open' : ''}`}>
@@ -1521,7 +1623,7 @@ export default function BackendTab() {
             </button>
           </div>
           <div className="ai-control-hint">
-            front 서버의 `/api/ai/strategy-draft`를 우선 호출하고, 실패하면 로컬 규칙 생성으로 대체합니다.
+            front 서버의 `/api/ai/strategy-draft`(오케스트레이션 to 리서치 to 전략)를 호출하고, 실패하면 로컬 규칙 생성으로 대체합니다.
           </div>
           {aiNotice && (
             <div className={`ai-control-message ${aiNotice.type}`}>

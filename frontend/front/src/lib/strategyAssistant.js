@@ -284,20 +284,25 @@ const buildRuleBasedStrategy = (prompt, currentStrategy) => {
   };
 };
 
-const requestRemoteDraft = async ({ endpoint, prompt, currentStrategy }) => {
+const requestRemoteDraft = async ({ endpoint, prompt, currentStrategy, authContext }) => {
   const controller = new AbortController();
   const timeout = window.setTimeout(() => controller.abort(), 25000);
   try {
+    const requestPayload = {
+      prompt,
+      current_strategy: currentStrategy || null,
+      response_format: 'hershy-strategy-graph'
+    };
+    if (authContext && typeof authContext === 'object') {
+      requestPayload.auth_context = authContext;
+    }
+
     const response = await fetch(endpoint, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json'
       },
-      body: JSON.stringify({
-        prompt,
-        current_strategy: currentStrategy || null,
-        response_format: 'hershy-strategy-graph'
-      }),
+      body: JSON.stringify(requestPayload),
       signal: controller.signal
     });
     const payload = await response.json().catch(() => ({}));
@@ -315,7 +320,12 @@ const requestRemoteDraft = async ({ endpoint, prompt, currentStrategy }) => {
   }
 };
 
-export const generateStrategyDraft = async ({ prompt, currentStrategy, endpoint: endpointOverride }) => {
+export const generateStrategyDraft = async ({
+  prompt,
+  currentStrategy,
+  authContext,
+  endpoint: endpointOverride
+}) => {
   const trimmedPrompt = normalizeText(prompt);
   if (!trimmedPrompt) {
     throw new Error('프롬프트가 비어 있습니다.');
@@ -327,7 +337,8 @@ export const generateStrategyDraft = async ({ prompt, currentStrategy, endpoint:
       const remoteStrategy = await requestRemoteDraft({
         endpoint,
         prompt: trimmedPrompt,
-        currentStrategy
+        currentStrategy,
+        authContext
       });
       const report = validateStrategyDefinition(remoteStrategy);
       if (report.valid) {

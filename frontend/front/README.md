@@ -6,7 +6,10 @@
 
 - Front (`:9090`)
   - 전략 캔버스 UI
-  - AI draft endpoint: `/api/ai/strategy-draft`
+  - AI orchestration draft endpoint: `/api/ai/strategy-draft`
+  - AI orchestration endpoint: `/api/ai/orchestrate-strategy`
+  - AI research endpoint: `/api/ai/research`
+  - AI strategy compose endpoint: `/api/ai/strategy-compose`
   - Host proxy endpoint: `/api/host/*`
 - Host (`:9000`)
   - 프로그램 생성/실행/중지/Watcher 프록시
@@ -41,5 +44,9 @@ HOST_API_BASE=http://localhost:9000 npm run start
 - `FRONT_PORT` (default: `9090`)
 - `AI_PROVIDER` (`ollama`, `gemini`, `openai`)
 - `OPENAI_API_KEY`, `GOOGLE_API_KEY`/`GEMINI_API_KEY`, `OLLAMA_*`
+- Layer override (optional):
+  - `AI_ORCHESTRATOR_PROVIDER`, `AI_RESEARCH_PROVIDER`, `AI_STRATEGY_PROVIDER`
+  - `AI_ORCHESTRATOR_MODEL`, `AI_RESEARCH_MODEL`, `AI_STRATEGY_MODEL`
+  - `AI_<LAYER>_TIMEOUT_SEC` (e.g. `AI_RESEARCH_TIMEOUT_SEC`)
 
 세부 provider 설정은 `host/AI_PROVIDER_GUIDE.md` 참고.

@@ -276,7 +276,8 @@ Contributions are welcome! Please ensure:
 
 - [CLAUDE.md](CLAUDE.md) - Project overview and implementation guide
 - [API Reference](docs/API.md) - Detailed API documentation (TBD)
-- [Host AI Provider Guide](host/AI_PROVIDER_GUIDE.md) - AI provider setup and usage for `/ai/strategy-draft`
+- [Front AI Provider Guide](host/AI_PROVIDER_GUIDE.md) - AI provider setup for front standalone endpoint `/api/ai/strategy-draft`
+- [Front Standalone Guide](frontend/front/README.md) - Run AI development UI as a standalone server (`:9090`)
 - [Examples](examples/) - Usage examples and validation
 
 ---

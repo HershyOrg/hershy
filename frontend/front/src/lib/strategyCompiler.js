@@ -9,6 +9,10 @@ const normalizeNumber = (value, fallback = null) => {
   return Number.isFinite(parsed) ? parsed : fallback;
 };
 
+const isLikelyEVMAddress = (value) => (
+  /^0x[a-fA-F0-9]{40}$/.test(normalizeString(value))
+);
+
 const normalizeSourceRef = (source) => {
   if (!source || typeof source !== 'object') {
     return null;
@@ -58,9 +62,14 @@ const compileBlockConfig = (block) => {
   switch (block.type) {
     case 'streaming': {
       const intervalMs = Math.max(300, normalizeNumber(block.updateInterval, 1000));
+      const streamKind = normalizeString(block.streamKind) || (normalizeString(block.streamChain) ? 'evm-rpc' : 'url');
       return {
         name: normalizeString(block.name) || block.id,
         sourceUrl: normalizeString(block.apiUrl),
+        streamKind,
+        streamChain: normalizeString(block.streamChain),
+        streamMethod: normalizeString(block.streamMethod),
+        streamParamsJson: normalizeString(block.streamParamsJson),
         updateMode: normalizeString(block.updateMode) || 'periodic',
         updateIntervalMs: intervalMs,
         fields: Array.isArray(block.fields) ? block.fields.filter((field) => typeof field === 'string' && field.trim() !== '') : [],
@@ -91,9 +100,15 @@ const compileBlockConfig = (block) => {
         name: normalizeString(block.name) || block.id,
         actionType: normalizeString(block.actionType) || 'cex',
         exchange: normalizeString(block.exchange),
+        dexProtocol: normalizeString(block.dexProtocol) || 'generic',
         executionMode: normalizeString(block.executionMode) || 'address',
         contractAddress: normalizeString(block.contractAddress),
         contractAbi: normalizeString(block.contractAbi),
+        evmChain: normalizeString(block.evmChain),
+        evmFunctionName: normalizeString(block.evmFunctionName),
+        evmFunctionSignature: normalizeString(block.evmFunctionSignature),
+        evmFunctionStateMutability: normalizeString(block.evmFunctionStateMutability),
+        chainId: normalizeString(block.chainId),
         apiUrl: normalizeString(block.apiUrl),
         apiPayloadTemplate: normalizeString(block.apiPayloadTemplate),
         parameters: Array.isArray(block.parameters)
@@ -308,7 +323,69 @@ export const validateStrategyDefinition = (strategy) => {
     }
   });
 
+  byType.streaming.forEach((block) => {
+    const config = block?.config || {};
+    const streamKind = normalizeString(config.streamKind || (normalizeString(config.streamChain) ? 'evm-rpc' : 'url'));
+    const streamChain = normalizeString(config.streamChain);
+    const streamMethod = normalizeString(config.streamMethod);
+    const streamParamsJson = normalizeString(config.streamParamsJson);
+
+    if (streamKind === 'evm-rpc') {
+      if (!streamChain) {
+        errors.push({ code: 'STREAM_CHAIN_REQUIRED', message: `evm stream requires chain: ${block.id}` });
+      }
+      if (!streamMethod) {
+        errors.push({ code: 'STREAM_METHOD_REQUIRED', message: `evm stream requires rpc method: ${block.id}` });
+      }
+      if (streamParamsJson) {
+        try {
+          const parsed = JSON.parse(streamParamsJson);
+          if (!Array.isArray(parsed)) {
+            errors.push({ code: 'STREAM_PARAMS_INVALID', message: `evm stream params must be JSON array: ${block.id}` });
+          }
+        } catch {
+          errors.push({ code: 'STREAM_PARAMS_INVALID', message: `evm stream params is invalid JSON: ${block.id}` });
+        }
+      }
+    }
+  });
+
   byType.action.forEach((block) => {
+    const config = block?.config || {};
+    const actionType = normalizeString(config.actionType).toLowerCase() || 'cex';
+    const dexProtocol = normalizeString(config.dexProtocol).toLowerCase() || 'generic';
+    const executionMode = normalizeString(config.executionMode).toLowerCase() || 'address';
+
+    if (actionType === 'dex' && (dexProtocol === 'evm' || dexProtocol === 'evm-contract') && executionMode === 'address') {
+      const chain = normalizeString(config.evmChain);
+      const contractAddress = normalizeString(config.contractAddress);
+      const contractAbi = normalizeString(config.contractAbi);
+      const functionName = normalizeString(config.evmFunctionName);
+      const functionSignature = normalizeString(config.evmFunctionSignature);
+
+      if (!chain) {
+        errors.push({ code: 'EVM_CHAIN_REQUIRED', message: `evm action requires chain: ${block.id}` });
+      }
+      if (!contractAddress) {
+        errors.push({ code: 'EVM_CONTRACT_REQUIRED', message: `evm action requires contract address: ${block.id}` });
+      } else if (!isLikelyEVMAddress(contractAddress)) {
+        errors.push({ code: 'EVM_CONTRACT_INVALID', message: `evm contract address is invalid: ${block.id}` });
+      }
+      if (!contractAbi) {
+        errors.push({ code: 'EVM_ABI_REQUIRED', message: `evm action requires contract ABI: ${block.id}` });
+      }
+      if (!functionName && !functionSignature) {
+        errors.push({ code: 'EVM_FUNCTION_REQUIRED', message: `evm action requires function name/signature: ${block.id}` });
+      }
+    }
+
+    if (actionType === 'dex' && dexProtocol === 'polymarket') {
+      const chainId = Number(normalizeString(config.chainId));
+      if (!Number.isFinite(chainId) || chainId <= 0) {
+        errors.push({ code: 'POLYMARKET_CHAIN_REQUIRED', message: `polymarket action requires valid chainId: ${block.id}` });
+      }
+    }
+
     if ((actionTriggerCount.get(block.id) || 0) === 0) {
       errors.push({ code: 'ACTION_TRIGGER_REQUIRED', message: `action needs at least one trigger: ${block.id}` });
     }
@@ -386,6 +463,10 @@ const toCanvasBlock = (block, index) => {
       position,
       name: normalizeString(config.name) || id,
       apiUrl: normalizeString(config.sourceUrl),
+      streamKind: normalizeString(config.streamKind || (normalizeString(config.streamChain) ? 'evm-rpc' : 'url')) || 'url',
+      streamChain: normalizeString(config.streamChain),
+      streamMethod: normalizeString(config.streamMethod),
+      streamParamsJson: normalizeString(config.streamParamsJson),
       updateMode: normalizeString(config.updateMode) || 'periodic',
       updateInterval: Math.max(300, normalizeNumber(config.updateIntervalMs, 1000)),
       fields: Array.isArray(config.fields)
@@ -430,9 +511,15 @@ const toCanvasBlock = (block, index) => {
       name: normalizeString(config.name) || id,
       actionType: normalizeString(config.actionType) || 'cex',
       exchange: normalizeString(config.exchange),
+      dexProtocol: normalizeString(config.dexProtocol) || 'generic',
       executionMode: normalizeString(config.executionMode) || 'address',
       contractAddress: normalizeString(config.contractAddress),
       contractAbi: normalizeString(config.contractAbi),
+      evmChain: normalizeString(config.evmChain),
+      evmFunctionName: normalizeString(config.evmFunctionName),
+      evmFunctionSignature: normalizeString(config.evmFunctionSignature),
+      evmFunctionStateMutability: normalizeString(config.evmFunctionStateMutability),
+      chainId: normalizeString(config.chainId),
       apiUrl: normalizeString(config.apiUrl),
       apiPayloadTemplate: normalizeString(config.apiPayloadTemplate),
       parameters: Array.isArray(config.parameters)

@@ -12,6 +12,14 @@ SLUG="${SLUG:-}"
 AUTO_SLUG="${AUTO_SLUG:-}"
 SLUG_PREFIX="${SLUG_PREFIX:-}"
 EXTRA_ARGS="${EXTRA_ARGS:-}"
+AUTO_SLUG_LC="$(printf '%s' "$AUTO_SLUG" | tr '[:upper:]' '[:lower:]')"
+
+if ! curl -fsS -m 3 "$HOST_URL/programs" >/dev/null; then
+  echo "❌ Host API unreachable: $HOST_URL" >&2
+  echo "   Start host first (example):" >&2
+  echo "   cd \"$ROOT_DIR/host\" && go run cmd/main.go" >&2
+  exit 1
+fi
 
 if [[ ! -f "$MODEL_PATH" ]]; then
   echo "❌ MODEL_PATH not found: $MODEL_PATH" >&2
@@ -20,7 +28,7 @@ if [[ ! -f "$MODEL_PATH" ]]; then
 fi
 
 if [[ -z "$SLUG" ]]; then
-  case "${AUTO_SLUG,,}" in
+  case "$AUTO_SLUG_LC" in
     1|true|yes) ;;
     *)
       echo "❌ Provide SLUG or set AUTO_SLUG=1 with SLUG_PREFIX." >&2
@@ -41,7 +49,7 @@ cleanup() {
 }
 trap cleanup EXIT
 
-tar -czf "$CCTX_TAR" -C "$ROOT_DIR/cctx" .
+LC_ALL=C tar -czf "$CCTX_TAR" -C "$ROOT_DIR/cctx" .
 base64 < "$CCTX_TAR" > "$CCTX_B64"
 
 create_resp=$(
@@ -53,7 +61,7 @@ SLUG="$SLUG" \
 AUTO_SLUG="$AUTO_SLUG" \
 SLUG_PREFIX="$SLUG_PREFIX" \
 EXTRA_ARGS="$EXTRA_ARGS" \
-python3 - <<'PY' | curl -s -X POST "$HOST_URL/programs" \
+python3 - <<'PY' | curl -sS -X POST "$HOST_URL/programs" \
   -H "Content-Type: application/json" \
   --data-binary @-
 import json
@@ -152,7 +160,7 @@ echo "✅ Program created: $program_id"
 
 echo ""
 echo "📊 Starting program..."
-start_resp=$(curl -s -X POST "$HOST_URL/programs/$program_id/start")
+start_resp=$(curl -sS -X POST "$HOST_URL/programs/$program_id/start")
 echo "$start_resp" | python3 -m json.tool 2>/dev/null || echo "$start_resp"
 
 echo ""

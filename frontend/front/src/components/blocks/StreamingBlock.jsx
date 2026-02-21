@@ -1,10 +1,16 @@
 import { useEffect, useState } from 'react';
 import './StreamingBlock.css';
+import { EVM_CHAINS } from '../../lib/evmChains';
 
 const StreamingBlock = ({
   blockId,
   name = "Binance_BTC_Stream",
   fields = ["timestamp", "price", "volume"],
+  apiUrl = '',
+  streamKind = 'url',
+  streamChain = '',
+  streamMethod = 'eth_blockNumber',
+  streamParamsJson = '[]',
   updateMode = "periodic", // "live" or "periodic"
   updateInterval = 1000,
   mutedFields,
@@ -14,6 +20,11 @@ const StreamingBlock = ({
 }) => {
   const [mode, setMode] = useState(updateMode);
   const [interval, setInterval] = useState(updateInterval);
+  const [sourceUrl, setSourceUrl] = useState(apiUrl);
+  const [kind, setKind] = useState(streamKind || 'url');
+  const [chain, setChain] = useState(streamChain);
+  const [method, setMethod] = useState(streamMethod);
+  const [paramsJson, setParamsJson] = useState(streamParamsJson);
   const [mutedFieldsState, setMutedFieldsState] = useState(() => (
     Array.isArray(mutedFields) ? mutedFields : []
   ));
@@ -26,6 +37,26 @@ const StreamingBlock = ({
   useEffect(() => {
     setInterval(updateInterval);
   }, [updateInterval]);
+
+  useEffect(() => {
+    setSourceUrl(apiUrl);
+  }, [apiUrl]);
+
+  useEffect(() => {
+    setKind(streamKind || 'url');
+  }, [streamKind]);
+
+  useEffect(() => {
+    setChain(streamChain);
+  }, [streamChain]);
+
+  useEffect(() => {
+    setMethod(streamMethod);
+  }, [streamMethod]);
+
+  useEffect(() => {
+    setParamsJson(streamParamsJson);
+  }, [streamParamsJson]);
 
   useEffect(() => {
     if (Array.isArray(mutedFields)) {
@@ -178,6 +209,89 @@ const StreamingBlock = ({
             }}
           />
         </div>
+      )}
+
+      <div className="streaming-block-interval">
+        <label className="streaming-block-label">스트림 소스</label>
+        <select
+          className="streaming-block-input"
+          value={kind}
+          onChange={(event) => {
+            const next = event.target.value;
+            setKind(next);
+            onUpdateBlock?.(blockId, { streamKind: next });
+          }}
+        >
+          <option value="url">URL / WebSocket</option>
+          <option value="evm-rpc">EVM RPC</option>
+        </select>
+      </div>
+
+      {kind === 'url' && (
+        <div className="streaming-block-interval">
+          <label className="streaming-block-label">API/WebSocket URL</label>
+          <input
+            type="text"
+            className="streaming-block-input"
+            value={sourceUrl}
+            placeholder="https://... or wss://..."
+            onChange={(event) => {
+              const next = event.target.value;
+              setSourceUrl(next);
+              onUpdateBlock?.(blockId, { apiUrl: next });
+            }}
+          />
+        </div>
+      )}
+
+      {kind === 'evm-rpc' && (
+        <>
+          <div className="streaming-block-interval">
+            <label className="streaming-block-label">체인</label>
+            <select
+              className="streaming-block-input"
+              value={chain}
+              onChange={(event) => {
+                const next = event.target.value;
+                setChain(next);
+                onUpdateBlock?.(blockId, { streamChain: next });
+              }}
+            >
+              <option value="">체인 선택</option>
+              {EVM_CHAINS.map((item) => (
+                <option key={item.id} value={item.id}>{item.label}</option>
+              ))}
+            </select>
+          </div>
+          <div className="streaming-block-interval">
+            <label className="streaming-block-label">RPC Method</label>
+            <input
+              type="text"
+              className="streaming-block-input"
+              value={method}
+              placeholder="eth_blockNumber"
+              onChange={(event) => {
+                const next = event.target.value;
+                setMethod(next);
+                onUpdateBlock?.(blockId, { streamMethod: next });
+              }}
+            />
+          </div>
+          <div className="streaming-block-interval">
+            <label className="streaming-block-label">RPC Params(JSON)</label>
+            <input
+              type="text"
+              className="streaming-block-input"
+              value={paramsJson}
+              placeholder='["latest", false]'
+              onChange={(event) => {
+                const next = event.target.value;
+                setParamsJson(next);
+                onUpdateBlock?.(blockId, { streamParamsJson: next });
+              }}
+            />
+          </div>
+        </>
       )}
 
       <div className="streaming-block-fields">
