@@ -1,6 +1,7 @@
 package registry
 
 import (
+	"net"
 	"sync"
 	"testing"
 
@@ -138,6 +139,21 @@ func TestPortAllocator_Concurrent(t *testing.T) {
 
 	if len(seen) != 50 {
 		t.Errorf("Expected 50 unique ports, got %d", len(seen))
+	}
+}
+
+func TestPortAllocator_Allocate_FailsWhenPortInUseOnLoopback(t *testing.T) {
+	ln, err := net.Listen("tcp4", "127.0.0.1:0")
+	if err != nil {
+		t.Fatalf("failed to bind temporary listener: %v", err)
+	}
+	defer ln.Close()
+
+	occupied := ln.Addr().(*net.TCPAddr).Port
+	pa := NewPortAllocator(occupied, occupied)
+
+	if _, err := pa.Allocate(); err == nil {
+		t.Fatalf("expected allocation failure for occupied port %d", occupied)
 	}
 }
 

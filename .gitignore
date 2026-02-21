@@ -26,6 +26,9 @@
 
 # Data
 data/
+!frontend/front/src/data/
+frontend/front/src/data/*
+!frontend/front/src/data/blockFixtures.js
 *.jsonl
 *.csv
 .env
