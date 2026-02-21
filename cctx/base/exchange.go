@@ -9,8 +9,8 @@ import (
 	"sync"
 	"time"
 
-	"cctx/models"
-	"cctx/utils"
+	"github.com/HershyOrg/hershy/cctx/models"
+	"github.com/HershyOrg/hershy/cctx/utils"
 )
 
 // Exchange defines the unified exchange interface.

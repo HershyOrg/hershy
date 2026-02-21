@@ -663,8 +663,14 @@ export default function Canvas({
             name={block.name}
             actionType={block.actionType}
             exchange={block.exchange}
+            dexProtocol={block.dexProtocol}
             contractAddress={block.contractAddress}
             contractAbi={block.contractAbi}
+            evmChain={block.evmChain}
+            evmFunctionName={block.evmFunctionName}
+            evmFunctionSignature={block.evmFunctionSignature}
+            evmFunctionStateMutability={block.evmFunctionStateMutability}
+            chainId={block.chainId}
             contractAddressSource={block.contractAddressSource}
             contractAddressSources={block.contractAddressSources}
             executionMode={block.executionMode}
@@ -701,6 +707,11 @@ export default function Canvas({
             blockId={block.id}
             name={block.name}
             fields={block.fields}
+            apiUrl={block.apiUrl}
+            streamKind={block.streamKind}
+            streamChain={block.streamChain}
+            streamMethod={block.streamMethod}
+            streamParamsJson={block.streamParamsJson}
             updateMode={block.updateMode}
             updateInterval={block.updateInterval}
             mutedFields={block.mutedFields}

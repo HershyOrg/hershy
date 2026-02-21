@@ -8,10 +8,10 @@ import (
 	"sync"
 	"time"
 
-	"cctx/base"
-	"cctx/exchanges"
-	"cctx/models"
-	"cctx/utils"
+	"github.com/HershyOrg/hershy/cctx/base"
+	"github.com/HershyOrg/hershy/cctx/exchanges"
+	"github.com/HershyOrg/hershy/cctx/models"
+	"github.com/HershyOrg/hershy/cctx/utils"
 )
 
 type mockExchange struct {

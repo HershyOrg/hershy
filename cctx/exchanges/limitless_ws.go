@@ -7,9 +7,9 @@ import (
 	"sync"
 	"time"
 
-	"cctx/base"
-	"cctx/models"
-	"cctx/utils"
+	"github.com/HershyOrg/hershy/cctx/base"
+	"github.com/HershyOrg/hershy/cctx/models"
+	"github.com/HershyOrg/hershy/cctx/utils"
 )
 
 // WebSocketState represents websocket connection state.

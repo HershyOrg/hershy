@@ -1,6 +1,6 @@
 package models
 
-import "cctx/utils"
+import "github.com/HershyOrg/hershy/cctx/utils"
 
 // Position represents a position in a prediction market.
 // outcome뿐 아니라 마켓, 사이즈까지 포괄하는 더 구체적 정보

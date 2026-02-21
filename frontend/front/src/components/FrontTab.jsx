@@ -3,6 +3,7 @@ import './FrontTab.css';
 import './front/FrontActionCard.css';
 import { StreamingSearchMonitor, StreamingTableMonitor } from './monitors/StreamingMonitor';
 import KeyValueCard from './front/KeyValueCard';
+import { isProviderAuthorized, resolveActionAuthRequirement } from '../lib/actionAuth';
 
 const getActionParamStatus = (params) => {
   const resolved = Array.isArray(params) ? params : [];
@@ -147,7 +148,12 @@ const buildSnapshotEntries = (block, fields) => {
   }];
 };
 
-export default function FrontTab({ blocks = [], connections = [], onUpdateBlock }) {
+export default function FrontTab({
+  blocks = [],
+  connections = [],
+  onUpdateBlock,
+  authState = {}
+}) {
   const triggerBlocks = useMemo(
     () => blocks.filter((block) => block.type === 'trigger'),
     [blocks]
@@ -729,19 +735,23 @@ export default function FrontTab({ blocks = [], connections = [], onUpdateBlock 
     const hasValue = (value) => (
       value !== undefined && value !== null && String(value).trim() !== ''
     );
+    const authRequirement = resolveActionAuthRequirement(action);
+    const isAuthReady = !authRequirement || isProviderAuthorized(authState, authRequirement.id);
     const actionStatus = getActionParamStatus(action.parameters);
     const requiresContract = action.actionType === 'dex' && action.executionMode === 'address';
     const isContractResolved = hasValue(action.contractAddress) || isContractSourceComplete(activeContractSource);
-    const isActionReady = actionStatus.isReady && (!requiresContract || isContractResolved);
+    const isActionReady = actionStatus.isReady && (!requiresContract || isContractResolved) && isAuthReady;
     const statusColor = isTriggerArmed
-      ? (isActionReady ? '#10B981' : '#F59E0B')
+      ? (isActionReady ? '#10B981' : (isAuthReady ? '#F59E0B' : '#EF4444'))
       : '#64748B';
     const actionTag = action.actionType ? action.actionType.toUpperCase() : 'F1';
     const actionDescription = !isTriggerArmed
       ? '조건 비활성'
+      : (!isAuthReady
+          ? `사전인증 필요 (${authRequirement?.label})`
       : (!isActionReady && requiresContract && !isContractResolved
           ? '컨트랙트 주소 미입력'
-          : (isActionReady ? '실행 준비 완료' : `미입력 ${actionStatus.missingCount}개`));
+          : (isActionReady ? '실행 준비 완료' : `미입력 ${actionStatus.missingCount}개`)));
     const isCompact = Boolean(compactActions[action.id]);
     const isActionEnabled = isActionReady && isTriggerArmed;
     const contractNeedsInput = !isContractResolved;

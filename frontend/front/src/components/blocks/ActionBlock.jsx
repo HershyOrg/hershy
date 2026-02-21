@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import './ActionBlock.css';
+import { EVM_CHAINS } from '../../lib/evmChains';
 
 const SAVED_CONTRACTS = [
   {
@@ -86,8 +87,14 @@ const ActionBlock = ({
   name = 'Long_ETH',
   actionType = 'dex', // "dex" or "cex"
   exchange = 'Binance',
+  dexProtocol = 'generic',
   contractAddress = '',
   contractAbi = '',
+  evmChain = '',
+  evmFunctionName = '',
+  evmFunctionSignature = '',
+  evmFunctionStateMutability = '',
+  chainId = '',
   contractAddressSource = null,
   contractAddressSources = [],
   executionMode = 'address', // "address" or "api"
@@ -101,6 +108,7 @@ const ActionBlock = ({
 }) => {
   const [type, setType] = useState(actionType);
   const [selectedExchange, setSelectedExchange] = useState(exchange);
+  const [protocol, setProtocol] = useState(dexProtocol);
   const [address, setAddress] = useState(contractAddress);
   const [mode, setMode] = useState(executionMode);
   const [apiEndpoint, setApiEndpoint] = useState(apiUrl);
@@ -108,6 +116,11 @@ const ActionBlock = ({
   const [params, setParams] = useState(() => normalizeParams(parameters));
   const [selectedContractId, setSelectedContractId] = useState(null);
   const [abi, setAbi] = useState(contractAbi);
+  const [evmSelectedChain, setEvmSelectedChain] = useState(evmChain);
+  const [evmMethodName, setEvmMethodName] = useState(evmFunctionName);
+  const [evmMethodSignature, setEvmMethodSignature] = useState(evmFunctionSignature);
+  const [evmMethodState, setEvmMethodState] = useState(evmFunctionStateMutability);
+  const [polyChainId, setPolyChainId] = useState(chainId);
   const [addressSource, setAddressSource] = useState(contractAddressSource);
   const [addressSources, setAddressSources] = useState(() => (
     mergeSourceList(
@@ -123,6 +136,10 @@ const ActionBlock = ({
   useEffect(() => {
     setSelectedExchange(exchange);
   }, [exchange]);
+
+  useEffect(() => {
+    setProtocol(dexProtocol);
+  }, [dexProtocol]);
 
   useEffect(() => {
     setAddress(contractAddress);
@@ -147,6 +164,26 @@ const ActionBlock = ({
   useEffect(() => {
     setAbi(contractAbi);
   }, [contractAbi]);
+
+  useEffect(() => {
+    setEvmSelectedChain(evmChain);
+  }, [evmChain]);
+
+  useEffect(() => {
+    setEvmMethodName(evmFunctionName);
+  }, [evmFunctionName]);
+
+  useEffect(() => {
+    setEvmMethodSignature(evmFunctionSignature);
+  }, [evmFunctionSignature]);
+
+  useEffect(() => {
+    setEvmMethodState(evmFunctionStateMutability);
+  }, [evmFunctionStateMutability]);
+
+  useEffect(() => {
+    setPolyChainId(chainId);
+  }, [chainId]);
 
   useEffect(() => {
     setAddressSource(contractAddressSource);
@@ -351,6 +388,28 @@ const ActionBlock = ({
 
       {type === 'dex' && (
         <>
+          <div className="action-block-exchange">
+            <label className="action-block-label">프로토콜</label>
+            <select
+              className="action-block-select"
+              value={protocol}
+              onChange={(event) => {
+                const next = event.target.value;
+                setProtocol(next);
+                const updates = { dexProtocol: next };
+                if (next === 'evm') {
+                  setMode('address');
+                  updates.executionMode = 'address';
+                }
+                onUpdateBlock?.(blockId, updates);
+              }}
+            >
+              <option value="generic">Generic</option>
+              <option value="evm">EVM Contract</option>
+              <option value="polymarket">Polymarket</option>
+            </select>
+          </div>
+
           <div className="action-block-mode-toggle">
             <button
               type="button"
@@ -366,13 +425,33 @@ const ActionBlock = ({
               type="button"
               className={`action-mode-btn ${mode === 'api' ? 'active' : ''}`}
               onClick={() => {
+                if (protocol === 'evm') {
+                  return;
+                }
                 setMode('api');
                 onUpdateBlock?.(blockId, { executionMode: 'api' });
               }}
+              disabled={protocol === 'evm'}
             >
               API
             </button>
           </div>
+
+          {protocol === 'polymarket' && (
+            <div className="action-block-exchange">
+              <label className="action-block-label">체인 ID</label>
+              <input
+                type="number"
+                className="action-block-input"
+                value={polyChainId}
+                onChange={(event) => {
+                  setPolyChainId(event.target.value);
+                  onUpdateBlock?.(blockId, { chainId: event.target.value });
+                }}
+                placeholder="137"
+              />
+            </div>
+          )}
 
           {mode === 'address' && (
             <div className="action-block-contract">
@@ -491,6 +570,61 @@ const ActionBlock = ({
                 placeholder="ABI JSON을 입력하세요"
                 rows={3}
               />
+
+              {protocol === 'evm' && (
+                <>
+                  <label className="action-block-label">체인</label>
+                  <select
+                    className="action-block-select"
+                    value={evmSelectedChain}
+                    onChange={(event) => {
+                      setEvmSelectedChain(event.target.value);
+                      onUpdateBlock?.(blockId, { evmChain: event.target.value });
+                    }}
+                  >
+                    <option value="">선택</option>
+                    {EVM_CHAINS.map((chain) => (
+                      <option key={chain.id} value={chain.id}>{chain.label}</option>
+                    ))}
+                  </select>
+
+                  <label className="action-block-label">함수명</label>
+                  <input
+                    type="text"
+                    className="action-block-input"
+                    value={evmMethodName}
+                    onChange={(event) => {
+                      setEvmMethodName(event.target.value);
+                      onUpdateBlock?.(blockId, { evmFunctionName: event.target.value });
+                    }}
+                    placeholder="예: transfer"
+                  />
+
+                  <label className="action-block-label">함수 시그니처</label>
+                  <input
+                    type="text"
+                    className="action-block-input"
+                    value={evmMethodSignature}
+                    onChange={(event) => {
+                      setEvmMethodSignature(event.target.value);
+                      onUpdateBlock?.(blockId, { evmFunctionSignature: event.target.value });
+                    }}
+                    placeholder="예: transfer(address,uint256)"
+                  />
+
+                  <label className="action-block-label">함수 타입</label>
+                  <input
+                    type="text"
+                    className="action-block-input"
+                    value={evmMethodState}
+                    onChange={(event) => {
+                      setEvmMethodState(event.target.value);
+                      onUpdateBlock?.(blockId, { evmFunctionStateMutability: event.target.value });
+                    }}
+                    placeholder="view / nonpayable / payable"
+                  />
+                </>
+              )}
             </div>
           )}
 

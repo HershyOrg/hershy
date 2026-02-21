@@ -1,0 +1,62 @@
+{
+  "schemaVersion": 1,
+  "kind": "hershy-strategy-graph",
+  "strategy": {
+    "id": "sample-strategy",
+    "name": "Sample Strategy"
+  },
+  "blocks": [
+    {
+      "id": "streaming-1",
+      "type": "streaming",
+      "config": {
+        "name": "BTC Feed",
+        "sourceUrl": "wss://stream.binance.com:9443/ws/btcusdt@ticker",
+        "updateMode": "periodic",
+        "updateIntervalMs": 1000,
+        "fields": ["lastPrice", "volume", "eventTime"]
+      }
+    },
+    {
+      "id": "normal-1",
+      "type": "normal",
+      "config": {
+        "name": "Threshold",
+        "value": 65050
+      }
+    },
+    {
+      "id": "trigger-1",
+      "type": "trigger",
+      "config": {
+        "name": "Price Trigger",
+        "triggerType": "condition",
+        "condition": "streaming-1::lastPrice > normal-1",
+        "logicOperator": "OR"
+      }
+    },
+    {
+      "id": "action-1",
+      "type": "action",
+      "config": {
+        "name": "Paper Buy",
+        "actionType": "cex",
+        "exchange": "Binance"
+      }
+    }
+  ],
+  "connections": [
+    {
+      "id": "conn-trigger-action-1",
+      "kind": "trigger-action",
+      "fromId": "trigger-1",
+      "toId": "action-1"
+    },
+    {
+      "id": "conn-stream-action-1",
+      "kind": "action-input",
+      "fromId": "streaming-1",
+      "toId": "action-1"
+    }
+  ]
+}

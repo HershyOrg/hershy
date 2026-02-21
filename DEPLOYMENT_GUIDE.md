@@ -5,6 +5,7 @@
 **Target**: Developers deploying Hersh programs to Host server
 
 ## Table of Contents
+
 1. [Prerequisites](#prerequisites)
 2. [Deployment Workflow](#deployment-workflow)
 3. [Example: Deploying trading-long](#example-deploying-trading-long)
@@ -16,11 +17,13 @@
 ## Prerequisites
 
 ### Host Server
+
 - Host server running on `localhost:9000` (or configured address)
 - Docker runtime available (runc or gVisor)
 - Port range `19001-29999` available for program publishing
 
 ### Your Program
+
 - Dockerfile that:
   - Uses multi-stage build (builder + runtime)
   - Copies `go.mod` and `go.sum`
@@ -36,6 +39,7 @@
 ### Step 1: Prepare go.mod and go.sum
 
 **Create go.mod**:
+
 ```bash
 cat > go.mod << 'EOF'
 module your-program-name
@@ -50,6 +54,7 @@ EOF
 ```
 
 **Generate complete go.sum**:
+
 ```bash
 # Download dependencies
 go mod download
@@ -69,6 +74,7 @@ cat go.sum
 ### Step 2: Verify Dockerfile
 
 **Required Dockerfile structure**:
+
 ```dockerfile
 FROM golang:1.24-alpine AS builder
 
@@ -104,6 +110,7 @@ CMD ["/app/your-program"]
 ```
 
 **Common mistake**: Forgetting to `COPY go.sum` will cause build failures:
+
 ```
 missing go.sum entry for module providing package ...
 ```
@@ -113,6 +120,7 @@ missing go.sum entry for module providing package ...
 **API Endpoint**: `POST http://localhost:9000/programs`
 
 **Request Format**:
+
 ```json
 {
     "user_id": "your-user-id",
@@ -127,6 +135,7 @@ missing go.sum entry for module providing package ...
 ```
 
 **Python Example**:
+
 ```python
 import requests
 
@@ -163,6 +172,7 @@ print(f"Proxy URL: {result['proxy_url']}")  # http://localhost:19XXX
 ```
 
 **Response** (HTTP 201 Created):
+
 ```json
 {
     "program_id": "my-user-build-abc123-def456",
@@ -180,6 +190,7 @@ print(f"Proxy URL: {result['proxy_url']}")  # http://localhost:19XXX
 **API Endpoint**: `POST http://localhost:9000/programs/{program_id}/start`
 
 **Python Example**:
+
 ```python
 program_id = result["program_id"]
 
@@ -189,6 +200,7 @@ print(response.json())  # {"program_id": "...", "state": "Created", "message": "
 ```
 
 **State Transitions**:
+
 ```
 Created → Building → Built → Starting → Running → Ready
 ```
@@ -198,6 +210,7 @@ Created → Building → Built → Starting → Running → Ready
 **API Endpoint**: `GET http://localhost:9000/programs/{program_id}`
 
 **Python Example**:
+
 ```python
 import time
 
@@ -224,6 +237,7 @@ for i in range(60):
 Once the program reaches `Ready` state, access it via the assigned `proxy_url`:
 
 **Direct Access**:
+
 ```bash
 # Get status
 curl http://localhost:19005/watcher/status
@@ -238,6 +252,7 @@ curl -X POST http://localhost:19005/watcher/message \
 ```
 
 **Via Host Proxy** (alternative):
+
 ```bash
 curl http://localhost:9000/programs/{program_id}/proxy/watcher/status
 ```
@@ -251,6 +266,7 @@ This is a **real deployment scenario** from our testing.
 ### Problem Encountered
 
 Initial deployment failed with:
+
 ```
 missing go.sum entry for module providing package github.com/gorilla/websocket
 ```
@@ -258,6 +274,7 @@ missing go.sum entry for module providing package github.com/gorilla/websocket
 ### Root Cause
 
 The `go.sum` file was incomplete. It only had:
+
 ```
 github.com/HershyOrg/hershy/hersh v0.1.3/go.mod h1:...
 ```
@@ -267,6 +284,7 @@ But was missing the `h1:` hash line and the transitive dependency `gorilla/webso
 ### Solution Steps
 
 **1. Fix go.mod**:
+
 ```bash
 cd /home/user/hersh/examples/trading-long
 
@@ -283,6 +301,7 @@ EOF
 ```
 
 **2. Generate complete go.sum**:
+
 ```bash
 # Remove incomplete go.sum
 rm go.sum
@@ -298,6 +317,7 @@ cat go.sum
 ```
 
 **Expected output**:
+
 ```
 github.com/HershyOrg/hershy/hersh v0.1.3 h1:leugIvj969WHuzqrmfRnQTUXC0j4i3GTcJWsusJ5F00=
 github.com/HershyOrg/hershy/hersh v0.1.3/go.mod h1:0TEZ5QOq4+hzWAd/hNbpNbG5EUIgiT0bpwEi98va8A0=
@@ -306,6 +326,7 @@ github.com/gorilla/websocket v1.5.3/go.mod h1:YR8l580nyteQvAITg2hZ9XVh4b55+EU/ad
 ```
 
 **3. Fix Dockerfile**:
+
 ```dockerfile
 # Before (WRONG - missing go.sum):
 COPY go.mod ./
@@ -317,12 +338,14 @@ COPY *.go ./
 ```
 
 **4. Verify local build**:
+
 ```bash
 go build -o trading-sim .
 # Should build successfully
 ```
 
 **5. Deploy to Host**:
+
 ```python
 import requests
 import time
@@ -375,6 +398,7 @@ for i in range(90):
 ```
 
 **6. Test WatcherAPI Message**:
+
 ```bash
 # trading-long supports commands via WatcherAPI
 curl -X POST http://localhost:19007/watcher/message \
@@ -386,6 +410,7 @@ docker logs <container_id> --tail 20
 ```
 
 **Output** (in Docker logs):
+
 ```
 ────────────────────────────────────────────────────────────────
 📊 Quick Status Summary
@@ -411,11 +436,13 @@ docker logs <container_id> --tail 20
 ### Issue 1: "missing go.sum entry"
 
 **Symptom**:
+
 ```
 main.go:16:2: missing go.sum entry for module providing package ...
 ```
 
 **Solution**:
+
 1. Run `go get your-module-name` to populate go.sum
 2. Verify go.sum contains both `.mod` and `h1:` lines
 3. Ensure Dockerfile copies go.sum: `COPY go.mod go.sum ./`
@@ -423,6 +450,7 @@ main.go:16:2: missing go.sum entry for module providing package ...
 ### Issue 2: "dockerfile is required"
 
 **Symptom**:
+
 ```json
 {"error":"Bad Request","code":400,"message":"dockerfile is required"}
 ```
@@ -436,6 +464,7 @@ Check your JSON payload has the correct key: `"dockerfile"` (lowercase), not `"D
 Program remains in "Building" for >2 minutes.
 
 **Solution**:
+
 1. Check Host server logs: `tail -f /path/to/host-server.log`
 2. Look for Docker build errors
 3. Common causes:
@@ -449,6 +478,7 @@ Program remains in "Building" for >2 minutes.
 Program reaches "Ready" but WatcherAPI is not accessible.
 
 **Solution**:
+
 1. Check container logs: `docker logs <container_id>`
 2. Common causes:
    - Program crashes on startup
@@ -458,6 +488,7 @@ Program reaches "Ready" but WatcherAPI is not accessible.
 ### Issue 5: "program not running" on restart
 
 **Symptom**:
+
 ```json
 {"error":"Not Found","code":404,"message":"program not running"}
 ```
@@ -466,6 +497,7 @@ Program reaches "Ready" but WatcherAPI is not accessible.
 Use `/programs/{id}/start` instead of `/programs/{id}/restart` when program is in `Stopped` state.
 
 **Lifecycle Commands**:
+
 - `Stopped` state → use `/start`
 - `Running/Ready` state → use `/restart` or `/stop` then `/start`
 
@@ -474,9 +506,11 @@ Use `/programs/{id}/start` instead of `/programs/{id}/restart` when program is i
 ## API Reference
 
 ### POST /programs
+
 Create a new program (does NOT start it).
 
 **Request**:
+
 ```json
 {
     "user_id": "string (required)",
@@ -489,6 +523,7 @@ Create a new program (does NOT start it).
 ```
 
 **Response** (201 Created):
+
 ```json
 {
     "program_id": "user-build-hash-uuid",
@@ -499,10 +534,12 @@ Create a new program (does NOT start it).
 }
 ```
 
-### POST /programs/{id}/start
+### POST /programs//start
+
 Start a program (triggers build if needed).
 
 **Response** (200 OK):
+
 ```json
 {
     "program_id": "...",
@@ -513,10 +550,12 @@ Start a program (triggers build if needed).
 
 **State transitions**: `Created` → `Building` → `Built` → `Starting` → `Running` → `Ready`
 
-### GET /programs/{id}
+### GET /programs/
+
 Get program status.
 
 **Response** (200 OK):
+
 ```json
 {
     "program_id": "...",
@@ -532,9 +571,11 @@ Get program status.
 ```
 
 ### GET /programs
+
 List all programs.
 
 **Response** (200 OK):
+
 ```json
 {
     "programs": [...],
@@ -542,10 +583,12 @@ List all programs.
 }
 ```
 
-### POST /programs/{id}/stop
+### POST /programs//stop
+
 Stop a running program.
 
 **Response** (200 OK):
+
 ```json
 {
     "program_id": "...",
@@ -554,10 +597,12 @@ Stop a running program.
 }
 ```
 
-### POST /programs/{id}/restart
+### POST /programs//restart
+
 Restart a running program.
 
 **Response** (200 OK):
+
 ```json
 {
     "program_id": "...",
@@ -568,10 +613,12 @@ Restart a running program.
 
 **Note**: Only works if program is currently running. Use `/start` for stopped programs.
 
-### DELETE /programs/{id}
+### DELETE /programs/
+
 Delete a program (stops container and removes from registry).
 
 **Response** (200 OK):
+
 ```json
 {
     "message": "program deleted successfully"
@@ -583,6 +630,7 @@ Delete a program (stops container and removes from registry).
 All WatcherAPI endpoints are accessible via `proxy_url`:
 
 **GET {proxy_url}/watcher/status**
+
 ```json
 {
     "state": "Ready",
@@ -594,6 +642,7 @@ All WatcherAPI endpoints are accessible via `proxy_url`:
 ```
 
 **GET {proxy_url}/watcher/state**
+
 ```json
 {
     "currentState": "Ready",
@@ -605,6 +654,7 @@ All WatcherAPI endpoints are accessible via `proxy_url`:
 **POST {proxy_url}/watcher/message**
 
 Send a message to the program:
+
 ```bash
 curl -X POST {proxy_url}/watcher/message \
   -H "Content-Type: application/json" \
@@ -612,6 +662,7 @@ curl -X POST {proxy_url}/watcher/message \
 ```
 
 **Response**:
+
 ```json
 {
     "status": "message sent"
@@ -627,21 +678,25 @@ The program receives the message in its `Manage()` function via `msg.Content`.
 All programs deployed to Host follow these security contracts:
 
 ### 1. Localhost-only Port Binding
+
 - Containers bind port 8080 to `127.0.0.1:19001-29999` ONLY
 - No external network exposure
 - Accessible only from localhost or via Host API proxy
 
 ### 2. Read-only Rootfs
+
 - Container filesystem is read-only (enforced by runc)
 - Only `/state` directory is writable
 - Prevents container escape via file system manipulation
 
 ### 3. Network Isolation
+
 - Containers use `bridge` network mode
 - Isolated from each other
 - No container-to-container communication
 
 ### 4. Port 8080 Restriction
+
 - Port 8080 is used exclusively for WatcherAPI
 - Not directly accessible from outside container
 - Only accessible via assigned PublishPort (19001-29999)

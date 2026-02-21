@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import { getStreamingFields } from '../../data/blockFixtures';
+import { EVM_CHAINS } from '../../lib/evmChains';
 
 const flattenJsonFields = (value, prefix = '') => {
   if (Array.isArray(value)) {
@@ -44,20 +45,33 @@ const parseJsonFields = (rawValue) => {
 };
 
 export default function StreamingBlocksPanel({ onClose, onCreate }) {
+  const [streamKind, setStreamKind] = useState('url');
   const [dataReceptionType, setDataReceptionType] = useState('realtime');
   const [blockName, setBlockName] = useState('');
   const [apiUrl, setApiUrl] = useState('');
+  const [streamChain, setStreamChain] = useState('');
+  const [streamMethod, setStreamMethod] = useState('eth_blockNumber');
+  const [streamParamsJson, setStreamParamsJson] = useState('[]');
   const [updateInterval, setUpdateInterval] = useState('');
   const [responseFormat, setResponseFormat] = useState('');
   const [fields, setFields] = useState([]);
 
-  const canParse = Boolean(apiUrl.trim() || responseFormat.trim());
-  const canCreate = Boolean(blockName.trim()) && (fields.length > 0 || canParse);
+  const isEVMRPCStream = streamKind === 'evm-rpc';
+  const canParse = isEVMRPCStream
+    ? Boolean(streamMethod.trim() || responseFormat.trim())
+    : Boolean(apiUrl.trim() || responseFormat.trim());
+  const hasRequiredStreamMeta = isEVMRPCStream
+    ? Boolean(streamChain.trim() && streamMethod.trim())
+    : true;
+  const canCreate = Boolean(blockName.trim()) && hasRequiredStreamMeta && (fields.length > 0 || canParse);
 
   const resolveFields = () => {
     const jsonFields = parseJsonFields(responseFormat);
     if (jsonFields.length > 0) {
       return jsonFields;
+    }
+    if (isEVMRPCStream) {
+      return ['result'];
     }
     return getStreamingFields(apiUrl.trim());
   };
@@ -89,6 +103,11 @@ export default function StreamingBlocksPanel({ onClose, onCreate }) {
     onCreate({
       name: blockName.trim(),
       fields: nextFields,
+      streamKind,
+      streamChain: isEVMRPCStream ? streamChain.trim() : '',
+      streamMethod: isEVMRPCStream ? streamMethod.trim() : '',
+      streamParamsJson: isEVMRPCStream ? (streamParamsJson.trim() || '[]') : '',
+      apiUrl: isEVMRPCStream ? '' : apiUrl.trim(),
       updateMode,
       updateInterval: resolvedInterval,
       responseSchema: responseFormat.trim()
@@ -111,6 +130,26 @@ export default function StreamingBlocksPanel({ onClose, onCreate }) {
         
         <div className="panel-form">
           <div className="form-field">
+            <label className="field-label">스트림 소스</label>
+            <div className="button-group">
+              <button
+                type="button"
+                className={`btn-option ${streamKind === 'url' ? 'active' : ''}`}
+                onClick={() => setStreamKind('url')}
+              >
+                URL/WebSocket
+              </button>
+              <button
+                type="button"
+                className={`btn-option ${streamKind === 'evm-rpc' ? 'active' : ''}`}
+                onClick={() => setStreamKind('evm-rpc')}
+              >
+                EVM RPC
+              </button>
+            </div>
+          </div>
+
+          <div className="form-field">
             <label className="field-label">블록 이름</label>
             <input 
               type="text" 
@@ -121,16 +160,55 @@ export default function StreamingBlocksPanel({ onClose, onCreate }) {
             />
           </div>
           
-          <div className="form-field">
-            <label className="field-label">API/WebSocket URL</label>
-            <input 
-              type="text" 
-              className="field-input" 
-              placeholder={dataReceptionType === 'periodic' ? 'wss://stream.binance.com:9443/ws/btcusdt@ticker' : '예: BTCUSDT_Price'}
-              value={apiUrl}
-              onChange={(event) => setApiUrl(event.target.value)}
-            />
-          </div>
+          {streamKind === 'url' && (
+            <div className="form-field">
+              <label className="field-label">API/WebSocket URL</label>
+              <input
+                type="text"
+                className="field-input"
+                placeholder="wss://stream.binance.com:9443/ws/btcusdt@ticker"
+                value={apiUrl}
+                onChange={(event) => setApiUrl(event.target.value)}
+              />
+            </div>
+          )}
+
+          {streamKind === 'evm-rpc' && (
+            <>
+              <div className="form-field">
+                <label className="field-label">체인</label>
+                <select
+                  className="field-input"
+                  value={streamChain}
+                  onChange={(event) => setStreamChain(event.target.value)}
+                >
+                  <option value="">체인 선택</option>
+                  {EVM_CHAINS.map((chain) => (
+                    <option key={chain.id} value={chain.id}>{chain.label}</option>
+                  ))}
+                </select>
+              </div>
+              <div className="form-field">
+                <label className="field-label">RPC Method</label>
+                <input
+                  type="text"
+                  className="field-input"
+                  placeholder="eth_blockNumber"
+                  value={streamMethod}
+                  onChange={(event) => setStreamMethod(event.target.value)}
+                />
+              </div>
+              <div className="form-field">
+                <label className="field-label">RPC Params (JSON 배열)</label>
+                <textarea
+                  className="field-textarea"
+                  placeholder='["latest", false]'
+                  value={streamParamsJson}
+                  onChange={(event) => setStreamParamsJson(event.target.value)}
+                />
+              </div>
+            </>
+          )}
           
           <div className="form-field">
             <label className="field-label">데이터 수신 방식</label>

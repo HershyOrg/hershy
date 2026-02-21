@@ -4,7 +4,7 @@ import (
 	"context"
 	"errors"
 
-	"cctx/models"
+	"github.com/HershyOrg/hershy/cctx/models"
 )
 
 // WebSocketState represents connection state.

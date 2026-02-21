@@ -29,3 +29,15 @@ data/
 *.jsonl
 *.csv
 .env
+
+# Generated runtime/test artifacts (do not commit)
+frontend/front/dist/
+host/host-storage/
+host/cmd/host-storage/
+cmd/host/test-storage/
+cmd/host/verification-logs/
+cmd/logs/
+examples/trading-long/logs/
+examples/watcher-server/logs/
+*.pid
+*.log

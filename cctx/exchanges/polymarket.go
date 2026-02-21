@@ -11,9 +11,9 @@ import (
 	"strings"
 	"time"
 
-	"cctx/base"
-	"cctx/models"
-	"cctx/utils"
+	"github.com/HershyOrg/hershy/cctx/base"
+	"github.com/HershyOrg/hershy/cctx/models"
+	"github.com/HershyOrg/hershy/cctx/utils"
 )
 
 // Polymarket exchange implementation.
@@ -342,6 +342,80 @@ func (p *Polymarket) CreateOrder(marketID, outcome string, side models.OrderSide
 	}, nil
 }
 
+// CreateOrderWithType submits a new order with a custom order type.
+func (p *Polymarket) CreateOrderWithType(marketID, outcome string, side models.OrderSide, price, size float64, orderType string, postOnly bool, params map[string]any) (models.Order, error) {
+	if orderType == "" {
+		orderType = "GTC"
+	}
+	orderType = strings.ToUpper(orderType)
+	if marketID == "" {
+		utils.DefaultLogger().Debugf("exchanges.Polymarket.CreateOrderWithType: marketID empty")
+	}
+	if outcome == "" {
+		utils.DefaultLogger().Debugf("exchanges.Polymarket.CreateOrderWithType: outcome empty")
+	}
+	if price == 0 || size == 0 {
+		utils.DefaultLogger().Debugf("exchanges.Polymarket.CreateOrderWithType: price or size zero (price=%.6f size=%.6f)", price, size)
+	}
+	if p.initErr != nil {
+		return models.Order{}, p.initErr
+	}
+	if p.clobClient == nil {
+		return models.Order{}, base.AuthenticationError{Message: "CLOB client not initialized"}
+	}
+	tokenID := ""
+	if params != nil {
+		if raw, ok := params["token_id"].(string); ok {
+			tokenID = raw
+		}
+	}
+	if tokenID == "" {
+		utils.DefaultLogger().Debugf("exchanges.Polymarket.CreateOrderWithType: token_id missing in params")
+		return models.Order{}, base.InvalidOrder{Message: "token_id required in params"}
+	}
+
+	feeRate, _ := p.clobClient.getFeeRateBps(tokenID)
+	tickSize, err := p.clobClient.getTickSize(tokenID)
+	if err != nil || tickSize == 0 {
+		tickSize = 0.01
+	}
+	negRisk, _ := p.clobClient.getNegRisk(tokenID)
+
+	signed, err := p.clobClient.buildSignedOrder(orderArgs{
+		TokenID:    tokenID,
+		Price:      price,
+		Size:       size,
+		Side:       strings.ToUpper(string(side)),
+		FeeRateBps: feeRate,
+	}, tickSize, negRisk)
+	if err != nil {
+		return models.Order{}, base.InvalidOrder{Message: fmt.Sprintf("order placement failed: %v", err)}
+	}
+	result, err := p.clobClient.postOrder(signed, orderType, postOnly)
+	if err != nil {
+		return models.Order{}, base.InvalidOrder{Message: fmt.Sprintf("order placement failed: %v", err)}
+	}
+	orderID := ""
+	if raw, ok := result["orderID"].(string); ok {
+		orderID = raw
+	} else if raw, ok := result["order_id"].(string); ok {
+		orderID = raw
+	}
+	status := parseOrderStatus(result["status"])
+	now := time.Now()
+	return models.Order{
+		ID:        orderID,
+		MarketID:  marketID,
+		Outcome:   outcome,
+		Side:      side,
+		Price:     price,
+		Size:      size,
+		Filled:    0,
+		Status:    status,
+		CreatedAt: now,
+	}, nil
+}
+
 // CancelOrder cancels an order by ID.
 func (p *Polymarket) CancelOrder(orderID string, marketID *string) (models.Order, error) {
 	if orderID == "" {
@@ -497,6 +571,17 @@ func (p *Polymarket) FetchBalance() (map[string]float64, error) {
 	}
 	usdc := parseBalance(balance["balance"])
 	return map[string]float64{"USDC": usdc}, nil
+}
+
+// GetBalanceAllowance exposes the balance/allowance endpoint.
+func (p *Polymarket) GetBalanceAllowance(assetType, tokenID string, signatureType int) (map[string]any, error) {
+	if p.initErr != nil {
+		return nil, p.initErr
+	}
+	if p.clobClient == nil {
+		return nil, base.AuthenticationError{Message: "CLOB client not initialized"}
+	}
+	return p.clobClient.getBalanceAllowance(assetType, tokenID, signatureType)
 }
 
 // GetWebsocket returns a market websocket client.

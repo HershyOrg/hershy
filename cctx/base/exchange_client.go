@@ -8,8 +8,8 @@ import (
 	"sync"
 	"time"
 
-	"cctx/models"
-	"cctx/utils"
+	"github.com/HershyOrg/hershy/cctx/models"
+	"github.com/HershyOrg/hershy/cctx/utils"
 )
 
 // DeltaInfo describes position imbalance.
