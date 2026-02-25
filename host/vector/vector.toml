@@ -18,7 +18,7 @@ source = '''
 [sinks.loki]
 type = "loki"
 inputs = ["add_ts"]
-endpoint = "http://loki:3100"
+endpoint = "http://monitoring-server:3100"
 encoding.codec = "json"
 healthcheck.enabled = false 
 

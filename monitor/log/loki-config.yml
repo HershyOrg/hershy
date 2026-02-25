@@ -13,6 +13,12 @@ common:
     filesystem:
       chunks_directory: /loki/chunks
       rules_directory: /loki/rules
+compactor:
+  working_directory: /loki/retention
+  compaction_interval: 10m # 10분마다 삭제 정책 확인
+  retention_enabled: true # 보관 정책 활성화
+  retention_delete_delay: 2h # 삭제 결정 후 실제 데이터 제거까지의 유예 시간
+  retention_delete_worker_count: 150
 
 schema_config:
   configs:
@@ -36,6 +42,6 @@ ingester:
 
 limits_config:
   allow_structured_metadata: true
-
+  retention_period: 168h # 7일(168시간)후 자동 삭제
 ruler:
   alertmanager_url: http://localhost:9093

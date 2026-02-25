@@ -6,27 +6,19 @@ services:
     container_name: loki
     ports:
       - "3100:3100"
-    command: -config.file=/etc/loki/loki-config.yml
     volumes:
-      - ./loki-config.yml:/etc/loki/loki-config.yml
-      - ./data/loki:/loki
+      - ./loki-config.yml:/etc/loki/local-config.yaml
+      - ./loki_data:/loki
+    command: -config.file=/etc/loki/local-config.yaml
+    restart: unless-stopped
 
   grafana:
-    image: grafana/grafana:10.2.0
+    image: grafana/grafana:latest
     container_name: grafana
     ports:
       - "3000:3000"
     environment:
       - GF_SECURITY_ADMIN_PASSWORD=admin
-    depends_on:
-      - loki
-  vector:
-    image: timberio/vector:latest-alpine
-    container_name: vector
-    depends_on:
-      - loki
     volumes:
-      - ./vector.toml:/etc/vector/vector.toml:ro
-      - ../../host:/var/log/host:ro
-      - ./vector_data:/var/lib/vector
-    command: ["--config", "/etc/vector/vector.toml"]
+      - ./grafana_data:/var/lib/grafana
+    restart: unless-stopped

@@ -1,0 +1,14 @@
+version: "3.8"
+
+services:
+  vector:
+    image: timberio/vector:latest-alpine
+    container_name: vector-agent
+    volumes:
+      - ./vector.toml:/etc/vector/vector.toml:ro
+      - ../host-storage:/var/log/host:ro
+      - ./vector_data:/var/lib/vector
+    command: ["--config", "/etc/vector/vector.toml"]
+    extra_hosts:
+      - "monitoring-server:host-gateway"
+    restart: unless-stopped
