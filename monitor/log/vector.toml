@@ -1,14 +1,18 @@
-[sources.dummy]
-type = "demo_logs"
-format = "json"
-interval = 1.0
+data_dir = "/var/lib/vector"
+
+[sources.host_files]
+type = "file"
+include = ["/var/log/host/**/*.log"] # 일단 모든 파일 재귀탐색
+read_from = "beginning"
 
 [transforms.add_ts]
 type = "remap"
-inputs = ["dummy"]
+inputs = ["host_files"]
 source = '''
 .timestamp = now()
 .host = "vector-node"
+# 파일명을 레이블로 쓰기 위해 필드 추출 (선택 사항)
+.file_name = .file
 '''
 
 [sinks.loki]
@@ -16,8 +20,6 @@ type = "loki"
 inputs = ["add_ts"]
 endpoint = "http://loki:3100"
 encoding.codec = "json"
-
-# 1. 헬스체크 설정: 시작 시 Loki가 안 떠있어도 Vector가 죽지 않게 함
 healthcheck.enabled = false 
 
 # 2. 재시도 및 버퍼 설정 
@@ -32,5 +34,6 @@ retry_initial_backoff_secs = 1     # 첫 재시도 대기 시간
 retry_max_backoff_secs = 30        # 재시도 간격 최대치 (Loki가 15초 뒤에 뜸)
 
 [sinks.loki.labels]
-job = "vector-test"
+job = "host-logs"
 env = "development"
+file = "{{ file_name }}" # 파일별로 Grafana에서 필터링
