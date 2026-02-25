@@ -18,6 +18,7 @@ import (
 	"github.com/HershyOrg/hershy/host/registry"
 	"github.com/HershyOrg/hershy/host/runtime"
 	"github.com/HershyOrg/hershy/host/storage"
+	"github.com/HershyOrg/hershy/host/vector"
 	"github.com/HershyOrg/hershy/program"
 )
 
@@ -26,6 +27,7 @@ func main() {
 	port := flag.Int("port", 9000, "Host API server port")
 	storageRoot := flag.String("storage", "./host-storage", "Storage root directory")
 	runtimeType := flag.String("runtime", "runc", "Container runtime (runc or runsc)")
+	vectorCompose := flag.String("vector", "./host/vector/docker-compose.yml", "Path to vector docker-compose.yml")
 	flag.Parse()
 
 	// Logging setup
@@ -48,6 +50,7 @@ func main() {
 	pm := proxy.NewProxyManager()
 	stor := storage.NewManager(*storageRoot)
 	comp := compose.NewBuilder()
+	vec := vector.NewManager(*vectorCompose, logger)
 
 	dockerMgr, err := runtime.NewDockerManager()
 	if err != nil {
@@ -76,6 +79,7 @@ func main() {
 			logger.Fatalf("Server error: %v", err)
 		}
 	}()
+	vec.Start()
 
 	// Wait for interrupt
 	sigChan := make(chan os.Signal, 1)
@@ -83,6 +87,7 @@ func main() {
 	<-sigChan
 
 	logger.Println("\n⏰ Shutting down gracefully...")
+	vec.Stop()
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 	server.Stop(ctx)
