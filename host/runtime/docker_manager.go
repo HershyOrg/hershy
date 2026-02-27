@@ -8,10 +8,10 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"log"
 	"net/netip"
 	"os"
 	"path/filepath"
-	"sync"
 	"time"
 
 	"github.com/HershyOrg/hershy/host/compose"
@@ -26,6 +26,7 @@ import (
 // DockerManager handles Docker image building and container lifecycle
 type DockerManager struct {
 	cli *client.Client
+	logger *log.Logger
 }
 
 // NewDockerManager creates a new DockerManager
@@ -35,8 +36,10 @@ func NewDockerManager() (*DockerManager, error) {
 		return nil, fmt.Errorf("failed to create Docker client: %w", err)
 	}
 
+	l := log.New(os.Stdout, "", 0)
 	return &DockerManager{
 		cli: cli,
+		logger:l,
 	}, nil
 }
 
@@ -266,8 +269,8 @@ func (m *DockerManager) Start(ctx context.Context, opts StartOpts) (*StartResult
 					"max-file": "3",
 			},
 	}
-	// - create the logs directory and truncate/create the file 
 
+	// - create the logs directory and truncate/create the file 
 	if opts.LogPath != "" {
         // opts.LogPath가 파일 경로인지 판단
         if filepath.Ext(opts.LogPath) != "" {
@@ -347,44 +350,34 @@ func (m *DockerManager) Start(ctx context.Context, opts StartOpts) (*StartResult
 
 			stdoutR, stdoutW := io.Pipe()
 			stderrR, stderrW := io.Pipe()
-			var mu sync.Mutex
 
-			writeJSON := func(stream, line string) {
-        obj := map[string]string{
-            "ts":          time.Now().UTC().Format(time.RFC3339Nano),
-            "stream":      stream,          // "stdout" or "stderr"
-            "msg":         line,
-            "container_id": containerID,
-      	}
-        b, _ := json.Marshal(obj)
-        mu.Lock()
-        fmt.Fprintln(f, string(b))
-        mu.Unlock()
+			writeJSON := func(level ,stream, line string) {
+				m.emitLog(f,level,stream,line,containerID)
 	    }
 			// stdout scanner
       go func() {
         sc := bufio.NewScanner(stdoutR)
         for sc.Scan() {
-          writeJSON("stdout", sc.Text())
+          writeJSON("INFO", "stdout", sc.Text())
         }
         if err := sc.Err(); err != nil {
-          writeJSON("logger-error", fmt.Sprintf("stdout scanner error: %v", err))
+					writeJSON("ERROR", "stdout", fmt.Sprintf("stdout scanner error: %v", err))
         }
       }()
 			// stderr scanner
       go func() {
         sc := bufio.NewScanner(stderrR)
         for sc.Scan() {
-          writeJSON("stderr", sc.Text())
+					writeJSON("INFO", "stderr", sc.Text())
         }
         if err := sc.Err(); err != nil {
-          writeJSON("logger-error", fmt.Sprintf("stderr scanner error: %v", err))
+					writeJSON("ERROR", "stderr", fmt.Sprintf("stderr scanner error: %v", err))
         }
     	}()
 
 			// stdout, stderr 분리
 			if _, err := demuxDockerStream(stdoutW, stderrW, reader); err != nil {
-				fmt.Fprintf(f, "error demuxing logs: %v\n", err)
+				m.emitLog(f, "ERROR", "demux", fmt.Sprintf("error demuxing logs: %v", err), containerID)
 			}
 			stdoutW.Close()
       stderrW.Close()
@@ -492,6 +485,29 @@ func (m *DockerManager) GetContainerLogs(ctx context.Context, containerID string
 
 	return buf.String(), nil
 }
+
+
+// emitLog writes a structured JSON log to both the provided writer 
+func (m *DockerManager) emitLog(w io.Writer, level, stream, msg, containerID string) {
+    entry := map[string]interface{}{
+        "ts":        time.Now().UTC().Format(time.RFC3339Nano),
+        "level":     level,
+        "log_type":  "PROGRAM",              
+        "component": "DockerManager",
+        "msg":       msg,
+        "vars": map[string]interface{}{         
+            "stream":       stream,
+            "container_id": containerID,
+        },
+    }
+    b, _ := json.Marshal(entry)
+    if m != nil && m.logger != nil {
+        m.logger.Print(string(b))
+    }
+}
+
+
+
 func demuxDockerStream(stdout io.Writer, stderr io.Writer, src io.Reader) (int64, error) {
 	var total int64
 	header := make([]byte, 8)

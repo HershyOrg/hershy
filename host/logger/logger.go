@@ -30,6 +30,7 @@ type Logger struct {
     file      *os.File
     Component string
     DefaultLogType string
+    ConsolePrint bool
 }
 
 
@@ -44,14 +45,13 @@ func New(component string, out io.Writer, filePath string) *Logger {
                 mw = f
             } else {
                 fmt.Fprintf(os.Stderr, "logger: failed open file %s: %v\n", filePath, err)
-                mw = out // fallback to provided writer on failure
+                mw = out 
             }
         } else {
             fmt.Fprintf(os.Stderr, "logger: failed mkdir for %s: %v\n", filePath, err)
             mw = out
         }
     } else {
-        // No file path -> use provided writer (e.g. os.Stdout)
         mw = out
     }
     return &Logger{
@@ -59,6 +59,7 @@ func New(component string, out io.Writer, filePath string) *Logger {
         out:       mw,
         file:      f,
         Component: component,
+        ConsolePrint: true, // 기본은 화면에 Msg 출력
     }
 }
 
@@ -75,11 +76,15 @@ func (l *Logger) Emit(entry LogEntry) {
     b, err := json.Marshal(entry)
     if err != nil {
         fmt.Fprintf(os.Stderr, "logger: marshal error: %v\n", err)
+        if l.ConsolePrint {
+            fmt.Fprintln(os.Stdout, entry.Msg)
+        }
         return
     }
-    //TODO 화면 출력 옵셔널 OR 삭제 예정
-    fmt.Fprintf(os.Stdout, "[%s]: %s\n", entry.LogType, entry.Msg)
 
+    if l.ConsolePrint {
+        fmt.Fprintln(os.Stdout, entry.Msg)
+    }
     l.std.Print(string(b))
 }
 
