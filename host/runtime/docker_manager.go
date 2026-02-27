@@ -322,6 +322,9 @@ func (m *DockerManager) Start(ctx context.Context, opts StartOpts) (*StartResult
 	}
 
 	if opts.LogPath != ""{
+		if !opts.FollowLogs {
+        opts.FollowLogs = true
+    }
 		go func(containerID,path string){
 			f,err := os.OpenFile(path, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0644)
 			if err != nil {
