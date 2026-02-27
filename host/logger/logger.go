@@ -83,7 +83,7 @@ func (l *Logger) Emit(entry LogEntry) {
     }
 
     if l.ConsolePrint {
-        fmt.Fprintln(os.Stdout, entry.Msg)
+        fmt.Fprintf(os.Stdout, "[%s] : %s\n", entry.LogType, entry.Msg)
     }
     l.std.Print(string(b))
 }

@@ -8,13 +8,12 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
-	"log"
 	"net/netip"
 	"os"
 	"path/filepath"
-	"time"
 
 	"github.com/HershyOrg/hershy/host/compose"
+	"github.com/HershyOrg/hershy/host/logger"
 	"github.com/HershyOrg/hershy/program"
 	nat "github.com/docker/go-connections/nat"
 	"github.com/moby/go-archive"
@@ -26,7 +25,7 @@ import (
 // DockerManager handles Docker image building and container lifecycle
 type DockerManager struct {
 	cli *client.Client
-	logger *log.Logger
+	logger *logger.Logger
 }
 
 // NewDockerManager creates a new DockerManager
@@ -36,7 +35,9 @@ func NewDockerManager() (*DockerManager, error) {
 		return nil, fmt.Errorf("failed to create Docker client: %w", err)
 	}
 
-	l := log.New(os.Stdout, "", 0)
+	l := logger.New("DockerManager", io.Discard, "")
+  l.ConsolePrint = false
+
 	return &DockerManager{
 		cli: cli,
 		logger:l,
@@ -329,21 +330,27 @@ func (m *DockerManager) Start(ctx context.Context, opts StartOpts) (*StartResult
         opts.FollowLogs = true
     }
 		go func(containerID,path string){
-			f,err := os.OpenFile(path, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0644)
-			if err != nil {
-          fmt.Printf("DockerManager: failed to open runtime log file %s: %v\n", path, err)
-          return
+			childLg := logger.New("DockerManager", io.Discard, path)
+			childLg.ConsolePrint = false
+			childLg.SetDefaultLogType("PROGRAM")
+
+			defer childLg.Close()
+
+      logOpts := client.ContainerLogsOptions{
+        ShowStdout: true,
+        ShowStderr: true,
+        Follow:     opts.FollowLogs,
+        Timestamps: true,
       }
-      defer f.Close()
-			logOpts := client.ContainerLogsOptions{
-          ShowStdout: true,
-          ShowStderr: true,
-          Follow:     opts.FollowLogs,
-          Timestamps: true,
-      }
+
+		
 			reader, err := m.cli.ContainerLogs(context.Background(), containerID, logOpts)
 			if err != nil {
-        fmt.Fprintf(f, "failed to stream logs: %v\n", err)
+       	childLg.Emit(logger.LogEntry{
+					Level:     "ERROR",
+					Msg:       fmt.Sprintf("failed to stream logs: %v", err),
+					Vars: map[string]interface{}{"container_id": containerID},
+				})
         return
     	}
       defer reader.Close()
@@ -351,9 +358,16 @@ func (m *DockerManager) Start(ctx context.Context, opts StartOpts) (*StartResult
 			stdoutR, stdoutW := io.Pipe()
 			stderrR, stderrW := io.Pipe()
 
-			writeJSON := func(level ,stream, line string) {
-				m.emitLog(f,level,stream,line,containerID)
-	    }
+			writeJSON := func(level, stream, line string) {
+				childLg.Emit(logger.LogEntry{
+					Level:     level,
+					Msg:       line,
+					Vars: map[string]interface{}{
+						"stream":       stream,
+						"container_id": containerID,
+					},
+				})
+			}
 			// stdout scanner
       go func() {
         sc := bufio.NewScanner(stdoutR)
@@ -377,7 +391,11 @@ func (m *DockerManager) Start(ctx context.Context, opts StartOpts) (*StartResult
 
 			// stdout, stderr 분리
 			if _, err := demuxDockerStream(stdoutW, stderrW, reader); err != nil {
-				m.emitLog(f, "ERROR", "demux", fmt.Sprintf("error demuxing logs: %v", err), containerID)
+				childLg.Emit(logger.LogEntry{
+					Level:     "ERROR",
+					Msg:       fmt.Sprintf("error demuxing logs: %v", err),
+					Vars: map[string]interface{}{"container_id": containerID, "stream": "demux"},
+				})
 			}
 			stdoutW.Close()
       stderrW.Close()
@@ -485,28 +503,6 @@ func (m *DockerManager) GetContainerLogs(ctx context.Context, containerID string
 
 	return buf.String(), nil
 }
-
-
-// emitLog writes a structured JSON log to both the provided writer 
-func (m *DockerManager) emitLog(w io.Writer, level, stream, msg, containerID string) {
-    entry := map[string]interface{}{
-        "ts":        time.Now().UTC().Format(time.RFC3339Nano),
-        "level":     level,
-        "log_type":  "PROGRAM",              
-        "component": "DockerManager",
-        "msg":       msg,
-        "vars": map[string]interface{}{         
-            "stream":       stream,
-            "container_id": containerID,
-        },
-    }
-    b, _ := json.Marshal(entry)
-    if m != nil && m.logger != nil {
-        m.logger.Print(string(b))
-    }
-}
-
-
 
 func demuxDockerStream(stdout io.Writer, stderr io.Writer, src io.Reader) (int64, error) {
 	var total int64
