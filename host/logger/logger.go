@@ -1,4 +1,5 @@
-//TODO logger Com통합
+//TODO 편하게 쓰기위한 작업 필요함
+// EX) Level, LogType 강제화 등등
 
 package logger
 
@@ -8,18 +9,16 @@ import (
 	"io"
 	"log"
 	"os"
-	"path/filepath"
 	"time"
 )
 
-// IHershyLog-like structure
 type LogEntry struct {
     Ts         string                 `json:"ts"`
     Level      string                 `json:"level"`
     LogType    string                 `json:"log_type"`
     Component  string                 `json:"component"`
     Msg        string                 `json:"msg"`
-    ProgramID  *string                `json:"program_id,omitempty"`
+    ProgramID  string                 `json:"program_id,omitempty"`
     DurationMs *int64                 `json:"duration_ms,omitempty"`
     Vars       map[string]interface{} `json:"vars,omitempty"`
     Meta       map[string]interface{} `json:"meta,omitempty"`
@@ -32,81 +31,63 @@ type Logger struct {
     Component string
 }
 
-// New creates a Logger that writes both a text-prefixed std logger (for compat)
-// and structured JSON logs (IHershyLog) to stdout and an append file under storageRoot/logs/host.log.
-func New(storageRoot, prefix, component string) (*Logger, error) {
-    logDir := filepath.Join(storageRoot, "logs")
-    if err := os.MkdirAll(logDir, 0o755); err != nil {
-        return nil, fmt.Errorf("mkdir logs: %w", err)
+
+func New(component string, out io.Writer, filePath string) *Logger {
+    var f *os.File
+    var mw io.Writer
+    if filePath != "" {
+        // If a filePath is provided, write only to the file (no console output).
+        if err := os.MkdirAll(filepathDir(filePath), 0755); err == nil {
+            if file, err := os.OpenFile(filePath, os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0644); err == nil {
+                f = file
+                mw = f
+            } else {
+                fmt.Fprintf(os.Stderr, "logger: failed open file %s: %v\n", filePath, err)
+                mw = out // fallback to provided writer on failure
+            }
+        } else {
+            fmt.Fprintf(os.Stderr, "logger: failed mkdir for %s: %v\n", filePath, err)
+            mw = out
+        }
+    } else {
+        // No file path -> use provided writer (e.g. os.Stdout)
+        mw = out
     }
-    fpath := filepath.Join(logDir, "host.log")
-    f, err := os.OpenFile(fpath, os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0o644)
-    if err != nil {
-        return nil, fmt.Errorf("open log file: %w", err)
-    }
-
-    mw := io.MultiWriter(os.Stdout, f)
-    std := log.New(mw, prefix, log.LstdFlags)
-
-    // Ensure timestamps are UTC when formatting LstdFlags; consumer can still use JSON ts.
-    time.Local = time.UTC
-
     return &Logger{
-        std:       std,
+        std:       log.New(mw, "", 0),
         out:       mw,
         file:      f,
         Component: component,
-    }, nil
-}
-
-// StdLogger returns the underlying *log.Logger for compatibility with existing code.
-func (l *Logger) StdLogger() *log.Logger {
-    return l.std
-}
-
-func (l *Logger) Close() error {
-    if l.file == nil {
-        return nil
     }
-    return l.file.Close()
 }
 
-// Write writes a structured Hershy log entry (JSON line) and also prints a text line via std logger.
-func (l *Logger) Write(entry LogEntry) error {
+func (l *Logger) Log(entry LogEntry) {
     if entry.Ts == "" {
-        entry.Ts = time.Now().UTC().Format(time.RFC3339)
+        entry.Ts = time.Now().UTC().Format(time.RFC3339Nano)
     }
     if entry.Component == "" {
         entry.Component = l.Component
     }
-    // Also print a text fallback to the std logger for human-friendly logs
-    l.std.Println(entry.Msg)
-
     b, err := json.Marshal(entry)
     if err != nil {
-        return err
+        fmt.Fprintf(os.Stderr, "logger: marshal error: %v\n", err)
+        return
     }
-    _, err = l.out.Write(append(b, '\n'))
-    return err
+    l.std.Print(string(b))
 }
 
-// Convenience helpers
-func (l *Logger) InfoSystem(msg string, vars map[string]interface{}) {
-    _ = l.Write(LogEntry{
-        Level:     "INFO",
-        LogType:   "SYSTEM",
-        Component: l.Component,
-        Msg:       msg,
-        Vars:      vars,
-    })
+
+func (l *Logger) Close() {
+    if l.file != nil {
+        l.file.Close()
+    }
 }
 
-func (l *Logger) ErrorSystem(msg string, vars map[string]interface{}) {
-    _ = l.Write(LogEntry{
-        Level:     "ERROR",
-        LogType:   "SYSTEM",
-        Component: l.Component,
-        Msg:       msg,
-        Vars:      vars,
-    })
+func filepathDir(p string) string {
+    for i := len(p) - 1; i >= 0; i-- {
+        if os.IsPathSeparator(p[i]) {
+            return p[:i]
+        }
+    }
+    return "."
 }
