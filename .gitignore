@@ -42,3 +42,4 @@ examples/watcher-server/logs/
 *.pid
 *.log
 *_data/
+.offsets.json

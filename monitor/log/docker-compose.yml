@@ -25,3 +25,18 @@ services:
       - ./grafana_data:/var/lib/grafana
       - ./grafana/grafana.config:/etc/grafana/provisioning:ro
     restart: unless-stopped
+  watcher-poller:
+    build:
+      context: ./watcher-poller
+      dockerfile: Dockerfile
+    container_name: watcher-poller
+    network_mode: "host"
+    environment:
+      - HOST=http://host.docker.internal:9000
+      - LOKI_URL=http://host.docker.internal:3100/loki/api/v1/push
+      - LOKI_PUSH=true
+    command:
+      ["--push", "--loki", "http://host.docker.internal:3100/loki/api/v1/push"]
+    volumes:
+      - ./watcher-poller/logs:/var/log/watcher
+    restart: unless-stopped
