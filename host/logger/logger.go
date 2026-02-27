@@ -29,6 +29,7 @@ type Logger struct {
     out       io.Writer
     file      *os.File
     Component string
+    DefaultLogType string
 }
 
 
@@ -61,18 +62,24 @@ func New(component string, out io.Writer, filePath string) *Logger {
     }
 }
 
-func (l *Logger) Log(entry LogEntry) {
+func (l *Logger) Emit(entry LogEntry) {
     if entry.Ts == "" {
         entry.Ts = time.Now().UTC().Format(time.RFC3339Nano)
     }
     if entry.Component == "" {
         entry.Component = l.Component
     }
+    if entry.LogType == "" && l.DefaultLogType != "" {
+        entry.LogType = l.DefaultLogType
+    }
     b, err := json.Marshal(entry)
     if err != nil {
         fmt.Fprintf(os.Stderr, "logger: marshal error: %v\n", err)
         return
     }
+    //TODO 화면 출력 옵셔널 OR 삭제 예정
+    fmt.Fprintf(os.Stdout, "[%s]: %s\n", entry.LogType, entry.Msg)
+
     l.std.Print(string(b))
 }
 
@@ -90,4 +97,7 @@ func filepathDir(p string) string {
         }
     }
     return "."
+}
+func (l *Logger) SetDefaultLogType(t string) {
+    l.DefaultLogType = t
 }

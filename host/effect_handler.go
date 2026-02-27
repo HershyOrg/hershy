@@ -26,6 +26,7 @@ type RealEffectHandler struct {
 // NewRealEffectHandler creates a new RealEffectHandler
 func NewRealEffectHandler(storage *storage.StorageManager, compose *compose.Builder, runtime *runtime.DockerManager) *RealEffectHandler {
 	l := logger.New("EffectHandler", os.Stdout, "./host/host-storage/logs/effect.log")
+	l.SetDefaultLogType("EFFECT")
 	return &RealEffectHandler{
 		storage:        storage,
 		compose:        compose,
@@ -133,9 +134,8 @@ func (h *RealEffectHandler) handleStartRuntime(ctx context.Context, eff program.
 	if statePath == "" {
 		statePath = h.storage.GetStatePath(eff.ProgramID)
 	}
-	h.log.Log(logger.LogEntry{
+	h.log.Emit(logger.LogEntry{
     	Level:     "INFO",
-      LogType:   "EFFECT",
       Msg:       "StartRuntime invoked",
       ProgramID: string(eff.ProgramID),
       Vars: map[string]interface{}{
@@ -153,9 +153,8 @@ func (h *RealEffectHandler) handleStartRuntime(ctx context.Context, eff program.
 		Runtime:     h.defaultRuntime,
 		PublishPort: eff.PublishPort,
 	}
-	h.log.Log(logger.LogEntry{
+	h.log.Emit(logger.LogEntry{
     Level:     "DEBUG",
-    LogType:   "EFFECT",
     Msg:       "compose options",
     ProgramID: string(eff.ProgramID),
     Vars: map[string]interface{}{
@@ -167,9 +166,8 @@ func (h *RealEffectHandler) handleStartRuntime(ctx context.Context, eff program.
 	spec, err := h.compose.GenerateSpec(composeOpts)
 	if err != nil {
 		errMsg := err.Error()
-    h.log.Log(logger.LogEntry{
+    h.log.Emit(logger.LogEntry{
       Level:     "ERROR",
-      LogType:   "EFFECT",
       Msg:       "failed to generate compose spec",
       ProgramID: string(eff.ProgramID),
       Vars: map[string]interface{}{"error": errMsg},
@@ -182,9 +180,8 @@ func (h *RealEffectHandler) handleStartRuntime(ctx context.Context, eff program.
 	// Validate spec against security contracts
 	if err := h.compose.ValidateSpec(spec); err != nil {
 		errMsg := fmt.Sprintf("compose spec validation failed: %v", err)
-		h.log.Log(logger.LogEntry{
+		h.log.Emit(logger.LogEntry{
 			Level:     "ERROR",
-			LogType:   "EFFECT",
 			Msg:       "compose spec validated",
 			ProgramID: string(eff.ProgramID),
 			Vars:			map[string]interface{}{"error": errMsg},
@@ -193,9 +190,8 @@ func (h *RealEffectHandler) handleStartRuntime(ctx context.Context, eff program.
 			Reason: errMsg,
 		}
 	}
-	h.log.Log(logger.LogEntry{
+	h.log.Emit(logger.LogEntry{
     Level:     "INFO",
-    LogType:   "EFFECT",
     Msg:       "compose spec validated",
     ProgramID: string(eff.ProgramID),
   })
@@ -209,9 +205,8 @@ func (h *RealEffectHandler) handleStartRuntime(ctx context.Context, eff program.
 	result, err := h.runtime.Start(ctx, startOpts)
 	if err != nil {
 		errMsg := err.Error()
-    h.log.Log(logger.LogEntry{
+    h.log.Emit(logger.LogEntry{
       Level:     "ERROR",
-      LogType:   "EFFECT",
       Msg:       "docker container start failed",
       ProgramID: string(eff.ProgramID),
       Vars: map[string]interface{}{"error": errMsg},
@@ -222,9 +217,8 @@ func (h *RealEffectHandler) handleStartRuntime(ctx context.Context, eff program.
 	}
 
 	durationMs := time.Since(startTs).Milliseconds()
-	h.log.Log(logger.LogEntry{
+	h.log.Emit(logger.LogEntry{
     Level:      "INFO",
-    LogType:    "EFFECT",
     Msg:        "container started",
     ProgramID:  string(eff.ProgramID),
     DurationMs: &durationMs,

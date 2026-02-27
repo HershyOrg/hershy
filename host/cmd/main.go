@@ -4,7 +4,6 @@ import (
 	"context"
 	"flag"
 	"io"
-	"log"
 	"os"
 	"os/signal"
 	"path/filepath"
@@ -14,6 +13,7 @@ import (
 	"github.com/HershyOrg/hershy/host"
 	"github.com/HershyOrg/hershy/host/api"
 	"github.com/HershyOrg/hershy/host/compose"
+	"github.com/HershyOrg/hershy/host/logger"
 	"github.com/HershyOrg/hershy/host/proxy"
 	"github.com/HershyOrg/hershy/host/registry"
 	"github.com/HershyOrg/hershy/host/runtime"
@@ -33,28 +33,36 @@ func main() {
 	// Logging setup
 	logDir := filepath.Join(*storageRoot, "logs")
 	os.MkdirAll(logDir, 0755)
-	logFile, err := os.Create(filepath.Join(logDir, "host.log"))
-	if err != nil {
-		log.Fatalf("Failed to create log file: %v", err)
-	}
-	defer logFile.Close()
-	logger := log.New(io.MultiWriter(os.Stdout, logFile), "[HOST] ", log.LstdFlags)
+	hostLogPath := filepath.Join(logDir, "host.log")
+	log := logger.New("HostServer", io.Discard, hostLogPath)
+  defer log.Close()
+	log.SetDefaultLogType("HOST")
 
-	logger.Println("🚀 Starting Hersh Host Server")
-	logger.Printf("   Port: %d", *port)
-	logger.Printf("   Storage: %s", *storageRoot)
-	logger.Printf("   Runtime: %s (contracts enforced)", *runtimeType)
+	log.Emit(logger.LogEntry{
+  	Level:   "INFO",
+    Msg:     "Starting Hershy Host Server",
+    Vars: map[string]interface{}{
+      "port":    *port,
+      "storage": *storageRoot,
+      "runtime": *runtimeType,
+    },
+  })
 
 	// Initialize components
 	reg := registry.NewRegistry()
 	pm := proxy.NewProxyManager()
 	stor := storage.NewManager(*storageRoot)
 	comp := compose.NewBuilder()
-	vec := vector.NewManager(*vectorCompose, logger)
+	vec := vector.NewManager(*vectorCompose)
 
 	dockerMgr, err := runtime.NewDockerManager()
 	if err != nil {
-		logger.Fatalf("❌ Docker manager failed: %v", err)
+		errMsg := err.Error()
+		log.Emit(logger.LogEntry{
+			Level:   "ERROR",
+			Msg:     "Docker manager failed",
+			Vars: map[string]interface{}{"error": errMsg},
+  	})
 	}
 	defer dockerMgr.Close()
 
@@ -69,14 +77,28 @@ func main() {
 		return effectHandler
 	})
 
-	logger.Println("✅ Host initialized")
-	logger.Println("   🔒 Contracts: Port 8080 blocked, /state:rw, read-only rootfs")
 
+	log.Emit(logger.LogEntry{
+  	Level:   "INFO",
+    Msg:     "initialized : Contracts: Port 8080 blocked, /state:rw, read-only rootfs",
+  })
 	// Start HTTP server
 	go func() {
-		logger.Printf("🌐 HTTP API: http://localhost:%d", *port)
+			log.Emit(logger.LogEntry{
+			Level:   "INFO",
+			Msg:     "HTTP API Start",
+			Vars: map[string]interface{}{
+				"address" : "http://localhost:",
+				"port":    *port,
+    	},
+		})
 		if err := server.Start(*port); err != nil {
-			logger.Fatalf("Server error: %v", err)
+			errMsg := err.Error()
+			log.Emit(logger.LogEntry{
+				Level:   "ERROR",
+				Msg:     "Server error",
+				Vars: map[string]interface{}{"error": errMsg},
+			})
 		}
 	}()
 	vec.Start()
@@ -86,11 +108,13 @@ func main() {
 	signal.Notify(sigChan, os.Interrupt, syscall.SIGTERM)
 	<-sigChan
 
-	logger.Println("\n⏰ Shutting down gracefully...")
 	vec.Stop()
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 	server.Stop(ctx)
 
-	logger.Println("👋 Host server stopped")
+	log.Emit(logger.LogEntry{
+  	Level:   "INFO",
+    Msg:     "Host server stopped",
+  })
 }
