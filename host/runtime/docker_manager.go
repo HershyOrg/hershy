@@ -1,14 +1,18 @@
 package runtime
 
 import (
+	"bufio"
 	"bytes"
 	"context"
+	"encoding/binary"
 	"encoding/json"
 	"fmt"
 	"io"
 	"net/netip"
 	"os"
 	"path/filepath"
+	"sync"
+	"time"
 
 	"github.com/HershyOrg/hershy/host/compose"
 	"github.com/HershyOrg/hershy/program"
@@ -75,7 +79,6 @@ func (m *DockerManager) Build(ctx context.Context, opts BuildOpts) (*BuildResult
 		PullParent: opts.PullParent,
 		Remove:     true, // Remove intermediate containers
 	}
-
 	// Start build
 	resp, err := m.cli.ImageBuild(ctx, buildCtx, buildOptions)
 	if err != nil {
@@ -146,6 +149,11 @@ func (m *DockerManager) Build(ctx context.Context, opts BuildOpts) (*BuildResult
 type StartOpts struct {
 	ProgramID program.ProgramID
 	Spec      *compose.ComposeSpec
+
+	// 로그 드라이버 (docker stdout을 파일로 저장)
+	LogDriver string
+	LogPath string
+	FollowLogs bool
 }
 
 // StartResult contains the result of starting a container
@@ -250,6 +258,48 @@ func (m *DockerManager) Start(ctx context.Context, opts StartOpts) (*StartResult
 		NetworkMode:    container.NetworkMode(appService.NetworkMode),
 		PortBindings:   networkPortBindings,
 	}
+	// Configure Docker log driver 
+	hostConfig.LogConfig = container.LogConfig{
+			Type: "json-file", // 명시적으로 json-file 지정
+			Config: map[string]string{
+					"max-size": "10m",
+					"max-file": "3",
+			},
+	}
+	// - create the logs directory and truncate/create the file 
+
+	if opts.LogPath != "" {
+        // opts.LogPath가 파일 경로인지 판단
+        if filepath.Ext(opts.LogPath) != "" {
+            // 파일 경로이면 해당 디렉터리만 생성하고 파일 생성/트렁케이트
+            dir := filepath.Dir(opts.LogPath)
+            if err := os.MkdirAll(dir, 0755); err != nil {
+                fmt.Printf("DockerManager: failed to create log dir %s: %v\n", dir, err)
+            } else {
+                if f, err := os.Create(opts.LogPath); err != nil {
+                    fmt.Printf("DockerManager: failed to create runtime log file %s: %v\n", opts.LogPath, err)
+                } else {
+                    f.Close()
+                    // opts.LogPath는 이미 파일 경로이므로 변경하지 않음
+                }
+            }
+        } else {
+            // 디렉터리로 전달된 경우 기존 동작 유지
+            logDir := filepath.Join(opts.LogPath, "programs", string(opts.ProgramID), "runtime")
+            if err := os.MkdirAll(logDir, 0755); err != nil {
+                fmt.Printf("DockerManager: failed to create log dir %s: %v\n", logDir, err)
+            } else {
+                p := filepath.Join(logDir, "runtime.log")
+                if f, err := os.Create(p); err != nil {
+                    fmt.Printf("DockerManager: failed to create runtime log file %s: %v\n", p, err)
+                } else {
+                    f.Close()
+                    opts.LogPath = p
+                }
+            }
+        }
+    }
+	
 
 	// Create container using new API
 	createOpts := client.ContainerCreateOptions{
@@ -257,7 +307,6 @@ func (m *DockerManager) Start(ctx context.Context, opts StartOpts) (*StartResult
 		HostConfig: hostConfig,
 		Name:       appService.ContainerName,
 	}
-
 	resp, err := m.cli.ContainerCreate(ctx, createOpts)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create container: %w", err)
@@ -271,6 +320,74 @@ func (m *DockerManager) Start(ctx context.Context, opts StartOpts) (*StartResult
 		m.cli.ContainerRemove(ctx, resp.ID, client.ContainerRemoveOptions{Force: true})
 		return nil, fmt.Errorf("failed to start container: %w", err)
 	}
+
+	if opts.LogPath != ""{
+		go func(containerID,path string){
+			f,err := os.OpenFile(path, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0644)
+			if err != nil {
+          fmt.Printf("DockerManager: failed to open runtime log file %s: %v\n", path, err)
+          return
+      }
+      defer f.Close()
+			logOpts := client.ContainerLogsOptions{
+          ShowStdout: true,
+          ShowStderr: true,
+          Follow:     opts.FollowLogs,
+          Timestamps: true,
+      }
+			reader, err := m.cli.ContainerLogs(context.Background(), containerID, logOpts)
+			if err != nil {
+        fmt.Fprintf(f, "failed to stream logs: %v\n", err)
+        return
+    	}
+      defer reader.Close()
+
+			stdoutR, stdoutW := io.Pipe()
+			stderrR, stderrW := io.Pipe()
+			var mu sync.Mutex
+
+			writeJSON := func(stream, line string) {
+        obj := map[string]string{
+            "ts":          time.Now().UTC().Format(time.RFC3339Nano),
+            "stream":      stream,          // "stdout" or "stderr"
+            "msg":         line,
+            "container_id": containerID,
+      	}
+        b, _ := json.Marshal(obj)
+        mu.Lock()
+        fmt.Fprintln(f, string(b))
+        mu.Unlock()
+	    }
+			// stdout scanner
+      go func() {
+        sc := bufio.NewScanner(stdoutR)
+        for sc.Scan() {
+          writeJSON("stdout", sc.Text())
+        }
+        if err := sc.Err(); err != nil {
+          writeJSON("logger-error", fmt.Sprintf("stdout scanner error: %v", err))
+        }
+      }()
+			// stderr scanner
+      go func() {
+        sc := bufio.NewScanner(stderrR)
+        for sc.Scan() {
+          writeJSON("stderr", sc.Text())
+        }
+        if err := sc.Err(); err != nil {
+          writeJSON("logger-error", fmt.Sprintf("stderr scanner error: %v", err))
+        }
+    	}()
+
+			// stdout, stderr 분리
+			if _, err := demuxDockerStream(stdoutW, stderrW, reader); err != nil {
+				fmt.Fprintf(f, "error demuxing logs: %v\n", err)
+			}
+			stdoutW.Close()
+      stderrW.Close()
+		}(resp.ID,opts.LogPath)
+	}
+
 
 	return &StartResult{
 		ContainerID: resp.ID,
@@ -371,4 +488,37 @@ func (m *DockerManager) GetContainerLogs(ctx context.Context, containerID string
 	}
 
 	return buf.String(), nil
+}
+func demuxDockerStream(stdout io.Writer, stderr io.Writer, src io.Reader) (int64, error) {
+	var total int64
+	header := make([]byte, 8)
+	for {
+		_, err := io.ReadFull(src, header)
+		if err == io.EOF {
+			return total, nil
+		}
+		if err != nil {
+			return total, err
+		}
+		stream := header[0]
+		size := binary.BigEndian.Uint32(header[4:])
+		if size == 0 {
+			continue
+		}
+		buf := make([]byte, int(size))
+		_, err = io.ReadFull(src, buf)
+		if err != nil {
+			return total, err
+		}
+		var n int
+		switch stream {
+		case 1:
+			n, _ = stdout.Write(buf)
+		case 2:
+			n, _ = stderr.Write(buf)
+		default:
+			n, _ = stdout.Write(buf)
+		}
+		total += int64(n)
+	}
 }

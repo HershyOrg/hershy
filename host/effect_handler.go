@@ -165,6 +165,7 @@ func (h *RealEffectHandler) handleStartRuntime(ctx context.Context, eff program.
 	startOpts := runtime.StartOpts{
 		ProgramID: eff.ProgramID,
 		Spec:      spec,
+		LogPath: filepath.Join(h.storage.GetLogsPath(eff.ProgramID), "runtime.log"),
 	}
 
 	fmt.Printf("[EFFECT]   Starting Docker container...\n")
