@@ -1,0 +1,42 @@
+version: "3.8"
+
+services:
+  loki:
+    image: grafana/loki:2.9.0
+    container_name: loki
+    ports:
+      - "3100:3100"
+    volumes:
+      - ./loki-config.yml:/etc/loki/local-config.yaml
+      - ./loki_data:/loki
+    command: -config.file=/etc/loki/local-config.yaml
+    restart: unless-stopped
+
+  grafana:
+    image: grafana/grafana:latest
+    container_name: grafana
+    ports:
+      - "3000:3000"
+    environment:
+      - GF_SECURITY_ADMIN_PASSWORD=admin
+      - GF_AUTH_ANONYMOUS_ENABLED=true
+      - GF_AUTH_ANONYMOUS_ORG_ROLE=Admin
+    volumes:
+      - ./grafana_data:/var/lib/grafana
+      - ./grafana/grafana.config:/etc/grafana/provisioning:ro
+    restart: unless-stopped
+  watcher-poller:
+    build:
+      context: ./watcher-poller
+      dockerfile: Dockerfile
+    container_name: watcher-poller
+    network_mode: "host"
+    environment:
+      - HOST=http://host.docker.internal:9000
+      - LOKI_URL=http://host.docker.internal:3100/loki/api/v1/push
+      - LOKI_PUSH=true
+    command:
+      ["--push", "--loki", "http://host.docker.internal:3100/loki/api/v1/push"]
+    volumes:
+      - ./watcher-poller/logs:/var/log/watcher
+    restart: unless-stopped

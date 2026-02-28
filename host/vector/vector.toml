@@ -1,0 +1,39 @@
+data_dir = "/var/lib/vector"
+
+[sources.host_files]
+type = "file"
+include = ["/var/log/host/**/*.log"] # 일단 모든 파일 재귀탐색
+read_from = "beginning"
+
+[transforms.add_ts]
+type = "remap"
+inputs = ["host_files"]
+source = '''
+.timestamp = now()
+.host = "vector-node"
+# 파일명을 레이블로 쓰기 위해 필드 추출 (선택 사항)
+.file_name = .file
+'''
+
+[sinks.loki]
+type = "loki"
+inputs = ["add_ts"]
+endpoint = "http://monitoring-server:3100"
+encoding.codec = "json"
+healthcheck.enabled = false 
+
+# 2. 재시도 및 버퍼 설정 
+[sinks.loki.buffer]
+type = "memory"       # 메모리에 임시 보관 (재시작 시 삭제됨, 영구 보관은 "disk" 사용)
+max_events = 10000    # 최대 1만 개의 이벤트를 쌓아둠
+when_full = "block"   # 버퍼가 꽉 차면 소스 읽기를 중단하여 데이터 유실 방지
+
+[sinks.loki.request]
+retry_attempts = 100               # 재시도 횟수 
+retry_initial_backoff_secs = 1     # 첫 재시도 대기 시간
+retry_max_backoff_secs = 30        # 재시도 간격 최대치 (Loki가 15초 뒤에 뜸)
+
+[sinks.loki.labels]
+job = "host-logs"
+env = "development"
+file = "{{ file_name }}" # 파일별로 Grafana에서 필터링

@@ -44,3 +44,5 @@ examples/trading-long/logs/
 examples/watcher-server/logs/
 *.pid
 *.log
+*_data/
+.offsets.json
