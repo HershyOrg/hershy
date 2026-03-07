@@ -3,12 +3,15 @@ package api
 import (
 	"context"
 	"crypto/sha256"
+	"crypto/subtle"
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"net"
 	"net/http"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"time"
 
@@ -28,9 +31,13 @@ type HostServer struct {
 	storage         *storage.StorageManager
 	compose         *compose.Builder
 	runtime         *runtime.DockerManager
+	watcherCatalog  *watcherEndpointCatalog
 	server          *http.Server
 	effectHandlerFn func() program.EffectHandler // Factory function for creating effect handlers
 	defaultRuntime  string                       // Default container runtime (runsc or runc)
+	listenAddr      string                       // Bind address (e.g. 127.0.0.1, 100.x.x.x)
+	apiToken        string                       // Optional bearer/API token for /programs* endpoints
+	proxyAllowlist  []string                     // Optional allowlist for /programs/{id}/proxy/* paths
 
 	// Health check loop control
 	healthCtx    context.Context
@@ -51,6 +58,7 @@ func NewHostServer(
 		storage:         stor,
 		compose:         comp,
 		runtime:         rt,
+		watcherCatalog:  newWatcherEndpointCatalog(),
 		defaultRuntime:  "runc", // Default to runc, can be changed via SetDefaultRuntime
 	}
 
@@ -69,6 +77,59 @@ func (hs *HostServer) SetEffectHandlerFactory(fn func() program.EffectHandler) {
 // SetDefaultRuntime sets the default container runtime (runsc or runc)
 func (hs *HostServer) SetDefaultRuntime(runtime string) {
 	hs.defaultRuntime = runtime
+}
+
+// SetListenAddr sets bind address for HTTP server.
+// Empty value means all interfaces.
+func (hs *HostServer) SetListenAddr(addr string) {
+	hs.listenAddr = strings.TrimSpace(addr)
+}
+
+// SetAPIToken enables token authentication for /programs* endpoints.
+// Empty value disables token auth.
+func (hs *HostServer) SetAPIToken(token string) {
+	hs.apiToken = strings.TrimSpace(token)
+}
+
+// SetProxyPathAllowlist restricts /programs/{id}/proxy/* paths.
+// Pattern format:
+// - Exact path: /watcher/watching-state
+// - Prefix wildcard: /watcher/varState/*
+// Empty list disables path filtering.
+func (hs *HostServer) SetProxyPathAllowlist(patterns []string) {
+	normalized := make([]string, 0, len(patterns))
+	for _, raw := range patterns {
+		p := strings.TrimSpace(raw)
+		if p == "" {
+			continue
+		}
+		if !strings.HasPrefix(p, "/") {
+			p = "/" + p
+		}
+		normalized = append(normalized, p)
+	}
+	hs.proxyAllowlist = normalized
+}
+
+func (hs *HostServer) isProxyPathAllowed(proxyPath string) bool {
+	if len(hs.proxyAllowlist) == 0 {
+		return true
+	}
+
+	for _, pattern := range hs.proxyAllowlist {
+		if strings.HasSuffix(pattern, "*") {
+			prefix := strings.TrimSuffix(pattern, "*")
+			if strings.HasPrefix(proxyPath, prefix) {
+				return true
+			}
+			continue
+		}
+		if proxyPath == pattern {
+			return true
+		}
+	}
+
+	return false
 }
 
 // createEffectHandler creates a new effect handler using the factory function
@@ -90,15 +151,48 @@ func (hs *HostServer) Start(port int) error {
 	}
 
 	// Program CRUD endpoints
-	mux.HandleFunc("/programs", hs.handlePrograms)
-	mux.HandleFunc("/programs/", hs.handleProgramByID)
+	mux.HandleFunc("/programs", hs.withProgramAuth(hs.handlePrograms))
+	mux.HandleFunc("/programs/", hs.withProgramAuth(hs.handleProgramByID))
+	mux.HandleFunc("/watcher/endpoints", hs.withProgramAuth(hs.handleWatcherEndpoints))
+	mux.HandleFunc("/watcher/endpoints/", hs.withProgramAuth(hs.handleWatcherEndpoints))
+
+	addr := fmt.Sprintf(":%d", port)
+	if hs.listenAddr != "" {
+		addr = net.JoinHostPort(hs.listenAddr, strconv.Itoa(port))
+	}
 
 	hs.server = &http.Server{
-		Addr:    fmt.Sprintf(":%d", port),
+		Addr:    addr,
 		Handler: mux,
 	}
 
 	return hs.server.ListenAndServe()
+}
+
+func (hs *HostServer) withProgramAuth(next http.HandlerFunc) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		if hs.apiToken == "" {
+			next(w, r)
+			return
+		}
+
+		token := strings.TrimSpace(r.Header.Get("X-Hershy-Api-Token"))
+		if token == "" {
+			authHeader := strings.TrimSpace(r.Header.Get("Authorization"))
+			const bearerPrefix = "Bearer "
+			if strings.HasPrefix(authHeader, bearerPrefix) {
+				token = strings.TrimSpace(authHeader[len(bearerPrefix):])
+			}
+		}
+
+		if token == "" || subtle.ConstantTimeCompare([]byte(token), []byte(hs.apiToken)) != 1 {
+			w.Header().Set("WWW-Authenticate", "Bearer")
+			hs.sendError(w, http.StatusUnauthorized, "unauthorized")
+			return
+		}
+
+		next(w, r)
+	}
 }
 
 // Stop stops the HTTP API server
@@ -371,6 +465,9 @@ func (hs *HostServer) deleteProgram(w http.ResponseWriter, r *http.Request, prog
 		return
 	}
 
+	// Remove published watcher endpoints immediately on explicit delete request.
+	hs.watcherCatalog.remove(programID)
+
 	// Program remains in Registry for restart capability
 	// Files and metadata are preserved
 
@@ -444,12 +541,28 @@ func (hs *HostServer) checkAllPrograms() {
 		case program.StateReady:
 			readyCount++
 
+			meta, err := hs.programRegistry.Get(programID)
+			if err == nil {
+				ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+				if err := hs.syncWatcherEndpointDescriptor(
+					ctx,
+					programID,
+					meta.PublishPort,
+					state.State.String(),
+				); err != nil {
+					fmt.Printf("[HealthCheck] watcher endpoint sync skipped for %s: %v\n", programID, err)
+				}
+				cancel()
+			} else {
+				hs.watcherCatalog.remove(programID)
+			}
+
 			// Health check Ready programs with containers
-			if state.ContainerID != "" {
+			if hs.runtime != nil && state.ContainerID != "" {
 				ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
-				defer cancel()
 
 				status, err := hs.runtime.GetContainerStatus(ctx, state.ContainerID)
+				cancel()
 
 				if err != nil {
 					fmt.Printf("[HealthCheck] ⚠️ Container %s not found: %v\n", state.ContainerID, err)
@@ -462,9 +575,14 @@ func (hs *HostServer) checkAllPrograms() {
 
 		case program.StateError:
 			fmt.Printf("[HealthCheck] ❌ Program %s in Error state: %v\n", programID, state.ErrorMsg)
+			hs.watcherCatalog.remove(programID)
 
 		case program.StateStopped:
 			fmt.Printf("[HealthCheck] 🛑 Program %s stopped (can be restarted)\n", programID)
+			hs.watcherCatalog.remove(programID)
+
+		default:
+			hs.watcherCatalog.remove(programID)
 		}
 
 		return true

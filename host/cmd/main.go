@@ -8,6 +8,7 @@ import (
 	"os"
 	"os/signal"
 	"path/filepath"
+	"strings"
 	"syscall"
 	"time"
 
@@ -24,8 +25,11 @@ import (
 func main() {
 	// Flags
 	port := flag.Int("port", 9000, "Host API server port")
+	bindAddr := flag.String("bind", "127.0.0.1", "Host API bind address (e.g. 127.0.0.1 or 100.x.x.x)")
 	storageRoot := flag.String("storage", "./host-storage", "Storage root directory")
 	runtimeType := flag.String("runtime", "runc", "Container runtime (runc or runsc)")
+	apiTokenFlag := flag.String("api-token", "", "API token for /programs* endpoints (optional)")
+	proxyAllowlistFlag := flag.String("proxy-allowlist", "", "Comma-separated allowlist for /programs/{id}/proxy/* paths (supports '*' suffix wildcard)")
 	flag.Parse()
 
 	// Logging setup
@@ -40,6 +44,7 @@ func main() {
 
 	logger.Println("🚀 Starting Hersh Host Server")
 	logger.Printf("   Port: %d", *port)
+	logger.Printf("   Bind: %s", *bindAddr)
 	logger.Printf("   Storage: %s", *storageRoot)
 	logger.Printf("   Runtime: %s (contracts enforced)", *runtimeType)
 
@@ -58,6 +63,33 @@ func main() {
 	// Create Host server
 	server := api.NewHostServer(reg, pm, stor, comp, dockerMgr)
 	server.SetDefaultRuntime(*runtimeType)
+	server.SetListenAddr(*bindAddr)
+
+	apiToken := strings.TrimSpace(*apiTokenFlag)
+	if apiToken == "" {
+		apiToken = strings.TrimSpace(os.Getenv("HERSHY_HOST_API_TOKEN"))
+	}
+	server.SetAPIToken(apiToken)
+
+	proxyAllowlistRaw := strings.TrimSpace(*proxyAllowlistFlag)
+	if proxyAllowlistRaw == "" {
+		proxyAllowlistRaw = strings.TrimSpace(os.Getenv("HERSHY_PROXY_ALLOWLIST"))
+	}
+	if proxyAllowlistRaw != "" {
+		parts := strings.Split(proxyAllowlistRaw, ",")
+		allowlist := make([]string, 0, len(parts))
+		for _, part := range parts {
+			path := strings.TrimSpace(part)
+			if path == "" {
+				continue
+			}
+			allowlist = append(allowlist, path)
+		}
+		server.SetProxyPathAllowlist(allowlist)
+		if len(allowlist) > 0 {
+			logger.Printf("   🔐 Proxy allowlist: %s", strings.Join(allowlist, ", "))
+		}
+	}
 
 	// Set effect handler factory (enforces contracts)
 	server.SetEffectHandlerFactory(func() program.EffectHandler {
@@ -68,10 +100,13 @@ func main() {
 
 	logger.Println("✅ Host initialized")
 	logger.Println("   🔒 Contracts: Port 8080 blocked, /state:rw, read-only rootfs")
+	if apiToken != "" {
+		logger.Println("   🔐 API token auth: enabled for /programs*")
+	}
 
 	// Start HTTP server
 	go func() {
-		logger.Printf("🌐 HTTP API: http://localhost:%d", *port)
+		logger.Printf("🌐 HTTP API bind: %s:%d", *bindAddr, *port)
 		if err := server.Start(*port); err != nil {
 			logger.Fatalf("Server error: %v", err)
 		}

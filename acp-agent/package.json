@@ -1,0 +1,20 @@
+{
+  "name": "hershy-acp-agent",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "start": "node src/main.mjs",
+    "test": "node --test test/*.test.mjs",
+    "check": "node --check src/main.mjs && node --check src/config.mjs && node --check src/schemas.mjs && node --check src/templates.mjs && node --check src/hostClient.mjs && node --check src/accessGrant.mjs && node --check src/accessGatewaySessionStore.mjs && node --check src/seller.mjs && node --check src/resourceServer.mjs"
+  },
+  "dependencies": {
+    "@virtuals-protocol/acp-node": "^0.3.0-beta.37",
+    "ajv": "^8.17.1",
+    "dotenv": "^16.4.5",
+    "ws": "^8.18.3"
+  }
+}

@@ -1,0 +1,11 @@
+version: '3.8'
+services:
+  hershy-acp-seller:
+    image: node:22-alpine
+    working_dir: /workspace/acp-agent
+    command: sh -lc "npm ci && npm run start"
+    env_file:
+      - ../.env
+    volumes:
+      - ../..:/workspace
+    restart: unless-stopped

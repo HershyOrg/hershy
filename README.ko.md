@@ -85,6 +85,16 @@ hershy/
     └── watcher-server/         # 최소 WatcherAPI 서버
 ```
 
+## ACP 연동
+
+ACP Seller 연동은 `acp-agent/`에 추가되어 있습니다.
+
+- `@virtuals-protocol/acp-node` 기반 Seller 에이전트 런타임
+- Host API (`/programs`, `/start`, `/status`)를 통해 Hershy 프로그램 인스턴스 생성/기동/전달
+- 오퍼링 스키마와 buyer 스모크 테스트 스크립트 포함
+
+실행 방법은 `acp-agent/README.md`를 참고하세요.
+
 **참고**: Hersh 프레임워크는 현재 [github.com/HershyOrg/hersh](https://github.com/HershyOrg/hersh) 별도 라이브러리입니다.
 
 ## 🚀 빠른 시작
@@ -121,6 +131,10 @@ cd host && go test -tags=integration ./... -v
 ```bash
 # Host 서버 시작(기본: 포트 9000, runc 런타임)
 cd host && go run cmd/main.go
+
+# Host API 보안 모드(바인드 + 토큰)
+HERSHY_HOST_API_TOKEN='<long-random-token>' \
+cd host && go run cmd/main.go -bind 127.0.0.1 -port 9000 -api-token '<long-random-token>'
 
 # 예제 프로그램 배포(Host가 :9000에서 실행 중이어야 함)
 cd examples/simple-counter && ./deploy-to-host.sh

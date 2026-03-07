@@ -44,3 +44,6 @@ examples/trading-long/logs/
 examples/watcher-server/logs/
 *.pid
 *.log
+
+# ACP agent
+acp-agent/node_modules/

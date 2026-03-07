@@ -56,6 +56,64 @@ type SourceCodeResponse struct {
 	RetrievedAt time.Time         `json:"retrieved_at"`
 }
 
+// WatcherWatchingResponse mirrors WatcherAPI /watcher/watching response.
+type WatcherWatchingResponse struct {
+	WatchedVars []string `json:"watchedVars"`
+	Count       int      `json:"count"`
+	Timestamp   string   `json:"timestamp"`
+}
+
+// WatcherVarStateResponse mirrors WatcherAPI /watcher/varState response.
+type WatcherVarStateResponse struct {
+	Variables map[string]interface{} `json:"variables"`
+	Count     int                    `json:"count"`
+	Timestamp string                 `json:"timestamp"`
+}
+
+// WatcherWatchingStateResponse returns watched variable names with current values.
+type WatcherWatchingStateResponse struct {
+	WatchedVars       []string               `json:"watchedVars"`
+	Variables         map[string]interface{} `json:"variables"`
+	WatchedCount      int                    `json:"watchedCount"`
+	InitializedCount  int                    `json:"initializedCount"`
+	NotInitialized    []string               `json:"notInitialized"`
+	WatchingTimestamp string                 `json:"watchingTimestamp"`
+	VarStateTimestamp string                 `json:"varStateTimestamp"`
+	Timestamp         string                 `json:"timestamp"`
+}
+
+// WatcherSingleVarStateResponse returns the state of a single watched variable.
+type WatcherSingleVarStateResponse struct {
+	Name              string      `json:"name"`
+	Value             interface{} `json:"value,omitempty"`
+	Watched           bool        `json:"watched"`
+	Initialized       bool        `json:"initialized"`
+	WatchingTimestamp string      `json:"watchingTimestamp"`
+	VarStateTimestamp string      `json:"varStateTimestamp"`
+	Timestamp         string      `json:"timestamp"`
+}
+
+// WatcherEndpointDescriptor describes active watcher query endpoints for a program.
+type WatcherEndpointDescriptor struct {
+	ProgramID                program.ProgramID `json:"program_id"`
+	ProgramState             string            `json:"program_state"`
+	ProxyBase                string            `json:"proxy_base"`
+	WatchingStateEndpoint    string            `json:"watching_state_endpoint"`
+	VarStateEndpointTemplate string            `json:"var_state_endpoint_template"`
+	VarStateEndpoints        map[string]string `json:"var_state_endpoints"`
+	WatchedVars              []string          `json:"watched_vars"`
+	WatchedCount             int               `json:"watched_count"`
+	WatcherTimestamp         string            `json:"watcher_timestamp"`
+	CatalogUpdatedAt         string            `json:"catalog_updated_at"`
+}
+
+// WatcherEndpointCatalogResponse aggregates active watcher endpoint descriptors.
+type WatcherEndpointCatalogResponse struct {
+	Endpoints []WatcherEndpointDescriptor `json:"endpoints"`
+	Count     int                         `json:"count"`
+	Timestamp string                      `json:"timestamp"`
+}
+
 // ErrorResponse represents an error response
 type ErrorResponse struct {
 	Error   string `json:"error"`
