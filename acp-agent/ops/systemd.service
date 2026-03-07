@@ -1,0 +1,16 @@
+[Unit]
+Description=Hershy ACP Seller
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=ubuntu
+WorkingDirectory=/opt/hershy/acp-agent
+EnvironmentFile=/opt/hershy/acp-agent/.env
+ExecStart=/usr/bin/env npm run start
+Restart=on-failure
+RestartSec=3
+
+[Install]
+WantedBy=multi-user.target

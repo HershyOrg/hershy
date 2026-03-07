@@ -6,6 +6,8 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/url"
+	"strings"
 	"time"
 
 	"github.com/HershyOrg/hershy/program"
@@ -51,6 +53,9 @@ func (hs *HostServer) buildAndStartProgram(w http.ResponseWriter, r *http.Reques
 		return
 	}
 
+	// Reset published watcher endpoints until new runtime state is discovered.
+	hs.watcherCatalog.remove(programID)
+
 	// Health check loop will automatically detect and monitor this program
 
 	response := LifecycleResponse{
@@ -84,6 +89,9 @@ func (hs *HostServer) stopProgram(w http.ResponseWriter, r *http.Request, progra
 		return
 	}
 
+	// Remove published watcher endpoints immediately on explicit stop request.
+	hs.watcherCatalog.remove(programID)
+
 	// HealthMonitor will handle cleanup automatically after detecting Stopped state
 
 	response := LifecycleResponse{
@@ -116,6 +124,9 @@ func (hs *HostServer) restartProgram(w http.ResponseWriter, r *http.Request, pro
 		return
 	}
 
+	// Remove published watcher endpoints while restart is in progress.
+	hs.watcherCatalog.remove(programID)
+
 	response := LifecycleResponse{
 		ProgramID: programID,
 		State:     program.StateStopping.String(),
@@ -145,6 +156,22 @@ func (hs *HostServer) handleProxy(w http.ResponseWriter, r *http.Request, progra
 	state := prog.GetState()
 	if state.State != program.StateReady {
 		hs.sendError(w, http.StatusServiceUnavailable, fmt.Sprintf("program not ready (current state: %s)", state.State))
+		return
+	}
+
+	if !hs.isProxyPathAllowed(proxyPath) {
+		hs.sendError(w, http.StatusForbidden, fmt.Sprintf("proxy path not allowed: %s", proxyPath))
+		return
+	}
+
+	// Aggregated watcher endpoint served by host.
+	// This avoids making two client round-trips for /watcher/watching + /watcher/varState.
+	if proxyPath == "/watcher/watching-state" {
+		hs.getWatcherWatchingState(w, r, meta.PublishPort)
+		return
+	}
+	if strings.HasPrefix(proxyPath, "/watcher/varState/") {
+		hs.getWatcherSingleVarState(w, r, meta.PublishPort, proxyPath)
 		return
 	}
 
@@ -192,6 +219,152 @@ func (hs *HostServer) handleProxy(w http.ResponseWriter, r *http.Request, progra
 
 	// Copy response body
 	io.Copy(w, resp.Body)
+}
+
+func (hs *HostServer) getWatcherWatchingState(w http.ResponseWriter, r *http.Request, publishPort int) {
+	if r.Method != http.MethodGet {
+		hs.sendError(w, http.StatusMethodNotAllowed, "method not allowed")
+		return
+	}
+
+	client := &http.Client{Timeout: 10 * time.Second}
+	watchingURL := fmt.Sprintf("http://localhost:%d/watcher/watching", publishPort)
+	varStateURL := fmt.Sprintf("http://localhost:%d/watcher/varState", publishPort)
+
+	var watching WatcherWatchingResponse
+	if err := hs.fetchWatcherJSON(r.Context(), client, watchingURL, &watching); err != nil {
+		hs.sendError(w, http.StatusBadGateway, err.Error())
+		return
+	}
+
+	var varState WatcherVarStateResponse
+	if err := hs.fetchWatcherJSON(r.Context(), client, varStateURL, &varState); err != nil {
+		hs.sendError(w, http.StatusBadGateway, err.Error())
+		return
+	}
+
+	variables := make(map[string]interface{}, len(watching.WatchedVars))
+	notInitialized := make([]string, 0)
+	for _, varName := range watching.WatchedVars {
+		value, ok := varState.Variables[varName]
+		if !ok {
+			notInitialized = append(notInitialized, varName)
+			continue
+		}
+		variables[varName] = value
+	}
+
+	response := WatcherWatchingStateResponse{
+		WatchedVars:       watching.WatchedVars,
+		Variables:         variables,
+		WatchedCount:      len(watching.WatchedVars),
+		InitializedCount:  len(variables),
+		NotInitialized:    notInitialized,
+		WatchingTimestamp: watching.Timestamp,
+		VarStateTimestamp: varState.Timestamp,
+		Timestamp:         time.Now().Format(time.RFC3339),
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(response)
+}
+
+func (hs *HostServer) getWatcherSingleVarState(w http.ResponseWriter, r *http.Request, publishPort int, proxyPath string) {
+	if r.Method != http.MethodGet {
+		hs.sendError(w, http.StatusMethodNotAllowed, "method not allowed")
+		return
+	}
+
+	rawVarName := strings.TrimPrefix(proxyPath, "/watcher/varState/")
+	if rawVarName == "" {
+		hs.sendError(w, http.StatusBadRequest, "variable name is required")
+		return
+	}
+
+	decodedVarName, err := url.PathUnescape(rawVarName)
+	if err != nil || strings.TrimSpace(decodedVarName) == "" {
+		hs.sendError(w, http.StatusBadRequest, "invalid variable name")
+		return
+	}
+	varName := strings.TrimSpace(decodedVarName)
+
+	client := &http.Client{Timeout: 10 * time.Second}
+	watchingURL := fmt.Sprintf("http://localhost:%d/watcher/watching", publishPort)
+	varStateURL := fmt.Sprintf("http://localhost:%d/watcher/varState", publishPort)
+
+	var watching WatcherWatchingResponse
+	if err := hs.fetchWatcherJSON(r.Context(), client, watchingURL, &watching); err != nil {
+		hs.sendError(w, http.StatusBadGateway, err.Error())
+		return
+	}
+
+	var varState WatcherVarStateResponse
+	if err := hs.fetchWatcherJSON(r.Context(), client, varStateURL, &varState); err != nil {
+		hs.sendError(w, http.StatusBadGateway, err.Error())
+		return
+	}
+
+	watched := false
+	for _, watchedName := range watching.WatchedVars {
+		if watchedName == varName {
+			watched = true
+			break
+		}
+	}
+	if !watched {
+		hs.sendError(w, http.StatusNotFound, fmt.Sprintf("variable not watched: %s", varName))
+		return
+	}
+
+	value, initialized := varState.Variables[varName]
+	response := WatcherSingleVarStateResponse{
+		Name:              varName,
+		Watched:           true,
+		Initialized:       initialized,
+		WatchingTimestamp: watching.Timestamp,
+		VarStateTimestamp: varState.Timestamp,
+		Timestamp:         time.Now().Format(time.RFC3339),
+	}
+	if initialized {
+		response.Value = value
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(response)
+}
+
+func (hs *HostServer) fetchWatcherJSON(
+	ctx context.Context,
+	client *http.Client,
+	targetURL string,
+	dst interface{},
+) error {
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, targetURL, nil)
+	if err != nil {
+		return fmt.Errorf("failed to build upstream request: %w", err)
+	}
+
+	resp, err := client.Do(req)
+	if err != nil {
+		return fmt.Errorf("failed to call upstream %s: %w", targetURL, err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		body, _ := io.ReadAll(io.LimitReader(resp.Body, 2048))
+		return fmt.Errorf(
+			"upstream %s returned status %d: %s",
+			targetURL,
+			resp.StatusCode,
+			string(body),
+		)
+	}
+
+	if err := json.NewDecoder(resp.Body).Decode(dst); err != nil {
+		return fmt.Errorf("failed to decode upstream response from %s: %w", targetURL, err)
+	}
+
+	return nil
 }
 
 // getContainerLogs handles GET /programs/{id}/logs

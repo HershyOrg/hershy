@@ -5,8 +5,6 @@
 *.out
 *.test
 
-
-
 # Go workspace
 /go.work
 /go.work.sum
@@ -47,3 +45,6 @@ examples/watcher-server/logs/
 *_data/
 .offsets.json
 AGENTS.md
+
+# ACP agent
+acp-agent/node_modules/
