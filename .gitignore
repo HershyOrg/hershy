@@ -43,3 +43,4 @@ examples/watcher-server/logs/
 *.log
 *_data/
 .offsets.json
+AGENTS.md

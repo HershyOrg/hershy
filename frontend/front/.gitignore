@@ -1,2 +1,6 @@
 .config/
 node_modules/
+
+!frontend/front/src/data/
+frontend/front/src/data/*
+!frontend/front/src/data/blockFixtures.js

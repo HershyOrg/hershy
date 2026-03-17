@@ -15,8 +15,10 @@ type BookLevel struct {
 }
 
 type Orderbook struct {
-	Bids []BookLevel
-	Asks []BookLevel
+	Bids         []BookLevel
+	Asks         []BookLevel
+	MinOrderSize float64
+	TickSize     float64
 }
 
 func fetchOrderbook(clobHost, tokenID string) (Orderbook, error) {
@@ -37,7 +39,22 @@ func fetchOrderbook(clobHost, tokenID string) (Orderbook, error) {
 	}
 	bids := parseBookLevels(raw["bids"], true)
 	asks := parseBookLevels(raw["asks"], false)
-	return Orderbook{Bids: bids, Asks: asks}, nil
+
+	minSize := toFloat(raw["min_order_size"])
+	tick := toFloat(raw["tick_size"])
+	if minSize == 0 {
+		minSize = 5.0 // Default fallback
+	}
+	if tick == 0 {
+		tick = 0.001 // Default fallback
+	}
+
+	return Orderbook{
+		Bids:         bids,
+		Asks:         asks,
+		MinOrderSize: minSize,
+		TickSize:     tick,
+	}, nil
 }
 
 func parseBookLevels(raw any, reverse bool) []BookLevel {
@@ -117,6 +134,10 @@ func simulateMarketBuy(book Orderbook, usdcAmount float64) *FillResult {
 	avg := cost / shares
 	partial := remaining > 1e-9
 	return &FillResult{USDC: cost, Shares: shares, AvgPrice: &avg, Partial: partial, WorstPrice: worstPrice}
+}
+
+func GetEmptyBookBuyPrice(book Orderbook) float64 {
+	return 0.999
 }
 
 func simulateMarketSell(book Orderbook, sharesToSell float64) *FillResult {

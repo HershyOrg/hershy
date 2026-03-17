@@ -2,6 +2,7 @@ package exchanges
 
 import (
 	"bytes"
+	"compress/gzip"
 	"crypto/ecdsa"
 	"crypto/hmac"
 	"crypto/rand"
@@ -51,7 +52,9 @@ const (
 )
 
 const (
-	signatureTypeEOA = 0
+	signatureTypeEOA        = 0
+	signatureTypePolyProxy  = 1
+	signatureTypeGnosisSafe = 2
 )
 
 type clobClient struct {
@@ -69,6 +72,8 @@ type clobClient struct {
 	creds *apiCreds
 	// funder is the funder address if required.
 	funder common.Address
+	// sigType is the signature type.
+	sigType int
 }
 
 type apiCreds struct {
@@ -97,6 +102,8 @@ type orderArgs struct {
 	Expiration int64
 	// Taker is the taker address (optional).
 	Taker string
+	// OrderType is the order type string (GTC, GTD, etc).
+	OrderType string
 	// SignatureType is the signature type.
 	SignatureType int
 }
@@ -129,8 +136,8 @@ type orderToSign struct {
 }
 
 type signedOrder struct {
-	// Salt is the salt as string.
-	Salt string `json:"salt"`
+	// Salt is the salt as int64.
+	Salt int64 `json:"salt"`
 	// Maker is the maker address.
 	Maker string `json:"maker"`
 	// Signer is the signer address.
@@ -149,10 +156,9 @@ type signedOrder struct {
 	Nonce string `json:"nonce"`
 	// FeeRateBps is the fee rate.
 	FeeRateBps string `json:"feeRateBps"`
-	// Side is the order side.
-	Side string `json:"side"`
-	// SignatureType is the signature type.
-	SignatureType int `json:"signatureType"`
+	// Side is the order side ("BUY" or "SELL").
+	Side          string `json:"side"`
+	SignatureType int    `json:"signatureType"`
 	// Signature is the signed payload.
 	Signature string `json:"signature"`
 }
@@ -195,12 +201,19 @@ func newClobClient(host string, chainID int64, privateKeyHex string, creds *apiC
 		client.privateKey = key
 		client.address = crypto.PubkeyToAddress(key.PublicKey)
 		client.funder = client.address
+		client.sigType = signatureTypeEOA
 		if funder != "" {
 			client.funder = common.HexToAddress(funder)
+			client.sigType = signatureTypePolyProxy
 		}
 	}
 
 	return client, nil
+}
+
+// setSignatureType overrides the default signature type.
+func (c *clobClient) setSignatureType(sigType int) {
+	c.sigType = sigType
 }
 
 // setCreds updates the API credentials on the client.
@@ -261,20 +274,19 @@ func (c *clobClient) postOrder(order signedOrder, orderType string, postOnly boo
 	if c.creds == nil {
 		return nil, errors.New("missing api credentials")
 	}
-	body := orderRequest{
-		Order:     order,
-		Owner:     c.creds.APIKey,
-		OrderType: orderType,
-		PostOnly:  postOnly,
-	}
+	body := newOrderRequest(order, c.creds.APIKey, orderType, postOnly)
 	payload, err := json.Marshal(body)
 	if err != nil {
 		return nil, err
 	}
+	fmt.Printf("[DEBUG] postOrder raw json: %s\n", string(payload))
 	headers, err := c.level2Headers("POST", "/order", payload)
 	if err != nil {
 		return nil, err
 	}
+	// DEBUG: show order payload summary (avoid printing secrets)
+	fmt.Printf("[DEBUG] postOrder payload owner=%s token=%s makerAmount=%s takerAmount=%s side=%s orderType=%s postOnly=%v\n",
+		body.Owner, body.Order.TokenID, body.Order.MakerAmount, body.Order.TakerAmount, body.Order.Side, body.OrderType, body.PostOnly)
 	resp, err := c.doRequest("POST", "/order", payload, headers)
 	if err != nil {
 		return nil, err
@@ -283,7 +295,18 @@ func (c *clobClient) postOrder(order signedOrder, orderType string, postOnly boo
 	if err := json.Unmarshal(resp, &parsed); err != nil {
 		return nil, err
 	}
+	// DEBUG: server response for order submission
+	fmt.Printf("[DEBUG] postOrder response=%#v\n", parsed)
 	return parsed, nil
+}
+
+func newOrderRequest(order signedOrder, owner, orderType string, postOnly bool) orderRequest {
+	return orderRequest{
+		Order:     order,
+		Owner:     owner,
+		OrderType: orderType,
+		PostOnly:  postOnly,
+	}
 }
 
 // cancelOrder cancels an order by ID.
@@ -312,18 +335,31 @@ func (c *clobClient) cancelOrder(orderID string) (map[string]any, error) {
 }
 
 // getOrders fetches orders for the authenticated account.
-func (c *clobClient) getOrders() ([]map[string]any, error) {
+func (c *clobClient) getOrders(marketID *string) ([]map[string]any, error) {
 	if c.creds == nil {
 		return nil, errors.New("missing api credentials")
-	}
-	headers, err := c.level2Headers("GET", "/data/orders", nil)
-	if err != nil {
-		return nil, err
 	}
 	nextCursor := "MA=="
 	var all []map[string]any
 	for nextCursor != "" && nextCursor != "END" {
-		path := fmt.Sprintf("/data/orders?next_cursor=%s", nextCursor)
+		headers, err := c.level2Headers("GET", "/data/orders", nil)
+		if err != nil {
+			return nil, err
+		}
+
+		path := "/data/orders"
+		queryParts := []string{}
+		if marketID != nil && *marketID != "" {
+			queryParts = append(queryParts, fmt.Sprintf("market=%s", *marketID))
+		}
+		if nextCursor != "" {
+			queryParts = append(queryParts, fmt.Sprintf("next_cursor=%s", nextCursor))
+		}
+
+		if len(queryParts) > 0 {
+			path = fmt.Sprintf("/data/orders?%s", strings.Join(queryParts, "&"))
+		}
+
 		resp, err := c.doRequest("GET", path, nil, headers)
 		if err != nil {
 			return nil, err
@@ -338,14 +374,12 @@ func (c *clobClient) getOrders() ([]map[string]any, error) {
 				all = append(all, row)
 			}
 		}
-		if cursor, ok := payload["next_cursor"].(string); ok {
-			nextCursor = cursor
-		} else {
+
+		cursor, ok := payload["next_cursor"].(string)
+		if !ok || cursor == "END" || cursor == "LTE=" || cursor == "" {
 			break
 		}
-		if nextCursor == "END" || nextCursor == "" {
-			break
-		}
+		nextCursor = cursor
 	}
 	return all, nil
 }
@@ -370,6 +404,7 @@ func (c *clobClient) getBalanceAllowance(assetType string, tokenID string, signa
 	if err != nil {
 		return nil, err
 	}
+	fmt.Println("RAW RESPONSE:", string(resp))
 	var parsed map[string]any
 	if err := json.Unmarshal(resp, &parsed); err != nil {
 		return nil, err
@@ -388,7 +423,35 @@ func (c *clobClient) getTickSize(tokenID string) (float64, error) {
 	if err := json.Unmarshal(resp, &parsed); err != nil {
 		return 0, err
 	}
-	value, _ := parsed["minimum_tick_size"].(string)
+	// The field name can vary between "minimum_tick_size" and "tick_size"
+	value, ok := parsed["minimum_tick_size"].(string)
+	if !ok || value == "" {
+		value, _ = parsed["tick_size"].(string)
+	}
+	return parseFloat(value), nil
+}
+
+// getMinOrderSize returns the minimum order size for a token.
+func (c *clobClient) getMinOrderSize(tokenID string) (float64, error) {
+	// Often available on the same or similar endpoints, or we can use /book?token_id=...
+	// For efficiency, we try to fetch it. If not found, default to 1.0 or 5.0
+	path := fmt.Sprintf("/book?token_id=%s", tokenID)
+	resp, err := c.doRequest("GET", path, nil, nil)
+	if err != nil {
+		return 0, err
+	}
+	var parsed map[string]any
+	if err := json.Unmarshal(resp, &parsed); err != nil {
+		return 0, err
+	}
+	value, _ := parsed["min_order_size"].(string)
+	if value == "" {
+		// Try rounding it if it's a number
+		if v, ok := parsed["min_order_size"].(float64); ok {
+			return v, nil
+		}
+		return 5.0, nil // Default for many Polymarket tokens
+	}
 	return parseFloat(value), nil
 }
 
@@ -418,98 +481,245 @@ func (c *clobClient) getFeeRateBps(tokenID string) (int, error) {
 	if err := json.Unmarshal(resp, &parsed); err != nil {
 		return 0, err
 	}
-	if value, ok := parsed["fee_rate_bps"].(float64); ok {
-		return int(value), nil
+	for _, key := range []string{"base_fee", "fee_rate_bps"} {
+		if bps, ok := parseBPSField(parsed[key]); ok {
+			fmt.Printf("[DEBUG] getFeeRateBps token=%s bps=%d (%s)\n", tokenID, bps, key)
+			return bps, nil
+		}
 	}
-	if value, ok := parsed["fee_rate_bps"].(int); ok {
-		return value, nil
-	}
+	fmt.Printf("[DEBUG] getFeeRateBps token=%s bps=0 (default)\n", tokenID)
 	return 0, nil
 }
 
 // buildSignedOrder constructs and signs an order payload.
-func (c *clobClient) buildSignedOrder(args orderArgs, tickSize float64, negRisk bool) (signedOrder, error) {
+
+// func (c *clobClient) buildSignedOrder(args orderArgs, tickSize float64, negRisk bool) (signedOrder, string, int, error) {
+// 	if c.privateKey == nil {
+// 		return signedOrder{}, "", 0, errors.New("missing private key")
+// 	}
+// 	// price := roundNormal(args.Price, roundConfig.price)
+// 	price := normalizePrice(args.Price, tickSize)
+// 	sigType := c.sigType
+
+// 	if !priceValid(price, tickSize) {
+// 		return signedOrder{}, "", 0, fmt.Errorf("price %f invalid for tick size %f", price, tickSize)
+// 	}
+
+// 	sideValue := orderSideBuy
+// 	if strings.ToUpper(args.Side) == "SELL" {
+// 		sideValue = orderSideSell
+// 	}
+
+// 	var makerAmount int64
+// 	var takerAmount int64
+// 	var shares float64
+// 	if sideValue == orderSideBuy {
+// 		shares = normalizeSize(args.Size)
+// 		// takerAmount is shares scaled to 1e6
+// 		takerAmount = int64(math.Round(shares * 1e6))
+// 		// makerAmount (USDC) must be derived from the integer takerAmount to ensure ratio = price
+// 		makerAmount = int64(math.Round(price * float64(takerAmount)))
+// 	} else {
+// 		shares = normalizeSize(args.Size)
+// 		// makerAmount is shares scaled to 1e6
+// 		makerAmount = int64(math.Round(shares * 1e6))
+// 		// takerAmount (USDC) must be derived from the integer makerAmount to ensure ratio = price
+// 		takerAmount = int64(math.Round(price * float64(makerAmount)))
+// 	}
+
+// 	// DEBUG: Verify mathematical alignment as requested by user
+// 	ratio := 0.0
+// 	if takerAmount > 0 {
+// 		ratio = float64(makerAmount) / float64(takerAmount)
+// 	}
+// 	fmt.Printf("[DEBUG] Math Alignment: price=%f shares=%f makerAmount=%d takerAmount=%d ratio=%f diff=%f\n",
+// 		price, shares, makerAmount, takerAmount, ratio, ratio-price)
+
+// 	if args.OrderType == "GTC" {
+// 		args.Expiration = 0
+// 	} else if args.Expiration == 0 {
+// 		// default: expire in 90 seconds for non-GTC orders (e.g. GTD)
+// 		args.Expiration = time.Now().Add(90 * time.Second).Unix()
+// 	}
+// 	if args.Nonce == 0 {
+// 		// Use nanoseconds for a unique non-zero nonce
+// 		args.Nonce = time.Now().UnixNano()
+// 	}
+// 	salt := randomSalt()
+// 	tokenIDBig := parseBigInt(args.TokenID)
+
+// 	// Maker is always the Funder (Proxy wallet) if one is provided,
+// 	// otherwise it defaults to the EOA address.
+// 	// The Signer is always the EOA address.
+// 	makerAddr := c.address
+// 	if c.funder != (common.Address{}) {
+// 		makerAddr = c.funder
+// 	}
+
+// 	order := orderToSign{
+// 		Salt:          big.NewInt(salt),
+// 		Maker:         makerAddr.Hex(),
+// 		Signer:        c.address.Hex(),
+// 		Taker:         zeroAddress(),
+// 		TokenID:       tokenIDBig,
+// 		MakerAmount:   big.NewInt(makerAmount),
+// 		TakerAmount:   big.NewInt(takerAmount),
+// 		Expiration:    big.NewInt(args.Expiration),
+// 		Nonce:         big.NewInt(args.Nonce),
+// 		FeeRateBps:    big.NewInt(int64(args.FeeRateBps)),
+// 		Side:          sideValue,
+// 		SignatureType: sigType,
+// 	}
+
+// 	sig, err := c.signOrder(order, negRisk)
+// 	if err != nil {
+// 		return signedOrder{}, "", 0, err
+// 	}
+
+//   // 3. 최종적으로 전송용 0x 접두사 추가
+//   finalSig := sig
+
+//   sideLabel := "BUY"
+//   if sideValue == orderSideSell {
+//     sideLabel = "SELL"
+//   }
+
+// 	return signedOrder{
+// 		Salt:          order.Salt.Int64(),
+// 		Maker:         makerAddr.Hex(),
+// 		Signer:        c.address.Hex(),
+// 		Taker:         zeroAddress(),
+// 		TokenID:       order.TokenID.String(),
+// 		MakerAmount:   order.MakerAmount.String(),
+// 		TakerAmount:   order.TakerAmount.String(),
+// 		Expiration:    order.Expiration.String(),
+// 		Nonce:         fmt.Sprintf("%d", args.Nonce),
+// 		FeeRateBps:    order.FeeRateBps.String(),
+// 		Side:          sideLabel,
+// 		SignatureType: sigType,
+// 		Signature:     sig,
+// 	}, finalSig, sigType, nil
+// }
+
+func (c *clobClient) buildSignedOrder(args orderArgs, tickSize float64, negRisk bool) (signedOrder, string, int, error) {
 	if c.privateKey == nil {
-		return signedOrder{}, errors.New("missing private key")
+		return signedOrder{}, "", 0, errors.New("missing private key")
 	}
 
-	roundConfig := roundingConfig(tickSize)
-	price := roundNormal(args.Price, roundConfig.price)
+	price := normalizePrice(args.Price, tickSize)
+	sigType := c.sigType
+
 	if !priceValid(price, tickSize) {
-		return signedOrder{}, fmt.Errorf("price %f invalid for tick size %f", price, tickSize)
+		return signedOrder{}, "", 0, fmt.Errorf("price %f invalid for tick size %f", price, tickSize)
 	}
 
-	sideValue := orderSideBuy
-	if strings.ToUpper(args.Side) == "SELL" {
-		sideValue = orderSideSell
+	// 1. Side 값 결정 (매칭 엔진 내부 규격: BUY=0, SELL=1)
+	var sideInt int
+	sideLabel := strings.ToUpper(args.Side)
+	if sideLabel == "SELL" {
+		sideInt = 1 // SELL
+	} else {
+		sideInt = 0 // BUY (기본값)
+		sideLabel = "BUY"
 	}
 
 	var makerAmount int64
 	var takerAmount int64
-	if sideValue == orderSideBuy {
-		rawTaker := roundDown(args.Size, roundConfig.size)
-		rawMaker := rawTaker * price
-		rawMaker = normalizeAmount(rawMaker, roundConfig.amount)
-		makerAmount = toTokenDecimals(rawMaker)
-		takerAmount = toTokenDecimals(rawTaker)
-	} else {
-		rawMaker := roundDown(args.Size, roundConfig.size)
-		rawTaker := rawMaker * price
-		rawTaker = normalizeAmount(rawTaker, roundConfig.amount)
-		makerAmount = toTokenDecimals(rawMaker)
-		takerAmount = toTokenDecimals(rawTaker)
+	var shares float64
+
+	// Polymarket 계산 로직:
+	// BUY인 경우: TakerAmount가 주식 수(1e6), MakerAmount가 USDC
+	// SELL인 경우: MakerAmount가 주식 수(1e6), TakerAmount가 USDC
+	shares = normalizeSize(args.Size)
+	scaledShares := int64(math.Round(shares * 1e6))
+
+	if sideInt == 0 { // BUY
+		takerAmount = scaledShares
+		makerAmount = int64(math.Round(price * float64(takerAmount)))
+	} else { // SELL
+		makerAmount = scaledShares
+		takerAmount = int64(math.Round(price * float64(makerAmount)))
 	}
+
+	// DEBUG: 수학적 정렬 확인
+	ratio := 0.0
+	if takerAmount > 0 {
+		ratio = float64(makerAmount) / float64(takerAmount)
+	}
+	fmt.Printf("[DEBUG] Math Alignment: side=%s price=%f shares=%f makerAmount=%d takerAmount=%d ratio=%f\n",
+		sideLabel, price, shares, makerAmount, takerAmount, ratio)
+
+	// Polymarket expects only GTD orders to carry a non-zero expiration.
+	expiration := resolveOrderExpiration(args.OrderType, args.Expiration, time.Now())
+
+	nonce := args.Nonce
 
 	salt := randomSalt()
 	tokenIDBig := parseBigInt(args.TokenID)
+
+	makerAddr := c.address
+	if c.funder != (common.Address{}) {
+		makerAddr = c.funder
+	}
+
+	// 2. 서명용 구조체 생성 (side를 명시적 정수로 전달)
 	order := orderToSign{
 		Salt:          big.NewInt(salt),
-		Maker:         c.funder.Hex(),
+		Maker:         makerAddr.Hex(),
 		Signer:        c.address.Hex(),
 		Taker:         zeroAddress(),
 		TokenID:       tokenIDBig,
 		MakerAmount:   big.NewInt(makerAmount),
 		TakerAmount:   big.NewInt(takerAmount),
-		Expiration:    big.NewInt(args.Expiration),
-		Nonce:         big.NewInt(args.Nonce),
+		Expiration:    big.NewInt(expiration),
+		Nonce:         big.NewInt(nonce),
 		FeeRateBps:    big.NewInt(int64(args.FeeRateBps)),
-		Side:          sideValue,
-		SignatureType: signatureTypeEOA,
+		Side:          sideInt, // 0 또는 1
+		SignatureType: sigType,
 	}
 
+	// 3. 서명 생성
 	sig, err := c.signOrder(order, negRisk)
 	if err != nil {
-		return signedOrder{}, err
+		return signedOrder{}, "", 0, err
 	}
 
-	sideLabel := "BUY"
-	if sideValue == orderSideSell {
-		sideLabel = "SELL"
-	}
-
+	// 4. 전송용 구조체 반환 (side를 문자열로 전달)
 	return signedOrder{
-		Salt:          order.Salt.String(),
-		Maker:         c.funder.Hex(),
+		Salt:          order.Salt.Int64(),
+		Maker:         makerAddr.Hex(),
 		Signer:        c.address.Hex(),
 		Taker:         zeroAddress(),
 		TokenID:       order.TokenID.String(),
 		MakerAmount:   order.MakerAmount.String(),
 		TakerAmount:   order.TakerAmount.String(),
 		Expiration:    order.Expiration.String(),
-		Nonce:         order.Nonce.String(),
+		Nonce:         fmt.Sprintf("%d", nonce),
 		FeeRateBps:    order.FeeRateBps.String(),
-		Side:          sideLabel,
-		SignatureType: signatureTypeEOA,
+		Side:          sideLabel, // "BUY" 또는 "SELL"
+		SignatureType: sigType,
 		Signature:     sig,
-	}, nil
+	}, sig, sigType, nil
 }
-
-// signOrder signs an order using EIP-712.
 func (c *clobClient) signOrder(order orderToSign, negRisk bool) (string, error) {
-	config, err := contractConfigForChain(c.chainID, negRisk)
+	typedData, err := c.orderTypedData(order, negRisk)
 	if err != nil {
 		return "", err
 	}
+	return signTypedData(c.privateKey, typedData)
+}
+
+func (c *clobClient) orderTypedData(order orderToSign, negRisk bool) (apitypes.TypedData, error) {
+	config, err := contractConfigForChain(c.chainID, negRisk)
+	if err != nil {
+		return apitypes.TypedData{}, err
+	}
+
+	sideValue := orderSideBuy
+	if order.Side != orderSideBuy {
+		sideValue = orderSideSell
+	}
+
 	typedData := apitypes.TypedData{
 		Types: apitypes.Types{
 			"EIP712Domain": {
@@ -542,20 +752,20 @@ func (c *clobClient) signOrder(order orderToSign, negRisk bool) (string, error) 
 		},
 		Message: map[string]any{
 			"salt":          order.Salt,
-			"maker":         order.Maker,
-			"signer":        order.Signer,
-			"taker":         order.Taker,
+			"maker":         common.HexToAddress(order.Maker).Hex(),
+			"signer":        common.HexToAddress(order.Signer).Hex(),
+			"taker":         common.HexToAddress(order.Taker).Hex(),
 			"tokenId":       order.TokenID,
 			"makerAmount":   order.MakerAmount,
 			"takerAmount":   order.TakerAmount,
 			"expiration":    order.Expiration,
 			"nonce":         order.Nonce,
 			"feeRateBps":    order.FeeRateBps,
-			"side":          order.Side,
-			"signatureType": order.SignatureType,
+			"side":          big.NewInt(int64(sideValue)),
+			"signatureType": big.NewInt(int64(order.SignatureType)),
 		},
 	}
-	return signTypedData(c.privateKey, typedData)
+	return typedData, nil
 }
 
 // level1Headers builds L1 auth headers.
@@ -598,7 +808,11 @@ func (c *clobClient) level2Headers(method, path string, body []byte) (map[string
 // doRequest executes an HTTP request to the CLOB API.
 func (c *clobClient) doRequest(method, path string, body []byte, headers map[string]string) ([]byte, error) {
 	url := c.host + path
-	req, err := http.NewRequest(method, url, bytes.NewReader(body))
+	var reqBody io.Reader
+	if len(body) > 0 {
+		reqBody = bytes.NewReader(body)
+	}
+	req, err := http.NewRequest(method, url, reqBody)
 	if err != nil {
 		return nil, err
 	}
@@ -606,9 +820,6 @@ func (c *clobClient) doRequest(method, path string, body []byte, headers map[str
 	req.Header.Set("Accept", "*/*")
 	req.Header.Set("Connection", "keep-alive")
 	req.Header.Set("Content-Type", "application/json")
-	if method == http.MethodGet {
-		req.Header.Set("Accept-Encoding", "gzip")
-	}
 	for key, value := range headers {
 		req.Header.Set(key, value)
 	}
@@ -617,12 +828,23 @@ func (c *clobClient) doRequest(method, path string, body []byte, headers map[str
 		return nil, err
 	}
 	defer resp.Body.Close()
-	payload, err := io.ReadAll(resp.Body)
+	// If the response is gzip-encoded, wrap the body with a gzip reader
+	var reader io.Reader = resp.Body
+	if strings.EqualFold(resp.Header.Get("Content-Encoding"), "gzip") {
+		gz, err := gzip.NewReader(resp.Body)
+		if err != nil {
+			return nil, err
+		}
+		defer gz.Close()
+		reader = gz
+	}
+
+	payload, err := io.ReadAll(reader)
 	if err != nil {
 		return nil, err
 	}
 	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("clob request failed: %s", resp.Status)
+		return nil, fmt.Errorf("clob request failed: %s: %s", resp.Status, strings.TrimSpace(string(payload)))
 	}
 	return payload, nil
 }
@@ -665,13 +887,12 @@ func signTypedData(privateKey *ecdsa.PrivateKey, typedData apitypes.TypedData) (
 	if err != nil {
 		return "", err
 	}
+	fmt.Printf("[DEBUG] signTypedData hash: 0x%x\n", rawHash)
 	sig, err := crypto.Sign(rawHash, privateKey)
 	if err != nil {
 		return "", err
 	}
-	if sig[64] < 27 {
-		sig[64] += 27
-	}
+	sig[64] += 27
 	return "0x" + hex.EncodeToString(sig), nil
 }
 
@@ -705,13 +926,13 @@ func decodeBase64URL(value string) ([]byte, error) {
 func roundingConfig(tickSize float64) roundConfig {
 	switch fmt.Sprintf("%.4f", tickSize) {
 	case "0.1000":
-		return roundConfig{price: 1, size: 2, amount: 3}
+		return roundConfig{price: 1, size: 2, amount: 2} // USDC max 4 decimals, but logically less here
 	case "0.0100":
 		return roundConfig{price: 2, size: 2, amount: 4}
 	case "0.0010":
-		return roundConfig{price: 3, size: 2, amount: 5}
+		return roundConfig{price: 3, size: 2, amount: 4} // USDC max 4 decimals
 	case "0.0001":
-		return roundConfig{price: 4, size: 2, amount: 6}
+		return roundConfig{price: 4, size: 2, amount: 4} // USDC max 4 decimals
 	default:
 		return roundConfig{price: 2, size: 2, amount: 4}
 	}
@@ -784,7 +1005,7 @@ func priceValid(price, tickSize float64) bool {
 func randomSalt() int64 {
 	var buf [8]byte
 	if _, err := rand.Read(buf[:]); err == nil {
-		return int64(binaryBigEndian(buf[:]))
+		return int64(binaryBigEndian(buf[:]) >> 1)
 	}
 	return time.Now().UnixNano()
 }
@@ -861,9 +1082,7 @@ func parseBigInt(value string) *big.Int {
 	if value == "" {
 		return big.NewInt(0)
 	}
-	if strings.HasPrefix(value, "0x") {
-		value = value[2:]
-	}
+	value = strings.TrimPrefix(value, "0x")
 	out := new(big.Int)
 	if _, ok := out.SetString(value, 10); ok {
 		return out
@@ -872,4 +1091,78 @@ func parseBigInt(value string) *big.Int {
 		return out
 	}
 	return big.NewInt(0)
+}
+func normalizePrice(price float64, tick float64) float64 {
+	if tick <= 0 {
+		tick = 0.0001
+	}
+
+	if price < tick {
+		price = tick
+	}
+	if price > 1.0-tick {
+		price = 1.0 - tick
+	}
+
+	// Align to tick multiple
+	// Using Round to ensure we hit the nearest tick grid
+	steps := math.Round(price / tick)
+	price = steps * tick
+
+	// Clear floating point noise using string-based precision detection
+	decimals := 0
+	if tick < 1 {
+		// Use a high enough precision to capture tick digits correctly
+		s := fmt.Sprintf("%.8f", tick)
+		s = strings.TrimRight(s, "0")
+		if idx := strings.Index(s, "."); idx >= 0 {
+			decimals = len(s) - idx - 1
+		}
+	}
+	if decimals > 8 {
+		decimals = 8
+	}
+	mult := math.Pow(10, float64(decimals))
+	price = math.Round(price*mult) / mult
+
+	return price
+}
+func normalizeSize(size float64) float64 {
+	if size <= 0 {
+		return 0
+	}
+
+	// Polymarket tokens typically use 0.01 size step precision
+	// Using 2 decimals to be safe as per expert advice
+	size = math.Floor(size*100) / 100
+
+	return size
+}
+
+func resolveOrderExpiration(orderType string, expiration int64, now time.Time) int64 {
+	if strings.ToUpper(strings.TrimSpace(orderType)) != "GTD" {
+		return 0
+	}
+	if expiration != 0 {
+		return expiration
+	}
+	return now.Add(90 * time.Second).Unix()
+}
+
+func parseBPSField(value any) (int, bool) {
+	switch v := value.(type) {
+	case string:
+		bps, err := strconv.Atoi(v)
+		if err != nil {
+			return 0, false
+		}
+		return bps, true
+	case float64:
+		return int(v), true
+	case int:
+		return v, true
+	case int64:
+		return int(v), true
+	}
+	return 0, false
 }

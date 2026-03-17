@@ -35,14 +35,17 @@ func NewLiveExecutor(client *exchanges.Polymarket, cfg TradeConfig, clobHost str
 }
 
 func (e *LiveExecutor) GetUSDCAvailable() (float64, error) {
-	resp, err := e.client.GetBalanceAllowance("COLLATERAL", "", -1)
+	resp, err := e.client.GetBalanceAllowance("COLLATERAL", "", 2)
 	if err != nil {
 		return 0, err
 	}
+	fmt.Printf("resp = %+v\n", resp)
+	fmt.Printf("balance raw = %#v type=%T\n", resp["balance"], resp["balance"])
 	balance := safeFloat(resp["balance"])
 	allowance := extractAllowance(resp)
 	available := balance
-	if allowance < available {
+	// only apply allowance cap if allowance > 0
+	if allowance > 0 && allowance < available {
 		available = allowance
 	}
 	return available / usdcScale, nil
@@ -78,6 +81,18 @@ func (e *LiveExecutor) MarketBuyMax(tokenID string) (*FillResult, error) {
 	if err != nil {
 		return nil, err
 	}
+	// TEMP debug: print detailed available / reserve / max
+	if availableRaw, err2 := e.GetUSDCAvailable(); err2 == nil {
+		var maxStr string
+		if e.cfg.MaxUSDC != nil {
+			maxStr = fmt.Sprintf("%.4f", *e.cfg.MaxUSDC)
+		} else {
+			maxStr = "nil"
+		}
+		fmt.Printf("[DEBUG] available=%.6f reserve=%.4f max=%s min_usdc=%.4f computed_amount=%.6f\n", availableRaw, e.cfg.ReserveUSDC, maxStr, e.cfg.MinUSDC, amount)
+	} else {
+		fmt.Printf("[DEBUG] available fetch error: %v\n", err2)
+	}
 	if amount < e.cfg.MinUSDC {
 		fmt.Printf("[TRADE] skip buy (amount=%.4f < min_usdc=%.4f)\n", amount, e.cfg.MinUSDC)
 		return nil, nil
@@ -87,42 +102,37 @@ func (e *LiveExecutor) MarketBuyMax(tokenID string) (*FillResult, error) {
 		fmt.Printf("[TRADE] orderbook fetch failed: %v\n", err)
 		return nil, nil
 	}
-	bid, ask := bestBidAsk(book)
-	bb := 0.0
-	ba := 1.0
-	if bid != nil { bb = *bid }
-	if ask != nil { ba = *ask }
-	fmt.Printf("[DEBUG] MarketBuy spreads: best_bid=%.4f best_ask=%.4f\n", bb, ba)
-
 	fill := simulateMarketBuy(book, amount)
-	limitPrice := 0.0
-	shares := 0.0
-
 	if fill == nil {
-		fmt.Println("[TRADE] buy uses fallback (empty orderbook)")
-		limitPrice = 0.999 // Fallback BUY price
-		shares = amount / limitPrice
-		fill = &FillResult{USDC: amount, Shares: shares, WorstPrice: limitPrice}
-	} else {
-		limitPrice = fill.WorstPrice
-		shares = fill.Shares
-		
-		// Taker Prevention (Case 3): Ensure BUY price < best_ask (skip for IOC/FAK)
-		isIOC := strings.ToUpper(e.cfg.OrderType) == "IOC" || strings.ToUpper(e.cfg.OrderType) == "FAK"
-		if !isIOC && ask != nil && limitPrice >= *ask {
-			tick := book.TickSize
-			newLimit := *ask - tick
-			if bid != nil && newLimit <= *bid {
-				newLimit = *bid // Join the best bid
-			}
-			if newLimit <= 0 {
-				newLimit = tick
-			}
-			
-			fmt.Printf("[TRADE] adjusting buy price %.4f -> %.4f to prevent taker order reject (tick=%.4f)\n", limitPrice, newLimit, tick)
-			limitPrice = newLimit
-			shares = amount / limitPrice
+		fmt.Println("[TRADE] buy skipped (no liquidity)")
+		return nil, nil
+	}
+	if e.cfg.OrderType == "FOK" && fill.Partial {
+		fmt.Println("[TRADE] buy skipped (FOK partial fill)")
+		return nil, nil
+	}
+	if fill.USDC <= 0 || fill.Shares <= 0 {
+		fmt.Println("[TRADE] buy skipped (empty fill)")
+		return nil, nil
+	}
+	// Taker Prevention (Case 3): Ensure BUY price < best_ask
+	bid, ask := bestBidAsk(book)
+	
+	limitPrice := fill.WorstPrice
+	shares := fill.Shares
+
+	if ask != nil && limitPrice >= *ask {
+		tick := book.TickSize
+		newLimit := *ask - tick
+		if bid != nil && newLimit <= *bid {
+			newLimit = *bid
 		}
+		if newLimit <= 0 {
+			newLimit = tick
+		}
+		fmt.Printf("[TRADE] adjusting buy price %.4f -> %.4f to prevent taker order (tick=%.4f)\n", limitPrice, newLimit, tick)
+		limitPrice = newLimit
+		shares = amount / limitPrice
 	}
 
 	// Auto-adjust: If we are close to MinOrderSize (within 5%), round up to satisfy market rules.
@@ -136,14 +146,11 @@ func (e *LiveExecutor) MarketBuyMax(tokenID string) (*FillResult, error) {
 		return nil, nil
 	}
 
-	if fill.USDC <= 0 || shares <= 0 {
-		fmt.Println("[TRADE] buy skipped (empty fill)")
-		return nil, nil
-	}
 	if e.cfg.DryRun {
 		fmt.Printf("[DRY] market buy token=%s usdc=%.4f shares=%.6f limit=%.4f\n", tokenID, amount, shares, limitPrice)
 		return &FillResult{USDC: amount, Shares: 0, AvgPrice: nil, Partial: false}, nil
 	}
+
 	_, err = e.client.CreateOrderWithType("", "", models.OrderSideBuy, limitPrice, shares, e.cfg.OrderType, false, map[string]any{
 		"token_id":       tokenID,
 		"tick_size":      book.TickSize,
@@ -171,37 +178,26 @@ func (e *LiveExecutor) MarketSellAll(tokenID string) (*FillResult, error) {
 		fmt.Printf("[TRADE] orderbook fetch failed: %v\n", err)
 		return nil, nil
 	}
-	bid, ask := bestBidAsk(book)
-	bb := 0.0
-	ba := 1.0
-	if bid != nil { bb = *bid }
-	if ask != nil { ba = *ask }
-	fmt.Printf("[DEBUG] MarketSell spreads: best_bid=%.4f best_ask=%.4f\n", bb, ba)
-
 	fill := simulateMarketSell(book, shares)
-	limitPrice := 0.0
-
 	if fill == nil {
 		fmt.Println("[TRADE] sell skipped (no liquidity)")
 		return nil, nil
-	} else {
-		limitPrice = fill.WorstPrice
+	}
+	bid, ask := bestBidAsk(book)
+	limitPrice := fill.WorstPrice
 
-		// Taker Prevention (Case 3): Ensure SELL price > best_bid (skip for IOC/FAK)
-		isIOC := strings.ToUpper(e.cfg.OrderType) == "IOC" || strings.ToUpper(e.cfg.OrderType) == "FAK"
-		if !isIOC && bid != nil && limitPrice <= *bid {
-			tick := book.TickSize
-			newLimit := *bid + tick
-			if ask != nil && newLimit >= *ask {
-				newLimit = *ask // Join the best ask
-			}
-			if newLimit >= 1.0 {
-				newLimit = 1.0 - tick
-			}
-
-			fmt.Printf("[TRADE] adjusting sell price %.4f -> %.4f to prevent taker order reject (tick=%.4f)\n", limitPrice, newLimit, tick)
-			limitPrice = newLimit
+	// Taker Prevention (Case 3): Ensure SELL price > best_bid
+	if bid != nil && limitPrice <= *bid {
+		tick := book.TickSize
+		newLimit := *bid + tick
+		if ask != nil && newLimit >= *ask {
+			newLimit = *ask
 		}
+		if newLimit >= 1.0 {
+			newLimit = 1.0 - tick
+		}
+		fmt.Printf("[TRADE] adjusting sell price %.4f -> %.4f to prevent taker order (tick=%.4f)\n", limitPrice, newLimit, tick)
+		limitPrice = newLimit
 	}
 
 	if shares < book.MinOrderSize {
@@ -209,10 +205,6 @@ func (e *LiveExecutor) MarketSellAll(tokenID string) (*FillResult, error) {
 		return nil, nil
 	}
 
-	if fill.USDC <= 0 || shares <= 0 {
-		fmt.Println("[TRADE] sell skipped (empty fill)")
-		return nil, nil
-	}
 	if e.cfg.DryRun {
 		fmt.Printf("[DRY] market sell token=%s shares=%.6f limit=%.4f\n", tokenID, shares, limitPrice)
 		return &FillResult{USDC: 0, Shares: shares, AvgPrice: nil, Partial: false}, nil
@@ -274,6 +266,14 @@ func (e *PaperExecutor) MarketBuyMax(tokenID string) (*FillResult, error) {
 	if err != nil {
 		return nil, err
 	}
+	// TEMP debug: print detailed available / reserve / max
+	var maxStr string
+	if e.cfg.MaxUSDC != nil {
+		maxStr = fmt.Sprintf("%.4f", *e.cfg.MaxUSDC)
+	} else {
+		maxStr = "nil"
+	}
+	fmt.Printf("[DEBUG] paper available=%.6f reserve=%.4f max=%s min_usdc=%.4f computed_amount=%.6f\n", e.usdcBalance, e.cfg.ReserveUSDC, maxStr, e.cfg.MinUSDC, amount)
 	if amount < e.cfg.MinUSDC {
 		fmt.Printf("[PAPER] skip buy (amount=%.4f < min_usdc=%.4f)\n", amount, e.cfg.MinUSDC)
 		return nil, nil
