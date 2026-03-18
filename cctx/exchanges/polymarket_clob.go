@@ -404,12 +404,55 @@ func (c *clobClient) getBalanceAllowance(assetType string, tokenID string, signa
 	if err != nil {
 		return nil, err
 	}
-	fmt.Println("RAW RESPONSE:", string(resp))
 	var parsed map[string]any
 	if err := json.Unmarshal(resp, &parsed); err != nil {
 		return nil, err
 	}
+	if logLine := balanceAllowanceLogLine(assetType, tokenID, signatureType, parsed); logLine != "" {
+		fmt.Println(logLine)
+	}
 	return parsed, nil
+}
+
+func balanceAllowanceLogLine(assetType, tokenID string, signatureType int, parsed map[string]any) string {
+	asset := strings.ToUpper(assetType)
+	balance := parseBalance(parsed["balance"])
+	if asset == "COLLATERAL" {
+		allowance := maxBalanceAllowance(parsed)
+		if allowance > 0 {
+			return fmt.Sprintf("[DEBUG] balance asset=%s balance=%.6f allowance=%.6f signature_type=%d", asset, balance, allowance, signatureType)
+		}
+		return fmt.Sprintf("[DEBUG] balance asset=%s balance=%.6f signature_type=%d", asset, balance, signatureType)
+	}
+	if balance <= 0 {
+		return ""
+	}
+	return fmt.Sprintf("[DEBUG] balance asset=%s token=%s balance=%.6f signature_type=%d", asset, abbreviateBalanceTokenID(tokenID), balance, signatureType)
+}
+
+func maxBalanceAllowance(parsed map[string]any) float64 {
+	if parsed == nil {
+		return 0
+	}
+	maxAllowance := parseBalance(parsed["allowance"])
+	allowances, ok := parsed["allowances"].(map[string]any)
+	if !ok {
+		return maxAllowance
+	}
+	for _, value := range allowances {
+		allowance := parseBalance(value)
+		if allowance > maxAllowance {
+			maxAllowance = allowance
+		}
+	}
+	return maxAllowance
+}
+
+func abbreviateBalanceTokenID(tokenID string) string {
+	if len(tokenID) <= 18 {
+		return tokenID
+	}
+	return tokenID[:8] + "..." + tokenID[len(tokenID)-6:]
 }
 
 // getTickSize fetches the tick size for a token.
@@ -490,116 +533,6 @@ func (c *clobClient) getFeeRateBps(tokenID string) (int, error) {
 	fmt.Printf("[DEBUG] getFeeRateBps token=%s bps=0 (default)\n", tokenID)
 	return 0, nil
 }
-
-// buildSignedOrder constructs and signs an order payload.
-
-// func (c *clobClient) buildSignedOrder(args orderArgs, tickSize float64, negRisk bool) (signedOrder, string, int, error) {
-// 	if c.privateKey == nil {
-// 		return signedOrder{}, "", 0, errors.New("missing private key")
-// 	}
-// 	// price := roundNormal(args.Price, roundConfig.price)
-// 	price := normalizePrice(args.Price, tickSize)
-// 	sigType := c.sigType
-
-// 	if !priceValid(price, tickSize) {
-// 		return signedOrder{}, "", 0, fmt.Errorf("price %f invalid for tick size %f", price, tickSize)
-// 	}
-
-// 	sideValue := orderSideBuy
-// 	if strings.ToUpper(args.Side) == "SELL" {
-// 		sideValue = orderSideSell
-// 	}
-
-// 	var makerAmount int64
-// 	var takerAmount int64
-// 	var shares float64
-// 	if sideValue == orderSideBuy {
-// 		shares = normalizeSize(args.Size)
-// 		// takerAmount is shares scaled to 1e6
-// 		takerAmount = int64(math.Round(shares * 1e6))
-// 		// makerAmount (USDC) must be derived from the integer takerAmount to ensure ratio = price
-// 		makerAmount = int64(math.Round(price * float64(takerAmount)))
-// 	} else {
-// 		shares = normalizeSize(args.Size)
-// 		// makerAmount is shares scaled to 1e6
-// 		makerAmount = int64(math.Round(shares * 1e6))
-// 		// takerAmount (USDC) must be derived from the integer makerAmount to ensure ratio = price
-// 		takerAmount = int64(math.Round(price * float64(makerAmount)))
-// 	}
-
-// 	// DEBUG: Verify mathematical alignment as requested by user
-// 	ratio := 0.0
-// 	if takerAmount > 0 {
-// 		ratio = float64(makerAmount) / float64(takerAmount)
-// 	}
-// 	fmt.Printf("[DEBUG] Math Alignment: price=%f shares=%f makerAmount=%d takerAmount=%d ratio=%f diff=%f\n",
-// 		price, shares, makerAmount, takerAmount, ratio, ratio-price)
-
-// 	if args.OrderType == "GTC" {
-// 		args.Expiration = 0
-// 	} else if args.Expiration == 0 {
-// 		// default: expire in 90 seconds for non-GTC orders (e.g. GTD)
-// 		args.Expiration = time.Now().Add(90 * time.Second).Unix()
-// 	}
-// 	if args.Nonce == 0 {
-// 		// Use nanoseconds for a unique non-zero nonce
-// 		args.Nonce = time.Now().UnixNano()
-// 	}
-// 	salt := randomSalt()
-// 	tokenIDBig := parseBigInt(args.TokenID)
-
-// 	// Maker is always the Funder (Proxy wallet) if one is provided,
-// 	// otherwise it defaults to the EOA address.
-// 	// The Signer is always the EOA address.
-// 	makerAddr := c.address
-// 	if c.funder != (common.Address{}) {
-// 		makerAddr = c.funder
-// 	}
-
-// 	order := orderToSign{
-// 		Salt:          big.NewInt(salt),
-// 		Maker:         makerAddr.Hex(),
-// 		Signer:        c.address.Hex(),
-// 		Taker:         zeroAddress(),
-// 		TokenID:       tokenIDBig,
-// 		MakerAmount:   big.NewInt(makerAmount),
-// 		TakerAmount:   big.NewInt(takerAmount),
-// 		Expiration:    big.NewInt(args.Expiration),
-// 		Nonce:         big.NewInt(args.Nonce),
-// 		FeeRateBps:    big.NewInt(int64(args.FeeRateBps)),
-// 		Side:          sideValue,
-// 		SignatureType: sigType,
-// 	}
-
-// 	sig, err := c.signOrder(order, negRisk)
-// 	if err != nil {
-// 		return signedOrder{}, "", 0, err
-// 	}
-
-//   // 3. 최종적으로 전송용 0x 접두사 추가
-//   finalSig := sig
-
-//   sideLabel := "BUY"
-//   if sideValue == orderSideSell {
-//     sideLabel = "SELL"
-//   }
-
-// 	return signedOrder{
-// 		Salt:          order.Salt.Int64(),
-// 		Maker:         makerAddr.Hex(),
-// 		Signer:        c.address.Hex(),
-// 		Taker:         zeroAddress(),
-// 		TokenID:       order.TokenID.String(),
-// 		MakerAmount:   order.MakerAmount.String(),
-// 		TakerAmount:   order.TakerAmount.String(),
-// 		Expiration:    order.Expiration.String(),
-// 		Nonce:         fmt.Sprintf("%d", args.Nonce),
-// 		FeeRateBps:    order.FeeRateBps.String(),
-// 		Side:          sideLabel,
-// 		SignatureType: sigType,
-// 		Signature:     sig,
-// 	}, finalSig, sigType, nil
-// }
 
 func (c *clobClient) buildSignedOrder(args orderArgs, tickSize float64, negRisk bool) (signedOrder, string, int, error) {
 	if c.privateKey == nil {

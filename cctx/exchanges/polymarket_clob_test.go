@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"errors"
 	"math/big"
+	"strings"
 	"testing"
 	"time"
 )
@@ -213,4 +214,37 @@ func TestParseBPSField(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestBalanceAllowanceLogLine(t *testing.T) {
+	t.Run("collateral uses summary log", func(t *testing.T) {
+		got := balanceAllowanceLogLine("COLLATERAL", "", 2, map[string]any{
+			"balance": "13549249",
+			"allowances": map[string]any{
+				"0x1": "115792089237316195423570985008687907853269984665640564039457584007913083428436",
+			},
+		})
+		if !strings.Contains(got, "asset=COLLATERAL") || !strings.Contains(got, "balance=13.549249") || !strings.Contains(got, "allowance=") || !strings.Contains(got, "signature_type=2") {
+			t.Fatalf("balanceAllowanceLogLine() = %q, want collateral summary fields", got)
+		}
+	})
+
+	t.Run("zero conditional balance is silent", func(t *testing.T) {
+		got := balanceAllowanceLogLine("CONDITIONAL", "12345678901234567890", 2, map[string]any{
+			"balance": "0",
+		})
+		if got != "" {
+			t.Fatalf("balanceAllowanceLogLine() = %q, want empty string", got)
+		}
+	})
+
+	t.Run("non-zero conditional balance is abbreviated", func(t *testing.T) {
+		got := balanceAllowanceLogLine("CONDITIONAL", "12345678901234567890", 2, map[string]any{
+			"balance": "5000000",
+		})
+		want := "[DEBUG] balance asset=CONDITIONAL token=12345678...567890 balance=5.000000 signature_type=2"
+		if got != want {
+			t.Fatalf("balanceAllowanceLogLine() = %q, want %q", got, want)
+		}
+	})
 }

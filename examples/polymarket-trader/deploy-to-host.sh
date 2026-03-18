@@ -90,6 +90,9 @@ elif auto_slug.lower() in ("1", "true", "yes"):
 if extra_args:
     cmd += shlex.split(extra_args)
 
+# shell-safe command string used in Dockerfile shell form
+cmd_sh = ' '.join(shlex.quote(c) for c in cmd)
+
 dockerfile = f"""FROM golang:1.24-alpine AS builder
 
 WORKDIR /build
@@ -101,7 +104,7 @@ COPY *.go ./
 COPY cctx.tgz.b64 ./
 
 RUN mkdir -p /build/cctx \
-    && base64 -d cctx.tgz.b64 | tar -xz -C /build/cctx
+  && base64 -d cctx.tgz.b64 | tar -xz -C /build/cctx
 
 RUN go mod edit -replace github.com/HershyOrg/hershy/cctx=./cctx
 RUN go mod download
@@ -116,10 +119,15 @@ WORKDIR /app
 
 COPY --from=builder /build/polymarket-trader /app/
 COPY {model_name} /app/
+# copy env file from build context (we name it `env` in the payload to avoid
+# dotfile exclusion) and place it at /app/.env inside the image
+COPY env /app/.env
 
 EXPOSE 8080
 
-CMD {json.dumps(cmd)}
+# If /app/.env exists, export its variables then exec the binary with args
+# use shell form so quoting is simpler and Docker will run via /bin/sh -c
+CMD /bin/sh -lc "set -a && [ -f /app/.env ] && . /app/.env || true && exec {cmd_sh}"
 """
 
 files = {}
@@ -130,6 +138,13 @@ files["go.mod"] = (example_dir / "go.mod").read_text(encoding="utf-8")
 files["go.sum"] = (example_dir / "go.sum").read_text(encoding="utf-8")
 files[model_name] = model_path.read_text(encoding="utf-8")
 files["cctx.tgz.b64"] = cctx_b64_path.read_text(encoding="utf-8")
+
+# include local .env if present so Docker image receives it
+# some Docker build contexts exclude dotfiles, so include it under the key
+# "env" (no leading dot) and the Dockerfile above will COPY it to /app/.env
+env_file = example_dir / ".env"
+if env_file.exists():
+  files["env"] = env_file.read_text(encoding="utf-8")
 
 payload = {
     "user_id": os.environ["USER_ID"],

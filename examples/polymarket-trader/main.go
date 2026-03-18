@@ -57,7 +57,11 @@ func main() {
 		if err != nil {
 			return nil, err
 		}
-		return NewLiveExecutor(client, tradeCfg, args.clobHost), nil
+		settlementPrefix := args.slugPrefix
+		if settlementPrefix == "" {
+			settlementPrefix = inferSlugPrefix(normalizeSlug(args.slug))
+		}
+		return NewLiveExecutor(client, tradeCfg, args.clobHost, settlementPrefix, args.searchHours), nil
 	}
 
 	stopAtMs, err := parseStopAt(args.stopAtET)
@@ -224,11 +228,11 @@ func parseArgs() cliArgs {
 	flag.StringVar(&args.tokenIDDown, "token-id-down", "", "Down/No token ID")
 	flag.StringVar(&args.modelPath, "model-path", defaultModelPath, "Path to prob model JSON")
 	flag.StringVar(&args.mode, "mode", "pbad", "Trading mode: pm or pbad")
-	flag.Float64Var(&args.entryHigh, "entry-high", 0.96, "Entry high threshold")
-	flag.Float64Var(&args.entryLow, "entry-low", 0.04, "Entry low threshold")
+	flag.Float64Var(&args.entryHigh, "entry-high", 0.85, "Entry high threshold")
+	flag.Float64Var(&args.entryLow, "entry-low", 0.15, "Entry low threshold")
 	flag.Float64Var(&args.exitHigh, "exit-high", 0.70, "Exit high threshold")
 	flag.Float64Var(&args.exitLow, "exit-low", 0.30, "Exit low threshold")
-	flag.Float64Var(&args.theta, "theta", 0.5, "Pbad exit threshold")
+	flag.Float64Var(&args.theta, "theta", 0.45, "Pbad exit threshold")
 	flag.IntVar(&args.windowSec, "window-sec", 240, "Trading window seconds")
 	flag.IntVar(&args.logEverySec, "log-every-sec", 5, "Signal log frequency in seconds")
 	flag.Float64Var(&args.regimeEps, "regime-eps", 0.0002, "Regime epsilon")
@@ -236,7 +240,7 @@ func parseArgs() cliArgs {
 	flag.IntVar(&args.signalLogFlushEvery, "signal-log-flush-every", 10, "Signal log flush interval")
 	flag.BoolVar(&args.logOrderbookGap, "log-orderbook-gap", false, "Log orderbook gap")
 	maxUSDC := flag.Float64("max-usdc", -1, "Max USDC to use per trade")
-	flag.Float64Var(&args.minUSDC, "min-usdc", 1.0, "Min USDC to trade")
+	flag.Float64Var(&args.minUSDC, "min-usdc", 0.5, "Min USDC to trade")
 	flag.Float64Var(&args.reserveUSDC, "reserve-usdc", 0.0, "Reserve USDC to keep")
 	flag.Float64Var(&args.minShares, "min-shares", 0.01, "Min shares to sell")
 	flag.StringVar(&args.orderType, "order-type", "FAK", "Order type: FOK or FAK")
