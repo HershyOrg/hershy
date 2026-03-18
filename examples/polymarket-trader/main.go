@@ -7,6 +7,7 @@ import (
 	"log"
 	"os"
 	"os/signal"
+	"strconv"
 	"strings"
 	"syscall"
 	"time"
@@ -318,12 +319,24 @@ func buildPolymarketClient(args cliArgs) (*exchanges.Polymarket, error) {
 	apiKey := resolveOptionalSecret(args.apiKey, "API_KEY", args.envPrefix)
 	apiSecret := resolveOptionalSecret(args.apiSecret, "API_SECRET", args.envPrefix)
 	apiPassphrase := resolveOptionalSecret(args.apiPassphrase, "API_PASSPHRASE", args.envPrefix)
+	signatureType := 0
+	if funder != "" {
+		signatureType = 2
+	}
+	if raw := resolveOptionalSecret("", "SIGNATURE_TYPE", args.envPrefix); raw != "" {
+		parsed, parseErr := strconv.Atoi(raw)
+		if parseErr != nil {
+			return nil, fmt.Errorf("invalid %s_SIGNATURE_TYPE: %w", args.envPrefix, parseErr)
+		}
+		signatureType = parsed
+	}
 	cfg := map[string]any{
 		"private_key":    privateKey,
 		"funder":         funder,
 		"api_key":        apiKey,
 		"api_secret":     apiSecret,
 		"api_passphrase": apiPassphrase,
+		"signature_type": signatureType,
 		"chain_id":       args.chainID,
 	}
 	ex, err := exchanges.NewPolymarket(cfg)

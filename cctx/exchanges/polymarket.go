@@ -1112,6 +1112,10 @@ func (p *Polymarket) currentSignatureType() int {
 	return signatureTypeEOA
 }
 
+func (p *Polymarket) EffectiveSignatureType() int {
+	return p.currentSignatureType()
+}
+
 // fetchMarketsGamma fetches markets from Gamma API.
 func (p *Polymarket) fetchMarketsGamma(params map[string]any) ([]models.Market, error) {
 	query := map[string]string{}

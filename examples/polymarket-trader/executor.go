@@ -14,6 +14,7 @@ import (
 const (
 	usdcScale        = 1_000_000
 	conditionalScale = 1_000_000
+	liveFillPolls    = 8
 )
 
 type TradeExecutor interface {
@@ -35,7 +36,7 @@ func NewLiveExecutor(client *exchanges.Polymarket, cfg TradeConfig, clobHost str
 }
 
 func (e *LiveExecutor) GetUSDCAvailable() (float64, error) {
-	resp, err := e.client.GetBalanceAllowance("COLLATERAL", "", -1)
+	resp, err := e.client.GetBalanceAllowance("COLLATERAL", "", e.client.EffectiveSignatureType())
 	if err != nil {
 		return 0, err
 	}
@@ -49,7 +50,7 @@ func (e *LiveExecutor) GetUSDCAvailable() (float64, error) {
 }
 
 func (e *LiveExecutor) GetTokenBalance(tokenID string) (float64, error) {
-	resp, err := e.client.GetBalanceAllowance("CONDITIONAL", tokenID, -1)
+	resp, err := e.client.GetBalanceAllowance("CONDITIONAL", tokenID, e.client.EffectiveSignatureType())
 	if err != nil {
 		return 0, err
 	}
@@ -78,6 +79,14 @@ func (e *LiveExecutor) MarketBuyMax(tokenID string) (*FillResult, error) {
 	if err != nil {
 		return nil, err
 	}
+	preUSDC, err := e.GetUSDCAvailable()
+	if err != nil {
+		return nil, err
+	}
+	preShares, err := e.GetTokenBalance(tokenID)
+	if err != nil {
+		return nil, err
+	}
 	if amount < e.cfg.MinUSDC {
 		fmt.Printf("[TRADE] skip buy (amount=%.4f < min_usdc=%.4f)\n", amount, e.cfg.MinUSDC)
 		return nil, nil
@@ -90,8 +99,12 @@ func (e *LiveExecutor) MarketBuyMax(tokenID string) (*FillResult, error) {
 	bid, ask := bestBidAsk(book)
 	bb := 0.0
 	ba := 1.0
-	if bid != nil { bb = *bid }
-	if ask != nil { ba = *ask }
+	if bid != nil {
+		bb = *bid
+	}
+	if ask != nil {
+		ba = *ask
+	}
 	fmt.Printf("[DEBUG] MarketBuy spreads: best_bid=%.4f best_ask=%.4f\n", bb, ba)
 
 	fill := simulateMarketBuy(book, amount)
@@ -106,7 +119,7 @@ func (e *LiveExecutor) MarketBuyMax(tokenID string) (*FillResult, error) {
 	} else {
 		limitPrice = fill.WorstPrice
 		shares = fill.Shares
-		
+
 		// Taker Prevention (Case 3): Ensure BUY price < best_ask (skip for IOC/FAK)
 		isIOC := strings.ToUpper(e.cfg.OrderType) == "IOC" || strings.ToUpper(e.cfg.OrderType) == "FAK"
 		if !isIOC && ask != nil && limitPrice >= *ask {
@@ -118,7 +131,7 @@ func (e *LiveExecutor) MarketBuyMax(tokenID string) (*FillResult, error) {
 			if newLimit <= 0 {
 				newLimit = tick
 			}
-			
+
 			fmt.Printf("[TRADE] adjusting buy price %.4f -> %.4f to prevent taker order reject (tick=%.4f)\n", limitPrice, newLimit, tick)
 			limitPrice = newLimit
 			shares = amount / limitPrice
@@ -153,12 +166,25 @@ func (e *LiveExecutor) MarketBuyMax(tokenID string) (*FillResult, error) {
 		fmt.Printf("[TRADE] buy failed: %v\n", err)
 		return nil, nil
 	}
-	fmt.Printf("[TRADE] buy placed token=%s usdc=%.4f shares=%.6f limit=%.4f\n", tokenID, amount, shares, limitPrice)
-	return &FillResult{USDC: amount, Shares: 0, AvgPrice: nil, Partial: false}, nil
+	fill, err = e.observeBuyFill(tokenID, preShares, preUSDC, amount)
+	if err != nil {
+		return nil, err
+	}
+	if fill == nil {
+		fmt.Printf("[TRADE] buy order placed but no fill observed token=%s limit=%.4f\n", tokenID, limitPrice)
+		return nil, nil
+	}
+	fmt.Printf("[TRADE] buy filled token=%s usdc=%.4f shares=%.6f avg_px=%.4f partial=%t\n",
+		tokenID, fill.USDC, fill.Shares, derefFloat(fill.AvgPrice), fill.Partial)
+	return fill, nil
 }
 
 func (e *LiveExecutor) MarketSellAll(tokenID string) (*FillResult, error) {
 	shares, err := e.GetTokenBalance(tokenID)
+	if err != nil {
+		return nil, err
+	}
+	preUSDC, err := e.GetUSDCAvailable()
 	if err != nil {
 		return nil, err
 	}
@@ -174,8 +200,12 @@ func (e *LiveExecutor) MarketSellAll(tokenID string) (*FillResult, error) {
 	bid, ask := bestBidAsk(book)
 	bb := 0.0
 	ba := 1.0
-	if bid != nil { bb = *bid }
-	if ask != nil { ba = *ask }
+	if bid != nil {
+		bb = *bid
+	}
+	if ask != nil {
+		ba = *ask
+	}
 	fmt.Printf("[DEBUG] MarketSell spreads: best_bid=%.4f best_ask=%.4f\n", bb, ba)
 
 	fill := simulateMarketSell(book, shares)
@@ -226,8 +256,99 @@ func (e *LiveExecutor) MarketSellAll(tokenID string) (*FillResult, error) {
 		fmt.Printf("[TRADE] sell failed: %v\n", err)
 		return nil, nil
 	}
-	fmt.Printf("[TRADE] sell placed token=%s shares=%.6f limit=%.4f\n", tokenID, shares, limitPrice)
-	return &FillResult{USDC: 0, Shares: shares, AvgPrice: nil, Partial: false}, nil
+	fill, err = e.observeSellFill(tokenID, shares, preUSDC)
+	if err != nil {
+		return nil, err
+	}
+	if fill == nil {
+		fmt.Printf("[TRADE] sell order placed but no fill observed token=%s limit=%.4f\n", tokenID, limitPrice)
+		return nil, nil
+	}
+	fmt.Printf("[TRADE] sell filled token=%s usdc=%.4f shares=%.6f avg_px=%.4f partial=%t\n",
+		tokenID, fill.USDC, fill.Shares, derefFloat(fill.AvgPrice), fill.Partial)
+	return fill, nil
+}
+
+func (e *LiveExecutor) observeBuyFill(tokenID string, preShares, preUSDC, requestedUSDC float64) (*FillResult, error) {
+	for i := 0; i < liveFillPolls; i++ {
+		if i > 0 {
+			time.Sleep(250 * time.Millisecond)
+		}
+		postShares, err := e.GetTokenBalance(tokenID)
+		if err != nil {
+			return nil, err
+		}
+		postUSDC, err := e.GetUSDCAvailable()
+		if err != nil {
+			return nil, err
+		}
+
+		filledShares := postShares - preShares
+		spentUSDC := preUSDC - postUSDC
+		if filledShares <= 1e-9 && spentUSDC <= 1e-9 {
+			continue
+		}
+
+		if filledShares < 0 {
+			filledShares = 0
+		}
+		if spentUSDC < 0 {
+			spentUSDC = 0
+		}
+		var avgPrice *float64
+		if filledShares > 0 && spentUSDC > 0 {
+			v := spentUSDC / filledShares
+			avgPrice = &v
+		}
+		return &FillResult{
+			USDC:     spentUSDC,
+			Shares:   filledShares,
+			AvgPrice: avgPrice,
+			Partial:  spentUSDC+1e-9 < requestedUSDC,
+		}, nil
+	}
+	return nil, nil
+}
+
+func (e *LiveExecutor) observeSellFill(tokenID string, preShares, preUSDC float64) (*FillResult, error) {
+	for i := 0; i < liveFillPolls; i++ {
+		if i > 0 {
+			time.Sleep(250 * time.Millisecond)
+		}
+		postShares, err := e.GetTokenBalance(tokenID)
+		if err != nil {
+			return nil, err
+		}
+		postUSDC, err := e.GetUSDCAvailable()
+		if err != nil {
+			return nil, err
+		}
+
+		soldShares := preShares - postShares
+		receivedUSDC := postUSDC - preUSDC
+		if soldShares <= 1e-9 && receivedUSDC <= 1e-9 {
+			continue
+		}
+
+		if soldShares < 0 {
+			soldShares = 0
+		}
+		if receivedUSDC < 0 {
+			receivedUSDC = 0
+		}
+		var avgPrice *float64
+		if soldShares > 0 && receivedUSDC > 0 {
+			v := receivedUSDC / soldShares
+			avgPrice = &v
+		}
+		return &FillResult{
+			USDC:     receivedUSDC,
+			Shares:   soldShares,
+			AvgPrice: avgPrice,
+			Partial:  soldShares+1e-9 < preShares,
+		}, nil
+	}
+	return nil, nil
 }
 
 type PaperExecutor struct {
