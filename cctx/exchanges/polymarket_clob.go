@@ -279,14 +279,10 @@ func (c *clobClient) postOrder(order signedOrder, orderType string, postOnly boo
 	if err != nil {
 		return nil, err
 	}
-	fmt.Printf("[DEBUG] postOrder raw json: %s\n", string(payload))
 	headers, err := c.level2Headers("POST", "/order", payload)
 	if err != nil {
 		return nil, err
 	}
-	// DEBUG: show order payload summary (avoid printing secrets)
-	fmt.Printf("[DEBUG] postOrder payload owner=%s token=%s makerAmount=%s takerAmount=%s side=%s orderType=%s postOnly=%v\n",
-		body.Owner, body.Order.TokenID, body.Order.MakerAmount, body.Order.TakerAmount, body.Order.Side, body.OrderType, body.PostOnly)
 	resp, err := c.doRequest("POST", "/order", payload, headers)
 	if err != nil {
 		return nil, err
@@ -295,8 +291,6 @@ func (c *clobClient) postOrder(order signedOrder, orderType string, postOnly boo
 	if err := json.Unmarshal(resp, &parsed); err != nil {
 		return nil, err
 	}
-	// DEBUG: server response for order submission
-	fmt.Printf("[DEBUG] postOrder response=%#v\n", parsed)
 	return parsed, nil
 }
 
@@ -407,9 +401,6 @@ func (c *clobClient) getBalanceAllowance(assetType string, tokenID string, signa
 	var parsed map[string]any
 	if err := json.Unmarshal(resp, &parsed); err != nil {
 		return nil, err
-	}
-	if logLine := balanceAllowanceLogLine(assetType, tokenID, signatureType, parsed); logLine != "" {
-		fmt.Println(logLine)
 	}
 	return parsed, nil
 }
@@ -526,11 +517,9 @@ func (c *clobClient) getFeeRateBps(tokenID string) (int, error) {
 	}
 	for _, key := range []string{"base_fee", "fee_rate_bps"} {
 		if bps, ok := parseBPSField(parsed[key]); ok {
-			fmt.Printf("[DEBUG] getFeeRateBps token=%s bps=%d (%s)\n", tokenID, bps, key)
 			return bps, nil
 		}
 	}
-	fmt.Printf("[DEBUG] getFeeRateBps token=%s bps=0 (default)\n", tokenID)
 	return 0, nil
 }
 
@@ -574,13 +563,11 @@ func (c *clobClient) buildSignedOrder(args orderArgs, tickSize float64, negRisk 
 		takerAmount = int64(math.Round(price * float64(makerAmount)))
 	}
 
-	// DEBUG: 수학적 정렬 확인
 	ratio := 0.0
 	if takerAmount > 0 {
 		ratio = float64(makerAmount) / float64(takerAmount)
 	}
-	fmt.Printf("[DEBUG] Math Alignment: side=%s price=%f shares=%f makerAmount=%d takerAmount=%d ratio=%f\n",
-		sideLabel, price, shares, makerAmount, takerAmount, ratio)
+	_ = ratio
 
 	// Polymarket expects only GTD orders to carry a non-zero expiration.
 	expiration := resolveOrderExpiration(args.OrderType, args.Expiration, time.Now())
@@ -820,7 +807,6 @@ func signTypedData(privateKey *ecdsa.PrivateKey, typedData apitypes.TypedData) (
 	if err != nil {
 		return "", err
 	}
-	fmt.Printf("[DEBUG] signTypedData hash: 0x%x\n", rawHash)
 	sig, err := crypto.Sign(rawHash, privateKey)
 	if err != nil {
 		return "", err

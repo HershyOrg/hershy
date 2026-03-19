@@ -127,6 +127,7 @@ type RuntimeState struct {
 }
 
 type MarketState struct {
+	MarketID        string
 	TokenIDUp       string
 	TokenIDDown     string
 	MarketSlug      string

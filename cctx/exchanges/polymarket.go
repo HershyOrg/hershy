@@ -372,7 +372,6 @@ func (p *Polymarket) CreateOrderWithType(marketID, outcome string, side models.O
 	if orderType == "FAK" {
 		orderType = "IOC"
 	}
-	fmt.Printf("[DEBUG] CreateOrderWithType orderType normalized: %s\n", orderType)
 	if marketID == "" {
 		utils.DefaultLogger().Debugf("exchanges.Polymarket.CreateOrderWithType: marketID empty")
 	}
@@ -422,7 +421,6 @@ func (p *Polymarket) CreateOrderWithType(marketID, outcome string, side models.O
 		minOrderSize, _ = p.clobClient.getMinOrderSize(tokenID)
 	}
 	negRisk, _ := p.clobClient.getNegRisk(tokenID)
-	fmt.Printf("[DEBUG] CreateOrderWithType token=%s feeRate=%d tickSize=%f minOrderSize=%f negRisk=%v\n", tokenID, feeRate, tickSize, minOrderSize, negRisk)
 
 	if size < minOrderSize {
 		return models.Order{}, base.InvalidOrder{Message: fmt.Sprintf("size %.6f is less than min_order_size %.6f", size, minOrderSize)}
@@ -1078,9 +1076,6 @@ func (p *Polymarket) placeOrder(args orderArgs, tickSize float64, negRisk bool, 
 	if !p.shouldRetryWithGnosisSafe(err) {
 		return nil, err
 	}
-
-	fmt.Printf("[DEBUG] retrying order with signatureType=%d after invalid signature using signatureType=%d\n",
-		signatureTypeGnosisSafe, p.clobClient.sigType)
 
 	p.clobClient.setSignatureType(signatureTypeGnosisSafe)
 	p.SignatureType = signatureTypeGnosisSafe
