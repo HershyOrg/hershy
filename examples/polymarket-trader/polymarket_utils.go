@@ -103,10 +103,11 @@ func inferSlugPrefix(slug string) string {
 	return ""
 }
 
-func buildSlug(prefix string, whenET time.Time) string {
-	month := monthNames[int(whenET.Month())]
-	day := whenET.Day()
-	hour24 := whenET.Hour()
+func buildSlug(prefix string, t time.Time) string {
+	month := strings.ToLower(t.Month().String())
+	day := t.Day()
+	year := t.Year()
+	hour24 := t.Hour()
 	hour12 := hour24 % 12
 	if hour12 == 0 {
 		hour12 = 12
@@ -115,7 +116,7 @@ func buildSlug(prefix string, whenET time.Time) string {
 	if hour24 >= 12 {
 		ampm = "pm"
 	}
-	return fmt.Sprintf("%s-%s-%d-%d%s-et", prefix, month, day, hour12, ampm)
+	return fmt.Sprintf("%s-%s-%d-%d-%d%s-et", prefix, month, day, year, hour12, ampm)
 }
 
 func parseISODatetime(value string) *time.Time {

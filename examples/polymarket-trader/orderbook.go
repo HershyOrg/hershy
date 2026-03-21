@@ -15,32 +15,95 @@ type BookLevel struct {
 }
 
 type Orderbook struct {
-	Bids []BookLevel
-	Asks []BookLevel
+	Bids         []BookLevel
+	Asks         []BookLevel
+	MinOrderSize float64
+	TickSize     float64
 }
 
+//	func fetchOrderbook(clobHost, tokenID string) (Orderbook, error) {
+//		clobHost = strings.TrimRight(clobHost, "/")
+//		url := fmt.Sprintf("%s/book?token_id=%s", clobHost, tokenID)
+//		resp, err := http.Get(url)
+//		if err != nil {
+//			return Orderbook{}, err
+//		}
+//		defer resp.Body.Close()
+//		payload, err := io.ReadAll(resp.Body)
+//		if err != nil {
+//			return Orderbook{}, err
+//		}
 func fetchOrderbook(clobHost, tokenID string) (Orderbook, error) {
 	clobHost = strings.TrimRight(clobHost, "/")
 	url := fmt.Sprintf("%s/book?token_id=%s", clobHost, tokenID)
+	// fmt.Printf("[DEBUG] fetchOrderbook url=%s\n", url) // debug
+
 	resp, err := http.Get(url)
 	if err != nil {
 		return Orderbook{}, err
 	}
 	defer resp.Body.Close()
+
+	// fmt.Printf("[DEBUG] fetchOrderbook status=%s\n", resp.Status) // debug
+
 	payload, err := io.ReadAll(resp.Body)
 	if err != nil {
 		return Orderbook{}, err
 	}
+	// fmt.Printf("[DEBUG] fetchOrderbook payload=%s\n", string(payload)) // debug
+
 	var raw map[string]any
 	if err := json.Unmarshal(payload, &raw); err != nil {
 		return Orderbook{}, err
 	}
 	bids := parseBookLevels(raw["bids"], true)
 	asks := parseBookLevels(raw["asks"], false)
-	return Orderbook{Bids: bids, Asks: asks}, nil
+
+	minSize := toFloat(raw["min_order_size"])
+	tick := toFloat(raw["tick_size"])
+	if minSize == 0 {
+		minSize = 5.0
+	}
+	if tick == 0 {
+		tick = 0.001
+	}
+
+	return Orderbook{
+		Bids:         bids,
+		Asks:         asks,
+		MinOrderSize: minSize,
+		TickSize:     tick,
+	}, nil
 }
 
+//	func parseBookLevels(raw any, reverse bool) []BookLevel {
+//		items := toSlice(raw)
+//		levels := make([]BookLevel, 0, len(items))
+//		for _, item := range items {
+//			row, ok := item.(map[string]any)
+//			if !ok {
+//				continue
+//			}
+//			price := toFloat(row["price"])
+//			size := toFloat(row["size"])
+//			if price > 0 && size > 0 {
+//				levels = append(levels, BookLevel{Price: price, Size: size})
+//			}
+//		}
+//		sort.Slice(levels, func(i, j int) bool {
+//			if reverse {
+//				return levels[i].Price > levels[j].Price
+//			}
+//			return levels[i].Price < levels[j].Price
+//		})
+//		return levels
+//	}
+//
+// ...existing code...
 func parseBookLevels(raw any, reverse bool) []BookLevel {
+	if raw == nil {
+		return nil
+	}
 	items := toSlice(raw)
 	levels := make([]BookLevel, 0, len(items))
 	for _, item := range items {
@@ -62,7 +125,6 @@ func parseBookLevels(raw any, reverse bool) []BookLevel {
 	})
 	return levels
 }
-
 func bestBidAsk(book Orderbook) (*float64, *float64) {
 	var bid *float64
 	var ask *float64
@@ -85,18 +147,58 @@ func midFromBidAsk(bid, ask *float64) *float64 {
 	return &v
 }
 
+// func simulateMarketBuy(book Orderbook, usdcAmount float64) *FillResult {
+// 	if usdcAmount <= 0 {
+// 		return nil
+// 	}
+// 	remaining := usdcAmount
+// 	cost := 0.0
+// 	shares := 0.0
+// 	worstPrice := 0.0
+// 	for _, level := range book.Asks {
+// 		if remaining <= 1e-12 {
+// 			break
+// 		}
+// 		levelCost := level.Price * level.Size
+// 		var fillSize, fillCost float64
+// 		if levelCost <= remaining+1e-12 {
+// 			fillSize = level.Size
+// 			fillCost = levelCost
+// 		} else {
+// 			fillSize = remaining / level.Price
+// 			fillCost = remaining
+// 		}
+// 		shares += fillSize
+// 		cost += fillCost
+// 		remaining -= fillCost
+// 		worstPrice = level.Price
+// 	}
+// 	if shares <= 0 {
+// 		return nil
+// 	}
+// 	avg := cost / shares
+// 	partial := remaining > 1e-9
+// 	return &FillResult{USDC: cost, Shares: shares, AvgPrice: &avg, Partial: partial, WorstPrice: worstPrice}
+// }
+
 func simulateMarketBuy(book Orderbook, usdcAmount float64) *FillResult {
 	if usdcAmount <= 0 {
 		return nil
 	}
+
 	remaining := usdcAmount
 	cost := 0.0
 	shares := 0.0
 	worstPrice := 0.0
+
 	for _, level := range book.Asks {
 		if remaining <= 1e-12 {
 			break
 		}
+		if level.Price <= 0 || level.Size <= 0 {
+			continue
+		}
+
 		levelCost := level.Price * level.Size
 		var fillSize, fillCost float64
 		if levelCost <= remaining+1e-12 {
@@ -111,9 +213,11 @@ func simulateMarketBuy(book Orderbook, usdcAmount float64) *FillResult {
 		remaining -= fillCost
 		worstPrice = level.Price
 	}
-	if shares <= 0 {
+
+	if shares <= 1e-12 {
 		return nil
 	}
+
 	avg := cost / shares
 	partial := remaining > 1e-9
 	return &FillResult{USDC: cost, Shares: shares, AvgPrice: &avg, Partial: partial, WorstPrice: worstPrice}

@@ -40,6 +40,8 @@ type Polymarket struct {
 	APIPassphrase string
 	// Funder is the funder address.
 	Funder string
+	// SignatureType is the signature type for orders.
+	SignatureType int
 	// httpClient handles HTTP requests.
 	httpClient *http.Client
 	// clobClient handles CLOB requests and signing.
@@ -156,6 +158,13 @@ func NewPolymarket(config map[string]any) (base.Exchange, error) {
 	ex.PrivateKey, _ = config["private_key"].(string)
 	ex.APIPassphrase, _ = config["api_passphrase"].(string)
 	ex.Funder, _ = config["funder"].(string)
+	if sigType, ok := toInt(config["signature_type"]); ok {
+		ex.SignatureType = sigType
+	} else if ex.Funder != "" {
+		// Default to Proxy signature if Funder is present
+		ex.SignatureType = 1
+	}
+
 	if raw, ok := config["chain_id"].(float64); ok {
 		ex.ChainID = int64(raw)
 	} else if raw, ok := config["chain_id"].(int); ok {
@@ -182,12 +191,26 @@ func (p *Polymarket) FetchMarkets(params map[string]any) ([]models.Market, error
 		params = map[string]any{}
 	}
 	var markets []models.Market
-	err := p.RetryOnFailure(func() error {
+	_ = p.RetryOnFailure(func() error {
 		response, err := p.fetchJSON(p.CLOBURL + "/sampling-markets")
 		if err != nil {
 			return err
 		}
-		items := toSlice(response)
+		var items []any
+		switch v := response.(type) {
+		case map[string]any:
+			if dataRaw, ok := v["data"]; ok {
+				items = toSlice(dataRaw)
+			} else if marketsRaw, ok := v["markets"]; ok {
+				items = toSlice(marketsRaw)
+			}
+		case []any:
+			items = v
+		}
+		if items == nil {
+			items = toSlice(response)
+		}
+
 		for _, item := range items {
 			if market := p.parseSamplingMarket(item); market != nil {
 				markets = append(markets, *market)
@@ -195,7 +218,7 @@ func (p *Polymarket) FetchMarkets(params map[string]any) ([]models.Market, error
 		}
 		return nil
 	})
-	if err != nil && len(markets) == 0 {
+	if len(markets) == 0 {
 		return p.fetchMarketsGamma(params)
 	}
 
@@ -305,18 +328,16 @@ func (p *Polymarket) CreateOrder(marketID, outcome string, side models.OrderSide
 		tickSize = 0.01
 	}
 	negRisk, _ := p.clobClient.getNegRisk(tokenID)
+	fmt.Printf("[DEBUG] CreateOrder token=%s feeRate=%d tickSize=%f negRisk=%v\n", tokenID, feeRate, tickSize, negRisk)
 
-	signed, err := p.clobClient.buildSignedOrder(orderArgs{
+	result, err := p.placeOrder(orderArgs{
 		TokenID:    tokenID,
 		Price:      price,
 		Size:       size,
 		Side:       strings.ToUpper(string(side)),
+		OrderType:  "GTC",
 		FeeRateBps: feeRate,
-	}, tickSize, negRisk)
-	if err != nil {
-		return models.Order{}, base.InvalidOrder{Message: fmt.Sprintf("order placement failed: %v", err)}
-	}
-	result, err := p.clobClient.postOrder(signed, "GTC", false)
+	}, tickSize, negRisk, "GTC", false)
 	if err != nil {
 		return models.Order{}, base.InvalidOrder{Message: fmt.Sprintf("order placement failed: %v", err)}
 	}
@@ -348,6 +369,9 @@ func (p *Polymarket) CreateOrderWithType(marketID, outcome string, side models.O
 		orderType = "GTC"
 	}
 	orderType = strings.ToUpper(orderType)
+	if orderType == "FAK" {
+		orderType = "IOC"
+	}
 	if marketID == "" {
 		utils.DefaultLogger().Debugf("exchanges.Polymarket.CreateOrderWithType: marketID empty")
 	}
@@ -375,23 +399,41 @@ func (p *Polymarket) CreateOrderWithType(marketID, outcome string, side models.O
 	}
 
 	feeRate, _ := p.clobClient.getFeeRateBps(tokenID)
-	tickSize, err := p.clobClient.getTickSize(tokenID)
-	if err != nil || tickSize == 0 {
-		tickSize = 0.01
+	tickSize := 0.0
+	if val, ok := params["tick_size"].(float64); ok {
+		tickSize = val
+	}
+	if tickSize == 0 {
+		tSize, err := p.clobClient.getTickSize(tokenID)
+		if err == nil && tSize > 0 {
+			tickSize = tSize
+		} else {
+			tickSize = 0.01
+		}
+	}
+	minOrderSize := 0.0
+	if val, ok := params["min_order_size"].(float64); ok {
+		minOrderSize = val
+	} else if val, ok := params["min_size"].(float64); ok {
+		minOrderSize = val
+	}
+	if minOrderSize == 0 {
+		minOrderSize, _ = p.clobClient.getMinOrderSize(tokenID)
 	}
 	negRisk, _ := p.clobClient.getNegRisk(tokenID)
 
-	signed, err := p.clobClient.buildSignedOrder(orderArgs{
+	if size < minOrderSize {
+		return models.Order{}, base.InvalidOrder{Message: fmt.Sprintf("size %.6f is less than min_order_size %.6f", size, minOrderSize)}
+	}
+
+	result, err := p.placeOrder(orderArgs{
 		TokenID:    tokenID,
 		Price:      price,
 		Size:       size,
 		Side:       strings.ToUpper(string(side)),
+		OrderType:  orderType,
 		FeeRateBps: feeRate,
-	}, tickSize, negRisk)
-	if err != nil {
-		return models.Order{}, base.InvalidOrder{Message: fmt.Sprintf("order placement failed: %v", err)}
-	}
-	result, err := p.clobClient.postOrder(signed, orderType, postOnly)
+	}, tickSize, negRisk, orderType, postOnly)
 	if err != nil {
 		return models.Order{}, base.InvalidOrder{Message: fmt.Sprintf("order placement failed: %v", err)}
 	}
@@ -485,7 +527,7 @@ func (p *Polymarket) FetchOpenOrders(marketID *string, _ map[string]any) ([]mode
 	if p.clobClient == nil {
 		return nil, base.AuthenticationError{Message: "CLOB client not initialized"}
 	}
-	rawOrders, err := p.clobClient.getOrders()
+	rawOrders, err := p.clobClient.getOrders(marketID)
 	if err != nil {
 		return nil, err
 	}
@@ -535,7 +577,7 @@ func (p *Polymarket) FetchPositionsForMarket(market models.Market) ([]models.Pos
 	}
 	positions := []models.Position{}
 	for i, tokenID := range tokenIDs {
-		balance, err := p.clobClient.getBalanceAllowance("CONDITIONAL", tokenID, signatureTypeEOA)
+		balance, err := p.clobClient.getBalanceAllowance("CONDITIONAL", tokenID, p.currentSignatureType())
 		if err != nil {
 			continue
 		}
@@ -565,7 +607,7 @@ func (p *Polymarket) FetchBalance() (map[string]float64, error) {
 		utils.DefaultLogger().Debugf("exchanges.Polymarket.FetchBalance: clobClient nil")
 		return nil, base.AuthenticationError{Message: "CLOB client not initialized"}
 	}
-	balance, err := p.clobClient.getBalanceAllowance("COLLATERAL", "", signatureTypeEOA)
+	balance, err := p.clobClient.getBalanceAllowance("COLLATERAL", "", p.currentSignatureType())
 	if err != nil {
 		return nil, err
 	}
@@ -1015,7 +1057,58 @@ func (p *Polymarket) initClobClient() error {
 		clob.setCreds(creds)
 	}
 	p.clobClient = clob
+	if p.SignatureType != 0 {
+		p.clobClient.setSignatureType(p.SignatureType)
+	}
 	return nil
+}
+
+func (p *Polymarket) placeOrder(args orderArgs, tickSize float64, negRisk bool, orderType string, postOnly bool) (map[string]any, error) {
+	signed, _, _, err := p.clobClient.buildSignedOrder(args, tickSize, negRisk)
+	if err != nil {
+		return nil, err
+	}
+
+	result, err := p.clobClient.postOrder(signed, orderType, postOnly)
+	if err == nil {
+		return result, nil
+	}
+	if !p.shouldRetryWithGnosisSafe(err) {
+		return nil, err
+	}
+
+	p.clobClient.setSignatureType(signatureTypeGnosisSafe)
+	p.SignatureType = signatureTypeGnosisSafe
+
+	retrySigned, _, _, retryErr := p.clobClient.buildSignedOrder(args, tickSize, negRisk)
+	if retryErr != nil {
+		return nil, retryErr
+	}
+	return p.clobClient.postOrder(retrySigned, orderType, postOnly)
+}
+
+func (p *Polymarket) shouldRetryWithGnosisSafe(err error) bool {
+	if err == nil || p.clobClient == nil {
+		return false
+	}
+	if p.clobClient.sigType != signatureTypePolyProxy || p.Funder == "" {
+		return false
+	}
+	return strings.Contains(strings.ToLower(err.Error()), "invalid signature")
+}
+
+func (p *Polymarket) currentSignatureType() int {
+	if p.clobClient != nil {
+		return p.clobClient.sigType
+	}
+	if p.SignatureType != 0 {
+		return p.SignatureType
+	}
+	return signatureTypeEOA
+}
+
+func (p *Polymarket) EffectiveSignatureType() int {
+	return p.currentSignatureType()
 }
 
 // fetchMarketsGamma fetches markets from Gamma API.
@@ -1045,7 +1138,21 @@ func (p *Polymarket) fetchMarketsGamma(params map[string]any) ([]models.Market, 
 	if err != nil {
 		return nil, err
 	}
-	items := toSlice(data)
+	var items []any
+	switch v := data.(type) {
+	case map[string]any:
+		if dataRaw, ok := v["data"]; ok {
+			items = toSlice(dataRaw)
+		} else if marketsRaw, ok := v["markets"]; ok {
+			items = toSlice(marketsRaw)
+		}
+	case []any:
+		items = v
+	}
+	if items == nil {
+		items = toSlice(data)
+	}
+
 	markets := make([]models.Market, 0, len(items))
 	for _, item := range items {
 		markets = append(markets, p.parseMarket(item))

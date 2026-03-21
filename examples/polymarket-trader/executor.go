@@ -12,44 +12,60 @@ import (
 )
 
 const (
-	usdcScale        = 1_000_000
-	conditionalScale = 1_000_000
+	usdcScale         = 1_000_000
+	conditionalScale  = 1_000_000
+	liveFillPolls     = 8
+	settlementHintGap = 5 * time.Minute
 )
 
 type TradeExecutor interface {
 	GetUSDCAvailable() (float64, error)
 	GetTokenBalance(tokenID string) (float64, error)
 	ComputeBuyUSDC() (float64, error)
+	CancelOpenEntryOrders(marketID string) (int, error)
 	MarketBuyMax(tokenID string) (*FillResult, error)
 	MarketSellAll(tokenID string) (*FillResult, error)
 }
 
 type LiveExecutor struct {
-	client   *exchanges.Polymarket
-	cfg      TradeConfig
-	clobHost string
+	client             *exchanges.Polymarket
+	cfg                TradeConfig
+	clobHost           string
+	settlementPrefix   string
+	settlementLookback int
+	lastSettlementHint time.Time
 }
 
-func NewLiveExecutor(client *exchanges.Polymarket, cfg TradeConfig, clobHost string) *LiveExecutor {
-	return &LiveExecutor{client: client, cfg: cfg, clobHost: clobHost}
+func NewLiveExecutor(client *exchanges.Polymarket, cfg TradeConfig, clobHost, settlementPrefix string, settlementLookback int) *LiveExecutor {
+	if settlementLookback <= 0 {
+		settlementLookback = 24
+	}
+	return &LiveExecutor{
+		client:             client,
+		cfg:                cfg,
+		clobHost:           clobHost,
+		settlementPrefix:   settlementPrefix,
+		settlementLookback: settlementLookback,
+	}
 }
 
 func (e *LiveExecutor) GetUSDCAvailable() (float64, error) {
-	resp, err := e.client.GetBalanceAllowance("COLLATERAL", "", -1)
+	resp, err := e.client.GetBalanceAllowance("COLLATERAL", "", e.client.EffectiveSignatureType())
 	if err != nil {
 		return 0, err
 	}
 	balance := safeFloat(resp["balance"])
 	allowance := extractAllowance(resp)
 	available := balance
-	if allowance < available {
+	// only apply allowance cap if allowance > 0
+	if allowance > 0 && allowance < available {
 		available = allowance
 	}
 	return available / usdcScale, nil
 }
 
 func (e *LiveExecutor) GetTokenBalance(tokenID string) (float64, error) {
-	resp, err := e.client.GetBalanceAllowance("CONDITIONAL", tokenID, -1)
+	resp, err := e.client.GetBalanceAllowance("CONDITIONAL", tokenID, e.client.EffectiveSignatureType())
 	if err != nil {
 		return 0, err
 	}
@@ -73,12 +89,54 @@ func (e *LiveExecutor) ComputeBuyUSDC() (float64, error) {
 	return available, nil
 }
 
+func (e *LiveExecutor) CancelOpenEntryOrders(marketID string) (int, error) {
+	if marketID == "" {
+		return 0, nil
+	}
+	orders, err := e.client.FetchOpenOrders(&marketID, nil)
+	if err != nil {
+		return 0, err
+	}
+	cancelled := 0
+	var firstErr error
+	for _, order := range orders {
+		if order.ID == "" || order.Side != models.OrderSideBuy || !order.IsOpen() {
+			continue
+		}
+		if _, err := e.client.CancelOrder(order.ID, &marketID); err != nil {
+			if firstErr == nil {
+				firstErr = err
+			}
+			continue
+		}
+		cancelled++
+	}
+	return cancelled, firstErr
+}
+
 func (e *LiveExecutor) MarketBuyMax(tokenID string) (*FillResult, error) {
 	amount, err := e.ComputeBuyUSDC()
 	if err != nil {
 		return nil, err
 	}
+	preUSDC, err := e.GetUSDCAvailable()
+	if err != nil {
+		return nil, err
+	}
+	preShares, err := e.GetTokenBalance(tokenID)
+	if err != nil {
+		return nil, err
+	}
+	var maxStr string
+	if e.cfg.MaxUSDC != nil {
+		maxStr = fmt.Sprintf("%.4f", *e.cfg.MaxUSDC)
+	} else {
+		maxStr = "nil"
+	}
+	_ = preUSDC
+	_ = maxStr
 	if amount < e.cfg.MinUSDC {
+		e.maybeLogPendingSettlementHint(time.Now().In(loadETLocation()))
 		fmt.Printf("[TRADE] skip buy (amount=%.4f < min_usdc=%.4f)\n", amount, e.cfg.MinUSDC)
 		return nil, nil
 	}
@@ -100,21 +158,71 @@ func (e *LiveExecutor) MarketBuyMax(tokenID string) (*FillResult, error) {
 		fmt.Println("[TRADE] buy skipped (empty fill)")
 		return nil, nil
 	}
+	// Taker Prevention (Case 3): Ensure BUY price < best_ask
+	bid, ask := bestBidAsk(book)
+
+	limitPrice := fill.WorstPrice
+	shares := fill.Shares
+
+	if ask != nil && limitPrice >= *ask {
+		tick := book.TickSize
+		newLimit := *ask - tick
+		if bid != nil && newLimit <= *bid {
+			newLimit = *bid
+		}
+		if newLimit <= 0 {
+			newLimit = tick
+		}
+		fmt.Printf("[TRADE] adjusting buy price %.4f -> %.4f to prevent taker order (tick=%.4f)\n", limitPrice, newLimit, tick)
+		limitPrice = newLimit
+		shares = amount / limitPrice
+	}
+
+	// Auto-adjust: If we are close to MinOrderSize (within 5%), round up to satisfy market rules.
+	if shares < book.MinOrderSize && shares >= book.MinOrderSize*0.95 {
+		fmt.Printf("[TRADE] auto-adjusting shares %.6f -> %.4f to meet min_order_size\n", shares, book.MinOrderSize)
+		shares = book.MinOrderSize
+	}
+
+	if shares < book.MinOrderSize {
+		fmt.Printf("[TRADE] buy skipped (shares=%.6f < min_order_size=%.4f)\n", shares, book.MinOrderSize)
+		return nil, nil
+	}
+
 	if e.cfg.DryRun {
-		fmt.Printf("[DRY] market buy token=%s usdc=%.4f shares=%.6f limit=%.4f\n", tokenID, amount, fill.Shares, fill.WorstPrice)
+		fmt.Printf("[DRY] market buy token=%s usdc=%.4f shares=%.6f limit=%.4f\n", tokenID, amount, shares, limitPrice)
 		return &FillResult{USDC: amount, Shares: 0, AvgPrice: nil, Partial: false}, nil
 	}
-	_, err = e.client.CreateOrderWithType("", "", models.OrderSideBuy, fill.WorstPrice, fill.Shares, e.cfg.OrderType, false, map[string]any{"token_id": tokenID})
+
+	order, err := e.client.CreateOrderWithType("", "", models.OrderSideBuy, limitPrice, shares, e.cfg.OrderType, false, map[string]any{
+		"token_id":       tokenID,
+		"tick_size":      book.TickSize,
+		"min_order_size": book.MinOrderSize,
+	})
 	if err != nil {
 		fmt.Printf("[TRADE] buy failed: %v\n", err)
 		return nil, nil
 	}
-	fmt.Printf("[TRADE] buy placed token=%s usdc=%.4f shares=%.6f limit=%.4f\n", tokenID, amount, fill.Shares, fill.WorstPrice)
-	return &FillResult{USDC: amount, Shares: 0, AvgPrice: nil, Partial: false}, nil
+	fill, err = e.observeBuyFill(tokenID, preShares, preUSDC, amount)
+	if err != nil {
+		return nil, err
+	}
+	if fill == nil {
+		cleanup := e.cancelUnfilledOrder(order)
+		fmt.Printf("[TRADE] buy order placed but no fill observed token=%s limit=%.4f cleanup=%s\n", tokenID, limitPrice, cleanup)
+		return nil, nil
+	}
+	fmt.Printf("[TRADE] buy filled token=%s usdc=%.4f shares=%.6f avg_px=%.4f partial=%t\n",
+		tokenID, fill.USDC, fill.Shares, derefFloat(fill.AvgPrice), fill.Partial)
+	return fill, nil
 }
 
 func (e *LiveExecutor) MarketSellAll(tokenID string) (*FillResult, error) {
 	shares, err := e.GetTokenBalance(tokenID)
+	if err != nil {
+		return nil, err
+	}
+	preUSDC, err := e.GetUSDCAvailable()
 	if err != nil {
 		return nil, err
 	}
@@ -132,25 +240,252 @@ func (e *LiveExecutor) MarketSellAll(tokenID string) (*FillResult, error) {
 		fmt.Println("[TRADE] sell skipped (no liquidity)")
 		return nil, nil
 	}
-	if e.cfg.OrderType == "FOK" && fill.Partial {
-		fmt.Println("[TRADE] sell skipped (FOK partial fill)")
+	bid, ask := bestBidAsk(book)
+	limitPrice := fill.WorstPrice
+
+	// Taker Prevention (Case 3): Ensure SELL price > best_bid
+	if bid != nil && limitPrice <= *bid {
+		tick := book.TickSize
+		newLimit := *bid + tick
+		if ask != nil && newLimit >= *ask {
+			newLimit = *ask
+		}
+		if newLimit >= 1.0 {
+			newLimit = 1.0 - tick
+		}
+		fmt.Printf("[TRADE] adjusting sell price %.4f -> %.4f to prevent taker order (tick=%.4f)\n", limitPrice, newLimit, tick)
+		limitPrice = newLimit
+	}
+
+	if shares < book.MinOrderSize {
+		fmt.Printf("[TRADE] sell skipped (shares=%.6f < min_order_size=%.4f)\n", shares, book.MinOrderSize)
 		return nil, nil
 	}
-	if fill.USDC <= 0 || fill.Shares <= 0 {
-		fmt.Println("[TRADE] sell skipped (empty fill)")
-		return nil, nil
-	}
+
 	if e.cfg.DryRun {
-		fmt.Printf("[DRY] market sell token=%s shares=%.6f limit=%.4f\n", tokenID, shares, fill.WorstPrice)
+		fmt.Printf("[DRY] market sell token=%s shares=%.6f limit=%.4f\n", tokenID, shares, limitPrice)
 		return &FillResult{USDC: 0, Shares: shares, AvgPrice: nil, Partial: false}, nil
 	}
-	_, err = e.client.CreateOrderWithType("", "", models.OrderSideSell, fill.WorstPrice, shares, e.cfg.OrderType, false, map[string]any{"token_id": tokenID})
+	order, err := e.client.CreateOrderWithType("", "", models.OrderSideSell, limitPrice, shares, e.cfg.OrderType, false, map[string]any{
+		"token_id":       tokenID,
+		"tick_size":      book.TickSize,
+		"min_order_size": book.MinOrderSize,
+	})
 	if err != nil {
 		fmt.Printf("[TRADE] sell failed: %v\n", err)
 		return nil, nil
 	}
-	fmt.Printf("[TRADE] sell placed token=%s shares=%.6f limit=%.4f\n", tokenID, shares, fill.WorstPrice)
-	return &FillResult{USDC: 0, Shares: shares, AvgPrice: nil, Partial: false}, nil
+	fill, err = e.observeSellFill(tokenID, shares, preUSDC)
+	if err != nil {
+		return nil, err
+	}
+	if fill == nil {
+		cleanup := e.cancelUnfilledOrder(order)
+		fill = inferSellFillFromOrder(order, shares, limitPrice)
+		if fill != nil {
+			fmt.Printf("[TRADE] sell filled after cleanup token=%s usdc=%.4f shares=%.6f avg_px=%.4f partial=%t cleanup=%s\n",
+				tokenID, fill.USDC, fill.Shares, derefFloat(fill.AvgPrice), fill.Partial, cleanup)
+			return fill, nil
+		}
+		fmt.Printf("[TRADE] sell order placed but no fill observed token=%s limit=%.4f cleanup=%s\n", tokenID, limitPrice, cleanup)
+		return nil, nil
+	}
+	fmt.Printf("[TRADE] sell filled token=%s usdc=%.4f shares=%.6f avg_px=%.4f partial=%t\n",
+		tokenID, fill.USDC, fill.Shares, derefFloat(fill.AvgPrice), fill.Partial)
+	return fill, nil
+}
+
+func (e *LiveExecutor) observeBuyFill(tokenID string, preShares, preUSDC, requestedUSDC float64) (*FillResult, error) {
+	for i := 0; i < liveFillPolls; i++ {
+		if i > 0 {
+			time.Sleep(250 * time.Millisecond)
+		}
+		postShares, err := e.GetTokenBalance(tokenID)
+		if err != nil {
+			return nil, err
+		}
+		postUSDC, err := e.GetUSDCAvailable()
+		if err != nil {
+			return nil, err
+		}
+
+		filledShares := postShares - preShares
+		spentUSDC := preUSDC - postUSDC
+		if filledShares <= 1e-9 && spentUSDC <= 1e-9 {
+			continue
+		}
+
+		if filledShares < 0 {
+			filledShares = 0
+		}
+		if spentUSDC < 0 {
+			spentUSDC = 0
+		}
+		var avgPrice *float64
+		if filledShares > 0 && spentUSDC > 0 {
+			v := spentUSDC / filledShares
+			avgPrice = &v
+		}
+		return &FillResult{
+			USDC:     spentUSDC,
+			Shares:   filledShares,
+			AvgPrice: avgPrice,
+			Partial:  spentUSDC+1e-9 < requestedUSDC,
+		}, nil
+	}
+	return nil, nil
+}
+
+func (e *LiveExecutor) observeSellFill(tokenID string, preShares, preUSDC float64) (*FillResult, error) {
+	bestSoldShares := 0.0
+	bestReceivedUSDC := 0.0
+	for i := 0; i < liveFillPolls; i++ {
+		if i > 0 {
+			time.Sleep(250 * time.Millisecond)
+		}
+		postShares, err := e.GetTokenBalance(tokenID)
+		if err != nil {
+			return nil, err
+		}
+		postUSDC, err := e.GetUSDCAvailable()
+		if err != nil {
+			return nil, err
+		}
+
+		soldShares := preShares - postShares
+		receivedUSDC := postUSDC - preUSDC
+		if soldShares <= 1e-9 && receivedUSDC <= 1e-9 {
+			continue
+		}
+
+		if soldShares < 0 {
+			soldShares = 0
+		}
+		if receivedUSDC < 0 {
+			receivedUSDC = 0
+		}
+		if soldShares > bestSoldShares {
+			bestSoldShares = soldShares
+		}
+		if receivedUSDC > bestReceivedUSDC {
+			bestReceivedUSDC = receivedUSDC
+		}
+	}
+	if bestReceivedUSDC <= 1e-9 && bestSoldShares <= 1e-9 {
+		return nil, nil
+	}
+	if bestSoldShares <= 1e-9 && bestReceivedUSDC > 1e-9 {
+		bestSoldShares = preShares
+	}
+	var avgPrice *float64
+	if bestSoldShares > 0 && bestReceivedUSDC > 0 {
+		v := bestReceivedUSDC / bestSoldShares
+		avgPrice = &v
+	}
+	return &FillResult{
+		USDC:     bestReceivedUSDC,
+		Shares:   bestSoldShares,
+		AvgPrice: avgPrice,
+		Partial:  bestSoldShares+1e-9 < preShares,
+	}, nil
+}
+
+func (e *LiveExecutor) maybeLogPendingSettlementHint(nowET time.Time) {
+	if e.settlementPrefix == "" {
+		return
+	}
+	if !e.lastSettlementHint.IsZero() && nowET.Sub(e.lastSettlementHint) < settlementHintGap {
+		return
+	}
+	candidates, err := e.findPendingSettlements(nowET)
+	if err != nil {
+		fmt.Printf("[SETTLEMENT] scan failed: %v\n", err)
+		e.lastSettlementHint = nowET
+		return
+	}
+	e.lastSettlementHint = nowET
+	if len(candidates) == 0 {
+		return
+	}
+	action := "review settlement"
+	if e.client != nil && e.client.Funder != "" {
+		action = "manual claim required in Polymarket UI for proxy/funder account"
+	}
+	for _, c := range candidates {
+		fmt.Printf("[SETTLEMENT] pending resolved funds slug=%s outcome=%s shares=%.6f end=%s action=%s\n",
+			c.Slug, c.Outcome, c.Shares, c.EndDate, action)
+	}
+}
+
+type settlementCandidate struct {
+	Slug    string
+	Outcome string
+	Shares  float64
+	EndDate string
+}
+
+func (e *LiveExecutor) findPendingSettlements(nowET time.Time) ([]settlementCandidate, error) {
+	base := time.Date(nowET.Year(), nowET.Month(), nowET.Day(), nowET.Hour(), 0, 0, 0, nowET.Location())
+	seen := map[string]bool{}
+	candidates := make([]settlementCandidate, 0)
+
+	for h := 1; h <= e.settlementLookback; h++ {
+		slug := buildSlug(e.settlementPrefix, base.Add(-time.Duration(h)*time.Hour))
+		if seen[slug] {
+			continue
+		}
+		seen[slug] = true
+
+		market, err := fetchMarketBySlug(slug)
+		if err != nil {
+			continue
+		}
+		if !marketClosedOrEnded(market, nowET.UTC()) {
+			continue
+		}
+
+		tokens, err := resolveYesNoTokens(market, slug)
+		if err != nil {
+			continue
+		}
+
+		checks := []struct {
+			outcome string
+			tokenID string
+		}{
+			{outcome: "yes", tokenID: tokens.YesTokenID},
+			{outcome: "no", tokenID: tokens.NoTokenID},
+		}
+		for _, check := range checks {
+			if check.tokenID == "" {
+				continue
+			}
+			shares, err := e.GetTokenBalance(check.tokenID)
+			if err != nil || shares <= 0 {
+				continue
+			}
+			candidates = append(candidates, settlementCandidate{
+				Slug:    slug,
+				Outcome: check.outcome,
+				Shares:  shares,
+				EndDate: toString(market["endDate"]),
+			})
+		}
+	}
+	return candidates, nil
+}
+
+func marketClosedOrEnded(market map[string]any, nowUTC time.Time) bool {
+	if market == nil {
+		return false
+	}
+	if v, ok := market["closed"].(bool); ok && v {
+		return true
+	}
+	if end := parseISODatetime(toString(market["endDate"])); end != nil && !end.UTC().After(nowUTC) {
+		return true
+	}
+	return false
 }
 
 type PaperExecutor struct {
@@ -190,6 +525,10 @@ func (e *PaperExecutor) ComputeBuyUSDC() (float64, error) {
 		return 0, nil
 	}
 	return available, nil
+}
+
+func (e *PaperExecutor) CancelOpenEntryOrders(string) (int, error) {
+	return 0, nil
 }
 
 func (e *PaperExecutor) MarketBuyMax(tokenID string) (*FillResult, error) {
@@ -294,6 +633,54 @@ func (e *PaperExecutor) MarketSellAll(tokenID string) (*FillResult, error) {
 
 func safeFloat(value any) float64 {
 	return toFloat(value)
+}
+
+func inferSellFillFromOrder(order models.Order, requestedShares, fallbackPrice float64) *FillResult {
+	filledShares := order.Filled
+	if filledShares <= 1e-9 && order.IsFilled() {
+		if requestedShares > 1e-9 {
+			filledShares = requestedShares
+		} else if order.Size > 1e-9 {
+			filledShares = order.Size
+		}
+	}
+	if filledShares <= 1e-9 {
+		return nil
+	}
+	if requestedShares > 1e-9 && filledShares > requestedShares {
+		filledShares = requestedShares
+	}
+	avgPx := order.Price
+	if avgPx <= 0 {
+		avgPx = fallbackPrice
+	}
+	var avgPrice *float64
+	proceeds := 0.0
+	if avgPx > 0 {
+		avgPrice = &avgPx
+		proceeds = filledShares * avgPx
+	}
+	partial := requestedShares > 1e-9 && filledShares+1e-9 < requestedShares
+	return &FillResult{
+		USDC:     proceeds,
+		Shares:   filledShares,
+		AvgPrice: avgPrice,
+		Partial:  partial,
+	}
+}
+
+func (e *LiveExecutor) cancelUnfilledOrder(order models.Order) string {
+	if order.ID == "" {
+		return "none"
+	}
+	if order.IsFilled() {
+		return "filled"
+	}
+	if _, err := e.client.CancelOrder(order.ID, nil); err != nil {
+		fmt.Printf("[TRADE] order cleanup failed order_id=%s: %v\n", order.ID, err)
+		return "cancel_failed"
+	}
+	return "cancelled"
 }
 
 func extractAllowance(resp map[string]any) float64 {

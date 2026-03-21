@@ -19,6 +19,20 @@ type ManagedTrader struct {
 	executorBuilder func() (TradeExecutor, error)
 }
 
+const (
+	livePositionSyncGap          = 30 * time.Second
+	livePositionRecoveryLookback = 2
+)
+
+type livePositionSnapshot struct {
+	MarketSlug    string
+	TokenID       string
+	BetUp         bool
+	Shares        float64
+	CurrentMarket bool
+	MarketClosed  bool
+}
+
 func NewManagedTrader(cfg TraderConfig, executorBuilder func() (TradeExecutor, error)) *ManagedTrader {
 	return &ManagedTrader{
 		cfg:             cfg,
@@ -120,6 +134,8 @@ func (mt *ManagedTrader) Run(msg *hersh.Message, ctx hersh.HershContext) (runErr
 		}
 	}
 
+	state = mt.maybeSyncLivePositions(ctx, executor, marketState, state, time.Now().In(loadETLocation()))
+
 	if msg != nil && strings.TrimSpace(msg.Content) != "" {
 		if stopErr := mt.handleCommand(ctx, marketState, msg.Content); stopErr != nil {
 			return stopErr
@@ -142,6 +158,208 @@ func (mt *ManagedTrader) Run(msg *hersh.Message, ctx hersh.HershContext) (runErr
 	}
 
 	return nil
+}
+
+func (mt *ManagedTrader) maybeSyncLivePositions(ctx hersh.HershContext, executor TradeExecutor, market *MarketState, state *RuntimeState, nowET time.Time) *RuntimeState {
+	if mt.cfg.PaperCfg != nil {
+		return state
+	}
+	nowMs := nowET.UnixMilli()
+	if state != nil && state.LastPositionSyncMs != 0 && nowMs-state.LastPositionSyncMs < livePositionSyncGap.Milliseconds() {
+		return state
+	}
+
+	next := cloneRuntimeState(state)
+	next.LastPositionSyncMs = nowMs
+
+	if next.Position != nil {
+		shares, err := executor.GetTokenBalance(next.Position.TokenID)
+		if err != nil {
+			log.Printf("[RECOVERY] tracked position check failed token_id=%s: %v", next.Position.TokenID, err)
+			ctx.SetValue("runtime_state", next)
+			return next
+		}
+		if shares <= 1e-9 {
+			log.Printf("[RECOVERY] tracked position missing on exchange; clearing token_id=%s", next.Position.TokenID)
+			next.Position = nil
+			next.PendingBetUp = nil
+			next.PendingSinceMs = nil
+		} else if isDustPosition(shares, next.Position.CostUSDC, next.Position.EntryPrice, mt.cfg.TradeCfg) {
+			log.Printf("[RECOVERY] tracked position is dust; clearing token_id=%s shares=%.6f", next.Position.TokenID, shares)
+			next.Position = nil
+			next.PendingBetUp = nil
+			next.PendingSinceMs = nil
+		} else {
+			if math.Abs(shares-next.Position.Shares) > 1e-9 {
+				prevShares := next.Position.Shares
+				prevCost := next.Position.CostUSDC
+				next.Position.Shares = shares
+				if next.Position.EntryPrice != nil && *next.Position.EntryPrice > 0 {
+					next.Position.CostUSDC = shares * *next.Position.EntryPrice
+				}
+				log.Printf("[RECOVERY] synced tracked position token_id=%s shares %.6f -> %.6f cost %.4f -> %.4f",
+					next.Position.TokenID, prevShares, shares, prevCost, next.Position.CostUSDC)
+			}
+			ctx.SetValue("runtime_state", next)
+			return next
+		}
+	}
+
+	snapshots, err := mt.scanRecoverableLivePositions(executor, market, nowET)
+	if err != nil {
+		log.Printf("[RECOVERY] scan failed: %v", err)
+		ctx.SetValue("runtime_state", next)
+		return next
+	}
+
+	currentCandidates := make([]livePositionSnapshot, 0, len(snapshots))
+	for _, snapshot := range snapshots {
+		if snapshot.Shares <= mt.cfg.TradeCfg.MinShares+1e-9 {
+			continue
+		}
+		if snapshot.CurrentMarket {
+			currentCandidates = append(currentCandidates, snapshot)
+			continue
+		}
+		mt.tryRecoverOrphanPosition(executor, snapshot)
+	}
+
+	switch len(currentCandidates) {
+	case 0:
+	case 1:
+		snapshot := currentCandidates[0]
+		log.Printf("[RECOVERY] resumed current position slug=%s bet_up=%t shares=%.6f token_id=%s",
+			snapshot.MarketSlug, snapshot.BetUp, snapshot.Shares, snapshot.TokenID)
+		next.Position = &Position{
+			TokenID:    snapshot.TokenID,
+			BetUp:      snapshot.BetUp,
+			EntryTsMs:  nowMs,
+			EntryPrice: nil,
+			Shares:     snapshot.Shares,
+			CostUSDC:   0,
+			EntryO1h:   next.O1h,
+		}
+		next.PendingBetUp = nil
+		next.PendingSinceMs = nil
+		if !mt.cfg.AllowScaleIn {
+			next.TradedThisHour = true
+		}
+	default:
+		log.Printf("[RECOVERY] multiple current market balances detected slug=%s count=%d; leaving unmanaged",
+			marketSlugValue(market), len(currentCandidates))
+	}
+
+	ctx.SetValue("runtime_state", next)
+	return next
+}
+
+func (mt *ManagedTrader) scanRecoverableLivePositions(executor TradeExecutor, market *MarketState, nowET time.Time) ([]livePositionSnapshot, error) {
+	snapshots := make([]livePositionSnapshot, 0, 4)
+	seenSlugs := map[string]bool{}
+
+	if market != nil {
+		current, err := collectLivePositionSnapshots(executor, market.MarketSlug, market.TokenIDUp, market.TokenIDDown, market.MarketClosed, true)
+		if err != nil {
+			return nil, err
+		}
+		snapshots = append(snapshots, current...)
+		if market.MarketSlug != "" {
+			seenSlugs[market.MarketSlug] = true
+		}
+	}
+
+	prefix := mt.cfg.SlugPrefix
+	if prefix == "" && market != nil {
+		prefix = inferSlugPrefix(normalizeSlug(market.MarketSlug))
+	}
+	if prefix == "" {
+		return snapshots, nil
+	}
+
+	base := time.Date(nowET.Year(), nowET.Month(), nowET.Day(), nowET.Hour(), 0, 0, 0, nowET.Location())
+	for h := 1; h <= livePositionRecoveryLookback; h++ {
+		slug := buildSlug(prefix, base.Add(-time.Duration(h)*time.Hour))
+		if seenSlugs[slug] {
+			continue
+		}
+		seenSlugs[slug] = true
+
+		marketData, err := fetchMarketBySlug(slug)
+		if err != nil {
+			continue
+		}
+		tokens, err := resolveYesNoTokens(marketData, slug)
+		if err != nil {
+			continue
+		}
+		recovered, err := collectLivePositionSnapshots(executor, tokens.Slug, tokens.YesTokenID, tokens.NoTokenID, tokens.Closed, false)
+		if err != nil {
+			continue
+		}
+		snapshots = append(snapshots, recovered...)
+	}
+	return snapshots, nil
+}
+
+func collectLivePositionSnapshots(executor TradeExecutor, slug, yesTokenID, noTokenID string, marketClosed *bool, currentMarket bool) ([]livePositionSnapshot, error) {
+	snapshots := make([]livePositionSnapshot, 0, 2)
+	closed := marketClosed != nil && *marketClosed
+
+	checks := []struct {
+		tokenID string
+		betUp   bool
+	}{
+		{tokenID: yesTokenID, betUp: true},
+		{tokenID: noTokenID, betUp: false},
+	}
+	for _, check := range checks {
+		if check.tokenID == "" {
+			continue
+		}
+		shares, err := executor.GetTokenBalance(check.tokenID)
+		if err != nil {
+			return nil, err
+		}
+		if shares <= 1e-9 {
+			continue
+		}
+		snapshots = append(snapshots, livePositionSnapshot{
+			MarketSlug:    slug,
+			TokenID:       check.tokenID,
+			BetUp:         check.betUp,
+			Shares:        shares,
+			CurrentMarket: currentMarket,
+			MarketClosed:  closed,
+		})
+	}
+	return snapshots, nil
+}
+
+func (mt *ManagedTrader) tryRecoverOrphanPosition(executor TradeExecutor, snapshot livePositionSnapshot) {
+	if snapshot.MarketClosed {
+		log.Printf("[RECOVERY] orphan position slug=%s bet_up=%t shares=%.6f token_id=%s is closed; settlement or manual claim may be required",
+			snapshot.MarketSlug, snapshot.BetUp, snapshot.Shares, snapshot.TokenID)
+		return
+	}
+	log.Printf("[RECOVERY] orphan position slug=%s bet_up=%t shares=%.6f token_id=%s; attempting exit",
+		snapshot.MarketSlug, snapshot.BetUp, snapshot.Shares, snapshot.TokenID)
+	fill, err := executor.MarketSellAll(snapshot.TokenID)
+	if err != nil {
+		log.Printf("[RECOVERY] orphan exit failed slug=%s token_id=%s: %v", snapshot.MarketSlug, snapshot.TokenID, err)
+		return
+	}
+	if fill == nil {
+		log.Printf("[RECOVERY] orphan exit not filled slug=%s token_id=%s", snapshot.MarketSlug, snapshot.TokenID)
+		return
+	}
+	log.Printf("[RECOVERY] orphan exit filled slug=%s token_id=%s shares=%.6f usdc=%.4f", snapshot.MarketSlug, snapshot.TokenID, fill.Shares, fill.USDC)
+}
+
+func marketSlugValue(market *MarketState) string {
+	if market == nil {
+		return ""
+	}
+	return market.MarketSlug
 }
 
 func (mt *ManagedTrader) getModel(ctx hersh.HershContext) (*ProbModel, error) {
@@ -249,6 +467,7 @@ func ensureMarketState(ctx hersh.HershContext, cfg TraderConfig) (*MarketState, 
 		return nil, err
 	}
 	state := &MarketState{
+		MarketID:        tokens.MarketID,
 		TokenIDUp:       tokens.YesTokenID,
 		TokenIDDown:     tokens.NoTokenID,
 		MarketSlug:      tokens.Slug,
@@ -322,6 +541,7 @@ func (mt *ManagedTrader) handleMarketSwitch(ctx hersh.HershContext, executor Tra
 	}
 
 	newState := &MarketState{
+		MarketID:        tokens.MarketID,
 		TokenIDUp:       tokens.YesTokenID,
 		TokenIDDown:     tokens.NoTokenID,
 		MarketSlug:      tokens.Slug,
@@ -535,6 +755,12 @@ func (mt *ManagedTrader) processKline(ctx hersh.HershContext, model *ProbModel, 
 				if *updated.PendingBetUp {
 					tokenID = market.TokenIDUp
 				}
+				cancelled, cancelErr := executor.CancelOpenEntryOrders(market.MarketID)
+				if cancelErr != nil {
+					log.Printf("[ENTRY] open order cleanup failed market_id=%s: %v", market.MarketID, cancelErr)
+				} else if cancelled > 0 {
+					log.Printf("[ENTRY] cleaned up %d stale open buy order(s) for market_id=%s", cancelled, market.MarketID)
+				}
 				log.Printf("[ENTRY] tau=%ds bet_up=%t p_up=%.4f token_id=%s", tauSec, *updated.PendingBetUp, pUp, tokenID)
 				fill, err := executor.MarketBuyMax(tokenID)
 				if err != nil {
@@ -554,6 +780,8 @@ func (mt *ManagedTrader) processKline(ctx hersh.HershContext, model *ProbModel, 
 					}
 					updated.PendingBetUp = nil
 					updated.PendingSinceMs = nil
+				} else {
+					log.Printf("[ENTRY] no fill; keeping entry pending")
 				}
 			}
 
@@ -677,14 +905,55 @@ func (mt *ManagedTrader) tryExitPosition(ctx hersh.HershContext, executor TradeE
 	if state.Position == nil {
 		return
 	}
-	log.Printf("[EXIT] reason=%s time=%s token_id=%s", reason, msToUTCStr(tMs), state.Position.TokenID)
-	fill, err := executor.MarketSellAll(state.Position.TokenID)
+	pos := state.Position
+	log.Printf("[EXIT] reason=%s time=%s token_id=%s", reason, msToUTCStr(tMs), pos.TokenID)
+	fill, err := executor.MarketSellAll(pos.TokenID)
 	if err != nil {
 		log.Printf("[EXIT] failed: %v", err)
 		return
 	}
 	if fill != nil {
-		state.Position = nil
+		soldShares := fill.Shares
+		if soldShares < 0 {
+			soldShares = 0
+		}
+		if soldShares > pos.Shares {
+			soldShares = pos.Shares
+		}
+		realizedCost := 0.0
+		if pos.Shares > 1e-9 && pos.CostUSDC > 0 {
+			realizedCost = pos.CostUSDC * (soldShares / pos.Shares)
+		}
+		if realizedCost > 0 {
+			pnl := fill.USDC - realizedCost
+			roiPct := (pnl / realizedCost) * 100
+			log.Printf("[EXIT] realized token_id=%s cost=%.4f proceeds=%.4f pnl=%.4f roi=%.2f%% shares=%.6f",
+				pos.TokenID, realizedCost, fill.USDC, pnl, roiPct, soldShares)
+		} else {
+			log.Printf("[EXIT] realized token_id=%s proceeds=%.4f shares=%.6f", pos.TokenID, fill.USDC, soldShares)
+		}
+		remainingShares := pos.Shares - soldShares
+		if remainingShares < 0 {
+			remainingShares = 0
+		}
+		remainingCost := pos.CostUSDC - realizedCost
+		if remainingCost < 0 {
+			remainingCost = 0
+		}
+		if remainingShares <= 1e-9 || isDustPosition(remainingShares, remainingCost, pos.EntryPrice, mt.cfg.TradeCfg) {
+			if remainingShares > 1e-9 {
+				log.Printf("[EXIT] clearing residual dust token_id=%s shares=%.6f cost=%.4f", pos.TokenID, remainingShares, remainingCost)
+			}
+			state.Position = nil
+			return
+		}
+		pos.Shares = remainingShares
+		pos.CostUSDC = remainingCost
+		if pos.Shares > 1e-9 && pos.CostUSDC > 0 {
+			v := pos.CostUSDC / pos.Shares
+			pos.EntryPrice = &v
+		}
+		log.Printf("[EXIT] partial token_id=%s remaining_shares=%.6f remaining_cost=%.4f", pos.TokenID, pos.Shares, pos.CostUSDC)
 	}
 }
 

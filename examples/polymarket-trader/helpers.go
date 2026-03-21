@@ -42,3 +42,20 @@ func applyFillToPosition(pos *Position, fill *FillResult) {
 	}
 	pos.EntryPrice = fill.AvgPrice
 }
+
+func isDustPosition(shares, costUSDC float64, entryPrice *float64, tradeCfg TradeConfig) bool {
+	const eps = 1e-9
+	if shares <= tradeCfg.MinShares+eps {
+		return true
+	}
+	if costUSDC > eps && costUSDC < tradeCfg.MinUSDC-eps {
+		return true
+	}
+	if entryPrice != nil && *entryPrice > eps {
+		notional := shares * *entryPrice
+		if notional < tradeCfg.MinUSDC-eps {
+			return true
+		}
+	}
+	return false
+}

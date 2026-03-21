@@ -105,27 +105,29 @@ type TraderConfig struct {
 
 type RuntimeState struct {
 	TradeState
-	O1hByHour      map[int64]float64
-	CurHour        int64
-	O1h            *float64
-	CumVol         float64
-	Last60Closes   []float64
-	LastLogMs      int64
-	LastPrice      float64
-	LastPriceTsMs  int64
-	LastSignalTsMs int64
-	LastPUp        float64
-	LastPBad       float64
-	LastTauSec     int
-	LastDeltaPct   float64
-	LastRegime     int
-	StopLogged     bool
-	SignalLogLines int
-	Paused         bool
-	StartTimeMs    int64
+	O1hByHour          map[int64]float64
+	CurHour            int64
+	O1h                *float64
+	CumVol             float64
+	Last60Closes       []float64
+	LastLogMs          int64
+	LastPrice          float64
+	LastPriceTsMs      int64
+	LastSignalTsMs     int64
+	LastPUp            float64
+	LastPBad           float64
+	LastTauSec         int
+	LastDeltaPct       float64
+	LastRegime         int
+	StopLogged         bool
+	SignalLogLines     int
+	Paused             bool
+	StartTimeMs        int64
+	LastPositionSyncMs int64
 }
 
 type MarketState struct {
+	MarketID        string
 	TokenIDUp       string
 	TokenIDDown     string
 	MarketSlug      string

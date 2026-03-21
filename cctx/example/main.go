@@ -624,29 +624,67 @@ func flushLogs(loggers ...*utils.Logger) {
 
 // runPolymarketExample demonstrates a real exchange call.
 func runPolymarketExample() {
+	fmt.Println("=== Starting Polymarket Verification ===")
 	params := map[string]string{
-		"private_key": "0x0000000000000000000000000000000000000000000000000000000000000000",
+		"private_key": "0x1111111111111111111111111111111111111111111111111111111111111111", // Dummy but valid ECDSA for testing
 		"funder":      "0x0000000000000000000000000000000000000000",
 		"api_key":     "mock-api-key",
+		"api_secret":  "mock-secret",
+		"api_passphrase": "mock-passphrase",
 	}
 	exchange, err := base.CreateExchange("polymarket", exchanges.NewPolymarket, nil, params, true, false)
 	if err != nil {
-		panic(err)
+		fmt.Printf("Init error: %v\n", err)
+		return
 	}
 
-	client := base.NewExchangeClient(exchange, 2*time.Second, false)
-	order, err := client.CreateOrder(
-		"market-id",
-		"Yes",
-		models.OrderSideBuy,
-		0.55,
-		5,
-		map[string]any{"token_id": "token-id"},
-	)
-	if err != nil {
-		panic(err)
+	poly, ok := exchange.(*exchanges.Polymarket)
+	if !ok {
+		fmt.Println("Exchange is not Polymarket.")
+		return
 	}
-	fmt.Printf("Polymarket order created: %s\n", order.ID)
+
+	fmt.Println("\n1. Testing FetchMarkets...")
+	markets, err := poly.FetchMarkets(map[string]any{"limit": 10, "active": true})
+	if err != nil {
+		fmt.Printf("=> Error during FetchMarkets: %v\n", err)
+	} else {
+		fmt.Printf("=> Success: Fetched %d markets\n", len(markets))
+		if len(markets) > 0 {
+			market := markets[0]
+			fmt.Printf("\n2. Testing FetchMarket for %s...\n", market.ID)
+			m, err := poly.FetchMarket(market.ID)
+			if err != nil {
+				fmt.Printf("=> Error during FetchMarket: %v\n", err)
+			} else {
+				fmt.Printf("=> Success: Fetched market: %s - %s\n", m.ID, m.Question)
+			}
+			
+			if clobTokenIds, ok := market.Metadata["clobTokenIds"].([]string); ok && len(clobTokenIds) > 0 {
+				tokenID := clobTokenIds[0]
+				fmt.Printf("\n3. Testing GetOrderbook for token %s...\n", tokenID)
+				book := poly.GetOrderbook(tokenID)
+				fmt.Printf("=> Success: orderbook bids: %v, asks: %v\n", len(book["bids"].([]any)), len(book["asks"].([]any)))
+
+				fmt.Printf("\n4. Testing CreateOrder (Dummy) for token %s...\n", tokenID)
+				client := base.NewExchangeClient(exchange, 2*time.Second, false)
+				order, err := client.CreateOrder(
+					market.ID,
+					"Yes",
+					models.OrderSideBuy,
+					0.55,
+					5,
+					map[string]any{"token_id": tokenID},
+				)
+				if err != nil {
+					fmt.Printf("=> Expected Error (due to invalid credentials/payload): %v\n", err)
+				} else {
+					fmt.Printf("=> Success: Polymarket order created: %s\n", order.ID)
+				}
+			}
+		}
+	}
+	fmt.Println("=== Polymarket Verification Finished ===")
 }
 
 type orderPlan struct {
