@@ -1,9 +1,12 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import ChromeTabs from './ChromeTabs';
 import Sidebar from './Sidebar';
 import Canvas from './Canvas';
 import FrontTab from './FrontTab';
 import PreAuthTab from './PreAuthTab';
+import BackendHeader from './backend/BackendHeader';
+import StrategyFeedbackBar from './backend/StrategyFeedbackBar';
+import HostControlBar from './backend/HostControlBar';
+import AISidePanel from './backend/AISidePanel';
 import BlockListPanel from './panels/BlockListPanel';
 import SavedBlocksPanel from './panels/SavedBlocksPanel';
 import StreamingBlocksPanel from './panels/StreamingBlocksPanel';
@@ -18,73 +21,16 @@ import {
   strategyToPrettyJson,
   validateStrategyDefinition
 } from '../lib/strategyCompiler';
-import { buildStrategyRunnerPayload } from '../lib/hostRunnerTemplates';
-import { generateStrategyDraft } from '../lib/strategyAssistant';
 import {
   createEmptyActionAuthState,
-  getProviderCredentials,
   isProviderAuthorized,
   resolveActionAuthRequirement
 } from '../lib/actionAuth';
+import useHostProgram from '../hooks/useHostProgram';
+import useStrategyAI from '../hooks/useStrategyAI';
+import { MAX_SNAPSHOT_RECORDS, buildSnapshotValues } from '../lib/monitoringSnapshots';
 
 const DEFAULT_LIVE_INTERVAL = 1200;
-const MAX_SNAPSHOT_RECORDS = 30;
-const FRONT_AI_ENDPOINT = '/api/ai/strategy-draft';
-const FRONT_HOST_PROXY_PREFIX = '/api/host';
-const DEFAULT_HOST_TARGET = 'http://localhost:9000';
-
-const buildSnapshotValue = (field, seq, previousValues = {}) => {
-  const lower = field.toLowerCase();
-  if (lower.includes('time') || lower.includes('date')) {
-    return new Date().toISOString();
-  }
-  if (lower.includes('symbol')) {
-    return 'BTCUSDT';
-  }
-  if (lower.includes('address')) {
-    return `0x${Math.random().toString(16).slice(2, 10)}`;
-  }
-  const prevRaw = previousValues[field];
-  const prevNumber = Number(prevRaw);
-  if (Number.isFinite(prevNumber)) {
-    const jitter = (Math.random() - 0.5) * Math.max(1, Math.abs(prevNumber) * 0.02);
-    return Number((prevNumber + jitter).toFixed(4));
-  }
-  if (
-    lower.includes('price')
-    || lower.includes('amount')
-    || lower.includes('volume')
-    || lower.includes('value')
-    || lower.includes('rate')
-  ) {
-    const nextValue = 100 + seq * 0.7 + Math.random() * 5;
-    return Number(nextValue.toFixed(4));
-  }
-  if (lower.includes('id')) {
-    return `${seq}`;
-  }
-  return `${field}-${seq}`;
-};
-
-const buildSnapshotValues = (fields, seq, previousValues) => (
-  fields.reduce((acc, field) => {
-    acc[field] = buildSnapshotValue(field, seq, previousValues);
-    return acc;
-  }, {})
-);
-
-const buildAIAuthContext = (actionAuthState = {}) => {
-  const evmCredentials = getProviderCredentials(actionAuthState, 'evm');
-  const explorerApiKey = String(evmCredentials?.explorerApiKey || '').trim();
-  if (!explorerApiKey) {
-    return null;
-  }
-  return {
-    evm: {
-      explorerApiKey
-    }
-  };
-};
 
 export default function BackendTab() {
   const initialTabs = [{ id: 'strategy-1', label: 'Strategy 1' }];
@@ -116,13 +62,6 @@ export default function BackendTab() {
   const [savedTemplates, setSavedTemplates] = useState([]);
   const [strategyNotice, setStrategyNotice] = useState(null);
   const [strategyReport, setStrategyReport] = useState(null);
-  const [aiPrompt, setAiPrompt] = useState('BTCUSDT 1시간 마켓 전략으로 만들어줘. 최근 가격 기준 상단/하단 임계값을 자동 추정하고, 1시간 내 단기 돌파는 매수, 이탈은 매도하도록 구성해줘.');
-  const [aiNotice, setAiNotice] = useState(null);
-  const [aiBusy, setAiBusy] = useState(false);
-  const [aiPanelOpen, setAiPanelOpen] = useState(false);
-  const [hostTarget, setHostTarget] = useState(DEFAULT_HOST_TARGET);
-  const [hostProgram, setHostProgram] = useState(null);
-  const [hostBusy, setHostBusy] = useState(false);
 
   const handleIconClick = (panelType) => {
     setActivePanel(activePanel === panelType ? null : panelType);
@@ -215,26 +154,6 @@ export default function BackendTab() {
         : { ...prevAuth, [activeTabId]: createEmptyActionAuthState() }
     ));
   }, [activeTabId]);
-
-  useEffect(() => {
-    let mounted = true;
-    fetch('/api/config')
-      .then((response) => response.json())
-      .then((payload) => {
-        if (!mounted) {
-          return;
-        }
-        if (typeof payload?.host_api_base === 'string' && payload.host_api_base.trim()) {
-          setHostTarget(payload.host_api_base.trim());
-        }
-      })
-      .catch(() => {
-        // Keep default when front server config endpoint is unavailable.
-      });
-    return () => {
-      mounted = false;
-    };
-  }, []);
 
   const getDefaultPosition = (blocks) => {
     const index = blocks.length;
@@ -337,57 +256,42 @@ export default function BackendTab() {
     return true;
   };
 
-  const handleGenerateAIStrategy = async () => {
-    if (!activeTabId) {
-      setNotice('error', '활성 전략 탭이 없습니다.');
-      return;
-    }
-    if (!aiPrompt.trim()) {
-      setNotice('error', 'AI 프롬프트를 입력하세요.');
-      return;
-    }
+  const {
+    aiPrompt,
+    setAiPrompt,
+    aiNotice,
+    aiBusy,
+    aiPanelOpen,
+    setAiPanelOpen,
+    handleGenerateAIStrategy,
+    resetAiPrompt
+  } = useStrategyAI({
+    activeTabId,
+    activeActionAuth,
+    compileActiveStrategy,
+    applyStrategyToActiveTab,
+    validateStrategyDefinition,
+    setStrategyReport,
+    setNotice
+  });
 
-    const current = compileActiveStrategy();
-    setAiBusy(true);
-    setAiNotice(null);
-    try {
-      const generated = await generateStrategyDraft({
-        prompt: aiPrompt,
-        currentStrategy: current?.strategy || null,
-        authContext: buildAIAuthContext(activeActionAuth),
-        endpoint: FRONT_AI_ENDPOINT
-      });
-      const report = validateStrategyDefinition(generated.strategy);
-      setStrategyReport(report);
-
-      if (!report.valid) {
-        setNotice('error', `AI 전략 검증 실패 (에러 ${report.errors.length}건).`);
-        setAiNotice({
-          type: 'error',
-          message: generated.message || 'AI가 유효하지 않은 전략을 반환했습니다.',
-          at: Date.now()
-        });
-        return;
-      }
-
-      applyStrategyToActiveTab(generated.strategy);
-      setAiNotice({
-        type: 'success',
-        message: generated.message || `AI 전략 적용 완료 (${generated.source})`,
-        at: Date.now()
-      });
-      setNotice('success', `AI 전략 적용 완료 (${generated.source}).`);
-    } catch (error) {
-      setAiNotice({
-        type: 'error',
-        message: error.message || 'AI 전략 생성 실패',
-        at: Date.now()
-      });
-      setNotice('error', `AI 전략 생성 실패: ${error.message}`);
-    } finally {
-      setAiBusy(false);
-    }
-  };
+  const {
+    hostTarget,
+    hostProgram,
+    hostBusy,
+    handleOpenHostUI,
+    handleDeployHostProgram,
+    handleStartHostProgram,
+    handleRefreshHostProgram,
+    handleStopHostProgram,
+    handleOpenWatcherStatus
+  } = useHostProgram({
+    activeTabId,
+    activeTabLabel,
+    activeActionAuth,
+    compileActiveStrategy,
+    setNotice
+  });
 
   const handleValidateStrategy = () => {
     const result = compileActiveStrategy();
@@ -450,151 +354,6 @@ export default function BackendTab() {
     document.body.removeChild(anchor);
     URL.revokeObjectURL(url);
     setNotice('success', `${filename} 파일로 저장했습니다.`);
-  };
-
-  const handleOpenHostUI = () => {
-    if (typeof window === 'undefined') {
-      return;
-    }
-    const base = hostTarget.trim().replace(/\/+$/, '') || DEFAULT_HOST_TARGET;
-    window.open(`${base}/ui/programs`, '_blank', 'noopener,noreferrer');
-  };
-
-  const callHost = async (path, options = {}) => {
-    const url = `${FRONT_HOST_PROXY_PREFIX}${path}`;
-    let response;
-
-    try {
-      response = await fetch(url, options);
-    } catch {
-      throw new Error(
-        `Host API 연결 실패 (${url}). front 서버 프록시와 host(:9000) 상태를 확인하세요.`
-      );
-    }
-
-    const payload = await response.json().catch(() => ({}));
-    if (!response.ok) {
-      const message = payload?.error || payload?.message || `HTTP ${response.status}`;
-      throw new Error(message);
-    }
-    return payload;
-  };
-
-  const handleDeployHostProgram = async () => {
-    const compiled = compileActiveStrategy();
-    if (!compiled) {
-      setNotice('error', '활성 전략 탭이 없습니다.');
-      return;
-    }
-    if (!compiled.report.valid) {
-      setNotice('error', '전략 검증을 먼저 통과시켜야 배포할 수 있습니다.');
-      return;
-    }
-
-    setHostBusy(true);
-    try {
-      const payload = buildStrategyRunnerPayload(compiled.json, {
-        userHint: activeTabLabel || activeTabId || 'strategy',
-        actionAuth: activeActionAuth
-      });
-      const created = await callHost('/programs', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(payload)
-      });
-      setHostProgram({
-        programId: created.program_id,
-        buildId: created.build_id,
-        state: created.state,
-        proxyUrl: created.proxy_url
-      });
-      setNotice('success', `Host 프로그램 생성 완료: ${created.program_id}`);
-    } catch (error) {
-      setNotice('error', `배포 실패: ${error.message}`);
-    } finally {
-      setHostBusy(false);
-    }
-  };
-
-  const handleStartHostProgram = async () => {
-    if (!hostProgram?.programId) {
-      setNotice('error', '먼저 Host 배포를 실행하세요.');
-      return;
-    }
-    setHostBusy(true);
-    try {
-      const started = await callHost(`/programs/${hostProgram.programId}/start`, {
-        method: 'POST'
-      });
-      setHostProgram((prev) => ({
-        ...prev,
-        state: started.state
-      }));
-      setNotice('success', `실행 요청 완료: ${hostProgram.programId}`);
-    } catch (error) {
-      setNotice('error', `시작 실패: ${error.message}`);
-    } finally {
-      setHostBusy(false);
-    }
-  };
-
-  const handleRefreshHostProgram = async () => {
-    if (!hostProgram?.programId) {
-      return;
-    }
-    setHostBusy(true);
-    try {
-      const item = await callHost(`/programs/${hostProgram.programId}`);
-      setHostProgram({
-        programId: item.program_id,
-        buildId: item.build_id,
-        state: item.state,
-        proxyUrl: item.proxy_url,
-        errorMsg: item.error_msg
-      });
-      if (item.state === 'Ready') {
-        setNotice('success', `프로그램 Ready: ${item.program_id}`);
-      } else {
-        setNotice('warn', `프로그램 상태: ${item.state}`);
-      }
-    } catch (error) {
-      setNotice('error', `상태 조회 실패: ${error.message}`);
-    } finally {
-      setHostBusy(false);
-    }
-  };
-
-  const handleStopHostProgram = async () => {
-    if (!hostProgram?.programId) {
-      return;
-    }
-    setHostBusy(true);
-    try {
-      const stopped = await callHost(`/programs/${hostProgram.programId}/stop`, {
-        method: 'POST'
-      });
-      setHostProgram((prev) => ({
-        ...prev,
-        state: stopped.state
-      }));
-      setNotice('warn', `중지 요청 완료: ${hostProgram.programId}`);
-    } catch (error) {
-      setNotice('error', `중지 실패: ${error.message}`);
-    } finally {
-      setHostBusy(false);
-    }
-  };
-
-  const handleOpenWatcherStatus = () => {
-    if (typeof window === 'undefined' || !hostProgram?.programId) {
-      return;
-    }
-    const base = hostTarget.trim().replace(/\/+$/, '') || DEFAULT_HOST_TARGET;
-    window.open(
-      `${base}/programs/${hostProgram.programId}/proxy/watcher/status`,
-      '_blank',
-      'noopener,noreferrer'
-    );
   };
 
   const serializeBlocks = (blocks) => {
@@ -1332,167 +1091,40 @@ export default function BackendTab() {
 
   return (
     <div className="backend-tab">
-      <div className="backend-tab-header">
-        <ChromeTabs
-          tabs={tabs}
-          activeTabId={activeTabId}
-          onAddTab={handleAddTab}
-          onCloseTab={handleCloseTab}
-          onSelectTab={setActiveTabId}
-        />
-        <div className="backend-view-toggle">
-          <button
-            type="button"
-            className="strategy-tool-btn"
-            onClick={handleValidateStrategy}
-            disabled={!activeTabId}
-          >
-            전략 검증
-          </button>
-          <button
-            type="button"
-            className="strategy-tool-btn"
-            onClick={handleCopyStrategyJson}
-            disabled={!activeTabId}
-          >
-            JSON 복사
-          </button>
-          <button
-            type="button"
-            className="strategy-tool-btn"
-            onClick={handleDownloadStrategyJson}
-            disabled={!activeTabId}
-          >
-            JSON 저장
-          </button>
-          <button
-            type="button"
-            className="strategy-tool-btn host"
-            onClick={handleOpenHostUI}
-          >
-            Host UI
-          </button>
-          <button
-            type="button"
-            className={`strategy-tool-btn ai${aiPanelOpen ? ' active' : ''}`}
-            onClick={() => setAiPanelOpen((prev) => !prev)}
-          >
-            AI 전략
-          </button>
-          <button
-            type="button"
-            className={`backend-view-btn${viewMode === 'backend' ? ' active' : ''}`}
-            onClick={() => {
-              setViewMode('backend');
-              setActivePanel(null);
-            }}
-          >
-            백엔드
-          </button>
-          <button
-            type="button"
-            className={`backend-view-btn${viewMode === 'front' ? ' active' : ''}`}
-            onClick={() => {
-              setViewMode('front');
-              setActivePanel(null);
-            }}
-          >
-            프론트
-          </button>
-          <button
-            type="button"
-            className={`backend-view-btn${viewMode === 'preauth' ? ' active' : ''}`}
-            onClick={() => {
-              setViewMode('preauth');
-              setActivePanel(null);
-            }}
-          >
-            사전인증
-          </button>
-        </div>
-      </div>
-      <div className="strategy-feedback-bar">
-        <div className={`strategy-feedback-chip ${strategyReport?.valid ? 'valid' : 'invalid'}`}>
-          {strategyReport
-            ? `검증: ${strategyReport.valid ? '통과' : '실패'}`
-            : '검증: 미실행'}
-        </div>
-        {strategyReport && (
-          <div className="strategy-feedback-summary">
-            blocks {strategyReport.stats?.blocks ?? 0} · links {strategyReport.stats?.connections ?? 0}
-            {' '}· errors {strategyReport.errors.length} · warnings {strategyReport.warnings.length}
-          </div>
-        )}
-        {strategyNotice && (
-          <div className={`strategy-feedback-message ${strategyNotice.type}`}>
-            {strategyNotice.message}
-          </div>
-        )}
-      </div>
-      <div className="host-control-bar">
-        <div className="host-control-target">
-          Host API Target: {hostTarget}
-        </div>
-        <button
-          type="button"
-          className="strategy-tool-btn host"
-          onClick={handleDeployHostProgram}
-          disabled={!activeTabId || hostBusy}
-        >
-          {hostBusy ? '처리중...' : 'Host 배포'}
-        </button>
-        <button
-          type="button"
-          className="strategy-tool-btn"
-          onClick={handleStartHostProgram}
-          disabled={!hostProgram?.programId || hostBusy}
-        >
-          시작
-        </button>
-        <button
-          type="button"
-          className="strategy-tool-btn"
-          onClick={handleRefreshHostProgram}
-          disabled={!hostProgram?.programId || hostBusy}
-        >
-          상태
-        </button>
-        <button
-          type="button"
-          className="strategy-tool-btn"
-          onClick={handleStopHostProgram}
-          disabled={!hostProgram?.programId || hostBusy}
-        >
-          중지
-        </button>
-        <button
-          type="button"
-          className="strategy-tool-btn"
-          onClick={handleOpenWatcherStatus}
-          disabled={!hostProgram?.programId}
-        >
-          Watcher 상태
-        </button>
-        {hostProgram && (
-          <div className="host-program-summary">
-            id {hostProgram.programId} · build {hostProgram.buildId} · state {hostProgram.state}
-          </div>
-        )}
-      </div>
-      {strategyReport && (strategyReport.errors.length > 0 || strategyReport.warnings.length > 0) && (
-        <div className="strategy-feedback-issues">
-          {strategyReport.errors.slice(0, 3).map((item) => (
-            <div key={`err-${item.code}-${item.message}`} className="strategy-feedback-issue error">
-              [ERR] {item.message}
-            </div>
-          ))}
-          {strategyReport.warnings.slice(0, 3).map((item) => (
-            <div key={`warn-${item.code}-${item.message}`} className="strategy-feedback-issue warn">
-              [WARN] {item.message}
-            </div>
-          ))}
-        </div>
-      )}
+      <BackendHeader
+        tabs={tabs}
+        activeTabId={activeTabId}
+        onAddTab={handleAddTab}
+        onCloseTab={handleCloseTab}
+        onSelectTab={setActiveTabId}
+        onValidateStrategy={handleValidateStrategy}
+        onCopyStrategyJson={handleCopyStrategyJson}
+        onDownloadStrategyJson={handleDownloadStrategyJson}
+        onOpenHostUI={handleOpenHostUI}
+        aiPanelOpen={aiPanelOpen}
+        onToggleAIPanel={() => setAiPanelOpen((prev) => !prev)}
+        viewMode={viewMode}
+        onSelectViewMode={(nextMode) => {
+          setViewMode(nextMode);
+          setActivePanel(null);
+        }}
+        hasActiveTab={Boolean(activeTabId)}
+      />
+      <StrategyFeedbackBar
+        strategyReport={strategyReport}
+        strategyNotice={strategyNotice}
+      />
+      <HostControlBar
+        hostTarget={hostTarget}
+        hostProgram={hostProgram}
+        hostBusy={hostBusy}
+        onDeploy={handleDeployHostProgram}
+        onStart={handleStartHostProgram}
+        onRefresh={handleRefreshHostProgram}
+        onStop={handleStopHostProgram}
+        onOpenWatcherStatus={handleOpenWatcherStatus}
+        hasActiveTab={Boolean(activeTabId)}
+      />
       
       {viewMode === 'backend' ? (
         <div className="backend-content">
@@ -1583,55 +1215,17 @@ export default function BackendTab() {
           onExit={() => setViewMode('backend')}
         />
       )}
-      <div className={`ai-side-panel${aiPanelOpen ? ' open' : ''}`}>
-        <div className="ai-side-header">
-          <div className="ai-side-title">AI 전략</div>
-          <button
-            type="button"
-            className="ai-side-close"
-            onClick={() => setAiPanelOpen(false)}
-          >
-            닫기
-          </button>
-        </div>
-        <div className="ai-side-body">
-          <label htmlFor="ai-strategy-prompt" className="ai-control-label">요청 프롬프트</label>
-          <textarea
-            id="ai-strategy-prompt"
-            className="ai-control-input"
-            value={aiPrompt}
-            onChange={(event) => setAiPrompt(event.target.value)}
-            placeholder="예: BTCUSDT 1시간 마켓 기준으로 돌파 매수/이탈 매도 전략 만들어줘"
-            rows={7}
-          />
-          <div className="ai-control-actions">
-            <button
-              type="button"
-              className="strategy-tool-btn host"
-              onClick={handleGenerateAIStrategy}
-              disabled={!activeTabId || aiBusy}
-            >
-              {aiBusy ? 'AI 생성중...' : 'AI로 전략 생성'}
-            </button>
-            <button
-              type="button"
-              className="strategy-tool-btn"
-              onClick={() => setAiPrompt('BTCUSDT 1시간 마켓 전략으로 만들어줘. 최근 가격 기준 상단/하단 임계값을 자동 추정하고, 1시간 내 단기 돌파는 매수, 이탈은 매도하도록 구성해줘.')}
-              disabled={aiBusy}
-            >
-              예시 입력
-            </button>
-          </div>
-          <div className="ai-control-hint">
-            front 서버의 `/api/ai/strategy-draft`(오케스트레이션 to 리서치 to 전략)를 호출하고, 실패하면 로컬 규칙 생성으로 대체합니다.
-          </div>
-          {aiNotice && (
-            <div className={`ai-control-message ${aiNotice.type}`}>
-              {aiNotice.message}
-            </div>
-          )}
-        </div>
-      </div>
+      <AISidePanel
+        open={aiPanelOpen}
+        aiPrompt={aiPrompt}
+        onChangePrompt={setAiPrompt}
+        aiBusy={aiBusy}
+        aiNotice={aiNotice}
+        onGenerate={handleGenerateAIStrategy}
+        onResetPrompt={resetAiPrompt}
+        onClose={() => setAiPanelOpen(false)}
+        disabled={!activeTabId}
+      />
     </div>
   );
 }
