@@ -9,12 +9,26 @@ import { Button } from './ui/button';
 const INTERACTIVE_SELECTOR = 'input, textarea, select, button, [draggable]';
 const CONNECTOR_SELECTOR = '.connection-point';
 const CONNECTION_SIDES = ['top', 'right', 'bottom', 'left'];
+const MIN_ZOOM = 0.5;
+const MAX_ZOOM = 2.8;
+const ZOOM_STEP = 0.1;
+const ZOOM_BIG_STEP = 0.25;
+const WORLD_HALF = 50000;
+const WORLD_SIZE = WORLD_HALF * 2;
+const WORLD_DRAG_LIMIT = WORLD_HALF - 200;
 
-const getPointerPosition = (event, container) => {
+const clampZoom = (value) => Math.min(MAX_ZOOM, Math.max(MIN_ZOOM, value));
+const applyZoomDelta = (current, delta) => clampZoom(Number((current + delta).toFixed(2)));
+
+const toSurface = (value) => value + WORLD_HALF;
+const toWorld = (value) => value - WORLD_HALF;
+const clampWorld = (value) => Math.max(-WORLD_DRAG_LIMIT, Math.min(WORLD_DRAG_LIMIT, value));
+
+const getPointerPosition = (event, container, zoom = 1) => {
   const rect = container.getBoundingClientRect();
   return {
-    x: event.clientX - rect.left + container.scrollLeft,
-    y: event.clientY - rect.top + container.scrollTop
+    x: toWorld(container.scrollLeft + (event.clientX - rect.left) / zoom),
+    y: toWorld(container.scrollTop + (event.clientY - rect.top) / zoom)
   };
 };
 
@@ -53,6 +67,9 @@ const getConnectorSide = (element) => {
 const ROUTE_PADDING = 14;
 const ROUTE_GAP = 8;
 const TURN_PENALTY = 20;
+const EDGE_CORNER_RADIUS = 10;
+const EDGE_PORT_SPACING = 6;
+const EDGE_PORT_LEAD = 16;
 
 const toObstacleRect = (rect) => ({
   id: rect.id,
@@ -266,13 +283,65 @@ const simplifyPath = (points) => {
   return simplified;
 };
 
-const buildSvgPath = (points) => {
+const buildRoundedSvgPath = (points, radius = EDGE_CORNER_RADIUS) => {
   if (!points || points.length === 0) {
     return '';
   }
-  return points
-    .map((point, index) => `${index === 0 ? 'M' : 'L'} ${point.x} ${point.y}`)
-    .join(' ');
+
+  if (points.length === 1) {
+    return `M ${points[0].x} ${points[0].y}`;
+  }
+
+  let path = `M ${points[0].x} ${points[0].y}`;
+
+  for (let i = 1; i < points.length - 1; i += 1) {
+    const prev = points[i - 1];
+    const curr = points[i];
+    const next = points[i + 1];
+
+    const segA = {
+      x: curr.x - prev.x,
+      y: curr.y - prev.y
+    };
+    const segB = {
+      x: next.x - curr.x,
+      y: next.y - curr.y
+    };
+
+    const lenA = Math.abs(segA.x) + Math.abs(segA.y);
+    const lenB = Math.abs(segB.x) + Math.abs(segB.y);
+    const localRadius = Math.min(radius, lenA / 2, lenB / 2);
+
+    if (localRadius < 0.5) {
+      path += ` L ${curr.x} ${curr.y}`;
+      continue;
+    }
+
+    const unitA = {
+      x: segA.x === 0 ? 0 : Math.sign(segA.x),
+      y: segA.y === 0 ? 0 : Math.sign(segA.y)
+    };
+    const unitB = {
+      x: segB.x === 0 ? 0 : Math.sign(segB.x),
+      y: segB.y === 0 ? 0 : Math.sign(segB.y)
+    };
+
+    const startCurve = {
+      x: curr.x - unitA.x * localRadius,
+      y: curr.y - unitA.y * localRadius
+    };
+    const endCurve = {
+      x: curr.x + unitB.x * localRadius,
+      y: curr.y + unitB.y * localRadius
+    };
+
+    path += ` L ${startCurve.x} ${startCurve.y}`;
+    path += ` Q ${curr.x} ${curr.y} ${endCurve.x} ${endCurve.y}`;
+  }
+
+  const last = points[points.length - 1];
+  path += ` L ${last.x} ${last.y}`;
+  return path;
 };
 
 const getOrthogonalPath = (start, end, obstacles) => {
@@ -284,10 +353,50 @@ const getOrthogonalPath = (start, end, obstacles) => {
   return simplifyPath(route);
 };
 
+const getPortOffsetPoint = (point, side, offset) => {
+  if (!offset) {
+    return point;
+  }
+
+  if (side === 'top' || side === 'bottom') {
+    return { x: point.x + offset, y: point.y };
+  }
+
+  return { x: point.x, y: point.y + offset };
+};
+
+const getSideUnit = (side) => {
+  switch (side) {
+    case 'top':
+      return { x: 0, y: -1 };
+    case 'right':
+      return { x: 1, y: 0 };
+    case 'bottom':
+      return { x: 0, y: 1 };
+    case 'left':
+      return { x: -1, y: 0 };
+    default:
+      return { x: 1, y: 0 };
+  }
+};
+
+const getSideLeadPoint = (point, side, distance = EDGE_PORT_LEAD) => {
+  const unit = getSideUnit(side);
+  return {
+    x: point.x + unit.x * distance,
+    y: point.y + unit.y * distance
+  };
+};
+
 export default function Canvas({
   blocks = [],
   connections = [],
   selectedBlockIds = [],
+  autoFitRequestId = 0,
+  centerViewRequestId = 0,
+  centerViewBlockIds = [],
+  onBlockDimensionsChange,
+  onViewportChange,
   onPositionChange,
   onConnect,
   onUpdateBlock,
@@ -301,10 +410,77 @@ export default function Canvas({
   const canvasRef = useRef(null);
   const blockRefs = useRef({});
   const dragStateRef = useRef(null);
+  const panStateRef = useRef(null);
+  const handledAutoFitRequestRef = useRef(0);
+  const handledCenterRequestRef = useRef(0);
+  const initializedScrollRef = useRef(false);
   const [draggingId, setDraggingId] = useState(null);
   const [connecting, setConnecting] = useState(null);
+  const [zoom, setZoom] = useState(1);
   const [selectionRect, setSelectionRect] = useState(null);
   const [contextMenu, setContextMenu] = useState(null);
+  const [isPanning, setIsPanning] = useState(false);
+
+  const estimateBlockSizeByType = (blockType) => {
+    switch (blockType) {
+      case 'action':
+        return { width: 400, height: 320 };
+      case 'streaming':
+        return { width: 360, height: 280 };
+      case 'monitoring':
+        return { width: 340, height: 250 };
+      case 'trigger':
+        return { width: 340, height: 240 };
+      case 'normal':
+        return { width: 320, height: 200 };
+      default:
+        return { width: 340, height: 240 };
+    }
+  };
+  const applyZoomAtClientPoint = (nextZoom, clientX, clientY) => {
+    const container = canvasRef.current;
+    if (!container) {
+      return;
+    }
+
+    const rect = container.getBoundingClientRect();
+    const localX = clientX - rect.left;
+    const localY = clientY - rect.top;
+    const prevZoom = zoom;
+
+    const worldX = container.scrollLeft + localX / prevZoom;
+    const worldY = container.scrollTop + localY / prevZoom;
+
+    const nextWorldX = toWorld(worldX);
+    const nextWorldY = toWorld(worldY);
+    const nextScrollLeft = toSurface(nextWorldX - localX / nextZoom);
+    const nextScrollTop = toSurface(nextWorldY - localY / nextZoom);
+
+    setZoom(nextZoom);
+    requestAnimationFrame(() => {
+      container.scrollLeft = Math.max(0, nextScrollLeft);
+      container.scrollTop = Math.max(0, nextScrollTop);
+    });
+  };
+
+  const zoomByDelta = (delta) => {
+    const container = canvasRef.current;
+    if (!container) {
+      return;
+    }
+
+    const nextZoom = applyZoomDelta(zoom, delta);
+    if (nextZoom === zoom) {
+      return;
+    }
+
+    const rect = container.getBoundingClientRect();
+    const clientX = rect.left + rect.width / 2;
+    const clientY = rect.top + rect.height / 2;
+
+    applyZoomAtClientPoint(nextZoom, clientX, clientY);
+  };
+
   const selectionStateRef = useRef(null);
   const hasBlocks = blocks.length > 0;
 
@@ -315,6 +491,78 @@ export default function Canvas({
       delete blockRefs.current[blockId];
     }
   };
+
+  useEffect(() => {
+    const container = canvasRef.current;
+    if (!container || initializedScrollRef.current) {
+      return;
+    }
+
+    initializedScrollRef.current = true;
+    requestAnimationFrame(() => {
+      container.scrollLeft = Math.max(0, WORLD_HALF - container.clientWidth / 2);
+      container.scrollTop = Math.max(0, WORLD_HALF - container.clientHeight / 2);
+    });
+  }, []);
+
+  useEffect(() => {
+    if (typeof onBlockDimensionsChange !== 'function') {
+      return;
+    }
+
+    const rafId = requestAnimationFrame(() => {
+      const measured = {};
+      blocks.forEach((block) => {
+        const node = blockRefs.current[block.id];
+        if (!node) {
+          return;
+        }
+        measured[block.id] = {
+          width: node.offsetWidth,
+          height: node.offsetHeight
+        };
+      });
+      onBlockDimensionsChange(measured);
+    });
+
+    return () => cancelAnimationFrame(rafId);
+  }, [blocks, onBlockDimensionsChange]);
+
+  useEffect(() => {
+    if (typeof onViewportChange !== 'function') {
+      return undefined;
+    }
+
+    const container = canvasRef.current;
+    if (!container) {
+      return undefined;
+    }
+
+    const emitViewport = () => {
+      onViewportChange({
+        width: container.clientWidth,
+        height: container.clientHeight
+      });
+    };
+
+    const rafId = requestAnimationFrame(emitViewport);
+    let resizeObserver;
+    if (typeof ResizeObserver !== 'undefined') {
+      resizeObserver = new ResizeObserver(() => emitViewport());
+      resizeObserver.observe(container);
+    } else {
+      window.addEventListener('resize', emitViewport);
+    }
+
+    return () => {
+      cancelAnimationFrame(rafId);
+      if (resizeObserver) {
+        resizeObserver.disconnect();
+      } else {
+        window.removeEventListener('resize', emitViewport);
+      }
+    };
+  }, [onViewportChange]);
 
   const getConnectorPoint = (blockId, side) => {
     const blockElement = blockRefs.current[blockId];
@@ -333,8 +581,8 @@ export default function Canvas({
     const containerRect = container.getBoundingClientRect();
 
     return {
-      x: connectorRect.left - containerRect.left + container.scrollLeft + connectorRect.width / 2,
-      y: connectorRect.top - containerRect.top + container.scrollTop + connectorRect.height / 2
+      x: toWorld(container.scrollLeft + (connectorRect.left - containerRect.left + connectorRect.width / 2) / zoom),
+      y: toWorld(container.scrollTop + (connectorRect.top - containerRect.top + connectorRect.height / 2) / zoom)
     };
   };
 
@@ -350,10 +598,10 @@ export default function Canvas({
     const containerRect = container.getBoundingClientRect();
 
     return {
-      x: blockRect.left - containerRect.left + container.scrollLeft,
-      y: blockRect.top - containerRect.top + container.scrollTop,
-      width: blockRect.width,
-      height: blockRect.height
+      x: toWorld(container.scrollLeft + (blockRect.left - containerRect.left) / zoom),
+      y: toWorld(container.scrollTop + (blockRect.top - containerRect.top) / zoom),
+      width: blockRect.width / zoom,
+      height: blockRect.height / zoom
     };
   };
 
@@ -368,7 +616,7 @@ export default function Canvas({
 
     event.preventDefault();
 
-    const pointer = getPointerPosition(event, canvasRef.current);
+    const pointer = getPointerPosition(event, canvasRef.current, zoom);
     selectionStateRef.current = {
       pointerId: event.pointerId,
       start: pointer
@@ -383,7 +631,7 @@ export default function Canvas({
       return;
     }
 
-    const pointer = getPointerPosition(event, canvasRef.current);
+    const pointer = getPointerPosition(event, canvasRef.current, zoom);
     const rect = getRectFromPoints(selectionState.start, pointer);
     setSelectionRect(rect);
   };
@@ -395,7 +643,7 @@ export default function Canvas({
     }
 
     event.currentTarget.releasePointerCapture(event.pointerId);
-    const pointer = getPointerPosition(event, canvasRef.current);
+    const pointer = getPointerPosition(event, canvasRef.current, zoom);
     const rect = getRectFromPoints(selectionState.start, pointer);
     selectionStateRef.current = null;
     setSelectionRect(null);
@@ -423,7 +671,7 @@ export default function Canvas({
     event.preventDefault();
     event.stopPropagation();
 
-    const pointer = getPointerPosition(event, canvasRef.current);
+    const pointer = getPointerPosition(event, canvasRef.current, zoom);
     setContextMenu({ x: pointer.x, y: pointer.y });
   };
 
@@ -436,14 +684,69 @@ export default function Canvas({
       setContextMenu(null);
     }
 
-    startSelection(event);
+    if (event.button !== 0 || !canvasRef.current || connecting) {
+      return;
+    }
+
+    if (event.target.closest('.canvas-block') || event.target.closest(CONNECTOR_SELECTOR)) {
+      return;
+    }
+
+    if (event.shiftKey) {
+      startSelection(event);
+      return;
+    }
+
+    event.preventDefault();
+    const container = canvasRef.current;
+    panStateRef.current = {
+      pointerId: event.pointerId,
+      startClientX: event.clientX,
+      startClientY: event.clientY,
+      startScrollLeft: container.scrollLeft,
+      startScrollTop: container.scrollTop,
+      moved: false
+    };
+    setIsPanning(true);
+    event.currentTarget.setPointerCapture(event.pointerId);
   };
 
   const handleCanvasPointerMove = (event) => {
+    const panState = panStateRef.current;
+    if (panState && panState.pointerId === event.pointerId && canvasRef.current) {
+      const container = canvasRef.current;
+      const deltaX = event.clientX - panState.startClientX;
+      const deltaY = event.clientY - panState.startClientY;
+      if (!panState.moved && (Math.abs(deltaX) > 2 || Math.abs(deltaY) > 2)) {
+        panState.moved = true;
+      }
+
+      const maxScrollLeft = Math.max(0, container.scrollWidth - container.clientWidth);
+      const maxScrollTop = Math.max(0, container.scrollHeight - container.clientHeight);
+      const nextScrollLeft = panState.startScrollLeft - deltaX / zoom;
+      const nextScrollTop = panState.startScrollTop - deltaY / zoom;
+      container.scrollLeft = Math.min(maxScrollLeft, Math.max(0, nextScrollLeft));
+      container.scrollTop = Math.min(maxScrollTop, Math.max(0, nextScrollTop));
+      return;
+    }
+
     updateSelection(event);
   };
 
   const handleCanvasPointerUp = (event) => {
+    const panState = panStateRef.current;
+    if (panState && panState.pointerId === event.pointerId) {
+      if (event.currentTarget.hasPointerCapture?.(event.pointerId)) {
+        event.currentTarget.releasePointerCapture(event.pointerId);
+      }
+      if (!panState.moved) {
+        onClearSelection?.();
+      }
+      panStateRef.current = null;
+      setIsPanning(false);
+      return;
+    }
+
     finishSelection(event);
   };
 
@@ -467,7 +770,7 @@ export default function Canvas({
       return;
     }
 
-    const pointer = getPointerPosition(event, container);
+    const pointer = getPointerPosition(event, container, zoom);
     setConnecting({ fromId: block.id, fromSide: side, pointer });
   };
 
@@ -481,7 +784,22 @@ export default function Canvas({
       return;
     }
 
-    if (event.target.closest(INTERACTIVE_SELECTOR)) {
+    const isInteractiveTarget = Boolean(event.target.closest(INTERACTIVE_SELECTOR));
+    const isBlockSelected = selectedBlockIds.includes(block.id);
+
+    // First click on inner controls should select the block only.
+    // Inner controls become interactive only after the block is already selected.
+    if (isInteractiveTarget && !isBlockSelected) {
+      onSelectBlock?.(block.id, {
+        toggle: event.metaKey || event.ctrlKey,
+        additive: event.shiftKey
+      });
+      event.preventDefault();
+      event.stopPropagation();
+      return;
+    }
+
+    if (isInteractiveTarget) {
       return;
     }
 
@@ -497,23 +815,16 @@ export default function Canvas({
       return;
     }
 
-    const pointer = getPointerPosition(event, container);
+    const pointer = getPointerPosition(event, container, zoom);
     const originX = block.position?.x ?? 0;
     const originY = block.position?.y ?? 0;
-    const blockWidth = event.currentTarget.offsetWidth;
-    const blockHeight = event.currentTarget.offsetHeight;
-    const maxX = Math.max(0, container.scrollWidth - blockWidth);
-    const maxY = Math.max(0, container.scrollHeight - blockHeight);
-
     dragStateRef.current = {
       id: block.id,
       pointerId: event.pointerId,
       startX: pointer.x,
       startY: pointer.y,
       originX,
-      originY,
-      maxX,
-      maxY
+      originY
     };
 
     event.currentTarget.setPointerCapture(event.pointerId);
@@ -531,13 +842,11 @@ export default function Canvas({
       return;
     }
 
-    const pointer = getPointerPosition(event, container);
-    const nextX = dragState.originX + (pointer.x - dragState.startX);
-    const nextY = dragState.originY + (pointer.y - dragState.startY);
-    const clampedX = Math.min(Math.max(0, nextX), dragState.maxX);
-    const clampedY = Math.min(Math.max(0, nextY), dragState.maxY);
+    const pointer = getPointerPosition(event, container, zoom);
+    const nextX = clampWorld(dragState.originX + (pointer.x - dragState.startX));
+    const nextY = clampWorld(dragState.originY + (pointer.y - dragState.startY));
 
-    onPositionChange?.(dragState.id, { x: clampedX, y: clampedY });
+    onPositionChange?.(dragState.id, { x: nextX, y: nextY });
   };
 
   const handlePointerUp = (event) => {
@@ -565,7 +874,7 @@ export default function Canvas({
         return;
       }
 
-      const pointer = getPointerPosition(event, container);
+      const pointer = getPointerPosition(event, container, zoom);
       setConnecting((prev) => (prev ? { ...prev, pointer } : prev));
     };
 
@@ -602,7 +911,247 @@ export default function Canvas({
       window.removeEventListener('pointerup', handleUp);
       window.removeEventListener('pointercancel', handleUp);
     };
-  }, [connecting?.fromId, connecting?.fromSide, onConnect]);
+  }, [connecting?.fromId, connecting?.fromSide, onConnect, zoom]);
+
+  useEffect(() => {
+    if (
+      !autoFitRequestId
+      || blocks.length === 0
+      || handledAutoFitRequestRef.current === autoFitRequestId
+    ) {
+      return undefined;
+    }
+
+    handledAutoFitRequestRef.current = autoFitRequestId;
+
+    const rafId = requestAnimationFrame(() => {
+      const container = canvasRef.current;
+      if (!container) {
+        return;
+      }
+
+      let minX = Number.POSITIVE_INFINITY;
+      let minY = Number.POSITIVE_INFINITY;
+      let maxX = Number.NEGATIVE_INFINITY;
+      let maxY = Number.NEGATIVE_INFINITY;
+
+      const targetBlocks = Array.isArray(centerViewBlockIds) && centerViewBlockIds.length > 0
+        ? blocks.filter((block) => centerViewBlockIds.includes(block.id))
+        : blocks;
+
+      if (targetBlocks.length === 0) {
+        return;
+      }
+
+      targetBlocks.forEach((block) => {
+        const posX = block.position?.x ?? 0;
+        const posY = block.position?.y ?? 0;
+        const node = blockRefs.current[block.id];
+        const estimated = estimateBlockSizeByType(block.type);
+        const width = node?.offsetWidth || estimated.width;
+        const height = node?.offsetHeight || estimated.height;
+
+        minX = Math.min(minX, posX);
+        minY = Math.min(minY, posY);
+        maxX = Math.max(maxX, posX + width);
+        maxY = Math.max(maxY, posY + height);
+      });
+
+      if (!Number.isFinite(minX) || !Number.isFinite(minY) || !Number.isFinite(maxX) || !Number.isFinite(maxY)) {
+        return;
+      }
+
+      const defaultPaddingX = 100;
+      const defaultPaddingY = 100;
+      const compactPaddingX = 10;
+      const compactPaddingY = 10;
+      const computeFitMetrics = (paddingX, paddingY) => {
+        const boundsWidth = Math.max(1, maxX - minX + paddingX * 2);
+        const boundsHeight = Math.max(1, maxY - minY + paddingY * 2);
+        const viewportWidth = Math.max(1, container.clientWidth - paddingX * 2);
+        const viewportHeight = Math.max(1, container.clientHeight - paddingY * 2);
+        const widthRatio = viewportWidth / boundsWidth;
+        const heightRatio = viewportHeight / boundsHeight;
+        return {
+          fitZoom: Math.min(1, widthRatio, heightRatio),
+          widthRatio,
+          heightRatio
+        };
+      };
+
+      let appliedPaddingX = defaultPaddingX;
+      let appliedPaddingY = defaultPaddingY;
+      const defaultMetrics = computeFitMetrics(defaultPaddingX, defaultPaddingY);
+
+      // 1) Start from full padding, 2) shrink only insufficient axis, 3) re-fit UI.
+      if (defaultMetrics.widthRatio < 1) {
+        appliedPaddingX = compactPaddingX;
+      }
+      if (defaultMetrics.heightRatio < 1) {
+        appliedPaddingY = compactPaddingY;
+      }
+
+      const fitMetrics = computeFitMetrics(appliedPaddingX, appliedPaddingY);
+      const fitZoom = fitMetrics.fitZoom;
+
+      const nextZoom = clampZoom(Number(fitZoom.toFixed(2)));
+      if (nextZoom < zoom) {
+        setZoom(nextZoom);
+      }
+
+      requestAnimationFrame(() => {
+        const scrollPaddingX = Math.max(0, appliedPaddingX - 4);
+        const scrollPaddingY = Math.max(0, appliedPaddingY - 4);
+        container.scrollLeft = Math.max(0, toSurface(minX) - scrollPaddingX);
+        container.scrollTop = Math.max(0, toSurface(minY) - scrollPaddingY);
+      });
+    });
+
+    return () => cancelAnimationFrame(rafId);
+  }, [autoFitRequestId, blocks, zoom]);
+
+  useEffect(() => {
+    if (
+      !centerViewRequestId
+      || blocks.length === 0
+      || handledCenterRequestRef.current === centerViewRequestId
+    ) {
+      return undefined;
+    }
+
+    handledCenterRequestRef.current = centerViewRequestId;
+
+    const rafId = requestAnimationFrame(() => {
+      const container = canvasRef.current;
+      if (!container) {
+        return;
+      }
+
+      const targetBlocks = Array.isArray(centerViewBlockIds) && centerViewBlockIds.length > 0
+        ? blocks.filter((block) => centerViewBlockIds.includes(block.id))
+        : blocks;
+
+      if (targetBlocks.length === 0) {
+        return;
+      }
+
+      let minCenterX = Number.POSITIVE_INFINITY;
+      let minCenterY = Number.POSITIVE_INFINITY;
+      let maxCenterX = Number.NEGATIVE_INFINITY;
+      let maxCenterY = Number.NEGATIVE_INFINITY;
+
+      targetBlocks.forEach((block) => {
+        const posX = block.position?.x ?? 0;
+        const posY = block.position?.y ?? 0;
+        const node = blockRefs.current[block.id];
+        const estimated = estimateBlockSizeByType(block.type);
+        const width = node?.offsetWidth || estimated.width;
+        const height = node?.offsetHeight || estimated.height;
+
+        const centerX = posX + width / 2;
+        const centerY = posY + height / 2;
+        minCenterX = Math.min(minCenterX, centerX);
+        minCenterY = Math.min(minCenterY, centerY);
+        maxCenterX = Math.max(maxCenterX, centerX);
+        maxCenterY = Math.max(maxCenterY, centerY);
+      });
+
+      if (!Number.isFinite(minCenterX) || !Number.isFinite(minCenterY) || !Number.isFinite(maxCenterX) || !Number.isFinite(maxCenterY)) {
+        return;
+      }
+
+      const centerWorldX = (minCenterX + maxCenterX) / 2;
+      const centerWorldY = (minCenterY + maxCenterY) / 2;
+      const nextScrollLeft = toSurface(centerWorldX) - container.clientWidth / (2 * zoom);
+      const nextScrollTop = toSurface(centerWorldY) - container.clientHeight / (2 * zoom);
+      const maxScrollLeft = Math.max(0, container.scrollWidth - container.clientWidth);
+      const maxScrollTop = Math.max(0, container.scrollHeight - container.clientHeight);
+
+      container.scrollLeft = Math.min(maxScrollLeft, Math.max(0, nextScrollLeft));
+      container.scrollTop = Math.min(maxScrollTop, Math.max(0, nextScrollTop));
+    });
+
+    return () => cancelAnimationFrame(rafId);
+  }, [centerViewRequestId, centerViewBlockIds, blocks, zoom]);
+
+  useEffect(() => {
+    const container = canvasRef.current;
+    if (!container) {
+      return undefined;
+    }
+
+    const onNativeWheel = (event) => {
+      if (!(event.ctrlKey || event.metaKey)) {
+        return;
+      }
+
+      event.preventDefault();
+      const direction = event.deltaY > 0 ? -1 : 1;
+      zoomByDelta(direction * ZOOM_STEP);
+    };
+
+    container.addEventListener('wheel', onNativeWheel, { passive: false });
+    return () => container.removeEventListener('wheel', onNativeWheel);
+  }, [zoom]);
+
+  useEffect(() => {
+    const isEditableTarget = (target) => {
+      if (!target) {
+        return false;
+      }
+      if (target.isContentEditable) {
+        return true;
+      }
+      const tag = target.tagName?.toLowerCase();
+      return tag === 'input' || tag === 'textarea' || tag === 'select';
+    };
+
+    const onKeyDown = (event) => {
+      const container = canvasRef.current;
+      if (container) {
+        const targetInside = container.contains(event.target);
+        const activeInside = container.contains(document.activeElement);
+        if (!targetInside && !activeInside) {
+          return;
+        }
+      }
+
+      if (!(event.ctrlKey || event.metaKey) || isEditableTarget(event.target)) {
+        return;
+      }
+
+      const key = event.key;
+      const code = event.code;
+      if (key === '+' || key === '=' || key === 'Add' || code === 'NumpadAdd' || code === 'Equal') {
+        event.preventDefault();
+        zoomByDelta(ZOOM_STEP);
+        return;
+      }
+
+      if (key === '-' || key === '_' || key === 'Subtract' || code === 'NumpadSubtract' || code === 'Minus') {
+        event.preventDefault();
+        zoomByDelta(-ZOOM_STEP);
+        return;
+      }
+
+      if (key === '0' || code === 'Digit0' || code === 'Numpad0') {
+        event.preventDefault();
+        const containerRect = canvasRef.current?.getBoundingClientRect();
+        if (!containerRect) {
+          setZoom(1);
+          return;
+        }
+        applyZoomAtClientPoint(
+          1,
+          containerRect.left + containerRect.width / 2,
+          containerRect.top + containerRect.height / 2
+        );
+      }
+    };
+
+    window.addEventListener('keydown', onKeyDown);
+    return () => window.removeEventListener('keydown', onKeyDown);
+  }, [zoom]);
 
   const blockRects = blocks
     .map((block) => {
@@ -615,11 +1164,40 @@ export default function Canvas({
     .filter(Boolean);
 
   const obstacleRects = blockRects.map(toObstacleRect);
+  const blockRectById = new Map(blockRects.map((rect) => [rect.id, rect]));
+
+  const connectionTotals = new Map();
+  connections.forEach((connection) => {
+    const fromSide = connection.fromSide || 'right';
+    const toSide = connection.toSide || 'left';
+    const fromKey = `${connection.fromId}:${fromSide}`;
+    const toKey = `${connection.toId}:${toSide}`;
+    connectionTotals.set(fromKey, (connectionTotals.get(fromKey) || 0) + 1);
+    connectionTotals.set(toKey, (connectionTotals.get(toKey) || 0) + 1);
+  });
+  const connectionUsage = new Map();
 
   const connectionPaths = connections
     .map((connection) => {
-      const start = getConnectorPoint(connection.fromId, connection.fromSide);
-      const end = getConnectorPoint(connection.toId, connection.toSide);
+      const fromSide = connection.fromSide || 'right';
+      const toSide = connection.toSide || 'left';
+      const startRaw = getConnectorPoint(connection.fromId, fromSide);
+      const endRaw = getConnectorPoint(connection.toId, toSide);
+
+      const fromKey = `${connection.fromId}:${fromSide}`;
+      const toKey = `${connection.toId}:${toSide}`;
+      const fromTotal = connectionTotals.get(fromKey) || 1;
+      const toTotal = connectionTotals.get(toKey) || 1;
+      const fromUsed = connectionUsage.get(fromKey) || 0;
+      const toUsed = connectionUsage.get(toKey) || 0;
+      connectionUsage.set(fromKey, fromUsed + 1);
+      connectionUsage.set(toKey, toUsed + 1);
+
+      const fromOffset = (fromUsed - (fromTotal - 1) / 2) * EDGE_PORT_SPACING;
+      const toOffset = (toUsed - (toTotal - 1) / 2) * EDGE_PORT_SPACING;
+
+      const start = startRaw ? getPortOffsetPoint(startRaw, fromSide, fromOffset) : null;
+      const end = endRaw ? getPortOffsetPoint(endRaw, toSide, toOffset) : null;
 
       if (!start || !end) {
         return null;
@@ -628,11 +1206,15 @@ export default function Canvas({
       const obstacles = obstacleRects.filter((rect) => (
         rect.id !== connection.fromId && rect.id !== connection.toId
       ));
-      const points = getOrthogonalPath(start, end, obstacles);
+      const startLead = getSideLeadPoint(start, fromSide);
+      const endLead = getSideLeadPoint(end, toSide);
+      const middle = getOrthogonalPath(startLead, endLead, obstacles);
+      const points = [start, ...middle, end];
+      const surfacePoints = points.map((point) => ({ x: toSurface(point.x), y: toSurface(point.y) }));
 
       return {
         id: connection.id || `${connection.fromId}-${connection.toId}`,
-        d: buildSvgPath(points),
+        d: buildRoundedSvgPath(surfacePoints),
         kind: connection.kind || 'default'
       };
     })
@@ -643,16 +1225,31 @@ export default function Canvas({
       return null;
     }
 
-    const start = getConnectorPoint(connecting.fromId, connecting.fromSide);
+    const fromSide = connecting.fromSide || 'right';
+    const start = getConnectorPoint(connecting.fromId, fromSide);
     const end = connecting.pointer;
 
     if (!start || !end) {
       return null;
     }
 
-    const obstacles = obstacleRects.filter((rect) => rect.id !== connecting.fromId);
-    const points = getOrthogonalPath(start, end, obstacles);
-    return buildSvgPath(points);
+    // Keep live drag preview fully freeform so cursor motion is reflected directly.
+    const dx = end.x - start.x;
+    const controlA = {
+      x: start.x + dx * 0.35,
+      y: start.y
+    };
+    const controlB = {
+      x: end.x - dx * 0.35,
+      y: end.y
+    };
+
+    const s = { x: toSurface(start.x), y: toSurface(start.y) };
+    const c1 = { x: toSurface(controlA.x), y: toSurface(controlA.y) };
+    const c2 = { x: toSurface(controlB.x), y: toSurface(controlB.y) };
+    const e = { x: toSurface(end.x), y: toSurface(end.y) };
+
+    return `M ${s.x} ${s.y} C ${c1.x} ${c1.y} ${c2.x} ${c2.y} ${e.x} ${e.y}`;
   })();
 
   const renderBlock = (block) => {
@@ -743,97 +1340,148 @@ export default function Canvas({
       {/* Canvas grid background */}
       <div className="canvas-grid"></div>
       <div
-        className="canvas-blocks"
+        className={`canvas-blocks${isPanning ? ' is-panning' : ''}`}
         ref={canvasRef}
+        style={{ zoom }}
         onPointerDown={handleCanvasPointerDown}
         onPointerMove={handleCanvasPointerMove}
         onPointerUp={handleCanvasPointerUp}
         onPointerCancel={handleCanvasPointerUp}
         onContextMenu={handleContextMenu}
       >
-        {!hasBlocks && (
-          <div className="canvas-empty">No blocks created.</div>
-        )}
-        {selectionRect && (
-          <div
-            className="canvas-selection-rect"
-            style={{
-              left: `${selectionRect.x}px`,
-              top: `${selectionRect.y}px`,
-              width: `${selectionRect.width}px`,
-              height: `${selectionRect.height}px`
-            }}
-          />
-        )}
-        {contextMenu && (
-          <div
-            className="canvas-context-menu"
-            style={{ left: `${contextMenu.x}px`, top: `${contextMenu.y}px` }}
-          >
-            <Button
-              type="button"
-              className="canvas-context-item"
-              onClick={() => {
-                onSaveSelection?.();
-                setContextMenu(null);
+        <div className="canvas-surface" style={{ width: `${WORLD_SIZE}px`, height: `${WORLD_SIZE}px` }}>
+          {!hasBlocks && (
+            <div className="canvas-empty" style={{ left: `${toSurface(0)}px`, top: `${toSurface(0)}px`, position: 'absolute' }}>No blocks created.</div>
+          )}
+          {selectionRect && (
+            <div
+              className="canvas-selection-rect"
+              style={{
+                left: `${toSurface(selectionRect.x)}px`,
+                top: `${toSurface(selectionRect.y)}px`,
+                width: `${selectionRect.width}px`,
+                height: `${selectionRect.height}px`
               }}
-            >
-              저장하기
-            </Button>
-          </div>
-        )}
-        <svg className="canvas-connections" aria-hidden="true">
-          <defs>
-            {[
-              { id: 'default', color: '#38BDF8' },
-              { id: 'stream-monitor', color: '#22D3EE' },
-              { id: 'trigger-action', color: '#A78BFA' },
-              { id: 'action-input', color: '#FBBF24' }
-            ].map((marker) => (
-              <marker
-                key={marker.id}
-                id={`canvas-arrow-${marker.id}`}
-                viewBox="0 0 8 8"
-                refX="7"
-                refY="4"
-                markerWidth="8"
-                markerHeight="8"
-                orient="auto"
-              >
-                <path d="M0 0 L8 4 L0 8 Z" fill={marker.color} />
-              </marker>
-            ))}
-          </defs>
-          {connectionPaths.map((connection) => (
-            <path
-              key={connection.id}
-              className={`canvas-connection-line canvas-connection-line--${connection.kind}`}
-              d={connection.d}
-              markerEnd={`url(#canvas-arrow-${connection.kind})`}
-            />
-          ))}
-          {previewPath && (
-            <path
-              className="canvas-connection-line is-preview"
-              d={previewPath}
             />
           )}
-        </svg>
-        {blocks.map((block) => (
-          <div
-            key={block.id}
-            className={`canvas-block${draggingId === block.id ? ' is-dragging' : ''}${selectedBlockIds.includes(block.id) ? ' is-selected' : ''}`}
-            data-block-id={block.id}
-            ref={setBlockRef(block.id)}
-            style={{ left: block.position?.x ?? 0, top: block.position?.y ?? 0 }}
-            onPointerDown={(event) => handlePointerDown(event, block)}
-            onPointerMove={handlePointerMove}
-            onPointerUp={handlePointerUp}
-            onPointerCancel={handlePointerUp}
-          >
-            {renderBlock(block)}
-          </div>
-        ))}
+          {contextMenu && (
+            <div
+              className="canvas-context-menu"
+              style={{ left: `${toSurface(contextMenu.x)}px`, top: `${toSurface(contextMenu.y)}px` }}
+            >
+              <Button
+                type="button"
+                className="canvas-context-item"
+                onClick={() => {
+                  onSaveSelection?.();
+                  setContextMenu(null);
+                }}
+              >
+                저장하기
+              </Button>
+            </div>
+          )}
+          <svg className="canvas-connections" aria-hidden="true">
+            <defs>
+              {[
+                { id: 'default', color: '#38BDF8' },
+                { id: 'stream-monitor', color: '#22D3EE' },
+                { id: 'trigger-action', color: '#A78BFA' },
+                { id: 'action-input', color: '#FBBF24' }
+              ].map((marker) => (
+                <marker
+                  key={marker.id}
+                  id={`canvas-arrow-${marker.id}`}
+                  viewBox="0 0 8 8"
+                  refX="7"
+                  refY="4"
+                  markerWidth="8"
+                  markerHeight="8"
+                  orient="auto"
+                >
+                  <path d="M0 0 L8 4 L0 8 Z" fill={marker.color} />
+                </marker>
+              ))}
+            </defs>
+            {connectionPaths.map((connection) => (
+              <path
+                key={`${connection.id}-halo`}
+                className={`canvas-connection-halo canvas-connection-halo--${connection.kind}`}
+                d={connection.d}
+              />
+            ))}
+            {connectionPaths.map((connection) => (
+              <path
+                key={connection.id}
+                className={`canvas-connection-line canvas-connection-line--${connection.kind}`}
+                d={connection.d}
+                markerEnd={`url(#canvas-arrow-${connection.kind})`}
+              />
+            ))}
+            {previewPath && (
+              <path
+                className="canvas-connection-line is-preview"
+                d={previewPath}
+              />
+            )}
+          </svg>
+          {blocks.map((block) => (
+            <div
+              key={block.id}
+              className={`canvas-block${draggingId === block.id ? ' is-dragging' : ''}${selectedBlockIds.includes(block.id) ? ' is-selected' : ''}`}
+              data-block-id={block.id}
+              ref={setBlockRef(block.id)}
+              style={{ left: toSurface(block.position?.x ?? 0), top: toSurface(block.position?.y ?? 0) }}
+              onPointerDown={(event) => handlePointerDown(event, block)}
+              onPointerMove={handlePointerMove}
+              onPointerUp={handlePointerUp}
+              onPointerCancel={handlePointerUp}
+            >
+              {renderBlock(block)}
+            </div>
+          ))}
+        </div>
+      </div>
+      <div className="canvas-zoom-controls">
+        <Button
+          type="button"
+          className="canvas-zoom-btn"
+          onClick={() => zoomByDelta(-ZOOM_STEP)}
+          aria-label="축소"
+        >
+          -
+        </Button>
+        <Button
+          type="button"
+          className="canvas-zoom-btn"
+          onClick={() => zoomByDelta(ZOOM_BIG_STEP)}
+          aria-label="빠른 확대"
+        >
+          ++
+        </Button>
+        <Button
+          type="button"
+          className="canvas-zoom-btn canvas-zoom-label"
+          onClick={() => {
+            const rect = canvasRef.current?.getBoundingClientRect();
+            if (!rect) {
+              setZoom(1);
+              return;
+            }
+            applyZoomAtClientPoint(1, rect.left + rect.width / 2, rect.top + rect.height / 2);
+          }}
+          aria-label="줌 초기화"
+        >
+          {Math.round(zoom * 100)}%
+        </Button>
+        <Button
+          type="button"
+          className="canvas-zoom-btn"
+          onClick={() => zoomByDelta(ZOOM_STEP)}
+          aria-label="확대"
+        >
+          +
+        </Button>
       </div>
     </div>
   );
