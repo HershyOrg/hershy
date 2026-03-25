@@ -4,6 +4,7 @@ import MonitoringBlock from './blocks/MonitoringBlock';
 import NormalBlock from './blocks/NormalBlock';
 import StreamingBlock from './blocks/StreamingBlock';
 import TriggerBlock from './blocks/TriggerBlock';
+import { Button } from './ui/button';
 
 const INTERACTIVE_SELECTOR = 'input, textarea, select, button, [draggable]';
 const CONNECTOR_SELECTOR = '.connection-point';
@@ -769,7 +770,7 @@ export default function Canvas({
             className="canvas-context-menu"
             style={{ left: `${contextMenu.x}px`, top: `${contextMenu.y}px` }}
           >
-            <button
+            <Button
               type="button"
               className="canvas-context-item"
               onClick={() => {
@@ -778,7 +779,7 @@ export default function Canvas({
               }}
             >
               저장하기
-            </button>
+            </Button>
           </div>
         )}
         <svg className="canvas-connections" aria-hidden="true">

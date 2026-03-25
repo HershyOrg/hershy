@@ -1,0 +1,284 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Front AI Preprocessing Schemas",
+  "description": "Schemas used by frontend/front/server.mjs preprocessing pipeline before strategy generation is accepted.",
+  "version": "1.0.0",
+  "preprocessingRules": {
+    "mustBeSingleJsonObject": true,
+    "markdownFenceExtractionAllowed": true,
+    "arrayRootNotAllowed": true,
+    "additionalTextOutsideJsonNotAllowed": true
+  },
+  "schemas": {
+    "orchestrationPlan": {
+      "type": "object",
+      "required": [
+        "mode",
+        "needResearch",
+        "researchTasks",
+        "strategyTasks",
+        "contractHints",
+        "notes"
+      ],
+      "properties": {
+        "mode": {
+          "type": "string"
+        },
+        "needResearch": {
+          "type": "boolean"
+        },
+        "researchTasks": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": [
+              "kind",
+              "query",
+              "priority"
+            ],
+            "properties": {
+              "kind": {
+                "type": "string"
+              },
+              "query": {
+                "type": "string"
+              },
+              "priority": {
+                "type": "string",
+                "enum": [
+                  "high",
+                  "medium",
+                  "low"
+                ]
+              }
+            }
+          }
+        },
+        "strategyTasks": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "contractHints": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": [
+              "chain",
+              "address",
+              "reason"
+            ],
+            "properties": {
+              "chain": {
+                "type": "string"
+              },
+              "address": {
+                "type": "string"
+              },
+              "reason": {
+                "type": "string"
+              }
+            }
+          }
+        },
+        "notes": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        }
+      }
+    },
+    "researchBundle": {
+      "type": "object",
+      "required": [
+        "goals",
+        "findings",
+        "urls",
+        "contracts",
+        "warnings"
+      ],
+      "properties": {
+        "goals": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "findings": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "urls": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": [
+              "url",
+              "title",
+              "note"
+            ],
+            "properties": {
+              "url": {
+                "type": "string"
+              },
+              "title": {
+                "type": "string"
+              },
+              "note": {
+                "type": "string"
+              }
+            }
+          }
+        },
+        "contracts": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": [
+              "chain",
+              "address",
+              "label",
+              "reason"
+            ],
+            "properties": {
+              "chain": {
+                "type": "string"
+              },
+              "address": {
+                "type": "string"
+              },
+              "label": {
+                "type": "string"
+              },
+              "reason": {
+                "type": "string"
+              }
+            }
+          }
+        },
+        "warnings": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        }
+      }
+    },
+    "strategyGraph": {
+      "type": "object",
+      "required": [
+        "schemaVersion",
+        "kind",
+        "strategy",
+        "blocks",
+        "connections"
+      ],
+      "properties": {
+        "schemaVersion": {
+          "type": "number"
+        },
+        "kind": {
+          "type": "string",
+          "enum": [
+            "hershy-strategy-graph"
+          ]
+        },
+        "strategy": {
+          "type": "object",
+          "required": [
+            "id",
+            "name"
+          ],
+          "properties": {
+            "id": {
+              "type": "string"
+            },
+            "name": {
+              "type": "string"
+            }
+          }
+        },
+        "generatedAt": {
+          "type": "string"
+        },
+        "summary": {
+          "type": "object",
+          "properties": {
+            "blocks": {
+              "type": "number"
+            },
+            "connections": {
+              "type": "number"
+            }
+          }
+        },
+        "blocks": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "type": "object",
+            "required": [
+              "id",
+              "type",
+              "config"
+            ],
+            "properties": {
+              "id": {
+                "type": "string"
+              },
+              "type": {
+                "type": "string",
+                "enum": [
+                  "streaming",
+                  "normal",
+                  "trigger",
+                  "action",
+                  "monitoring"
+                ]
+              },
+              "config": {
+                "type": "object"
+              }
+            }
+          }
+        },
+        "connections": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "type": "object",
+            "required": [
+              "id",
+              "kind",
+              "fromId",
+              "toId"
+            ],
+            "properties": {
+              "id": {
+                "type": "string"
+              },
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "stream-monitor",
+                  "trigger-action",
+                  "action-input"
+                ]
+              },
+              "fromId": {
+                "type": "string"
+              },
+              "toId": {
+                "type": "string"
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+}

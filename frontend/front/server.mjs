@@ -5,6 +5,17 @@ import { fileURLToPath } from 'node:url';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
+const REPO_ROOT = path.resolve(__dirname, '..', '..');
+
+const DEFAULT_HERSHY_CONTEXT_FILES = [
+  'README.md',
+  'examples/strategy-runner/README.md',
+  'examples/strategy-runner/strategy.sample.json',
+  'program/reducer.go',
+  'program/effect.go',
+];
+
+let hershyContextCachePromise = null;
 
 const FRONT_PORT = resolvePort(process.env.FRONT_PORT || process.env.PORT, 9090);
 const HOST_API_BASE = normalizeBaseURL(process.env.HOST_API_BASE || 'http://localhost:9000');
@@ -44,6 +55,128 @@ const EXPLORER_CHAIN_IDS = {
 };
 
 const ETHERSCAN_V2_ENDPOINT = 'https://api.etherscan.io/v2/api';
+
+const ORCHESTRATION_PLAN_SCHEMA = {
+  type: 'object',
+  required: ['mode', 'needResearch', 'researchTasks', 'strategyTasks', 'contractHints', 'notes'],
+  properties: {
+    mode: { type: 'string' },
+    needResearch: { type: 'boolean' },
+    researchTasks: {
+      type: 'array',
+      items: {
+        type: 'object',
+        required: ['kind', 'query', 'priority'],
+        properties: {
+          kind: { type: 'string' },
+          query: { type: 'string' },
+          priority: { type: 'string', enum: ['high', 'medium', 'low'] },
+        },
+      },
+    },
+    strategyTasks: { type: 'array', items: { type: 'string' } },
+    contractHints: {
+      type: 'array',
+      items: {
+        type: 'object',
+        required: ['chain', 'address', 'reason'],
+        properties: {
+          chain: { type: 'string' },
+          address: { type: 'string' },
+          reason: { type: 'string' },
+        },
+      },
+    },
+    notes: { type: 'array', items: { type: 'string' } },
+  },
+};
+
+const RESEARCH_BUNDLE_SCHEMA = {
+  type: 'object',
+  required: ['goals', 'findings', 'urls', 'contracts', 'warnings'],
+  properties: {
+    goals: { type: 'array', items: { type: 'string' } },
+    findings: { type: 'array', items: { type: 'string' } },
+    urls: {
+      type: 'array',
+      items: {
+        type: 'object',
+        required: ['url', 'title', 'note'],
+        properties: {
+          url: { type: 'string' },
+          title: { type: 'string' },
+          note: { type: 'string' },
+        },
+      },
+    },
+    contracts: {
+      type: 'array',
+      items: {
+        type: 'object',
+        required: ['chain', 'address', 'label', 'reason'],
+        properties: {
+          chain: { type: 'string' },
+          address: { type: 'string' },
+          label: { type: 'string' },
+          reason: { type: 'string' },
+        },
+      },
+    },
+    warnings: { type: 'array', items: { type: 'string' } },
+  },
+};
+
+const STRATEGY_GRAPH_SCHEMA = {
+  type: 'object',
+  required: ['schemaVersion', 'kind', 'strategy', 'blocks', 'connections'],
+  properties: {
+    schemaVersion: { type: 'number' },
+    kind: { type: 'string', enum: ['hershy-strategy-graph'] },
+    strategy: {
+      type: 'object',
+      required: ['id', 'name'],
+      properties: {
+        id: { type: 'string' },
+        name: { type: 'string' },
+      },
+    },
+    generatedAt: { type: 'string' },
+    summary: {
+      type: 'object',
+      properties: {
+        blocks: { type: 'number' },
+        connections: { type: 'number' },
+      },
+    },
+    blocks: {
+      type: 'array',
+      minItems: 1,
+      items: {
+        type: 'object',
+        required: ['id', 'type', 'config'],
+        properties: {
+          id: { type: 'string' },
+          type: { type: 'string', enum: ['streaming', 'normal', 'trigger', 'action', 'monitoring'] },
+          config: { type: 'object' },
+        },
+      },
+    },
+    connections: {
+      type: 'array',
+      minItems: 1,
+      items: {
+        type: 'object',
+        required: ['id', 'kind', 'fromId', 'toId'],
+        properties: {
+          id: { type: 'string' },
+          kind: { type: 'string', enum: ['stream-monitor', 'trigger-action', 'action-input'] },
+          fromId: { type: 'string' },
+          toId: { type: 'string' },
+        },
+      },
+    },
+  },
+};
 
 app.get('/api/config', (_req, res) => {
   res.json({
@@ -303,6 +436,51 @@ function normalizeText(value) {
   return typeof value === 'string' ? value.trim() : '';
 }
 
+function getAIBooleanEnv(key, fallback = false) {
+  const raw = normalizeText(process.env[key]).toLowerCase();
+  if (!raw) {
+    return fallback;
+  }
+  return raw === '1' || raw === 'true' || raw === 'yes' || raw === 'y' || raw === 'on';
+}
+
+function resolveHershyContextFileList() {
+  const envList = normalizeText(process.env.AI_STRATEGY_HERSHY_CONTEXT_FILES);
+  const candidates = envList
+    ? envList.split(',').map((item) => normalizeText(item)).filter(Boolean)
+    : DEFAULT_HERSHY_CONTEXT_FILES;
+
+  return Array.from(new Set(candidates));
+}
+
+async function loadHershyLibraryContext() {
+  if (!getAIBooleanEnv('AI_STRATEGY_ENABLE_HERSHY_CONTEXT', true)) {
+    return '';
+  }
+
+  if (!hershyContextCachePromise) {
+    hershyContextCachePromise = (async () => {
+      const files = resolveHershyContextFileList();
+      const chunks = [];
+      for (const relPath of files) {
+        const absPath = path.resolve(REPO_ROOT, relPath);
+        try {
+          const content = await fs.readFile(absPath, 'utf8');
+          if (!normalizeText(content)) {
+            continue;
+          }
+          chunks.push(`--- ${relPath} ---\n${trimForLog(content, 8000)}`);
+        } catch {
+          // Skip missing/unreadable context file.
+        }
+      }
+      return trimForLog(chunks.join('\n\n'), 24000);
+    })();
+  }
+
+  return hershyContextCachePromise;
+}
+
 function sendError(res, code, message) {
   res.status(code).json({
     error: statusText(code),
@@ -381,6 +559,28 @@ function layerEnv(layer, key) {
     return '';
   }
   return normalizeText(process.env[`AI_${String(layer).toUpperCase()}_${key}`]);
+}
+
+function parseBoolText(raw) {
+  const text = normalizeText(raw).toLowerCase();
+  if (!text) {
+    return null;
+  }
+  if (text === '1' || text === 'true' || text === 'yes' || text === 'y' || text === 'on') {
+    return true;
+  }
+  if (text === '0' || text === 'false' || text === 'no' || text === 'n' || text === 'off') {
+    return false;
+  }
+  return null;
+}
+
+function resolveLayerBool(layer, key) {
+  const fromLayer = parseBoolText(layerEnv(layer, key));
+  if (fromLayer !== null) {
+    return fromLayer;
+  }
+  return parseBoolText(process.env[key]);
 }
 
 function resolveLayerProvider(layer) {
@@ -1067,6 +1267,7 @@ function buildAIStrategySystemPrompt() {
   return String.raw`
 You generate strategy JSON for Hershy runner.
 Return only valid JSON (no markdown).
+Response MUST be a single JSON object with no prose before/after it.
 
 Required top-level object:
 {
@@ -1088,8 +1289,12 @@ Validation constraints:
 `.trim();
 }
 
-function buildAIStrategyUserPrompt(prompt, currentStrategy, researchBundle, orchestrationPlan) {
+async function buildAIStrategyUserPrompt(prompt, currentStrategy, researchBundle, orchestrationPlan) {
   let text = `User request:\n${normalizeText(prompt)}`;
+  const hershyContext = await loadHershyLibraryContext();
+  if (hershyContext) {
+    text += `\n\nHershy library/project reference context (read carefully):\n${hershyContext}`;
+  }
   if (currentStrategy && typeof currentStrategy === 'object') {
     text += `\n\nCurrent strategy JSON (optional context):\n${trimForLog(stringifyJSON(currentStrategy), 12000)}`;
   }
@@ -1241,6 +1446,9 @@ function parseJSONObjectContent(rawText, label) {
   if (fenced) {
     text = normalizeText(fenced[1]);
   }
+  if (!(text.startsWith('{') && text.endsWith('}'))) {
+    throw new Error(`${label} must be a single JSON object (no extra text)`);
+  }
   const parsed = parseJSON(text, label);
   if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
     throw new Error(`${label} is not a JSON object`);
@@ -1248,21 +1456,99 @@ function parseJSONObjectContent(rawText, label) {
   return parsed;
 }
 
+function validateSchema(value, schema, pathLabel = 'root') {
+  const errors = [];
+  if (!schema || typeof schema !== 'object') {
+    return errors;
+  }
+
+  const type = normalizeText(schema.type);
+  if (type === 'object') {
+    if (!value || typeof value !== 'object' || Array.isArray(value)) {
+      errors.push(`${pathLabel} must be object`);
+      return errors;
+    }
+    const required = Array.isArray(schema.required) ? schema.required : [];
+    for (const key of required) {
+      if (!(key in value)) {
+        errors.push(`${pathLabel}.${key} is required`);
+      }
+    }
+    const properties = schema.properties && typeof schema.properties === 'object'
+      ? schema.properties
+      : {};
+    for (const [key, childSchema] of Object.entries(properties)) {
+      if (!(key in value)) {
+        continue;
+      }
+      errors.push(...validateSchema(value[key], childSchema, `${pathLabel}.${key}`));
+    }
+    return errors;
+  }
+
+  if (type === 'array') {
+    if (!Array.isArray(value)) {
+      errors.push(`${pathLabel} must be array`);
+      return errors;
+    }
+    const minItems = Number(schema.minItems);
+    if (Number.isFinite(minItems) && value.length < minItems) {
+      errors.push(`${pathLabel} must contain at least ${minItems} items`);
+    }
+    if (schema.items) {
+      value.forEach((item, index) => {
+        errors.push(...validateSchema(item, schema.items, `${pathLabel}[${index}]`));
+      });
+    }
+    return errors;
+  }
+
+  if (type === 'string') {
+    if (typeof value !== 'string') {
+      errors.push(`${pathLabel} must be string`);
+      return errors;
+    }
+    if (Array.isArray(schema.enum) && schema.enum.length > 0 && !schema.enum.includes(value)) {
+      errors.push(`${pathLabel} must be one of: ${schema.enum.join(', ')}`);
+    }
+    return errors;
+  }
+
+  if (type === 'number') {
+    if (typeof value !== 'number' || !Number.isFinite(value)) {
+      errors.push(`${pathLabel} must be number`);
+    }
+    return errors;
+  }
+
+  if (type === 'boolean') {
+    if (typeof value !== 'boolean') {
+      errors.push(`${pathLabel} must be boolean`);
+    }
+    return errors;
+  }
+
+  return errors;
+}
+
+function parseJSONObjectWithSchema(rawText, label, schema) {
+  const parsed = parseJSONObjectContent(rawText, label);
+  const errors = validateSchema(parsed, schema, label);
+  if (errors.length > 0) {
+    throw new Error(`${label} schema validation failed: ${errors.slice(0, 10).join('; ')}`);
+  }
+  return parsed;
+}
+
 function parseStrategyGraph(rawText) {
-  const parsed = parseJSONObjectContent(rawText, 'strategy JSON');
-  if (parsed?.kind === 'hershy-strategy-graph') {
-    return parsed;
-  }
-  if (parsed?.strategy?.kind === 'hershy-strategy-graph') {
-    return parsed.strategy;
-  }
-  throw new Error('response is not hershy-strategy-graph');
+  return parseJSONObjectWithSchema(rawText, 'strategy JSON', STRATEGY_GRAPH_SCHEMA);
 }
 
 async function fetchTextOrThrow(provider, endpoint, requestInit, timeoutSeconds) {
+  const hasTimeout = Number.isFinite(timeoutSeconds) && timeoutSeconds > 0;
   const response = await fetch(endpoint, {
     ...requestInit,
-    signal: AbortSignal.timeout(timeoutSeconds * 1000),
+    signal: hasTimeout ? AbortSignal.timeout(timeoutSeconds * 1000) : undefined,
   });
   const text = await response.text();
   if (!response.ok) {
@@ -1277,6 +1563,8 @@ async function callOllamaLayer(layer, systemPrompt, userPrompt) {
   const model = layerEnv(layer, 'OLLAMA_MODEL') || layerEnv(layer, 'MODEL') || normalizeText(process.env.OLLAMA_MODEL) || 'gpt-oss:20b';
   const wireAPI = normalizeText(layerEnv(layer, 'OLLAMA_WIRE_API') || process.env.OLLAMA_WIRE_API).toLowerCase()
     || (endpoint.includes('/v1/') ? 'openai' : 'ollama');
+  const thinkEnabled = resolveLayerBool(layer, 'OLLAMA_THINK');
+  const options = { temperature: 0.2, think: thinkEnabled === null ? false : thinkEnabled };
   const payload = wireAPI === 'openai'
     ? {
       model,
@@ -1291,7 +1579,7 @@ async function callOllamaLayer(layer, systemPrompt, userPrompt) {
       model,
       stream: false,
       format: 'json',
-      options: { temperature: 0.2 },
+      options,
       messages: [
         { role: 'system', content: systemPrompt },
         { role: 'user', content: userPrompt },
@@ -1312,7 +1600,7 @@ async function callOllamaLayer(layer, systemPrompt, userPrompt) {
       headers,
       body: JSON.stringify(payload),
     },
-    resolveLayerTimeoutSeconds(layer, 'OLLAMA_TIMEOUT_SEC', 180),
+    resolveLayerTimeoutSeconds(layer, 'OLLAMA_TIMEOUT_SEC', 0),
   );
 
   const content = wireAPI === 'openai'
@@ -1437,7 +1725,7 @@ async function runOrchestratorLayer({ prompt, currentStrategy }) {
       systemPrompt: buildOrchestratorSystemPrompt(),
       userPrompt: buildOrchestratorUserPrompt(prompt, currentStrategy)
     });
-    const parsed = parseJSONObjectContent(response.text, 'orchestration plan');
+    const parsed = parseJSONObjectWithSchema(response.text, 'orchestration plan', ORCHESTRATION_PLAN_SCHEMA);
     return {
       plan: normalizeOrchestrationPlan(parsed, prompt),
       provider: response.provider,
@@ -1476,7 +1764,7 @@ async function runResearchLayer({
       systemPrompt: buildResearchSystemPrompt(),
       userPrompt: buildResearchUserPrompt(prompt, orchestrationPlan)
     });
-    const parsed = parseJSONObjectContent(response.text, 'research bundle');
+    const parsed = parseJSONObjectWithSchema(response.text, 'research bundle', RESEARCH_BUNDLE_SCHEMA);
     aiBundle = normalizeResearchBundle(parsed, { prompt, orchestrationPlan, currentStrategy });
     provider = response.provider;
     model = response.model;
@@ -1506,10 +1794,16 @@ async function runResearchLayer({
 }
 
 async function runStrategyLayer({ prompt, currentStrategy, researchBundle, orchestrationPlan }) {
+  const userPrompt = await buildAIStrategyUserPrompt(
+    prompt,
+    currentStrategy,
+    researchBundle,
+    orchestrationPlan
+  );
   const response = await callAITextLayer({
     layer: 'STRATEGY',
     systemPrompt: buildAIStrategySystemPrompt(),
-    userPrompt: buildAIStrategyUserPrompt(prompt, currentStrategy, researchBundle, orchestrationPlan)
+    userPrompt
   });
   return {
     strategy: parseStrategyGraph(response.text),

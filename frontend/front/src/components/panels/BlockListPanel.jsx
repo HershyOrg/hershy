@@ -1,4 +1,6 @@
 import { useMemo, useState } from 'react';
+import { Button } from '../ui/button';
+import { Input } from '../ui/input';
 
 const CATEGORY_LABELS = {
   trigger: '트리거 블록',
@@ -40,19 +42,19 @@ export default function BlockListPanel({ onClose, blocks = [], selectedBlockIds 
       <div className="panel-sidebar">
         {/* Panel sidebar icons */}
       </div>
-      
+
       <div className="panel-content">
         <div className="panel-header">
           <h3 className="panel-title">블록 목록</h3>
         </div>
-        
+
         <div className="panel-search">
           <div className="search-input">
             <svg className="search-icon" width="16" height="16" viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg">
-              <path d="M13.9997 14.0002L11.1064 11.1069" stroke="#A1A1A1" strokeWidth="1.33333" strokeLinecap="round" strokeLinejoin="round"/>
-              <path d="M7.33333 12.6667C10.2789 12.6667 12.6667 10.2789 12.6667 7.33333C12.6667 4.38781 10.2789 2 7.33333 2C4.38781 2 2 4.38781 2 7.33333C2 10.2789 4.38781 12.6667 7.33333 12.6667Z" stroke="#A1A1A1" strokeWidth="1.33333" strokeLinecap="round" strokeLinejoin="round"/>
+              <path d="M13.9997 14.0002L11.1064 11.1069" stroke="#A1A1A1" strokeWidth="1.33333" strokeLinecap="round" strokeLinejoin="round" />
+              <path d="M7.33333 12.6667C10.2789 12.6667 12.6667 10.2789 12.6667 7.33333C12.6667 4.38781 10.2789 2 7.33333 2C4.38781 2 2 4.38781 2 7.33333C2 10.2789 4.38781 12.6667 7.33333 12.6667Z" stroke="#A1A1A1" strokeWidth="1.33333" strokeLinecap="round" strokeLinejoin="round" />
             </svg>
-            <input
+            <Input
               type="text"
               placeholder="블록 이름 검색..."
               value={query}
@@ -68,7 +70,7 @@ export default function BlockListPanel({ onClose, blocks = [], selectedBlockIds 
                 <p className="panel-category-title">{group.label}</p>
                 <div className="panel-category-items">
                   {group.items.map((block) => (
-                    <button
+                    <Button
                       key={block.id}
                       type="button"
                       className={`panel-block-item${selectedBlockIds.includes(block.id) ? ' is-selected' : ''}`}
@@ -83,7 +85,7 @@ export default function BlockListPanel({ onClose, blocks = [], selectedBlockIds 
                     >
                       <span className="block-indicator" data-type={block.type}></span>
                       <span className="block-name">{block.name || block.id}</span>
-                    </button>
+                    </Button>
                   ))}
                 </div>
               </div>

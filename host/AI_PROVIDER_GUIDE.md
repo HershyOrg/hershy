@@ -21,21 +21,27 @@
 ## 2. 엔드포인트
 
 Front AI draft endpoint (호환 유지, 내부는 오케스트레이션 파이프라인):
+
 - `POST http://localhost:9090/api/ai/strategy-draft`
 
 Front AI orchestration endpoint:
+
 - `POST http://localhost:9090/api/ai/orchestrate-strategy`
 
 Front AI research endpoint:
+
 - `POST http://localhost:9090/api/ai/research`
 
 Front AI strategy compose endpoint:
+
 - `POST http://localhost:9090/api/ai/strategy-compose`
 
 Front Host proxy endpoint:
+
 - `http://localhost:9090/api/host/*` -> `http://localhost:9000/*` (기본)
 
 Front runtime config endpoint:
+
 - `GET http://localhost:9090/api/config`
 
 ## 3. Provider 선택 규칙
@@ -85,12 +91,23 @@ Front runtime config endpoint:
 - `OLLAMA_ENDPOINT` (기본: `${OLLAMA_BASE_URL}/api/chat`)
 - `OLLAMA_MODEL` (기본: `gpt-oss:20b`)
 - `OLLAMA_WIRE_API` (`ollama` 또는 `openai`)
+- `OLLAMA_THINK` (`true|false`, 선택) - 모델의 thinking 모드를 명시적으로 제어
 - `OLLAMA_API_KEY` (선택)
-- `OLLAMA_TIMEOUT_SEC` (기본: `180`)
+- `OLLAMA_TIMEOUT_SEC` (기본: `0`, 무기한 대기)
+- 전략 JSON 강제/컨텍스트 주입 옵션:
+  - `AI_STRATEGY_ENABLE_HERSHY_CONTEXT` (기본: `true`)
+  - `AI_STRATEGY_HERSHY_CONTEXT_FILES` (쉼표 구분 상대 경로 목록)
+    - 예: `README.md,examples/strategy-runner/README.md,examples/strategy-runner/strategy.sample.json`
 - 레이어별 override (선택):
   - `AI_ORCHESTRATOR_OLLAMA_MODEL`, `AI_RESEARCH_OLLAMA_MODEL`, `AI_STRATEGY_OLLAMA_MODEL`
   - `AI_ORCHESTRATOR_OLLAMA_ENDPOINT`, `AI_RESEARCH_OLLAMA_ENDPOINT`, `AI_STRATEGY_OLLAMA_ENDPOINT`
   - `AI_ORCHESTRATOR_OLLAMA_API_KEY` 등
+
+추가로 front server(`frontend/front/server.mjs`)는 AI 응답 전처리에서 JSON object 단일 응답을 강제하고,
+오케스트레이션/리서치/전략 결과를 스키마 검증합니다. 스키마를 통과하지 못하면 실패 처리됩니다.
+
+참고: 서버는 Ollama 호출 시 `stream:false`로 요청하고, 응답 본문 전체를 받은 뒤 파싱합니다.
+즉, "완성 응답 수신 후 API 반환" 방식입니다.
 
 ### Gemini
 
@@ -139,6 +156,7 @@ npm run dev
 ```
 
 접속:
+
 - `http://localhost:9090`
 
 ## 6. API 예시

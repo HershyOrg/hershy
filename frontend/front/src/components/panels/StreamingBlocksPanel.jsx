@@ -1,6 +1,8 @@
 import { useState } from 'react';
 import { getStreamingFields } from '../../data/blockFixtures';
 import { EVM_CHAINS } from '../../lib/evmChains';
+import { Button } from '../ui/button';
+import { Input } from '../ui/input';
 
 const flattenJsonFields = (value, prefix = '') => {
   if (Array.isArray(value)) {
@@ -122,48 +124,48 @@ export default function StreamingBlocksPanel({ onClose, onCreate }) {
       <div className="panel-sidebar">
         {/* Panel sidebar icons */}
       </div>
-      
+
       <div className="panel-content">
         <div className="panel-header">
           <h3 className="panel-title">스트리밍 블록</h3>
         </div>
-        
+
         <div className="panel-form">
           <div className="form-field">
             <label className="field-label">스트림 소스</label>
             <div className="button-group">
-              <button
+              <Button
                 type="button"
                 className={`btn-option ${streamKind === 'url' ? 'active' : ''}`}
                 onClick={() => setStreamKind('url')}
               >
                 URL/WebSocket
-              </button>
-              <button
+              </Button>
+              <Button
                 type="button"
                 className={`btn-option ${streamKind === 'evm-rpc' ? 'active' : ''}`}
                 onClick={() => setStreamKind('evm-rpc')}
               >
                 EVM RPC
-              </button>
+              </Button>
             </div>
           </div>
 
           <div className="form-field">
             <label className="field-label">블록 이름</label>
-            <input 
-              type="text" 
-              className="field-input" 
+            <Input
+              type="text"
+              className="field-input"
               placeholder="예: BTCUSDT_Price"
               value={blockName}
               onChange={(event) => setBlockName(event.target.value)}
             />
           </div>
-          
+
           {streamKind === 'url' && (
             <div className="form-field">
               <label className="field-label">API/WebSocket URL</label>
-              <input
+              <Input
                 type="text"
                 className="field-input"
                 placeholder="wss://stream.binance.com:9443/ws/btcusdt@ticker"
@@ -190,7 +192,7 @@ export default function StreamingBlocksPanel({ onClose, onCreate }) {
               </div>
               <div className="form-field">
                 <label className="field-label">RPC Method</label>
-                <input
+                <Input
                   type="text"
                   className="field-input"
                   placeholder="eth_blockNumber"
@@ -209,56 +211,56 @@ export default function StreamingBlocksPanel({ onClose, onCreate }) {
               </div>
             </>
           )}
-          
+
           <div className="form-field">
             <label className="field-label">데이터 수신 방식</label>
             <div className="button-group">
-              <button 
+              <Button
                 className={`btn-option ${dataReceptionType === 'realtime' ? 'active' : ''}`}
                 onClick={() => setDataReceptionType('realtime')}
               >
                 실시간
-              </button>
-              <button 
+              </Button>
+              <Button
                 className={`btn-option ${dataReceptionType === 'periodic' ? 'active' : ''}`}
                 onClick={() => setDataReceptionType('periodic')}
               >
                 주기적
-              </button>
+              </Button>
             </div>
           </div>
-          
+
           {dataReceptionType === 'periodic' && (
             <div className="form-field">
               <label className="field-label">업데이트 주기 (초)</label>
-              <input 
-                type="text" 
-                className="field-input" 
+              <Input
+                type="text"
+                className="field-input"
                 placeholder="예: 1"
                 value={updateInterval}
                 onChange={(event) => setUpdateInterval(event.target.value)}
               />
             </div>
           )}
-          
+
           <div className="form-field">
             <label className="field-label">반환값 형식 (JSON)</label>
-            <textarea 
-              className="field-textarea" 
+            <textarea
+              className="field-textarea"
               placeholder='{"price": "number", "volume": "number", "timestamp": "string"}'
               value={responseFormat}
               onChange={(event) => setResponseFormat(event.target.value)}
             />
           </div>
-          
-          <button
+
+          <Button
             type="button"
             className={`btn-parse ${canParse ? '' : 'disabled'}`}
             disabled={!canParse}
             onClick={handleParseFields}
           >
             필드 파싱
-          </button>
+          </Button>
 
           {fields.length > 0 && (
             <div className="field-preview">
@@ -270,15 +272,15 @@ export default function StreamingBlocksPanel({ onClose, onCreate }) {
               </div>
             </div>
           )}
-          
-          <button
+
+          <Button
             type="button"
             className={`btn-create ${canCreate ? '' : 'disabled'}`}
             disabled={!canCreate}
             onClick={handleCreate}
           >
             블록 생성
-          </button>
+          </Button>
         </div>
       </div>
     </div>
