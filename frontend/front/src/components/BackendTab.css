@@ -226,6 +226,62 @@
   color: #fde68a;
 }
 
+.strategy-import-panel {
+  padding: 10px 12px;
+  border-bottom: 1px solid #1E293B;
+  background: #0b1322;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.strategy-import-header {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.strategy-import-title {
+  color: #e2e8f0;
+  font-family: Inter, -apple-system, Roboto, Helvetica, sans-serif;
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.strategy-import-hint {
+  color: #94a3b8;
+  font-family: Inter, -apple-system, Roboto, Helvetica, sans-serif;
+  font-size: 11px;
+}
+
+.strategy-import-input {
+  width: 100%;
+  min-height: 120px;
+  resize: vertical;
+  border-radius: 8px;
+  border: 1px solid #334155;
+  background: #020617;
+  color: #e2e8f0;
+  padding: 10px;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, 'Liberation Mono', 'Courier New', monospace;
+  font-size: 12px;
+  line-height: 1.4;
+}
+
+.strategy-import-input:focus {
+  outline: none;
+  border-color: #0f766e;
+  box-shadow: 0 0 0 2px rgba(15, 118, 110, 0.18);
+}
+
+.strategy-import-actions {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
 .host-control-bar {
   display: flex;
   align-items: center;

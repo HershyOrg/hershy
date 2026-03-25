@@ -1,6 +1,9 @@
 import { useEffect, useMemo, useState } from 'react';
 import './ActionBlock.css';
 import { EVM_CHAINS } from '../../lib/evmChains';
+import { Button } from '../ui/button';
+import { Input } from '../ui/input';
+import { Select } from '../ui/select';
 
 const SAVED_CONTRACTS = [
   {
@@ -72,13 +75,13 @@ const mergeSourceList = (sources, nextSource) => {
 const normalizeParams = (params) => (
   Array.isArray(params)
     ? params.map((param) => ({
-        ...param,
-        source: param?.source ?? null,
-        sources: mergeSourceList(
-          Array.isArray(param?.sources) ? param.sources : [],
-          normalizeSource(param?.source)
-        )
-      }))
+      ...param,
+      source: param?.source ?? null,
+      sources: mergeSourceList(
+        Array.isArray(param?.sources) ? param.sources : [],
+        normalizeSource(param?.source)
+      )
+    }))
     : []
 );
 
@@ -323,7 +326,7 @@ const ActionBlock = ({
         <div className="action-block-header-content">
           <div className="action-block-title-row">
             <div className="action-block-indicator" />
-            <input
+            <Input
               className="action-block-title-input"
               value={name}
               onChange={(event) => onUpdateBlock?.(blockId, { name: event.target.value })}
@@ -335,7 +338,7 @@ const ActionBlock = ({
       </div>
 
       <div className="action-block-type-toggle">
-        <button
+        <Button
           className={`action-type-btn ${type === 'cex' ? 'active' : ''}`}
           onClick={() => {
             setType('cex');
@@ -348,8 +351,8 @@ const ActionBlock = ({
             <path d="M8 3.5H11V6.5" stroke="currentColor" strokeLinecap="round" strokeLinejoin="round" />
           </svg>
           CEX
-        </button>
-        <button
+        </Button>
+        <Button
           className={`action-type-btn ${type === 'dex' ? 'active' : ''}`}
           onClick={() => {
             setType('dex');
@@ -364,13 +367,13 @@ const ActionBlock = ({
             <path d="M2 8.5H10" stroke="currentColor" strokeLinecap="round" strokeLinejoin="round" />
           </svg>
           Contract
-        </button>
+        </Button>
       </div>
 
       {type === 'cex' && (
         <div className="action-block-exchange">
           <label className="action-block-label">거래소</label>
-          <select
+          <Select
             className="action-block-select"
             value={selectedExchange}
             onChange={(event) => {
@@ -382,7 +385,7 @@ const ActionBlock = ({
             <option value="Coinbase">Coinbase</option>
             <option value="Kraken">Kraken</option>
             <option value="Upbit">Upbit</option>
-          </select>
+          </Select>
         </div>
       )}
 
@@ -390,7 +393,7 @@ const ActionBlock = ({
         <>
           <div className="action-block-exchange">
             <label className="action-block-label">프로토콜</label>
-            <select
+            <Select
               className="action-block-select"
               value={protocol}
               onChange={(event) => {
@@ -407,11 +410,11 @@ const ActionBlock = ({
               <option value="generic">Generic</option>
               <option value="evm">EVM Contract</option>
               <option value="polymarket">Polymarket</option>
-            </select>
+            </Select>
           </div>
 
           <div className="action-block-mode-toggle">
-            <button
+            <Button
               type="button"
               className={`action-mode-btn ${mode === 'address' ? 'active' : ''}`}
               onClick={() => {
@@ -420,8 +423,8 @@ const ActionBlock = ({
               }}
             >
               주소
-            </button>
-            <button
+            </Button>
+            <Button
               type="button"
               className={`action-mode-btn ${mode === 'api' ? 'active' : ''}`}
               onClick={() => {
@@ -434,13 +437,13 @@ const ActionBlock = ({
               disabled={protocol === 'evm'}
             >
               API
-            </button>
+            </Button>
           </div>
 
           {protocol === 'polymarket' && (
             <div className="action-block-exchange">
               <label className="action-block-label">체인 ID</label>
-              <input
+              <Input
                 type="number"
                 className="action-block-input"
                 value={polyChainId}
@@ -457,7 +460,7 @@ const ActionBlock = ({
             <div className="action-block-contract">
               <label className="action-block-label">컨트랙트 주소</label>
               {!addressSource && (
-                <input
+                <Input
                   type="text"
                   className="action-block-input"
                   value={address}
@@ -480,13 +483,13 @@ const ActionBlock = ({
               {addressSource && (
                 <div className="action-param-source">
                   <span>{getSourceLabel(addressSource)}</span>
-                  <button
+                  <Button
                     type="button"
                     className="action-param-source-clear"
                     onClick={() => updateContractMapping({ contractAddressSource: null, contractAddress: '' })}
                   >
                     ×
-                  </button>
+                  </Button>
                 </div>
               )}
               {addressSources.length > 0 && (
@@ -497,14 +500,14 @@ const ActionBlock = ({
                       const key = sourceKey(source);
                       const isActive = addressSource && sourceKey(addressSource) === key;
                       return (
-                        <button
+                        <Button
                           key={key}
                           type="button"
                           className={`action-param-candidate action-param-candidate--${source.blockType || 'default'}${isActive ? ' is-active' : ''}`}
                           onClick={() => handleContractSourceSelect(source)}
                         >
                           {getSourceLabel(source)}
-                        </button>
+                        </Button>
                       );
                     })}
                   </div>
@@ -525,7 +528,7 @@ const ActionBlock = ({
                           <p className="action-contract-address">{contract.address}</p>
                           <p className="action-contract-desc">{contract.description}</p>
                         </div>
-                        <button
+                        <Button
                           type="button"
                           className="action-contract-select"
                           onClick={() => {
@@ -538,7 +541,7 @@ const ActionBlock = ({
                           }}
                         >
                           생성
-                        </button>
+                        </Button>
                       </div>
                     ))}
                   </div>
@@ -574,7 +577,7 @@ const ActionBlock = ({
               {protocol === 'evm' && (
                 <>
                   <label className="action-block-label">체인</label>
-                  <select
+                  <Select
                     className="action-block-select"
                     value={evmSelectedChain}
                     onChange={(event) => {
@@ -586,10 +589,10 @@ const ActionBlock = ({
                     {EVM_CHAINS.map((chain) => (
                       <option key={chain.id} value={chain.id}>{chain.label}</option>
                     ))}
-                  </select>
+                  </Select>
 
                   <label className="action-block-label">함수명</label>
-                  <input
+                  <Input
                     type="text"
                     className="action-block-input"
                     value={evmMethodName}
@@ -601,7 +604,7 @@ const ActionBlock = ({
                   />
 
                   <label className="action-block-label">함수 시그니처</label>
-                  <input
+                  <Input
                     type="text"
                     className="action-block-input"
                     value={evmMethodSignature}
@@ -613,7 +616,7 @@ const ActionBlock = ({
                   />
 
                   <label className="action-block-label">함수 타입</label>
-                  <input
+                  <Input
                     type="text"
                     className="action-block-input"
                     value={evmMethodState}
@@ -631,7 +634,7 @@ const ActionBlock = ({
           {mode === 'api' && (
             <div className="action-block-api">
               <label className="action-block-label">API URL</label>
-              <input
+              <Input
                 type="text"
                 className="action-block-input"
                 value={apiEndpoint}
@@ -686,17 +689,17 @@ const ActionBlock = ({
               {param.source && (
                 <div className="action-param-source">
                   <span>{getSourceLabel(param.source)}</span>
-                  <button
+                  <Button
                     type="button"
                     className="action-param-source-clear"
                     onClick={() => updateParam(index, { source: null, value: '', valueOrigin: null })}
                   >
                     ×
-                  </button>
+                  </Button>
                 </div>
               )}
               {!param.source && (
-                <input
+                <Input
                   type="text"
                   className="action-param-input"
                   value={param.value || ''}
@@ -714,14 +717,14 @@ const ActionBlock = ({
                   <div className="action-param-candidates-header">
                     <span className="action-param-candidates-label">연결 후보</span>
                     {param.sources.length > 1 && param.source && (
-                      <button
+                      <Button
                         type="button"
                         className="action-param-candidates-clear"
                         onClick={() => updateParam(index, { source: null, value: '', valueOrigin: null })}
                         aria-label="연결 해제"
                       >
                         ×
-                      </button>
+                      </Button>
                     )}
                   </div>
                   <div className="action-param-candidates-list">
@@ -729,14 +732,14 @@ const ActionBlock = ({
                       const key = sourceKey(source);
                       const isActive = param.source && sourceKey(param.source) === key;
                       return (
-                        <button
+                        <Button
                           key={key}
                           type="button"
                           className={`action-param-candidate action-param-candidate--${source.blockType || 'default'}${isActive ? ' is-active' : ''}`}
                           onClick={() => handleParamSelect(index, source)}
                         >
                           {getSourceLabel(source)}
-                        </button>
+                        </Button>
                       );
                     })}
                   </div>

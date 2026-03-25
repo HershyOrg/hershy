@@ -11,6 +11,7 @@ import NormalBlocksPanel from './panels/NormalBlocksPanel';
 import TriggerBlocksPanel from './panels/TriggerBlocksPanel';
 import ActionBlocksPanel from './panels/ActionBlocksPanel';
 import MonitoringBlocksPanel from './panels/MonitoringBlocksPanel';
+import { Button } from './ui/button';
 import {
   buildStrategyDefinition,
   buildStrategyFilename,
@@ -29,9 +30,31 @@ import {
 
 const DEFAULT_LIVE_INTERVAL = 1200;
 const MAX_SNAPSHOT_RECORDS = 30;
+const MAX_HISTORY_ENTRIES = 80;
 const FRONT_AI_ENDPOINT = '/api/ai/strategy-draft';
 const FRONT_HOST_PROXY_PREFIX = '/api/host';
 const DEFAULT_HOST_TARGET = 'http://localhost:9000';
+
+const inferConnectionKind = (fromType, toType) => {
+  if (fromType === 'streaming' && toType === 'monitoring') {
+    return 'stream-monitor';
+  }
+  if (fromType === 'trigger' && toType === 'action') {
+    return 'trigger-action';
+  }
+  return 'action-input';
+};
+
+const stripJsonCodeFence = (raw) => {
+  const trimmed = String(raw || '').trim();
+  if (!trimmed.startsWith('```')) {
+    return trimmed;
+  }
+  return trimmed
+    .replace(/^```(?:json)?\s*/i, '')
+    .replace(/\s*```$/, '')
+    .trim();
+};
 
 const buildSnapshotValue = (field, seq, previousValues = {}) => {
   const lower = field.toLowerCase();
@@ -94,6 +117,8 @@ export default function BackendTab() {
   const clipboardRef = useRef(null);
   const pasteOffsetRef = useRef(24);
   const streamIntervalsRef = useRef(new Map());
+  const historyByTabRef = useRef({});
+  const skipHistoryRecordRef = useRef(false);
   const spawnColumnCount = 3;
   const spawnColumnWidth = 320;
   const spawnRowHeight = 260;
@@ -116,6 +141,8 @@ export default function BackendTab() {
   const [savedTemplates, setSavedTemplates] = useState([]);
   const [strategyNotice, setStrategyNotice] = useState(null);
   const [strategyReport, setStrategyReport] = useState(null);
+  const [strategyImportOpen, setStrategyImportOpen] = useState(false);
+  const [strategyImportText, setStrategyImportText] = useState('');
   const [aiPrompt, setAiPrompt] = useState('BTCUSDT 1시간 마켓 전략으로 만들어줘. 최근 가격 기준 상단/하단 임계값을 자동 추정하고, 1시간 내 단기 돌파는 매수, 이탈은 매도하도록 구성해줘.');
   const [aiNotice, setAiNotice] = useState(null);
   const [aiBusy, setAiBusy] = useState(false);
@@ -193,6 +220,8 @@ export default function BackendTab() {
       delete nextAuth[tabId];
       return nextAuth;
     });
+
+    delete historyByTabRef.current[tabId];
   };
 
   useEffect(() => {
@@ -282,6 +311,108 @@ export default function BackendTab() {
       at: Date.now()
     });
   };
+
+  const cloneSnapshot = (snapshot) => ({
+    blocks: JSON.parse(JSON.stringify(snapshot.blocks || [])),
+    connections: JSON.parse(JSON.stringify(snapshot.connections || []))
+  });
+
+  const getSnapshotSignature = (snapshot) => JSON.stringify({
+    blocks: snapshot.blocks || [],
+    connections: snapshot.connections || []
+  });
+
+  const ensureHistoryEntry = (tabId, blocks, connections) => {
+    if (!tabId) {
+      return null;
+    }
+
+    if (!historyByTabRef.current[tabId]) {
+      const initial = cloneSnapshot({ blocks, connections });
+      historyByTabRef.current[tabId] = {
+        stack: [initial],
+        index: 0
+      };
+    }
+
+    return historyByTabRef.current[tabId];
+  };
+
+  const applySnapshotToActiveTab = (snapshot) => {
+    if (!activeTabId) {
+      return;
+    }
+
+    const resolved = cloneSnapshot(snapshot);
+    skipHistoryRecordRef.current = true;
+    setBlocksByTab((prevBlocks) => ({
+      ...prevBlocks,
+      [activeTabId]: resolved.blocks
+    }));
+    setConnectionsByTab((prevConnections) => ({
+      ...prevConnections,
+      [activeTabId]: resolved.connections
+    }));
+    setSelectedBlockIdsByTab((prevSelected) => ({
+      ...prevSelected,
+      [activeTabId]: []
+    }));
+  };
+
+  const handleUndoCanvas = () => {
+    const entry = ensureHistoryEntry(activeTabId, activeBlocks, activeConnections);
+    if (!entry || entry.index <= 0) {
+      setNotice('warn', '되돌릴 변경이 없습니다.');
+      return;
+    }
+
+    entry.index -= 1;
+    applySnapshotToActiveTab(entry.stack[entry.index]);
+  };
+
+  const handleRedoCanvas = () => {
+    const entry = ensureHistoryEntry(activeTabId, activeBlocks, activeConnections);
+    if (!entry || entry.index >= entry.stack.length - 1) {
+      setNotice('warn', '다시 적용할 변경이 없습니다.');
+      return;
+    }
+
+    entry.index += 1;
+    applySnapshotToActiveTab(entry.stack[entry.index]);
+  };
+
+  useEffect(() => {
+    if (!activeTabId) {
+      return;
+    }
+
+    const entry = ensureHistoryEntry(activeTabId, activeBlocks, activeConnections);
+    if (!entry) {
+      return;
+    }
+
+    if (skipHistoryRecordRef.current) {
+      skipHistoryRecordRef.current = false;
+      return;
+    }
+
+    const nextSnapshot = cloneSnapshot({ blocks: activeBlocks, connections: activeConnections });
+    const nextSignature = getSnapshotSignature(nextSnapshot);
+    const currentSignature = getSnapshotSignature(entry.stack[entry.index]);
+    if (nextSignature === currentSignature) {
+      return;
+    }
+
+    if (entry.index < entry.stack.length - 1) {
+      entry.stack = entry.stack.slice(0, entry.index + 1);
+    }
+
+    entry.stack.push(nextSnapshot);
+    if (entry.stack.length > MAX_HISTORY_ENTRIES) {
+      entry.stack.shift();
+    }
+    entry.index = entry.stack.length - 1;
+  }, [activeTabId, activeBlocks, activeConnections]);
 
   const compileActiveStrategy = () => {
     if (!activeTabId) {
@@ -450,6 +581,105 @@ export default function BackendTab() {
     document.body.removeChild(anchor);
     URL.revokeObjectURL(url);
     setNotice('success', `${filename} 파일로 저장했습니다.`);
+  };
+
+  const buildStrategyFromImportedJson = (payload) => {
+    if (!payload || typeof payload !== 'object') {
+      throw new Error('JSON 객체 형식이 아닙니다.');
+    }
+
+    if (Array.isArray(payload.blocks) && payload.blocks.some((block) => block?.config && typeof block.config === 'object')) {
+      return payload;
+    }
+
+    const sourceBlocks = Array.isArray(payload.blocks) ? payload.blocks : [];
+    if (sourceBlocks.length === 0) {
+      throw new Error('blocks 배열이 비어 있습니다.');
+    }
+
+    const normalizedBlocks = sourceBlocks.map((block, index) => {
+      const raw = block && typeof block === 'object' ? block : {};
+      const type = typeof raw.type === 'string' && raw.type.trim() ? raw.type.trim() : 'normal';
+      const id = typeof raw.id === 'string' && raw.id.trim() ? raw.id.trim() : `${type}-${index + 1}`;
+      return {
+        ...raw,
+        id,
+        type,
+        position: raw.position && typeof raw.position === 'object'
+          ? raw.position
+          : { x: (index % 3) * 320, y: Math.floor(index / 3) * 260 }
+      };
+    });
+
+    const typeById = new Map(normalizedBlocks.map((block) => [block.id, block.type]));
+    const rawConnections = Array.isArray(payload.connections)
+      ? payload.connections
+      : (Array.isArray(payload.edges) ? payload.edges : []);
+
+    const normalizedConnections = rawConnections
+      .map((connection, index) => {
+        const fromId = String(connection?.fromId || connection?.from || '').trim();
+        const toId = String(connection?.toId || connection?.to || '').trim();
+        if (!fromId || !toId) {
+          return null;
+        }
+
+        const fromType = typeById.get(fromId) || null;
+        const toType = typeById.get(toId) || null;
+        const kind = String(connection?.kind || '').trim() || inferConnectionKind(fromType, toType);
+        return {
+          id: String(connection?.id || `${kind}-${index + 1}`),
+          kind,
+          fromId,
+          toId,
+          fromSide: String(connection?.fromSide || 'right'),
+          toSide: String(connection?.toSide || 'left')
+        };
+      })
+      .filter(Boolean);
+
+    return buildStrategyDefinition({
+      tabId: activeTabId,
+      tabLabel: activeTabLabel,
+      blocks: normalizedBlocks,
+      connections: normalizedConnections
+    });
+  };
+
+  const handleImportStrategyJson = () => {
+    if (!activeTabId) {
+      setNotice('error', '활성 전략 탭이 없습니다.');
+      return;
+    }
+
+    const raw = stripJsonCodeFence(strategyImportText);
+    if (!raw) {
+      setNotice('error', '붙여넣은 JSON 내용이 비어 있습니다.');
+      return;
+    }
+
+    try {
+      const parsed = JSON.parse(raw);
+      const strategy = buildStrategyFromImportedJson(parsed);
+      const report = validateStrategyDefinition(strategy);
+      setStrategyReport(report);
+
+      if (!report.valid) {
+        setNotice('error', `JSON 검증 실패 (에러 ${report.errors.length}건).`);
+        return;
+      }
+
+      const applied = applyStrategyToActiveTab(strategy);
+      if (!applied) {
+        setNotice('error', '전략 적용에 실패했습니다.');
+        return;
+      }
+
+      setStrategyImportOpen(false);
+      setNotice('success', `JSON 전략 적용 완료${report.warnings.length > 0 ? ` (경고 ${report.warnings.length}건)` : ''}.`);
+    } catch (error) {
+      setNotice('error', `JSON 파싱 실패: ${error.message}`);
+    }
   };
 
   const handleOpenHostUI = () => {
@@ -935,11 +1165,11 @@ export default function BackendTab() {
       [activeTabId]: (prevBlocks[activeTabId] || []).map((block) => (
         block.id === monitoringId
           ? {
-              ...block,
-              connectedStreamId: null,
-              connectedStream: '',
-              fields: []
-            }
+            ...block,
+            connectedStreamId: null,
+            connectedStream: '',
+            fields: []
+          }
           : block
       ))
     }));
@@ -1145,11 +1375,11 @@ export default function BackendTab() {
           [activeTabId]: tabBlocks.map((block) => (
             block.id === monitoringBlock.id
               ? {
-                  ...block,
-                  connectedStreamId: streamingBlock.id,
-                  connectedStream: streamName,
-                  fields: streamingFields
-                }
+                ...block,
+                connectedStreamId: streamingBlock.id,
+                connectedStream: streamName,
+                fields: streamingFields
+              }
               : block
           ))
         };
@@ -1294,6 +1524,10 @@ export default function BackendTab() {
       return true;
     }
 
+    if (target.closest?.('.ui-select-wrap')) {
+      return true;
+    }
+
     const tagName = target.tagName?.toLowerCase();
     return tagName === 'input' || tagName === 'textarea' || tagName === 'select';
   };
@@ -1323,12 +1557,28 @@ export default function BackendTab() {
       if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === 'v') {
         event.preventDefault();
         handlePasteSelection();
+        return;
+      }
+
+      if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === 'z') {
+        event.preventDefault();
+        if (event.shiftKey) {
+          handleRedoCanvas();
+        } else {
+          handleUndoCanvas();
+        }
+        return;
+      }
+
+      if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === 'y') {
+        event.preventDefault();
+        handleRedoCanvas();
       }
     };
 
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [activeTabId, activeSelectedIds, activeBlocks]);
+  }, [activeTabId, activeSelectedIds, activeBlocks, activeConnections]);
 
   return (
     <div className="backend-tab">
@@ -1341,46 +1591,47 @@ export default function BackendTab() {
           onSelectTab={setActiveTabId}
         />
         <div className="backend-view-toggle">
-          <button
-            type="button"
+          <Button
             className="strategy-tool-btn"
             onClick={handleValidateStrategy}
             disabled={!activeTabId}
           >
             전략 검증
-          </button>
-          <button
-            type="button"
+          </Button>
+          <Button
             className="strategy-tool-btn"
             onClick={handleCopyStrategyJson}
             disabled={!activeTabId}
           >
             JSON 복사
-          </button>
-          <button
-            type="button"
+          </Button>
+          <Button
             className="strategy-tool-btn"
             onClick={handleDownloadStrategyJson}
             disabled={!activeTabId}
           >
             JSON 저장
-          </button>
-          <button
-            type="button"
+          </Button>
+          <Button
+            className={`strategy-tool-btn${strategyImportOpen ? ' active' : ''}`}
+            onClick={() => setStrategyImportOpen((prev) => !prev)}
+            disabled={!activeTabId}
+          >
+            JSON 붙여넣기
+          </Button>
+          <Button
             className="strategy-tool-btn host"
             onClick={handleOpenHostUI}
           >
             Host UI
-          </button>
-          <button
-            type="button"
+          </Button>
+          <Button
             className={`strategy-tool-btn ai${aiPanelOpen ? ' active' : ''}`}
             onClick={() => setAiPanelOpen((prev) => !prev)}
           >
             AI 전략
-          </button>
-          <button
-            type="button"
+          </Button>
+          <Button
             className={`backend-view-btn${viewMode === 'backend' ? ' active' : ''}`}
             onClick={() => {
               setViewMode('backend');
@@ -1388,9 +1639,8 @@ export default function BackendTab() {
             }}
           >
             백엔드
-          </button>
-          <button
-            type="button"
+          </Button>
+          <Button
             className={`backend-view-btn${viewMode === 'front' ? ' active' : ''}`}
             onClick={() => {
               setViewMode('front');
@@ -1398,9 +1648,8 @@ export default function BackendTab() {
             }}
           >
             프론트
-          </button>
-          <button
-            type="button"
+          </Button>
+          <Button
             className={`backend-view-btn${viewMode === 'preauth' ? ' active' : ''}`}
             onClick={() => {
               setViewMode('preauth');
@@ -1408,7 +1657,7 @@ export default function BackendTab() {
             }}
           >
             사전인증
-          </button>
+          </Button>
         </div>
       </div>
       <div className="strategy-feedback-bar">
@@ -1429,50 +1678,78 @@ export default function BackendTab() {
           </div>
         )}
       </div>
-      <div className="host-control-bar">
-        <div className="host-control-target">
-          Host API Target: {hostTarget}
+      {strategyImportOpen && (
+        <div className="strategy-import-panel">
+          <div className="strategy-import-header">
+            <span className="strategy-import-title">전략 JSON 붙여넣기</span>
+            <span className="strategy-import-hint">`blocks`, `connections` 또는 `edges` 형식을 지원합니다.</span>
+          </div>
+          <textarea
+            className="strategy-import-input"
+            value={strategyImportText}
+            onChange={(event) => setStrategyImportText(event.target.value)}
+            placeholder="여기에 전략 JSON을 붙여넣으세요"
+            rows={8}
+          />
+          <div className="strategy-import-actions">
+            <Button
+              className="strategy-tool-btn host"
+              onClick={handleImportStrategyJson}
+              disabled={!activeTabId}
+            >
+              붙여넣기 적용
+            </Button>
+            <Button
+              className="strategy-tool-btn"
+              onClick={() => setStrategyImportText('')}
+            >
+              내용 지우기
+            </Button>
+            <Button
+              className="strategy-tool-btn"
+              onClick={() => setStrategyImportOpen(false)}
+            >
+              닫기
+            </Button>
+          </div>
         </div>
-        <button
-          type="button"
+      )}
+      <div className="host-control-bar">
+        <Button
           className="strategy-tool-btn host"
           onClick={handleDeployHostProgram}
           disabled={!activeTabId || hostBusy}
         >
           {hostBusy ? '처리중...' : 'Host 배포'}
-        </button>
-        <button
-          type="button"
+        </Button>
+        <Button
           className="strategy-tool-btn"
           onClick={handleStartHostProgram}
           disabled={!hostProgram?.programId || hostBusy}
         >
           시작
-        </button>
-        <button
-          type="button"
+        </Button>
+        <Button
           className="strategy-tool-btn"
           onClick={handleRefreshHostProgram}
           disabled={!hostProgram?.programId || hostBusy}
         >
           상태
-        </button>
-        <button
-          type="button"
+        </Button>
+        <Button
           className="strategy-tool-btn"
           onClick={handleStopHostProgram}
           disabled={!hostProgram?.programId || hostBusy}
         >
           중지
-        </button>
-        <button
-          type="button"
+        </Button>
+        <Button
           className="strategy-tool-btn"
           onClick={handleOpenWatcherStatus}
           disabled={!hostProgram?.programId}
         >
           Watcher 상태
-        </button>
+        </Button>
         {hostProgram && (
           <div className="host-program-summary">
             id {hostProgram.programId} · build {hostProgram.buildId} · state {hostProgram.state}
@@ -1493,11 +1770,11 @@ export default function BackendTab() {
           ))}
         </div>
       )}
-      
+
       {viewMode === 'backend' ? (
         <div className="backend-content">
           <Sidebar activePanel={activePanel} onIconClick={handleIconClick} />
-          
+
           <Canvas
             blocks={activeBlocks}
             connections={activeConnections}
@@ -1512,7 +1789,7 @@ export default function BackendTab() {
             onClearSelection={handleClearSelection}
             onSaveSelection={handleSaveSelection}
           />
-          
+
           {activePanel === 'block-list' && (
             <BlockListPanel
               onClose={() => setActivePanel(null)}
@@ -1586,13 +1863,12 @@ export default function BackendTab() {
       <div className={`ai-side-panel${aiPanelOpen ? ' open' : ''}`}>
         <div className="ai-side-header">
           <div className="ai-side-title">AI 전략</div>
-          <button
-            type="button"
+          <Button
             className="ai-side-close"
             onClick={() => setAiPanelOpen(false)}
           >
             닫기
-          </button>
+          </Button>
         </div>
         <div className="ai-side-body">
           <label htmlFor="ai-strategy-prompt" className="ai-control-label">요청 프롬프트</label>
@@ -1605,22 +1881,20 @@ export default function BackendTab() {
             rows={7}
           />
           <div className="ai-control-actions">
-            <button
-              type="button"
+            <Button
               className="strategy-tool-btn host"
               onClick={handleGenerateAIStrategy}
               disabled={!activeTabId || aiBusy}
             >
               {aiBusy ? 'AI 생성중...' : 'AI로 전략 생성'}
-            </button>
-            <button
-              type="button"
+            </Button>
+            <Button
               className="strategy-tool-btn"
               onClick={() => setAiPrompt('BTCUSDT 1시간 마켓 전략으로 만들어줘. 최근 가격 기준 상단/하단 임계값을 자동 추정하고, 1시간 내 단기 돌파는 매수, 이탈은 매도하도록 구성해줘.')}
               disabled={aiBusy}
             >
               예시 입력
-            </button>
+            </Button>
           </div>
           <div className="ai-control-hint">
             front 서버의 `/api/ai/strategy-draft`(오케스트레이션 to 리서치 to 전략)를 호출하고, 실패하면 로컬 규칙 생성으로 대체합니다.

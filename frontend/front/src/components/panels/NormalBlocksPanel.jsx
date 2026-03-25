@@ -1,4 +1,6 @@
 import { useState } from 'react';
+import { Button } from '../ui/button';
+import { Input } from '../ui/input';
 
 export default function NormalBlocksPanel({ onClose, onCreate }) {
   const [blockName, setBlockName] = useState('');
@@ -24,43 +26,43 @@ export default function NormalBlocksPanel({ onClose, onCreate }) {
       <div className="panel-sidebar">
         {/* Panel sidebar icons */}
       </div>
-      
+
       <div className="panel-content">
         <div className="panel-header">
           <h3 className="panel-title">일반 블록</h3>
         </div>
-        
+
         <div className="panel-form">
           <div className="form-field">
             <label className="field-label">블록 이름</label>
-            <input 
-              type="text" 
-              className="field-input" 
+            <Input
+              type="text"
+              className="field-input"
               placeholder="예: Static_Value"
               value={blockName}
               onChange={(event) => setBlockName(event.target.value)}
             />
           </div>
-          
+
           <div className="form-field">
             <label className="field-label">값</label>
-            <input 
-              type="text" 
-              className="field-input" 
+            <Input
+              type="text"
+              className="field-input"
               placeholder="예: 100"
               value={value}
               onChange={(event) => setValue(event.target.value)}
             />
           </div>
-          
-          <button
+
+          <Button
             type="button"
             className={`btn-create ${canCreate ? '' : 'disabled'}`}
             disabled={!canCreate}
             onClick={handleCreate}
           >
             블록 생성
-          </button>
+          </Button>
         </div>
       </div>
     </div>

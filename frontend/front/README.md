@@ -36,6 +36,7 @@ HOST_API_BASE=http://localhost:9000 npm run start
 ```
 
 접속 URL:
+
 - `http://localhost:9090`
 
 ## Key Environment Variables
@@ -44,9 +45,15 @@ HOST_API_BASE=http://localhost:9000 npm run start
 - `FRONT_PORT` (default: `9090`)
 - `AI_PROVIDER` (`ollama`, `gemini`, `openai`)
 - `OPENAI_API_KEY`, `GOOGLE_API_KEY`/`GEMINI_API_KEY`, `OLLAMA_*`
+- Strategy AI strict mode/context (optional):
+  - `AI_STRATEGY_ENABLE_HERSHY_CONTEXT` (default: `true`)
+  - `AI_STRATEGY_HERSHY_CONTEXT_FILES` (comma-separated repo-relative files)
 - Layer override (optional):
   - `AI_ORCHESTRATOR_PROVIDER`, `AI_RESEARCH_PROVIDER`, `AI_STRATEGY_PROVIDER`
   - `AI_ORCHESTRATOR_MODEL`, `AI_RESEARCH_MODEL`, `AI_STRATEGY_MODEL`
   - `AI_<LAYER>_TIMEOUT_SEC` (e.g. `AI_RESEARCH_TIMEOUT_SEC`)
+
+AI orchestration endpoints enforce JSON-only responses in preprocessing and validate
+orchestrator/research/strategy payloads against schema before downstream usage.
 
 세부 provider 설정은 `host/AI_PROVIDER_GUIDE.md` 참고.

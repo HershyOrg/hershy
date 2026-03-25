@@ -1,5 +1,8 @@
 import { useEffect, useRef, useState } from 'react';
 import './TriggerBlock.css';
+import { Button } from '../ui/button';
+import { Input } from '../ui/input';
+import { NumberStepper } from '../ui/number-stepper';
 
 const TYPE_LABELS = {
   manual: '수동 클릭',
@@ -511,11 +514,11 @@ const TriggerBlock = ({
     const groupClassName = `trigger-visual-group${group.operator === 'OR' ? ' is-or' : ' is-and'}${isRoot ? ' is-root' : ''}${isFloating ? ' is-floating' : ''}${overlapErrorId === group.id ? ' has-overlap' : ''}`;
     const style = isFloating
       ? {
-          left: `${group.rect.x}px`,
-          top: `${group.rect.y}px`,
-          width: `${group.rect.width}px`,
-          height: `${group.rect.height}px`
-        }
+        left: `${group.rect.x}px`,
+        top: `${group.rect.y}px`,
+        width: `${group.rect.width}px`,
+        height: `${group.rect.height}px`
+      }
       : undefined;
 
     return (
@@ -530,15 +533,13 @@ const TriggerBlock = ({
         onContextMenu={(event) => handleGroupContextMenu(event, group.id)}
       >
         <div className="trigger-visual-group-header">
-          <button
-            type="button"
+          <Button
             className="trigger-visual-operator"
             onClick={() => handleToggleGroupOperator(group.id)}
           >
             {group.operator}
-          </button>
-          <button
-            type="button"
+          </Button>
+          <Button
             className="trigger-visual-add-group"
             onClick={(event) => {
               event.stopPropagation();
@@ -546,7 +547,7 @@ const TriggerBlock = ({
             }}
           >
             + 올가미
-          </button>
+          </Button>
         </div>
         <div
           className="trigger-visual-group-items"
@@ -596,7 +597,7 @@ const TriggerBlock = ({
       <div className="trigger-block-header">
         <div className="trigger-block-title-row">
           <div className="trigger-block-indicator" />
-          <input
+          <Input
             className="trigger-block-title-input"
             value={name}
             onChange={(event) => onUpdateBlock?.(blockId, { name: event.target.value })}
@@ -608,9 +609,8 @@ const TriggerBlock = ({
 
       <div className="trigger-block-toggle">
         {Object.entries(TYPE_SHORT_LABELS).map(([key, label]) => (
-          <button
+          <Button
             key={key}
-            type="button"
             className={`trigger-type-btn${type === key ? ' active' : ''}`}
             onClick={() => {
               setType(key);
@@ -618,7 +618,7 @@ const TriggerBlock = ({
             }}
           >
             {label}
-          </button>
+          </Button>
         ))}
       </div>
 
@@ -651,15 +651,18 @@ const TriggerBlock = ({
           <div className="trigger-block-time-editor">
             <label className="trigger-block-time-label">간격</label>
             <div className="trigger-block-time-input-row">
-              <input
-                type="number"
-                className="trigger-block-time-input"
-                min="1"
+              <NumberStepper
+                className="trigger-block-stepper"
+                inputClassName="trigger-block-time-input"
                 value={intervalValue}
-                onChange={(event) => {
-                  setIntervalValue(event.target.value);
-                  onUpdateBlock?.(blockId, { interval: Number(event.target.value) });
+                min={1}
+                step={1}
+                onChange={(nextValue) => {
+                  setIntervalValue(nextValue);
+                  onUpdateBlock?.(blockId, { interval: Number(nextValue) });
                 }}
+                decrementLabel="트리거 간격 감소"
+                incrementLabel="트리거 간격 증가"
               />
               <span className="trigger-block-time-unit">ms</span>
             </div>
@@ -685,8 +688,7 @@ const TriggerBlock = ({
             </div>
             <div className="trigger-block-panel-actions">
               <div className="trigger-logic-toggle">
-                <button
-                  type="button"
+                <Button
                   className={`trigger-logic-btn${logic === 'AND' ? ' active' : ''}`}
                   onClick={() => {
                     setLogic('AND');
@@ -694,9 +696,8 @@ const TriggerBlock = ({
                   }}
                 >
                   AND
-                </button>
-                <button
-                  type="button"
+                </Button>
+                <Button
                   className={`trigger-logic-btn${logic === 'OR' ? ' active' : ''}`}
                   onClick={() => {
                     setLogic('OR');
@@ -704,10 +705,9 @@ const TriggerBlock = ({
                   }}
                 >
                   OR
-                </button>
+                </Button>
               </div>
-              <button
-                type="button"
+              <Button
                 className={`trigger-visual-btn${visualMode ? ' active' : ''}`}
                 onClick={() => setVisualMode((prev) => !prev)}
                 aria-pressed={visualMode}
@@ -717,7 +717,7 @@ const TriggerBlock = ({
                   <path d="M10.6665 12L14.6665 8L10.6665 4" stroke="currentColor" strokeWidth="1.33333" strokeLinecap="round" strokeLinejoin="round" />
                   <path d="M5.3335 4L1.3335 8L5.3335 12" stroke="currentColor" strokeWidth="1.33333" strokeLinecap="round" strokeLinejoin="round" />
                 </svg>
-              </button>
+              </Button>
             </div>
           </div>
           {visualMode ? (
@@ -750,9 +750,9 @@ const TriggerBlock = ({
                     className="trigger-visual-context-menu"
                     style={{ left: `${visualMenu.x}px`, top: `${visualMenu.y}px` }}
                   >
-                    <button type="button" className="trigger-visual-context-item" onClick={handleCreateFixedValue}>
+                    <Button className="trigger-visual-context-item" onClick={handleCreateFixedValue}>
                       고정값 생성
-                    </button>
+                    </Button>
                   </div>
                 )}
                 {toastMessage && (
