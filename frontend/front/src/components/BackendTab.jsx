@@ -150,6 +150,17 @@ export default function BackendTab() {
   const [hostTarget, setHostTarget] = useState(DEFAULT_HOST_TARGET);
   const [hostProgram, setHostProgram] = useState(null);
   const [hostBusy, setHostBusy] = useState(false);
+  const [autoFitRequestId, setAutoFitRequestId] = useState(0);
+  const [centerViewRequestId, setCenterViewRequestId] = useState(0);
+  const [generatedBlockIdsByTab, setGeneratedBlockIdsByTab] = useState(() => ({
+    [initialTabs[0].id]: []
+  }));
+  const [blockDimensionsByTab, setBlockDimensionsByTab] = useState(() => ({
+    [initialTabs[0].id]: {}
+  }));
+  const [canvasViewportByTab, setCanvasViewportByTab] = useState(() => ({
+    [initialTabs[0].id]: null
+  }));
 
   const handleIconClick = (panelType) => {
     setActivePanel(activePanel === panelType ? null : panelType);
@@ -176,6 +187,14 @@ export default function BackendTab() {
     setActionAuthByTab((prevAuth) => ({
       ...prevAuth,
       [nextId]: createEmptyActionAuthState()
+    }));
+    setGeneratedBlockIdsByTab((prevGenerated) => ({
+      ...prevGenerated,
+      [nextId]: []
+    }));
+    setCanvasViewportByTab((prevViewport) => ({
+      ...prevViewport,
+      [nextId]: null
     }));
     setActiveTabId(nextId);
   };
@@ -219,6 +238,18 @@ export default function BackendTab() {
       const nextAuth = { ...prevAuth };
       delete nextAuth[tabId];
       return nextAuth;
+    });
+
+    setGeneratedBlockIdsByTab((prevGenerated) => {
+      const nextGenerated = { ...prevGenerated };
+      delete nextGenerated[tabId];
+      return nextGenerated;
+    });
+
+    setCanvasViewportByTab((prevViewport) => {
+      const nextViewport = { ...prevViewport };
+      delete nextViewport[tabId];
+      return nextViewport;
     });
 
     delete historyByTabRef.current[tabId];
@@ -278,6 +309,9 @@ export default function BackendTab() {
   const activeBlocks = activeTabId ? blocksByTab[activeTabId] || [] : [];
   const activeConnections = activeTabId ? connectionsByTab[activeTabId] || [] : [];
   const activeSelectedIds = activeTabId ? selectedBlockIdsByTab[activeTabId] || [] : [];
+  const activeGeneratedBlockIds = activeTabId ? generatedBlockIdsByTab[activeTabId] || [] : [];
+  const activeBlockDimensions = activeTabId ? blockDimensionsByTab[activeTabId] || {} : {};
+  const activeCanvasViewport = activeTabId ? canvasViewportByTab[activeTabId] || null : null;
   const activeActionAuth = activeTabId ? actionAuthByTab[activeTabId] || createEmptyActionAuthState() : createEmptyActionAuthState();
   const activeTabLabel = useMemo(
     () => tabs.find((tab) => tab.id === activeTabId)?.label || '',
@@ -381,6 +415,192 @@ export default function BackendTab() {
     applySnapshotToActiveTab(entry.stack[entry.index]);
   };
 
+  const handleAutoLayoutFlow = () => {
+    if (!activeTabId) {
+      return;
+    }
+
+    setBlocksByTab((prevBlocks) => {
+      const tabBlocks = prevBlocks[activeTabId] || [];
+      if (tabBlocks.length <= 1) {
+        return prevBlocks;
+      }
+
+      const nodeById = new Map(tabBlocks.map((block) => [block.id, block]));
+      const indegree = new Map(tabBlocks.map((block) => [block.id, 0]));
+      const outEdges = new Map(tabBlocks.map((block) => [block.id, []]));
+      const inEdges = new Map(tabBlocks.map((block) => [block.id, []]));
+
+      activeConnections.forEach((connection) => {
+        if (!nodeById.has(connection.fromId) || !nodeById.has(connection.toId) || connection.fromId === connection.toId) {
+          return;
+        }
+
+        outEdges.get(connection.fromId).push(connection.toId);
+        inEdges.get(connection.toId).push(connection.fromId);
+        indegree.set(connection.toId, (indegree.get(connection.toId) || 0) + 1);
+      });
+
+      const queue = tabBlocks
+        .filter((block) => (indegree.get(block.id) || 0) === 0)
+        .map((block) => block.id)
+        .sort((a, b) => {
+          const aPos = nodeById.get(a)?.position || { x: 0, y: 0 };
+          const bPos = nodeById.get(b)?.position || { x: 0, y: 0 };
+          if (aPos.y !== bPos.y) {
+            return aPos.y - bPos.y;
+          }
+          return aPos.x - bPos.x;
+        });
+
+      const layerById = new Map();
+      const visited = new Set();
+
+      while (queue.length > 0) {
+        const nodeId = queue.shift();
+        if (visited.has(nodeId)) {
+          continue;
+        }
+        visited.add(nodeId);
+
+        const currentLayer = layerById.get(nodeId) || 0;
+        const nextNodes = outEdges.get(nodeId) || [];
+
+        nextNodes.forEach((nextId) => {
+          const nextLayer = Math.max(layerById.get(nextId) || 0, currentLayer + 1);
+          layerById.set(nextId, nextLayer);
+          const remain = (indegree.get(nextId) || 0) - 1;
+          indegree.set(nextId, remain);
+          if (remain <= 0) {
+            queue.push(nextId);
+          }
+        });
+      }
+
+      tabBlocks.forEach((block) => {
+        if (layerById.has(block.id)) {
+          return;
+        }
+
+        const parents = inEdges.get(block.id) || [];
+        const parentLayer = parents.reduce((maxLayer, parentId) => (
+          Math.max(maxLayer, (layerById.get(parentId) || 0) + 1)
+        ), 0);
+        layerById.set(block.id, parentLayer);
+      });
+
+      const layers = new Map();
+      tabBlocks.forEach((block) => {
+        const layer = layerById.get(block.id) || 0;
+        if (!layers.has(layer)) {
+          layers.set(layer, []);
+        }
+        layers.get(layer).push(block);
+      });
+
+      const sortedLayerIndexes = Array.from(layers.keys()).sort((a, b) => a - b);
+      const baseX = 120;
+      const baseY = 90;
+      const defaultNodeGap = 100;
+      const compactNodeGap = 10;
+
+      const estimateBlockSize = (block) => {
+        const measured = activeBlockDimensions[block.id];
+        if (measured && Number.isFinite(measured.width) && Number.isFinite(measured.height)) {
+          return {
+            width: Math.max(1, measured.width),
+            height: Math.max(1, measured.height)
+          };
+        }
+
+        switch (block.type) {
+          case 'action':
+            return { width: 400, height: 320 };
+          case 'streaming':
+            return { width: 360, height: 520 };
+          case 'monitoring':
+            return { width: 340, height: 440 };
+          case 'trigger':
+            return { width: 340, height: 240 };
+          case 'normal':
+            return { width: 320, height: 200 };
+          default:
+            return { width: 340, height: 240 };
+        }
+      };
+
+      const buildLayout = (gapX, gapY) => {
+        const layoutMap = new Map();
+        let cursorX = baseX;
+        let maxRight = baseX;
+        let maxBottom = baseY;
+
+        sortedLayerIndexes.forEach((layerIndex) => {
+          const layerBlocks = layers.get(layerIndex) || [];
+          layerBlocks.sort((a, b) => {
+            const aPos = a.position || { x: 0, y: 0 };
+            const bPos = b.position || { x: 0, y: 0 };
+            if (aPos.y !== bPos.y) {
+              return aPos.y - bPos.y;
+            }
+            return aPos.x - bPos.x;
+          });
+
+          let cursorY = baseY;
+          let layerMaxWidth = 0;
+
+          layerBlocks.forEach((block) => {
+            const size = estimateBlockSize(block);
+            layoutMap.set(block.id, {
+              x: cursorX,
+              y: cursorY
+            });
+
+            maxRight = Math.max(maxRight, cursorX + size.width);
+            maxBottom = Math.max(maxBottom, cursorY + size.height);
+            cursorY += size.height + gapY;
+            layerMaxWidth = Math.max(layerMaxWidth, size.width);
+          });
+
+          cursorX += layerMaxWidth + gapX;
+        });
+
+        return {
+          layoutMap,
+          boundsWidth: Math.max(1, maxRight - baseX),
+          boundsHeight: Math.max(1, maxBottom - baseY)
+        };
+      };
+
+      let appliedGapX = defaultNodeGap;
+      let appliedGapY = defaultNodeGap;
+      let layout = buildLayout(appliedGapX, appliedGapY);
+
+      if (activeCanvasViewport) {
+        if (layout.boundsWidth > activeCanvasViewport.width) {
+          appliedGapX = compactNodeGap;
+        }
+        if (layout.boundsHeight > activeCanvasViewport.height) {
+          appliedGapY = compactNodeGap;
+        }
+        layout = buildLayout(appliedGapX, appliedGapY);
+      }
+
+      const nextBlocks = tabBlocks.map((block) => {
+        const nextPosition = layout.layoutMap.get(block.id);
+        return nextPosition ? { ...block, position: nextPosition } : block;
+      });
+
+      return {
+        ...prevBlocks,
+        [activeTabId]: nextBlocks
+      };
+    });
+
+    setAutoFitRequestId((prev) => prev + 1);
+    setNotice('success', '자동 정렬을 적용했습니다. 기본 노드 간격 100pt, 부족한 축은 10pt로 조정합니다.');
+  };
+
   useEffect(() => {
     if (!activeTabId) {
       return;
@@ -448,7 +668,7 @@ export default function BackendTab() {
 
   const applyStrategyToActiveTab = (strategy) => {
     if (!activeTabId) {
-      return false;
+      return null;
     }
     const canvasState = strategyDefinitionToCanvas(strategy);
     resetNextBlockId(canvasState.blocks);
@@ -465,7 +685,20 @@ export default function BackendTab() {
       ...prevSelected,
       [activeTabId]: []
     }));
-    return true;
+    return canvasState;
+  };
+
+  const handleCenterGeneratedStrategy = () => {
+    if (!activeTabId) {
+      setNotice('error', '활성 전략 탭이 없습니다.');
+      return;
+    }
+    if (!activeGeneratedBlockIds || activeGeneratedBlockIds.length === 0) {
+      setNotice('warn', '중앙 이동할 생성 전략 블록이 없습니다. 먼저 AI 전략을 생성하세요.');
+      return;
+    }
+
+    setCenterViewRequestId((prev) => prev + 1);
   };
 
   const handleGenerateAIStrategy = async () => {
@@ -501,7 +734,17 @@ export default function BackendTab() {
         return;
       }
 
-      applyStrategyToActiveTab(generated.strategy);
+      const appliedCanvasState = applyStrategyToActiveTab(generated.strategy);
+      if (!appliedCanvasState) {
+        setNotice('error', 'AI 전략 적용에 실패했습니다.');
+        return;
+      }
+
+      setGeneratedBlockIdsByTab((prevGenerated) => ({
+        ...prevGenerated,
+        [activeTabId]: appliedCanvasState.blocks.map((block) => block.id)
+      }));
+      setCenterViewRequestId((prev) => prev + 1);
       setAiNotice({
         type: 'success',
         message: generated.message || `AI 전략 적용 완료 (${generated.source})`,
@@ -669,8 +912,8 @@ export default function BackendTab() {
         return;
       }
 
-      const applied = applyStrategyToActiveTab(strategy);
-      if (!applied) {
+      const appliedCanvasState = applyStrategyToActiveTab(strategy);
+      if (!appliedCanvasState) {
         setNotice('error', '전략 적용에 실패했습니다.');
         return;
       }
@@ -1620,6 +1863,20 @@ export default function BackendTab() {
             JSON 붙여넣기
           </Button>
           <Button
+            className="strategy-tool-btn"
+            onClick={handleAutoLayoutFlow}
+            disabled={!activeTabId || activeBlocks.length < 2}
+          >
+            자동 정렬
+          </Button>
+          <Button
+            className="strategy-tool-btn"
+            onClick={handleCenterGeneratedStrategy}
+            disabled={!activeTabId || activeGeneratedBlockIds.length === 0}
+          >
+            생성 전략 중앙
+          </Button>
+          <Button
             className="strategy-tool-btn host"
             onClick={handleOpenHostUI}
           >
@@ -1779,6 +2036,53 @@ export default function BackendTab() {
             blocks={activeBlocks}
             connections={activeConnections}
             selectedBlockIds={activeSelectedIds}
+            autoFitRequestId={autoFitRequestId}
+            centerViewRequestId={centerViewRequestId}
+            centerViewBlockIds={activeGeneratedBlockIds}
+            onBlockDimensionsChange={(dimensions) => {
+              if (!activeTabId) {
+                return;
+              }
+              setBlockDimensionsByTab((prev) => {
+                const current = prev[activeTabId] || {};
+                const currentKeys = Object.keys(current);
+                const nextKeys = Object.keys(dimensions || {});
+                if (currentKeys.length === nextKeys.length) {
+                  const same = nextKeys.every((key) => {
+                    const a = current[key];
+                    const b = dimensions[key];
+                    return a && b && a.width === b.width && a.height === b.height;
+                  });
+                  if (same) {
+                    return prev;
+                  }
+                }
+
+                return {
+                  ...prev,
+                  [activeTabId]: dimensions || {}
+                };
+              });
+            }}
+            onViewportChange={(viewport) => {
+              if (!activeTabId || !viewport) {
+                return;
+              }
+              setCanvasViewportByTab((prev) => {
+                const current = prev[activeTabId];
+                if (
+                  current
+                  && current.width === viewport.width
+                  && current.height === viewport.height
+                ) {
+                  return prev;
+                }
+                return {
+                  ...prev,
+                  [activeTabId]: viewport
+                };
+              });
+            }}
             onPositionChange={handleUpdateBlockPosition}
             onConnect={handleConnectBlocks}
             onUpdateBlock={handleUpdateBlock}
@@ -1860,52 +2164,54 @@ export default function BackendTab() {
           onExit={() => setViewMode('backend')}
         />
       )}
-      <div className={`ai-side-panel${aiPanelOpen ? ' open' : ''}`}>
-        <div className="ai-side-header">
-          <div className="ai-side-title">AI 전략</div>
-          <Button
-            className="ai-side-close"
-            onClick={() => setAiPanelOpen(false)}
-          >
-            닫기
-          </Button>
-        </div>
-        <div className="ai-side-body">
-          <label htmlFor="ai-strategy-prompt" className="ai-control-label">요청 프롬프트</label>
-          <textarea
-            id="ai-strategy-prompt"
-            className="ai-control-input"
-            value={aiPrompt}
-            onChange={(event) => setAiPrompt(event.target.value)}
-            placeholder="예: BTCUSDT 1시간 마켓 기준으로 돌파 매수/이탈 매도 전략 만들어줘"
-            rows={7}
-          />
-          <div className="ai-control-actions">
+      {aiPanelOpen && (
+        <div className="ai-side-panel open">
+          <div className="ai-side-header">
+            <div className="ai-side-title">AI 전략</div>
             <Button
-              className="strategy-tool-btn host"
-              onClick={handleGenerateAIStrategy}
-              disabled={!activeTabId || aiBusy}
+              className="ai-side-close"
+              onClick={() => setAiPanelOpen(false)}
             >
-              {aiBusy ? 'AI 생성중...' : 'AI로 전략 생성'}
-            </Button>
-            <Button
-              className="strategy-tool-btn"
-              onClick={() => setAiPrompt('BTCUSDT 1시간 마켓 전략으로 만들어줘. 최근 가격 기준 상단/하단 임계값을 자동 추정하고, 1시간 내 단기 돌파는 매수, 이탈은 매도하도록 구성해줘.')}
-              disabled={aiBusy}
-            >
-              예시 입력
+              닫기
             </Button>
           </div>
-          <div className="ai-control-hint">
-            front 서버의 `/api/ai/strategy-draft`(오케스트레이션 to 리서치 to 전략)를 호출하고, 실패하면 로컬 규칙 생성으로 대체합니다.
-          </div>
-          {aiNotice && (
-            <div className={`ai-control-message ${aiNotice.type}`}>
-              {aiNotice.message}
+          <div className="ai-side-body">
+            <label htmlFor="ai-strategy-prompt" className="ai-control-label">요청 프롬프트</label>
+            <textarea
+              id="ai-strategy-prompt"
+              className="ai-control-input"
+              value={aiPrompt}
+              onChange={(event) => setAiPrompt(event.target.value)}
+              placeholder="예: BTCUSDT 1시간 마켓 기준으로 돌파 매수/이탈 매도 전략 만들어줘"
+              rows={7}
+            />
+            <div className="ai-control-actions">
+              <Button
+                className="strategy-tool-btn host"
+                onClick={handleGenerateAIStrategy}
+                disabled={!activeTabId || aiBusy}
+              >
+                {aiBusy ? 'AI 생성중...' : 'AI로 전략 생성'}
+              </Button>
+              <Button
+                className="strategy-tool-btn"
+                onClick={() => setAiPrompt('BTCUSDT 1시간 마켓 전략으로 만들어줘. 최근 가격 기준 상단/하단 임계값을 자동 추정하고, 1시간 내 단기 돌파는 매수, 이탈은 매도하도록 구성해줘.')}
+                disabled={aiBusy}
+              >
+                예시 입력
+              </Button>
             </div>
-          )}
+            <div className="ai-control-hint">
+              front 서버의 `/api/ai/strategy-draft`(오케스트레이션 to 리서치 to 전략)를 호출하고, 실패하면 로컬 규칙 생성으로 대체합니다.
+            </div>
+            {aiNotice && (
+              <div className={`ai-control-message ${aiNotice.type}`}>
+                {aiNotice.message}
+              </div>
+            )}
+          </div>
         </div>
-      </div>
+      )}
     </div>
   );
 }
