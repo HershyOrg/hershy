@@ -46,6 +46,20 @@ func loadMapConfig(name string, values map[string]string) map[string]any {
 		return map[string]any{}
 	}
 	switch name {
+	case "binance":
+		out := map[string]any{
+			"api_key":    values["api_key"],
+			"api_secret": firstNonEmpty(values["api_secret"], values["hmac_secret"]),
+		}
+		if host := firstNonEmpty(values["base_url"], values["host"]); host != "" {
+			out["base_url"] = host
+		}
+		if recvWindow := values["recv_window"]; recvWindow != "" {
+			if parsed, err := strconv.ParseInt(recvWindow, 10, 64); err == nil {
+				out["recv_window"] = float64(parsed)
+			}
+		}
+		return out
 	case "polymarket":
 		cacheTTL := 2.0
 		if raw := values["cache_ttl"]; raw != "" {
@@ -108,6 +122,7 @@ func loadMapConfig(name string, values map[string]string) map[string]any {
 // validateConfig checks required fields and basic private key format.
 func validateConfig(name string, config map[string]any) error {
 	required := map[string][]string{
+		"binance":    {"api_key", "api_secret"},
 		"polymarket": {"private_key", "funder"},
 		"opinion":    {"api_key", "private_key", "multi_sig_addr"},
 		"limitless":  {"private_key"},
@@ -134,6 +149,15 @@ func validateConfig(name string, config map[string]any) error {
 		return validatePrivateKey(key, name)
 	}
 	return nil
+}
+
+func firstNonEmpty(values ...string) string {
+	for _, value := range values {
+		if strings.TrimSpace(value) != "" {
+			return strings.TrimSpace(value)
+		}
+	}
+	return ""
 }
 
 // validatePrivateKey validates a hex private key.

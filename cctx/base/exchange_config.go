@@ -80,6 +80,38 @@ func (c OpinionConfig) ToMap() map[string]any {
 	return out
 }
 
+// BinanceConfig holds Binance spot configuration.
+type BinanceConfig struct {
+	// BaseExchangeConfig embeds shared configuration.
+	BaseExchangeConfig
+	// APIKey is the API key for Binance.
+	APIKey string
+	// APISecret is the HMAC secret for Binance.
+	APISecret string
+	// BaseURL overrides the Binance API base URL.
+	BaseURL string
+	// RecvWindow is the Binance recvWindow in milliseconds.
+	RecvWindow int64
+}
+
+// ToMap converts config to a map, omitting zero values.
+func (c BinanceConfig) ToMap() map[string]any {
+	out := c.BaseExchangeConfig.ToMap()
+	if c.APIKey != "" {
+		out["api_key"] = c.APIKey
+	}
+	if c.APISecret != "" {
+		out["api_secret"] = c.APISecret
+	}
+	if c.BaseURL != "" {
+		out["base_url"] = c.BaseURL
+	}
+	if c.RecvWindow > 0 {
+		out["recv_window"] = c.RecvWindow
+	}
+	return out
+}
+
 // LimitlessConfig holds Limitless configuration.
 type LimitlessConfig struct {
 	// BaseExchangeConfig embeds shared configuration.
