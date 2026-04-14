@@ -13,7 +13,9 @@ import (
 	"strconv"
 	"strings"
 	"testing"
+	"time"
 
+	"github.com/HershyOrg/hershy/cctx/base"
 	"github.com/HershyOrg/hershy/cctx/models"
 )
 
@@ -190,6 +192,219 @@ func TestCreateOrderSignsBodyAndParsesResponse(t *testing.T) {
 	}
 }
 
+func TestCreateOrderSyncsServerTimeOffsetBeforeSigning(t *testing.T) {
+	var seenBody url.Values
+	serverTime := time.Now().Add(90 * time.Second).UnixMilli()
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/api/v3/time":
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"serverTime": serverTime,
+			})
+		case "/api/v3/order/test":
+			payload := mustReadBody(t, r)
+			values, err := url.ParseQuery(payload)
+			if err != nil {
+				t.Fatalf("ParseQuery error: %v", err)
+			}
+			seenBody = values
+			_ = json.NewEncoder(w).Encode(map[string]any{})
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer server.Close()
+
+	raw, err := NewBinance(map[string]any{
+		"base_url":   server.URL,
+		"api_key":    "test-key",
+		"api_secret": "test-secret",
+	})
+	if err != nil {
+		t.Fatalf("NewBinance error: %v", err)
+	}
+
+	ex := raw.(*Binance)
+	_, err = ex.CreateOrder("ETHUSDT", "", models.OrderSideBuy, 0, 0, map[string]any{
+		"type":          "MARKET",
+		"quoteOrderQty": 11.0,
+		"test":          true,
+	})
+	if err != nil {
+		t.Fatalf("CreateOrder error: %v", err)
+	}
+
+	ts := envInt64FromValues(t, seenBody, "timestamp")
+	if diff := ts - serverTime; diff < -2000 || diff > 2000 {
+		t.Fatalf("expected signed timestamp near server time: got=%d server=%d diff=%d", ts, serverTime, diff)
+	}
+}
+
+func TestFetchOrderHistoryForSymbol(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/api/v3/time":
+			_ = json.NewEncoder(w).Encode(map[string]any{"serverTime": time.Now().UnixMilli()})
+		case "/api/v3/allOrders":
+			if got := r.URL.Query().Get("symbol"); got != "ETHUSDT" {
+				t.Fatalf("unexpected symbol: %s", got)
+			}
+			if got := r.URL.Query().Get("limit"); got != "2" {
+				t.Fatalf("unexpected limit: %s", got)
+			}
+			_ = json.NewEncoder(w).Encode([]map[string]any{
+				{
+					"symbol":      "ETHUSDT",
+					"orderId":     "102",
+					"side":        "BUY",
+					"status":      "FILLED",
+					"origQty":     "0.003",
+					"executedQty": "0.003",
+					"price":       "3500.0",
+					"time":        float64(2000),
+				},
+				{
+					"symbol":      "ETHUSDT",
+					"orderId":     "101",
+					"side":        "SELL",
+					"status":      "NEW",
+					"origQty":     "0.002",
+					"executedQty": "0.000",
+					"price":       "3400.0",
+					"time":        float64(1000),
+				},
+			})
+		case "/api/v3/exchangeInfo":
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"symbols": []map[string]any{{
+					"symbol":     "ETHUSDT",
+					"status":     "TRADING",
+					"baseAsset":  "ETH",
+					"quoteAsset": "USDT",
+					"filters":    []map[string]any{},
+				}},
+			})
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer server.Close()
+
+	raw, err := NewBinance(map[string]any{
+		"base_url":   server.URL,
+		"api_key":    "test-key",
+		"api_secret": "test-secret",
+	})
+	if err != nil {
+		t.Fatalf("NewBinance error: %v", err)
+	}
+
+	ex := raw.(*Binance)
+	marketID := "ETHUSDT"
+	orders, err := ex.FetchOrderHistory(&marketID, map[string]any{"limit": 2})
+	if err != nil {
+		t.Fatalf("FetchOrderHistory error: %v", err)
+	}
+	if len(orders) != 2 {
+		t.Fatalf("expected 2 orders, got %d", len(orders))
+	}
+	if orders[0].ID != "102" || orders[1].ID != "101" {
+		t.Fatalf("unexpected order sort/order ids: %#v", orders)
+	}
+}
+
+func TestFetchOrderHistoryAcrossSymbols(t *testing.T) {
+	requestedSymbols := []string{}
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/api/v3/time":
+			_ = json.NewEncoder(w).Encode(map[string]any{"serverTime": time.Now().UnixMilli()})
+		case "/api/v3/exchangeInfo":
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"symbols": []map[string]any{
+					{
+						"symbol":     "ETHUSDT",
+						"status":     "TRADING",
+						"baseAsset":  "ETH",
+						"quoteAsset": "USDT",
+						"filters":    []map[string]any{},
+					},
+					{
+						"symbol":     "BTCUSDT",
+						"status":     "TRADING",
+						"baseAsset":  "BTC",
+						"quoteAsset": "USDT",
+						"filters":    []map[string]any{},
+					},
+				},
+			})
+		case "/api/v3/allOrders":
+			requestedSymbols = append(requestedSymbols, r.URL.Query().Get("symbol"))
+			switch r.URL.Query().Get("symbol") {
+			case "BTCUSDT":
+				_ = json.NewEncoder(w).Encode([]map[string]any{
+					{
+						"symbol":      "BTCUSDT",
+						"orderId":     "201",
+						"side":        "SELL",
+						"status":      "FILLED",
+						"origQty":     "0.001",
+						"executedQty": "0.001",
+						"price":       "70000.0",
+						"time":        float64(3000),
+					},
+				})
+			case "ETHUSDT":
+				_ = json.NewEncoder(w).Encode([]map[string]any{
+					{
+						"symbol":      "ETHUSDT",
+						"orderId":     "102",
+						"side":        "BUY",
+						"status":      "FILLED",
+						"origQty":     "0.003",
+						"executedQty": "0.003",
+						"price":       "3500.0",
+						"time":        float64(2000),
+					},
+				})
+			default:
+				t.Fatalf("unexpected symbol for allOrders: %s", r.URL.Query().Get("symbol"))
+			}
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer server.Close()
+
+	raw, err := NewBinance(map[string]any{
+		"base_url":   server.URL,
+		"api_key":    "test-key",
+		"api_secret": "test-secret",
+	})
+	if err != nil {
+		t.Fatalf("NewBinance error: %v", err)
+	}
+
+	ex := raw.(*Binance)
+	orders, err := ex.FetchOrderHistory(nil, map[string]any{
+		"quote_asset": "USDT",
+		"max_symbols": 1,
+	})
+	if err != nil {
+		t.Fatalf("FetchOrderHistory error: %v", err)
+	}
+	if len(orders) != 1 {
+		t.Fatalf("expected 1 order, got %d", len(orders))
+	}
+	if len(requestedSymbols) != 1 || requestedSymbols[0] != "BTCUSDT" {
+		t.Fatalf("expected only BTCUSDT to be requested, got %#v", requestedSymbols)
+	}
+	if orders[0].MarketID != "BTCUSDT" {
+		t.Fatalf("unexpected aggregated ordering: %#v", orders)
+	}
+}
+
 func TestStringFromAnyFormatsWholeFloatIDsWithoutExponent(t *testing.T) {
 	got := stringFromAny(float64(45506619600))
 	if got != "45506619600" {
@@ -303,9 +518,10 @@ func TestLivePlaceRealOrderAgainstBinance(t *testing.T) {
 
 	symbol := envOrDefault("BINANCE_REAL_SYMBOL", "ETHUSDT")
 	side := envOrderSideOrDefault("BINANCE_REAL_SIDE", models.OrderSideSell)
-	size := envFloatOrDefault("BINANCE_REAL_QTY", 0.0027)
-	if size <= 0 {
-		t.Fatalf("BINANCE_REAL_QTY must be greater than zero")
+	size := envFloatOrDefault("BINANCE_REAL_QTY", 0)
+	quoteOrderQty := envFloatOrDefault("BINANCE_REAL_QUOTE_ORDER_QTY", 0)
+	if size <= 0 && quoteOrderQty <= 0 {
+		t.Fatalf("BINANCE_REAL_QTY or BINANCE_REAL_QUOTE_ORDER_QTY must be greater than zero")
 	}
 
 	raw, err := NewBinance(map[string]any{
@@ -317,9 +533,14 @@ func TestLivePlaceRealOrderAgainstBinance(t *testing.T) {
 	}
 
 	ex := raw.(*Binance)
-	order, err := ex.CreateOrder(symbol, "", side, 0, size, map[string]any{
+	params := map[string]any{
 		"type": "MARKET",
-	})
+	}
+	if quoteOrderQty > 0 {
+		params["quoteOrderQty"] = quoteOrderQty
+	}
+
+	order, err := ex.CreateOrder(symbol, "", side, 0, size, params)
 	if err != nil {
 		t.Fatalf("CreateOrder live real-order error: %v", err)
 	}
@@ -338,6 +559,118 @@ func TestLivePlaceRealOrderAgainstBinance(t *testing.T) {
 	}
 
 	t.Logf("real order submitted: id=%s market=%s side=%s size=%.8f filled=%.8f status=%s", order.ID, order.MarketID, order.Side, order.Size, order.Filled, order.Status)
+}
+
+func TestLiveFetchOrderHistoryAgainstBinance(t *testing.T) {
+	if os.Getenv("BINANCE_LIVE_SIGNED") != "1" {
+		t.Skip("set BINANCE_LIVE_SIGNED=1 to run live Binance signed history test")
+	}
+
+	apiKey := strings.TrimSpace(os.Getenv("BINANCE_API_KEY"))
+	apiSecret := strings.TrimSpace(os.Getenv("BINANCE_API_SECRET"))
+	if apiKey == "" || apiSecret == "" {
+		t.Skip("BINANCE_API_KEY and BINANCE_API_SECRET are required for signed live history test")
+	}
+
+	symbol := envOrDefault("BINANCE_HISTORY_SYMBOL", envOrDefault("BINANCE_SYMBOL", "ETHUSDT"))
+	raw, err := NewBinance(map[string]any{
+		"api_key":    apiKey,
+		"api_secret": apiSecret,
+	})
+	if err != nil {
+		t.Fatalf("NewBinance error: %v", err)
+	}
+
+	historyFetcher, ok := raw.(base.OrderHistoryFetcher)
+	if !ok {
+		t.Fatalf("binance does not implement OrderHistoryFetcher")
+	}
+
+	orders, err := historyFetcher.FetchOrderHistory(&symbol, map[string]any{
+		"limit": envFloatOrDefault("BINANCE_HISTORY_LIMIT", 20),
+	})
+	if err != nil {
+		t.Fatalf("FetchOrderHistory live symbol error: %v", err)
+	}
+
+	t.Logf("fetched %d orders for %s", len(orders), symbol)
+	for i, order := range orders {
+		if i >= 10 {
+			break
+		}
+		t.Logf("[%d] market=%s side=%s id=%s size=%.8f filled=%.8f status=%s created=%s",
+			i,
+			order.MarketID,
+			order.Side,
+			order.ID,
+			order.Size,
+			order.Filled,
+			order.Status,
+			order.CreatedAt.Format(time.RFC3339),
+		)
+	}
+}
+
+func TestLiveFetchAggregatedOrderHistoryAgainstBinance(t *testing.T) {
+	if os.Getenv("BINANCE_LIVE_SIGNED") != "1" {
+		t.Skip("set BINANCE_LIVE_SIGNED=1 to run live Binance aggregated history test")
+	}
+
+	apiKey := strings.TrimSpace(os.Getenv("BINANCE_API_KEY"))
+	apiSecret := strings.TrimSpace(os.Getenv("BINANCE_API_SECRET"))
+	if apiKey == "" || apiSecret == "" {
+		t.Skip("BINANCE_API_KEY and BINANCE_API_SECRET are required for signed live history test")
+	}
+
+	raw, err := NewBinance(map[string]any{
+		"api_key":    apiKey,
+		"api_secret": apiSecret,
+	})
+	if err != nil {
+		t.Fatalf("NewBinance error: %v", err)
+	}
+
+	historyFetcher, ok := raw.(base.OrderHistoryFetcher)
+	if !ok {
+		t.Fatalf("binance does not implement OrderHistoryFetcher")
+	}
+
+	params := map[string]any{
+		"limit": envFloatOrDefault("BINANCE_HISTORY_LIMIT", 20),
+	}
+	if maxSymbols := envFloatOrDefault("BINANCE_HISTORY_MAX_SYMBOLS", 0); maxSymbols > 0 {
+		params["max_symbols"] = maxSymbols
+	}
+	if quoteAsset := strings.TrimSpace(os.Getenv("BINANCE_HISTORY_QUOTE_ASSET")); quoteAsset != "" {
+		params["quote_asset"] = quoteAsset
+	} else {
+		params["quote_asset"] = "USDT"
+	}
+	if baseAsset := strings.TrimSpace(os.Getenv("BINANCE_HISTORY_BASE_ASSET")); baseAsset != "" {
+		params["base_asset"] = baseAsset
+	}
+
+	orders, err := historyFetcher.FetchOrderHistory(nil, params)
+	if err != nil {
+		t.Fatalf("FetchOrderHistory live aggregated error: %v", err)
+	}
+
+	t.Logf("fetched %d aggregated orders", len(orders))
+	for i, order := range orders {
+		if i >= 10 {
+			break
+		}
+		t.Logf("[%d] market=%s side=%s id=%s size=%.8f filled=%.8f status=%s created=%s",
+			i,
+			order.MarketID,
+			order.Side,
+			order.ID,
+			order.Size,
+			order.Filled,
+			order.Status,
+			order.CreatedAt.Format(time.RFC3339),
+		)
+	}
 }
 
 func envOrDefault(key, fallback string) string {
@@ -365,6 +698,20 @@ func envOrderSideOrDefault(key string, fallback models.OrderSide) models.OrderSi
 	default:
 		return fallback
 	}
+}
+
+func envInt64FromValues(t *testing.T, values url.Values, key string) int64 {
+	t.Helper()
+
+	raw := strings.TrimSpace(values.Get(key))
+	if raw == "" {
+		t.Fatalf("expected %s in values", key)
+	}
+	parsed, err := strconv.ParseInt(raw, 10, 64)
+	if err != nil {
+		t.Fatalf("parse %s: %v", key, err)
+	}
+	return parsed
 }
 
 func loadEnvForBinanceTests() {

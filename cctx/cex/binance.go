@@ -13,6 +13,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/HershyOrg/hershy/cctx/base"
@@ -44,6 +45,10 @@ type Binance struct {
 
 	mu         sync.RWMutex
 	symbolInfo map[string]binanceSymbolInfo
+
+	serverTimeOffsetMillis int64
+	lastServerTimeSyncUnix int64
+	timeSyncMu             sync.Mutex
 }
 
 type binanceSymbolInfo struct {
@@ -343,6 +348,58 @@ func (b *Binance) FetchOpenOrders(marketID *string, _ map[string]any) ([]models.
 	return orders, nil
 }
 
+// FetchOrderHistory returns historical orders for a symbol or, when marketID is nil, best-effort history across symbols.
+func (b *Binance) FetchOrderHistory(marketID *string, params map[string]any) ([]models.Order, error) {
+	if err := b.ensureAuthenticated(); err != nil {
+		return nil, err
+	}
+
+	symbol := strings.ToUpper(strings.TrimSpace(deref(marketID)))
+	if symbol != "" {
+		return b.fetchOrderHistoryForSymbol(symbol, params)
+	}
+
+	infos, err := b.fetchAllSymbolInfo()
+	if err != nil {
+		return nil, err
+	}
+
+	quoteFilter := strings.ToUpper(strings.TrimSpace(stringFromAny(params["quote_asset"])))
+	baseFilter := strings.ToUpper(strings.TrimSpace(stringFromAny(params["base_asset"])))
+
+	keys := make([]string, 0, len(infos))
+	for key, info := range infos {
+		if info.Symbol == "" || info.Status != "TRADING" {
+			continue
+		}
+		if quoteFilter != "" && info.QuoteAsset != quoteFilter {
+			continue
+		}
+		if baseFilter != "" && info.BaseAsset != baseFilter {
+			continue
+		}
+		keys = append(keys, key)
+	}
+	sort.Strings(keys)
+	if maxSymbols := intFromAny(params["max_symbols"], 0); maxSymbols > 0 && len(keys) > maxSymbols {
+		keys = keys[:maxSymbols]
+	}
+
+	orders := make([]models.Order, 0)
+	for _, key := range keys {
+		history, err := b.fetchOrderHistoryForSymbol(key, params)
+		if err != nil {
+			return nil, err
+		}
+		orders = append(orders, history...)
+	}
+
+	sort.SliceStable(orders, func(i, j int) bool {
+		return orders[i].CreatedAt.After(orders[j].CreatedAt)
+	})
+	return orders, nil
+}
+
 // FetchPositions returns spot balances as positions.
 func (b *Binance) FetchPositions(marketID *string, _ map[string]any) ([]models.Position, error) {
 	account, err := b.fetchAccount()
@@ -396,6 +453,59 @@ func (b *Binance) FetchPositions(marketID *string, _ map[string]any) ([]models.P
 		})
 	}
 	return positions, nil
+}
+
+func (b *Binance) fetchOrderHistoryForSymbol(symbol string, params map[string]any) ([]models.Order, error) {
+	values := url.Values{}
+	values.Set("symbol", strings.ToUpper(strings.TrimSpace(symbol)))
+
+	limit := intFromAny(params["limit"], 100)
+	if limit > 0 {
+		if limit > 1000 {
+			limit = 1000
+		}
+		values.Set("limit", strconv.Itoa(limit))
+	}
+
+	if orderID := strings.TrimSpace(firstNonEmpty(stringFromAny(params["orderId"]), stringFromAny(params["order_id"]), stringFromAny(params["from_order_id"]))); orderID != "" {
+		values.Set("orderId", orderID)
+	}
+	if startTime := int64FromConfig(params, "start_time", 0); startTime > 0 {
+		values.Set("startTime", strconv.FormatInt(startTime, 10))
+	}
+	if startTime := int64FromConfig(params, "startTime", 0); startTime > 0 && values.Get("startTime") == "" {
+		values.Set("startTime", strconv.FormatInt(startTime, 10))
+	}
+	if endTime := int64FromConfig(params, "end_time", 0); endTime > 0 {
+		values.Set("endTime", strconv.FormatInt(endTime, 10))
+	}
+	if endTime := int64FromConfig(params, "endTime", 0); endTime > 0 && values.Get("endTime") == "" {
+		values.Set("endTime", strconv.FormatInt(endTime, 10))
+	}
+
+	payload, err := b.doQueryRequest(http.MethodGet, "/api/v3/allOrders", values, true)
+	if err != nil {
+		return nil, err
+	}
+
+	items, ok := payload.([]any)
+	if !ok {
+		return nil, base.ExchangeError{Message: "binance allOrders response malformed"}
+	}
+
+	orders := make([]models.Order, 0, len(items))
+	for _, item := range items {
+		mapped, ok := item.(map[string]any)
+		if !ok {
+			continue
+		}
+		orders = append(orders, b.parseOrder(mapped, symbol))
+	}
+
+	sort.SliceStable(orders, func(i, j int) bool {
+		return orders[i].CreatedAt.After(orders[j].CreatedAt)
+	})
+	return orders, nil
 }
 
 // FetchBalance returns available balances keyed by asset.
@@ -732,14 +842,78 @@ func (b *Binance) performRequest(buildRequest func() (*http.Request, error), end
 }
 
 func (b *Binance) withSignature(values url.Values) url.Values {
+	b.syncServerTimeOffsetBestEffort()
+
 	out := cloneValues(values)
-	out.Set("timestamp", strconv.FormatInt(time.Now().UnixMilli(), 10))
+	out.Set("timestamp", strconv.FormatInt(b.currentTimestampMillis(), 10))
 	if _, ok := out["recvWindow"]; !ok && b.recvWindow > 0 {
 		out.Set("recvWindow", strconv.FormatInt(b.recvWindow, 10))
 	}
 	signature := buildHMACSHA256Hex(b.apiSecret, out.Encode())
 	out.Set("signature", signature)
 	return out
+}
+
+func (b *Binance) currentTimestampMillis() int64 {
+	return time.Now().UnixMilli() + atomic.LoadInt64(&b.serverTimeOffsetMillis)
+}
+
+func (b *Binance) syncServerTimeOffsetBestEffort() {
+	const minSyncInterval = 30 * time.Second
+
+	lastSyncUnix := atomic.LoadInt64(&b.lastServerTimeSyncUnix)
+	if lastSyncUnix > 0 && time.Since(time.Unix(lastSyncUnix, 0)) < minSyncInterval {
+		return
+	}
+
+	b.timeSyncMu.Lock()
+	defer b.timeSyncMu.Unlock()
+
+	lastSyncUnix = atomic.LoadInt64(&b.lastServerTimeSyncUnix)
+	if lastSyncUnix > 0 && time.Since(time.Unix(lastSyncUnix, 0)) < minSyncInterval {
+		return
+	}
+
+	offsetMillis, err := b.fetchServerTimeOffsetMillis()
+	atomic.StoreInt64(&b.lastServerTimeSyncUnix, time.Now().Unix())
+	if err != nil {
+		return
+	}
+	atomic.StoreInt64(&b.serverTimeOffsetMillis, offsetMillis)
+}
+
+func (b *Binance) fetchServerTimeOffsetMillis() (int64, error) {
+	req, err := http.NewRequest(http.MethodGet, strings.TrimRight(b.baseURL, "/")+"/api/v3/time", nil)
+	if err != nil {
+		return 0, base.ExchangeError{Message: err.Error()}
+	}
+	req.Header.Set("Accept", "application/json")
+
+	resp, err := b.httpClient.Do(req)
+	if err != nil {
+		return 0, base.NetworkError{Message: err.Error()}
+	}
+	defer resp.Body.Close()
+
+	payload, err := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
+	if err != nil {
+		return 0, base.NetworkError{Message: err.Error()}
+	}
+	if resp.StatusCode >= 400 {
+		return 0, classifyBinanceError(resp.StatusCode, "/api/v3/time", payload)
+	}
+
+	root := map[string]any{}
+	if err := json.Unmarshal(payload, &root); err != nil {
+		return 0, base.ExchangeError{Message: fmt.Sprintf("decode server time response: %v", err)}
+	}
+
+	serverMillis := int64(floatFromAny(root["serverTime"]))
+	if serverMillis <= 0 {
+		return 0, base.ExchangeError{Message: "binance server time missing"}
+	}
+
+	return serverMillis - time.Now().UnixMilli(), nil
 }
 
 func (b *Binance) parseOrder(payload map[string]any, fallbackSymbol string) models.Order {
