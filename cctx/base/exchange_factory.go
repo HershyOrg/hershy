@@ -108,6 +108,32 @@ func loadMapConfig(name string, values map[string]string) map[string]any {
 			}
 		}
 		return out
+	case "evm_dex":
+		out := map[string]any{
+			"private_key":   values["private_key"],
+			"rpc_url":       values["rpc_url"],
+			"cast_binary":   values["cast_binary"],
+			"native_symbol": values["native_symbol"],
+		}
+		if chainID := values["chain_id"]; chainID != "" {
+			if parsed, err := strconv.ParseInt(chainID, 10, 64); err == nil {
+				out["chain_id"] = float64(parsed)
+			}
+		}
+		rpcURLs := map[string]any{}
+		for key, value := range values {
+			if !strings.HasPrefix(strings.ToLower(key), "rpc_url_") || strings.TrimSpace(value) == "" {
+				continue
+			}
+			chain := strings.TrimPrefix(strings.ToLower(key), "rpc_url_")
+			if chain != "" {
+				rpcURLs[chain] = strings.TrimSpace(value)
+			}
+		}
+		if len(rpcURLs) > 0 {
+			out["rpc_urls"] = rpcURLs
+		}
+		return out
 	default:
 		out := map[string]any{}
 		for key, value := range values {
@@ -126,6 +152,7 @@ func validateConfig(name string, config map[string]any) error {
 		"polymarket": {"private_key", "funder"},
 		"opinion":    {"api_key", "private_key", "multi_sig_addr"},
 		"limitless":  {"private_key"},
+		"evm_dex":    {"private_key"},
 	}
 
 	missing := []string{}
@@ -143,6 +170,12 @@ func validateConfig(name string, config map[string]any) error {
 			envVars = append(envVars, fmt.Sprintf("%s_%s", envPrefix, strings.ToUpper(key)))
 		}
 		return fmt.Errorf("missing required config: %v. set env vars: %v", missing, envVars)
+	}
+
+	if name == "evm_dex" {
+		if !hasRPCURL(config) {
+			return fmt.Errorf("missing required config: rpc_url or rpc_urls. set env vars: EVM_DEX_RPC_URL or EVM_DEX_RPC_URL_<CHAIN>")
+		}
 	}
 
 	if key, ok := config["private_key"].(string); ok && key != "" {
@@ -177,4 +210,25 @@ func validatePrivateKey(key, name string) error {
 		return fmt.Errorf("invalid private key format for %s", name)
 	}
 	return nil
+}
+
+func hasRPCURL(config map[string]any) bool {
+	if rpcURL, ok := config["rpc_url"].(string); ok && strings.TrimSpace(rpcURL) != "" {
+		return true
+	}
+	switch raw := config["rpc_urls"].(type) {
+	case map[string]string:
+		for _, value := range raw {
+			if strings.TrimSpace(value) != "" {
+				return true
+			}
+		}
+	case map[string]any:
+		for _, value := range raw {
+			if text, ok := value.(string); ok && strings.TrimSpace(text) != "" {
+				return true
+			}
+		}
+	}
+	return false
 }

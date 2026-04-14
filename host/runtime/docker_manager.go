@@ -6,14 +6,16 @@ import (
 	"context"
 	"encoding/binary"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/netip"
 	"os"
 	"path/filepath"
+	"sync"
+	"time"
 
 	"github.com/HershyOrg/hershy/host/compose"
-	"github.com/HershyOrg/hershy/host/logger"
 	"github.com/HershyOrg/hershy/program"
 	nat "github.com/docker/go-connections/nat"
 	"github.com/moby/go-archive"
@@ -25,7 +27,6 @@ import (
 // DockerManager handles Docker image building and container lifecycle
 type DockerManager struct {
 	cli *client.Client
-	logger *logger.Logger
 }
 
 // NewDockerManager creates a new DockerManager
@@ -35,12 +36,8 @@ func NewDockerManager() (*DockerManager, error) {
 		return nil, fmt.Errorf("failed to create Docker client: %w", err)
 	}
 
-	l := logger.New("DockerManager", io.Discard, "")
-  l.ConsolePrint = false
-
 	return &DockerManager{
 		cli: cli,
-		logger:l,
 	}, nil
 }
 
@@ -151,13 +148,9 @@ func (m *DockerManager) Build(ctx context.Context, opts BuildOpts) (*BuildResult
 
 // StartOpts contains options for starting a container
 type StartOpts struct {
-	ProgramID program.ProgramID
-	Spec      *compose.ComposeSpec
-
-	// 로그 드라이버 (docker stdout을 파일로 저장)
-	LogDriver string
-	LogPath string
-	FollowLogs bool
+	ProgramID      program.ProgramID
+	Spec           *compose.ComposeSpec
+	RuntimeLogPath string
 }
 
 // StartResult contains the result of starting a container
@@ -262,48 +255,14 @@ func (m *DockerManager) Start(ctx context.Context, opts StartOpts) (*StartResult
 		NetworkMode:    container.NetworkMode(appService.NetworkMode),
 		PortBindings:   networkPortBindings,
 	}
-	// Configure Docker log driver 
+	// Configure Docker log driver
 	hostConfig.LogConfig = container.LogConfig{
-			Type: "json-file", // 명시적으로 json-file 지정
-			Config: map[string]string{
-					"max-size": "10m",
-					"max-file": "3",
-			},
+		Type: "json-file", // 명시적으로 json-file 지정
+		Config: map[string]string{
+			"max-size": "10m",
+			"max-file": "3",
+		},
 	}
-
-	// - create the logs directory and truncate/create the file 
-	if opts.LogPath != "" {
-        // opts.LogPath가 파일 경로인지 판단
-        if filepath.Ext(opts.LogPath) != "" {
-            // 파일 경로이면 해당 디렉터리만 생성하고 파일 생성/트렁케이트
-            dir := filepath.Dir(opts.LogPath)
-            if err := os.MkdirAll(dir, 0755); err != nil {
-                fmt.Printf("DockerManager: failed to create log dir %s: %v\n", dir, err)
-            } else {
-                if f, err := os.Create(opts.LogPath); err != nil {
-                    fmt.Printf("DockerManager: failed to create runtime log file %s: %v\n", opts.LogPath, err)
-                } else {
-                    f.Close()
-                    // opts.LogPath는 이미 파일 경로이므로 변경하지 않음
-                }
-            }
-        } else {
-            // 디렉터리로 전달된 경우 기존 동작 유지
-            logDir := filepath.Join(opts.LogPath, "programs", string(opts.ProgramID), "runtime")
-            if err := os.MkdirAll(logDir, 0755); err != nil {
-                fmt.Printf("DockerManager: failed to create log dir %s: %v\n", logDir, err)
-            } else {
-                p := filepath.Join(logDir, "runtime.log")
-                if f, err := os.Create(p); err != nil {
-                    fmt.Printf("DockerManager: failed to create runtime log file %s: %v\n", p, err)
-                } else {
-                    f.Close()
-                    opts.LogPath = p
-                }
-            }
-        }
-    }
-	
 
 	// Create container using new API
 	createOpts := client.ContainerCreateOptions{
@@ -325,83 +284,9 @@ func (m *DockerManager) Start(ctx context.Context, opts StartOpts) (*StartResult
 		return nil, fmt.Errorf("failed to start container: %w", err)
 	}
 
-	if opts.LogPath != ""{
-		if !opts.FollowLogs {
-        opts.FollowLogs = true
-    }
-		go func(containerID,path string){
-			childLg := logger.New("DockerManager", io.Discard, path)
-			childLg.ConsolePrint = false
-			childLg.SetDefaultLogType("PROGRAM")
-
-			defer childLg.Close()
-
-      logOpts := client.ContainerLogsOptions{
-        ShowStdout: true,
-        ShowStderr: true,
-        Follow:     opts.FollowLogs,
-        Timestamps: true,
-      }
-
-		
-			reader, err := m.cli.ContainerLogs(context.Background(), containerID, logOpts)
-			if err != nil {
-       	childLg.Emit(logger.LogEntry{
-					Level:     "ERROR",
-					Msg:       fmt.Sprintf("failed to stream logs: %v", err),
-					Vars: map[string]interface{}{"container_id": containerID},
-				})
-        return
-    	}
-      defer reader.Close()
-
-			stdoutR, stdoutW := io.Pipe()
-			stderrR, stderrW := io.Pipe()
-
-			writeJSON := func(level, stream, line string) {
-				childLg.Emit(logger.LogEntry{
-					Level:     level,
-					Msg:       line,
-					Vars: map[string]interface{}{
-						"stream":       stream,
-						"container_id": containerID,
-					},
-				})
-			}
-			// stdout scanner
-      go func() {
-        sc := bufio.NewScanner(stdoutR)
-        for sc.Scan() {
-          writeJSON("INFO", "stdout", sc.Text())
-        }
-        if err := sc.Err(); err != nil {
-					writeJSON("ERROR", "stdout", fmt.Sprintf("stdout scanner error: %v", err))
-        }
-      }()
-			// stderr scanner
-      go func() {
-        sc := bufio.NewScanner(stderrR)
-        for sc.Scan() {
-					writeJSON("INFO", "stderr", sc.Text())
-        }
-        if err := sc.Err(); err != nil {
-					writeJSON("ERROR", "stderr", fmt.Sprintf("stderr scanner error: %v", err))
-        }
-    	}()
-
-			// stdout, stderr 분리
-			if _, err := demuxDockerStream(stdoutW, stderrW, reader); err != nil {
-				childLg.Emit(logger.LogEntry{
-					Level:     "ERROR",
-					Msg:       fmt.Sprintf("error demuxing logs: %v", err),
-					Vars: map[string]interface{}{"container_id": containerID, "stream": "demux"},
-				})
-			}
-			stdoutW.Close()
-      stderrW.Close()
-		}(resp.ID,opts.LogPath)
+	if opts.RuntimeLogPath != "" {
+		go m.streamRuntimeLogs(resp.ID, opts.ProgramID, opts.RuntimeLogPath)
 	}
-
 
 	return &StartResult{
 		ContainerID: resp.ID,
@@ -492,15 +377,24 @@ func (m *DockerManager) GetContainerLogs(ctx context.Context, containerID string
 	if err != nil {
 		return "", fmt.Errorf("failed to get container logs: %w", err)
 	}
-	defer reader.Close()
 
-	// Read logs
 	var buf bytes.Buffer
-	_, err = io.Copy(&buf, reader)
-	if err != nil {
-		return "", fmt.Errorf("failed to read container logs: %w", err)
+	if _, err := demuxDockerStream(&buf, &buf, reader); err == nil {
+		reader.Close()
+		return buf.String(), nil
 	}
 
+	_ = reader.Close()
+	reader, err = m.cli.ContainerLogs(ctx, containerID, options)
+	if err != nil {
+		return "", fmt.Errorf("failed to retry container logs: %w", err)
+	}
+	defer reader.Close()
+
+	buf.Reset()
+	if _, err = io.Copy(&buf, reader); err != nil {
+		return "", fmt.Errorf("failed to read container logs: %w", err)
+	}
 	return buf.String(), nil
 }
 
@@ -536,4 +430,75 @@ func demuxDockerStream(stdout io.Writer, stderr io.Writer, src io.Reader) (int64
 		}
 		total += int64(n)
 	}
+}
+
+func (m *DockerManager) streamRuntimeLogs(containerID string, programID program.ProgramID, path string) {
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		fmt.Printf("DockerManager: failed to create runtime log dir for %s: %v\n", programID, err)
+		return
+	}
+
+	file, err := os.OpenFile(path, os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0o644)
+	if err != nil {
+		fmt.Printf("DockerManager: failed to open runtime log file for %s: %v\n", programID, err)
+		return
+	}
+	defer file.Close()
+
+	var writeMu sync.Mutex
+	writeLine := func(line string) {
+		writeMu.Lock()
+		defer writeMu.Unlock()
+		if _, err := file.WriteString(line); err != nil {
+			fmt.Printf("DockerManager: failed to write runtime log for %s: %v\n", programID, err)
+		}
+	}
+
+	writeLine(fmt.Sprintf("[system] %s container_log_stream_started program_id=%s container_id=%s\n", time.Now().UTC().Format(time.RFC3339Nano), programID, containerID))
+
+	logOpts := client.ContainerLogsOptions{
+		ShowStdout: true,
+		ShowStderr: true,
+		Follow:     true,
+		Timestamps: true,
+	}
+
+	reader, err := m.cli.ContainerLogs(context.Background(), containerID, logOpts)
+	if err != nil {
+		writeLine(fmt.Sprintf("[system] %s container_log_stream_error program_id=%s container_id=%s error=%q\n", time.Now().UTC().Format(time.RFC3339Nano), programID, containerID, err.Error()))
+		return
+	}
+	defer reader.Close()
+
+	stdoutR, stdoutW := io.Pipe()
+	stderrR, stderrW := io.Pipe()
+
+	var scanWG sync.WaitGroup
+	scanStream := func(stream string, pipe *io.PipeReader) {
+		defer scanWG.Done()
+		defer pipe.Close()
+
+		scanner := bufio.NewScanner(pipe)
+		scanner.Buffer(make([]byte, 0, 64*1024), 1024*1024)
+		for scanner.Scan() {
+			writeLine(fmt.Sprintf("[%s] %s\n", stream, scanner.Text()))
+		}
+		if err := scanner.Err(); err != nil {
+			writeLine(fmt.Sprintf("[system] %s scanner_error stream=%s program_id=%s container_id=%s error=%q\n", time.Now().UTC().Format(time.RFC3339Nano), stream, programID, containerID, err.Error()))
+		}
+	}
+
+	scanWG.Add(2)
+	go scanStream("stdout", stdoutR)
+	go scanStream("stderr", stderrR)
+
+	if _, err := demuxDockerStream(stdoutW, stderrW, reader); err != nil && !errors.Is(err, io.EOF) {
+		writeLine(fmt.Sprintf("[system] %s demux_error program_id=%s container_id=%s error=%q\n", time.Now().UTC().Format(time.RFC3339Nano), programID, containerID, err.Error()))
+	}
+
+	_ = stdoutW.Close()
+	_ = stderrW.Close()
+	scanWG.Wait()
+
+	writeLine(fmt.Sprintf("[system] %s container_log_stream_ended program_id=%s container_id=%s\n", time.Now().UTC().Format(time.RFC3339Nano), programID, containerID))
 }

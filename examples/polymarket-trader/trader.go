@@ -12,6 +12,8 @@ import (
 
 	"github.com/HershyOrg/hersh"
 	"github.com/HershyOrg/hersh/manager"
+	cctxdebug "github.com/HershyOrg/hershy/cctx/debug"
+	"github.com/HershyOrg/hershy/cctx/diagnostics"
 )
 
 type ManagedTrader struct {
@@ -22,6 +24,12 @@ type ManagedTrader struct {
 const (
 	livePositionSyncGap          = 30 * time.Second
 	livePositionRecoveryLookback = 2
+	entryRetryLongMs             = int64(15 * time.Second / time.Millisecond)
+	entryRetryMediumMs           = int64(8 * time.Second / time.Millisecond)
+	entryRetryShortMs            = int64(3 * time.Second / time.Millisecond)
+	scaleInRetryLongMs           = int64(20 * time.Second / time.Millisecond)
+	scaleInRetryMediumMs         = int64(10 * time.Second / time.Millisecond)
+	scaleInRetryShortMs          = int64(4 * time.Second / time.Millisecond)
 )
 
 type livePositionSnapshot struct {
@@ -31,6 +39,34 @@ type livePositionSnapshot struct {
 	Shares        float64
 	CurrentMarket bool
 	MarketClosed  bool
+}
+
+type windowEndHoldDecision struct {
+	Hold             bool
+	PositionProb     float64
+	EntryPrice       float64
+	CurrentExitPrice float64
+	RemainingUpside  float64
+	ModelEdgeVsExit  float64
+}
+
+type entryEdgeDecision struct {
+	Allow               bool
+	PositionProb        float64
+	EstimatedEntryPrice float64
+	ModelEdge           float64
+}
+
+type entryCandidate struct {
+	BetUp    bool
+	TokenID  string
+	Decision entryEdgeDecision
+}
+
+type positionStopDecision struct {
+	Exit             bool
+	CurrentExitPrice float64
+	UnrealizedROI    float64
 }
 
 func NewManagedTrader(cfg TraderConfig, executorBuilder func() (TradeExecutor, error)) *ManagedTrader {
@@ -44,6 +80,13 @@ func (mt *ManagedTrader) Run(msg *hersh.Message, ctx hersh.HershContext) (runErr
 	defer func() {
 		if r := recover(); r != nil {
 			log.Printf("[PANIC] %v\n%s", r, string(debug.Stack()))
+			state := ensureRuntimeState(ctx)
+			decisionID := nextDecisionID(state)
+			mt.emitDebugEvent(ctx, state, nil, cctxdebug.EventAnomaly, decisionID, activeTradeID(state), diagnostics.ReasonVenueUnavailable.String(), "panic", map[string]any{
+				"panic": fmt.Sprintf("%v", r),
+			}, nil, map[string]any{
+				"stack": string(debug.Stack()),
+			}, time.Now().UnixMilli())
 			if err, ok := r.(error); ok {
 				runErr = hersh.NewCrashErr("panic", err)
 			} else {
@@ -183,11 +226,13 @@ func (mt *ManagedTrader) maybeSyncLivePositions(ctx hersh.HershContext, executor
 			log.Printf("[RECOVERY] tracked position missing on exchange; clearing token_id=%s", next.Position.TokenID)
 			next.Position = nil
 			next.PendingBetUp = nil
+			next.PendingTradeID = nil
 			next.PendingSinceMs = nil
 		} else if isDustPosition(shares, next.Position.CostUSDC, next.Position.EntryPrice, mt.cfg.TradeCfg) {
 			log.Printf("[RECOVERY] tracked position is dust; clearing token_id=%s shares=%.6f", next.Position.TokenID, shares)
 			next.Position = nil
 			next.PendingBetUp = nil
+			next.PendingTradeID = nil
 			next.PendingSinceMs = nil
 		} else {
 			if math.Abs(shares-next.Position.Shares) > 1e-9 {
@@ -231,15 +276,19 @@ func (mt *ManagedTrader) maybeSyncLivePositions(ctx hersh.HershContext, executor
 		log.Printf("[RECOVERY] resumed current position slug=%s bet_up=%t shares=%.6f token_id=%s",
 			snapshot.MarketSlug, snapshot.BetUp, snapshot.Shares, snapshot.TokenID)
 		next.Position = &Position{
-			TokenID:    snapshot.TokenID,
-			BetUp:      snapshot.BetUp,
-			EntryTsMs:  nowMs,
-			EntryPrice: nil,
-			Shares:     snapshot.Shares,
-			CostUSDC:   0,
-			EntryO1h:   next.O1h,
+			TradeID:      nextTradeID(next),
+			TokenID:      snapshot.TokenID,
+			MarketSlug:   snapshot.MarketSlug,
+			BetUp:        snapshot.BetUp,
+			EntryTsMs:    nowMs,
+			EntryPrice:   nil,
+			Shares:       snapshot.Shares,
+			CostUSDC:     0,
+			EntryO1h:     next.O1h,
+			HoldToExpiry: false,
 		}
 		next.PendingBetUp = nil
+		next.PendingTradeID = nil
 		next.PendingSinceMs = nil
 		if !mt.cfg.AllowScaleIn {
 			next.TradedThisHour = true
@@ -435,6 +484,7 @@ func ensureRuntimeState(ctx hersh.HershContext) *RuntimeState {
 	value := ctx.GetValue("runtime_state")
 	if value == nil {
 		state := &RuntimeState{O1hByHour: map[int64]float64{}, Last60Closes: make([]float64, 0, 61)}
+		ensureRunID(state)
 		ctx.SetValue("runtime_state", state)
 		return state
 	}
@@ -443,6 +493,7 @@ func ensureRuntimeState(ctx hersh.HershContext) *RuntimeState {
 		state = &RuntimeState{O1hByHour: map[int64]float64{}, Last60Closes: make([]float64, 0, 61)}
 		ctx.SetValue("runtime_state", state)
 	}
+	ensureRunID(state)
 	return state
 }
 
@@ -522,7 +573,9 @@ func (mt *ManagedTrader) handleMarketSwitch(ctx hersh.HershContext, executor Tra
 		log.Printf("[MARKET] switch %s -> %s", market.MarketSlug, tokens.Slug)
 		state := ensureRuntimeState(ctx)
 		if state.Position != nil {
-			if mt.cfg.PaperCfg != nil && mt.cfg.PaperCfg.HoldToExpiry {
+			if state.Position.HoldToExpiry {
+				mt.releaseHeldPositionForSettlement(state, "market_switch", time.Now().UnixMilli())
+			} else if mt.cfg.PaperCfg != nil && mt.cfg.PaperCfg.HoldToExpiry {
 				if state.LastPriceTsMs == 0 {
 					log.Printf("[PAPER] settle skipped (missing last price)")
 				} else {
@@ -536,7 +589,10 @@ func (mt *ManagedTrader) handleMarketSwitch(ctx hersh.HershContext, executor Tra
 		}
 		updateRuntimeState(ctx, func(rs *RuntimeState) {
 			rs.PendingBetUp = nil
+			rs.PendingTradeID = nil
 			rs.PendingSinceMs = nil
+			rs.NextEntryAttemptMs = 0
+			rs.NextScaleInMs = 0
 		})
 	}
 
@@ -572,7 +628,9 @@ func (mt *ManagedTrader) processKline(ctx hersh.HershContext, model *ProbModel, 
 	hourOpen := floorToHourMs(nowMs)
 	if updated.CurHour == 0 || hourOpen != updated.CurHour {
 		if updated.CurHour != 0 && updated.Position != nil {
-			if mt.cfg.PaperCfg != nil && mt.cfg.PaperCfg.HoldToExpiry {
+			if updated.Position.HoldToExpiry {
+				mt.releaseHeldPositionForSettlement(updated, "hour_rollover", nowMs)
+			} else if mt.cfg.PaperCfg != nil && mt.cfg.PaperCfg.HoldToExpiry {
 				if updated.LastPriceTsMs == 0 {
 					log.Printf("[PAPER] settle skipped (missing last price)")
 				} else {
@@ -597,7 +655,10 @@ func (mt *ManagedTrader) processKline(ctx hersh.HershContext, model *ProbModel, 
 		updated.Last60Closes = updated.Last60Closes[:0]
 		updated.TradedThisHour = false
 		updated.PendingBetUp = nil
+		updated.PendingTradeID = nil
 		updated.PendingSinceMs = nil
+		updated.NextEntryAttemptMs = 0
+		updated.NextScaleInMs = 0
 	}
 
 	updated.LastPrice = evt.Close
@@ -661,10 +722,36 @@ func (mt *ManagedTrader) processKline(ctx hersh.HershContext, model *ProbModel, 
 		return updateRuntimeState(ctx, func(rs *RuntimeState) { *rs = *updated }), false
 	}
 
+	signalDecisionID := nextDecisionID(updated)
+	mt.emitDebugEvent(ctx, updated, market, cctxdebug.EventMarketSnapshot, signalDecisionID, activeTradeID(updated), "", "observed", map[string]any{
+		"interval":      evt.Interval,
+		"hour_open_ms":  updated.CurHour,
+		"tau_sec":       tauSec,
+		"price":         evt.Close,
+		"hour_open":     *updated.O1h,
+		"cum_volume":    updated.CumVol,
+		"last_price_ts": updated.LastPriceTsMs,
+	}, nil, nil, nowMs)
+	mt.emitDebugEvent(ctx, updated, market, cctxdebug.EventSignalEval, signalDecisionID, activeTradeID(updated), "", "signal_ready", map[string]any{
+		"entry_high": mt.cfg.Strategy.EntryHigh,
+		"entry_low":  mt.cfg.Strategy.EntryLow,
+		"theta":      mt.cfg.Strategy.Theta,
+	}, map[string]any{
+		"p_up":      pUp,
+		"p_bad":     pbad,
+		"sign":      sgn,
+		"delta_pct": updated.LastDeltaPct,
+		"mom":       mom,
+		"regime":    regime,
+	}, nil, nowMs)
+
 	stopActive := mt.cfg.StopAtMs != nil && nowMs >= *mt.cfg.StopAtMs
 	if stopActive && !updated.StopLogged {
 		log.Printf("[STOP] reached stop_at_et=%s; no new entries", msToETStr(*mt.cfg.StopAtMs, loadETLocation()))
 		updated.StopLogged = true
+		mt.emitDebugEvent(ctx, updated, market, cctxdebug.EventStateChange, nextDecisionID(updated), activeTradeID(updated), "", "stop_time_reached", nil, nil, map[string]any{
+			"stop_at_ms": *mt.cfg.StopAtMs,
+		}, nowMs)
 	}
 
 	if mt.cfg.LogEverySec > 0 && (nowMs-updated.LastLogMs) >= int64(mt.cfg.LogEverySec*1000) {
@@ -703,7 +790,9 @@ func (mt *ManagedTrader) processKline(ctx hersh.HershContext, model *ProbModel, 
 
 	if stopActive {
 		updated.PendingBetUp = nil
+		updated.PendingTradeID = nil
 		updated.PendingSinceMs = nil
+		updated.NextEntryAttemptMs = 0
 		if mt.cfg.StopExit && updated.Position != nil {
 			mt.tryExitPosition(ctx, executor, updated, "stop_time", nowMs)
 		}
@@ -726,101 +815,362 @@ func (mt *ManagedTrader) processKline(ctx hersh.HershContext, model *ProbModel, 
 		if betUpSignal != nil {
 			if updated.PendingBetUp == nil {
 				v := *betUpSignal
+				tradeID := nextTradeID(updated)
 				updated.PendingBetUp = &v
+				updated.PendingTradeID = &tradeID
 				ms := nowMs
 				updated.PendingSinceMs = &ms
+				updated.NextEntryAttemptMs = 0
 				log.Printf("[ENTRY] pending tau=%ds bet_up=%t p_up=%.4f", tauSec, v, pUp)
+				mt.emitDebugEvent(ctx, updated, market, cctxdebug.EventStateChange, nextDecisionID(updated), tradeID, "", "pending_created", map[string]any{
+					"bet_up":  v,
+					"p_up":    pUp,
+					"tau_sec": tauSec,
+				}, nil, map[string]any{
+					"state": "pending",
+				}, nowMs)
 			} else if *updated.PendingBetUp != *betUpSignal {
 				v := *betUpSignal
+				tradeID := nextTradeID(updated)
 				updated.PendingBetUp = &v
+				updated.PendingTradeID = &tradeID
 				ms := nowMs
 				updated.PendingSinceMs = &ms
+				updated.NextEntryAttemptMs = 0
 				log.Printf("[ENTRY] pending switch tau=%ds bet_up=%t p_up=%.4f", tauSec, v, pUp)
+				mt.emitDebugEvent(ctx, updated, market, cctxdebug.EventStateChange, nextDecisionID(updated), tradeID, "", "pending_switched", map[string]any{
+					"bet_up":  v,
+					"p_up":    pUp,
+					"tau_sec": tauSec,
+				}, nil, map[string]any{
+					"state": "pending",
+				}, nowMs)
 			}
 		}
 
 		if updated.PendingBetUp != nil {
 			if market.MarketClosed != nil && *market.MarketClosed {
 				log.Printf("[ENTRY] skip (market closed)")
+				mt.emitDebugEvent(ctx, updated, market, cctxdebug.EventEntryEval, nextDecisionID(updated), pendingTradeID(updated), diagnostics.ReasonMarketClosed.String(), "blocked", map[string]any{
+					"bet_up":  *updated.PendingBetUp,
+					"tau_sec": tauSec,
+				}, nil, nil, nowMs)
 				updated.PendingBetUp = nil
+				updated.PendingTradeID = nil
 				updated.PendingSinceMs = nil
+				updated.NextEntryAttemptMs = 0
 				updated.TradedThisHour = true
 			} else if market.EnableOrderbook != nil && !*market.EnableOrderbook {
 				log.Printf("[ENTRY] skip (orderbook disabled)")
+				mt.emitDebugEvent(ctx, updated, market, cctxdebug.EventEntryEval, nextDecisionID(updated), pendingTradeID(updated), diagnostics.ReasonDataOrderbookUnavailable.String(), "blocked", map[string]any{
+					"bet_up":  *updated.PendingBetUp,
+					"tau_sec": tauSec,
+				}, nil, nil, nowMs)
 				updated.PendingBetUp = nil
+				updated.PendingTradeID = nil
 				updated.PendingSinceMs = nil
+				updated.NextEntryAttemptMs = 0
 				updated.TradedThisHour = true
+			} else if updated.NextEntryAttemptMs != 0 && nowMs < updated.NextEntryAttemptMs {
 			} else {
 				tokenID := market.TokenIDDown
 				if *updated.PendingBetUp {
 					tokenID = market.TokenIDUp
 				}
-				cancelled, cancelErr := executor.CancelOpenEntryOrders(market.MarketID)
-				if cancelErr != nil {
-					log.Printf("[ENTRY] open order cleanup failed market_id=%s: %v", market.MarketID, cancelErr)
-				} else if cancelled > 0 {
-					log.Printf("[ENTRY] cleaned up %d stale open buy order(s) for market_id=%s", cancelled, market.MarketID)
-				}
-				log.Printf("[ENTRY] tau=%ds bet_up=%t p_up=%.4f token_id=%s", tauSec, *updated.PendingBetUp, pUp, tokenID)
-				fill, err := executor.MarketBuyMax(tokenID)
+				available, err := executor.ComputeBuyUSDC()
 				if err != nil {
-					log.Printf("[ENTRY] buy failed: %v", err)
-				} else if fill != nil {
-					updated.Position = &Position{
-						TokenID:    tokenID,
-						BetUp:      *updated.PendingBetUp,
-						EntryTsMs:  nowMs,
-						EntryPrice: fill.AvgPrice,
-						Shares:     fill.Shares,
-						CostUSDC:   fill.USDC,
-						EntryO1h:   updated.O1h,
-					}
-					if !mt.cfg.AllowScaleIn {
-						updated.TradedThisHour = true
-					}
-					updated.PendingBetUp = nil
-					updated.PendingSinceMs = nil
+					log.Printf("[ENTRY] balance check failed: %v", err)
+					delayMs := entryRetryDelayMs(tauSec)
+					updated.NextEntryAttemptMs = nowMs + delayMs
+					log.Printf("[ENTRY] retry scheduled in %ds", delayMs/1000)
+					mt.emitDebugEvent(ctx, updated, market, cctxdebug.EventAnomaly, nextDecisionID(updated), pendingTradeID(updated), diagnostics.ReasonVenueUnavailable.String(), "balance_check_failed", map[string]any{
+						"bet_up":  *updated.PendingBetUp,
+						"tau_sec": tauSec,
+					}, nil, map[string]any{
+						"error":    err.Error(),
+						"retry_ms": delayMs,
+					}, nowMs)
 				} else {
-					log.Printf("[ENTRY] no fill; keeping entry pending")
+					selected, err := mt.evaluateBestEntryCandidate(market, pUp, available, *updated.PendingBetUp)
+					if err != nil {
+						log.Printf("[ENTRY] edge check failed: %v", err)
+						delayMs := entryRetryDelayMs(tauSec)
+						updated.NextEntryAttemptMs = nowMs + delayMs
+						log.Printf("[ENTRY] retry scheduled in %ds", delayMs/1000)
+						mt.emitDebugEvent(ctx, updated, market, cctxdebug.EventAnomaly, nextDecisionID(updated), pendingTradeID(updated), diagnostics.ReasonVenueUnavailable.String(), "entry_edge_check_failed", map[string]any{
+							"available_usdc": available,
+						}, nil, map[string]any{
+							"error":    err.Error(),
+							"retry_ms": delayMs,
+						}, nowMs)
+					} else {
+						tokenID = selected.TokenID
+						decision := selected.Decision
+						if updated.PendingBetUp != nil && *updated.PendingBetUp != selected.BetUp {
+							prevBetUp := *updated.PendingBetUp
+							v := selected.BetUp
+							updated.PendingBetUp = &v
+							log.Printf("[ENTRY] pending side switch bet_up=%t -> %t based on edge comparison", prevBetUp, v)
+							mt.emitDebugEvent(ctx, updated, market, cctxdebug.EventStateChange, nextDecisionID(updated), pendingTradeID(updated), "", "pending_side_switched", map[string]any{
+								"from_bet_up": prevBetUp,
+								"to_bet_up":   v,
+							}, map[string]any{
+								"p_up":                  pUp,
+								"position_prob":         decision.PositionProb,
+								"estimated_entry_price": decision.EstimatedEntryPrice,
+								"edge":                  decision.ModelEdge,
+							}, nil, nowMs)
+						}
+						if !decision.Allow {
+							delayMs := entryRetryDelayMs(tauSec)
+							updated.NextEntryAttemptMs = nowMs + delayMs
+							reasonCode := entryBlockReason(decision, mt.cfg.Strategy)
+							if decision.EstimatedEntryPrice > 0 && reasonCode == diagnostics.ReasonPolicyProbabilityBelowThreshold {
+								log.Printf("[ENTRY] blocked by probability gate token_id=%s position_prob=%.4f min_position_prob=%.4f est_entry_px=%.4f edge=%.4f; backing off for %ds",
+									tokenID, decision.PositionProb, mt.cfg.Strategy.MinPositionProbForEntry, decision.EstimatedEntryPrice, decision.ModelEdge, delayMs/1000)
+							} else if decision.EstimatedEntryPrice > 0 {
+								log.Printf("[ENTRY] blocked by edge gate token_id=%s position_prob=%.4f est_entry_px=%.4f edge=%.4f min_edge=%.4f; backing off for %ds",
+									tokenID, decision.PositionProb, decision.EstimatedEntryPrice, decision.ModelEdge, mt.cfg.Strategy.MinEntryEdge, delayMs/1000)
+							} else {
+								log.Printf("[ENTRY] blocked by edge gate token_id=%s (missing entry quote or insufficient amount); backing off for %ds",
+									tokenID, delayMs/1000)
+							}
+							mt.emitDebugEvent(ctx, updated, market, cctxdebug.EventEntryEval, nextDecisionID(updated), pendingTradeID(updated), reasonCode.String(), "blocked", map[string]any{
+								"token_id":       tokenID,
+								"bet_up":         *updated.PendingBetUp,
+								"tau_sec":        tauSec,
+								"available_usdc": available,
+							}, map[string]any{
+								"position_prob":         decision.PositionProb,
+								"estimated_entry_price": decision.EstimatedEntryPrice,
+								"edge":                  decision.ModelEdge,
+								"min_entry_edge":        mt.cfg.Strategy.MinEntryEdge,
+								"min_position_prob":     mt.cfg.Strategy.MinPositionProbForEntry,
+							}, map[string]any{
+								"retry_ms": delayMs,
+							}, nowMs)
+						} else {
+							cancelled, cancelErr := executor.CancelOpenEntryOrders(market.MarketID)
+							if cancelErr != nil {
+								log.Printf("[ENTRY] open order cleanup failed market_id=%s: %v", market.MarketID, cancelErr)
+							} else if cancelled > 0 {
+								log.Printf("[ENTRY] cleaned up %d stale open buy order(s) for market_id=%s", cancelled, market.MarketID)
+							}
+							log.Printf("[ENTRY] tau=%ds bet_up=%t p_up=%.4f token_id=%s", tauSec, *updated.PendingBetUp, pUp, tokenID)
+							pendingID := pendingTradeID(updated)
+							mt.emitDebugEvent(ctx, updated, market, cctxdebug.EventOrderAction, nextDecisionID(updated), pendingID, "", "attempt_entry", map[string]any{
+								"token_id": tokenID,
+								"bet_up":   *updated.PendingBetUp,
+								"tau_sec":  tauSec,
+							}, map[string]any{
+								"p_up":                  pUp,
+								"position_prob":         decision.PositionProb,
+								"estimated_entry_price": decision.EstimatedEntryPrice,
+								"edge":                  decision.ModelEdge,
+							}, map[string]any{
+								"cancelled_open_orders": cancelled,
+							}, nowMs)
+							fill, err := executor.MarketBuyMax(tokenID)
+							if err != nil {
+								log.Printf("[ENTRY] buy failed: %v", err)
+								delayMs := entryRetryDelayMs(tauSec)
+								updated.NextEntryAttemptMs = nowMs + delayMs
+								log.Printf("[ENTRY] retry scheduled in %ds", delayMs/1000)
+								mt.emitDebugEvent(ctx, updated, market, cctxdebug.EventAnomaly, nextDecisionID(updated), pendingID, diagnostics.ReasonVenueUnavailable.String(), "entry_order_failed", map[string]any{
+									"token_id": tokenID,
+									"bet_up":   *updated.PendingBetUp,
+								}, nil, map[string]any{
+									"error":    err.Error(),
+									"retry_ms": delayMs,
+								}, nowMs)
+							} else if fill != nil {
+								tradeID := pendingID
+								if tradeID == "" {
+									tradeID = nextTradeID(updated)
+								}
+								updated.Position = &Position{
+									TradeID:      tradeID,
+									TokenID:      tokenID,
+									MarketSlug:   market.MarketSlug,
+									BetUp:        *updated.PendingBetUp,
+									EntryTsMs:    nowMs,
+									EntryPrice:   fill.AvgPrice,
+									Shares:       fill.Shares,
+									CostUSDC:     fill.USDC,
+									EntryO1h:     updated.O1h,
+									HoldToExpiry: false,
+								}
+								updated.NextEntryAttemptMs = 0
+								updated.NextScaleInMs = 0
+								if !mt.cfg.AllowScaleIn {
+									updated.TradedThisHour = true
+								}
+								updated.PendingBetUp = nil
+								updated.PendingTradeID = nil
+								updated.PendingSinceMs = nil
+								mt.emitDebugEvent(ctx, updated, market, cctxdebug.EventFillResult, nextDecisionID(updated), tradeID, "", "entry_filled", map[string]any{
+									"token_id": tokenID,
+									"bet_up":   updated.Position.BetUp,
+								}, nil, map[string]any{
+									"usdc":      fill.USDC,
+									"shares":    fill.Shares,
+									"avg_price": derefFloat(fill.AvgPrice),
+									"partial":   fill.Partial,
+								}, nowMs)
+								mt.emitDebugEvent(ctx, updated, market, cctxdebug.EventStateChange, nextDecisionID(updated), tradeID, "", "entered_position", nil, nil, map[string]any{
+									"state": "in_position",
+								}, nowMs)
+							} else {
+								delayMs := entryRetryDelayMs(tauSec)
+								updated.NextEntryAttemptMs = nowMs + delayMs
+								log.Printf("[ENTRY] no fill; keeping entry pending and backing off for %ds", delayMs/1000)
+								mt.emitDebugEvent(ctx, updated, market, cctxdebug.EventOrderAction, nextDecisionID(updated), pendingID, diagnostics.ReasonExecutionNoFill.String(), "entry_no_fill", map[string]any{
+									"token_id": tokenID,
+									"bet_up":   *updated.PendingBetUp,
+								}, nil, map[string]any{
+									"retry_ms": delayMs,
+								}, nowMs)
+							}
+						}
+					}
 				}
-			}
 
-			if updated.Position == nil && updated.PendingBetUp != nil && tauSec <= 1 {
-				log.Printf("[ENTRY] pending expired tau=%ds bet_up=%t", tauSec, *updated.PendingBetUp)
-				updated.PendingBetUp = nil
-				updated.PendingSinceMs = nil
-				updated.TradedThisHour = true
+				if updated.Position == nil && updated.PendingBetUp != nil && tauSec <= 1 {
+					log.Printf("[ENTRY] pending expired tau=%ds bet_up=%t", tauSec, *updated.PendingBetUp)
+					mt.emitDebugEvent(ctx, updated, market, cctxdebug.EventStateChange, nextDecisionID(updated), pendingTradeID(updated), diagnostics.ReasonLifecycleWindowClosed.String(), "pending_expired", map[string]any{
+						"bet_up": *updated.PendingBetUp,
+					}, nil, map[string]any{
+						"state": "expired",
+					}, nowMs)
+					updated.PendingBetUp = nil
+					updated.PendingTradeID = nil
+					updated.PendingSinceMs = nil
+					updated.NextEntryAttemptMs = 0
+					updated.TradedThisHour = true
+				}
 			}
-		}
-	} else if mt.cfg.AllowScaleIn && updated.Position != nil && !updated.TradedThisHour && betUpSignal != nil && updated.Position.BetUp == *betUpSignal {
-		if market.MarketClosed != nil && *market.MarketClosed {
-			log.Printf("[ENTRY] scale-in skip (market closed)")
-			updated.TradedThisHour = true
-		} else if market.EnableOrderbook != nil && !*market.EnableOrderbook {
-			log.Printf("[ENTRY] scale-in skip (orderbook disabled)")
-			updated.TradedThisHour = true
-		} else {
-			available, err := executor.ComputeBuyUSDC()
-			if err != nil {
-				log.Printf("[ENTRY] scale-in skip (balance check failed: %v)", err)
+		} else if mt.cfg.AllowScaleIn && updated.Position != nil && updated.Position.MarketSlug == market.MarketSlug && !updated.TradedThisHour && betUpSignal != nil && updated.Position.BetUp == *betUpSignal {
+			if market.MarketClosed != nil && *market.MarketClosed {
+				log.Printf("[ENTRY] scale-in skip (market closed)")
+				mt.emitDebugEvent(ctx, updated, market, cctxdebug.EventEntryEval, nextDecisionID(updated), positionTradeID(updated), diagnostics.ReasonMarketClosed.String(), "scale_in_blocked", nil, nil, nil, nowMs)
+				updated.NextScaleInMs = 0
 				updated.TradedThisHour = true
-			} else if available < mt.cfg.TradeCfg.MinUSDC {
-				log.Printf("[ENTRY] scale-in skip (amount=%.4f < min_usdc=%.4f)", available, mt.cfg.TradeCfg.MinUSDC)
+			} else if market.EnableOrderbook != nil && !*market.EnableOrderbook {
+				log.Printf("[ENTRY] scale-in skip (orderbook disabled)")
+				mt.emitDebugEvent(ctx, updated, market, cctxdebug.EventEntryEval, nextDecisionID(updated), positionTradeID(updated), diagnostics.ReasonDataOrderbookUnavailable.String(), "scale_in_blocked", nil, nil, nil, nowMs)
+				updated.NextScaleInMs = 0
 				updated.TradedThisHour = true
+			} else if updated.NextScaleInMs != 0 && nowMs < updated.NextScaleInMs {
 			} else {
-				tokenID := market.TokenIDDown
-				if *betUpSignal {
-					tokenID = market.TokenIDUp
-				}
-				log.Printf("[ENTRY] scale-in tau=%ds bet_up=%t p_up=%.4f token_id=%s", tauSec, *betUpSignal, pUp, tokenID)
-				fill, err := executor.MarketBuyMax(tokenID)
+				available, err := executor.ComputeBuyUSDC()
 				if err != nil {
-					log.Printf("[ENTRY] scale-in buy failed: %v", err)
-				} else if fill != nil {
-					applyFillToPosition(updated.Position, fill)
+					log.Printf("[ENTRY] scale-in skip (balance check failed: %v)", err)
+					mt.emitDebugEvent(ctx, updated, market, cctxdebug.EventAnomaly, nextDecisionID(updated), positionTradeID(updated), diagnostics.ReasonVenueUnavailable.String(), "scale_in_balance_check_failed", nil, nil, map[string]any{
+						"error": err.Error(),
+					}, nowMs)
+					updated.NextScaleInMs = 0
+					updated.TradedThisHour = true
+				} else if available < mt.cfg.TradeCfg.MinUSDC {
+					log.Printf("[ENTRY] scale-in skip (amount=%.4f < min_usdc=%.4f)", available, mt.cfg.TradeCfg.MinUSDC)
+					mt.emitDebugEvent(ctx, updated, market, cctxdebug.EventEntryEval, nextDecisionID(updated), positionTradeID(updated), diagnostics.ReasonExecutionAmountTooSmall.String(), "scale_in_blocked", map[string]any{
+						"available_usdc": available,
+					}, nil, nil, nowMs)
+					updated.NextScaleInMs = 0
+					updated.TradedThisHour = true
+				} else {
+					tokenID := market.TokenIDDown
+					if *betUpSignal {
+						tokenID = market.TokenIDUp
+					}
+					positionProb := positionProbForBet(*betUpSignal, pUp)
+					decision, err := mt.evaluateEntryEdgeDecision(tokenID, positionProb, available)
+					if err != nil {
+						log.Printf("[ENTRY] scale-in edge check failed token_id=%s: %v", tokenID, err)
+						delayMs := scaleInRetryDelayMs(tauSec)
+						updated.NextScaleInMs = nowMs + delayMs
+						log.Printf("[ENTRY] scale-in retry scheduled in %ds", delayMs/1000)
+						mt.emitDebugEvent(ctx, updated, market, cctxdebug.EventAnomaly, nextDecisionID(updated), positionTradeID(updated), diagnostics.ReasonVenueUnavailable.String(), "scale_in_edge_check_failed", map[string]any{
+							"token_id":       tokenID,
+							"available_usdc": available,
+						}, nil, map[string]any{
+							"error":    err.Error(),
+							"retry_ms": delayMs,
+						}, nowMs)
+					} else if !decision.Allow {
+						delayMs := scaleInRetryDelayMs(tauSec)
+						updated.NextScaleInMs = nowMs + delayMs
+						reasonCode := entryBlockReason(decision, mt.cfg.Strategy)
+						if decision.EstimatedEntryPrice > 0 && reasonCode == diagnostics.ReasonPolicyProbabilityBelowThreshold {
+							log.Printf("[ENTRY] scale-in blocked by probability gate token_id=%s position_prob=%.4f min_position_prob=%.4f est_entry_px=%.4f edge=%.4f; backing off for %ds",
+								tokenID, decision.PositionProb, mt.cfg.Strategy.MinPositionProbForEntry, decision.EstimatedEntryPrice, decision.ModelEdge, delayMs/1000)
+						} else if decision.EstimatedEntryPrice > 0 {
+							log.Printf("[ENTRY] scale-in blocked by edge gate token_id=%s position_prob=%.4f est_entry_px=%.4f edge=%.4f min_edge=%.4f; backing off for %ds",
+								tokenID, decision.PositionProb, decision.EstimatedEntryPrice, decision.ModelEdge, mt.cfg.Strategy.MinEntryEdge, delayMs/1000)
+						} else {
+							log.Printf("[ENTRY] scale-in blocked by edge gate token_id=%s (missing entry quote); backing off for %ds",
+								tokenID, delayMs/1000)
+						}
+						mt.emitDebugEvent(ctx, updated, market, cctxdebug.EventEntryEval, nextDecisionID(updated), positionTradeID(updated), reasonCode.String(), "scale_in_blocked", map[string]any{
+							"token_id":       tokenID,
+							"available_usdc": available,
+						}, map[string]any{
+							"position_prob":         decision.PositionProb,
+							"estimated_entry_price": decision.EstimatedEntryPrice,
+							"edge":                  decision.ModelEdge,
+							"min_entry_edge":        mt.cfg.Strategy.MinEntryEdge,
+							"min_position_prob":     mt.cfg.Strategy.MinPositionProbForEntry,
+						}, map[string]any{
+							"retry_ms": delayMs,
+						}, nowMs)
+					} else {
+						log.Printf("[ENTRY] scale-in tau=%ds bet_up=%t p_up=%.4f token_id=%s", tauSec, *betUpSignal, pUp, tokenID)
+						mt.emitDebugEvent(ctx, updated, market, cctxdebug.EventOrderAction, nextDecisionID(updated), positionTradeID(updated), "", "attempt_scale_in", map[string]any{
+							"token_id": tokenID,
+							"bet_up":   *betUpSignal,
+						}, map[string]any{
+							"position_prob":         decision.PositionProb,
+							"estimated_entry_price": decision.EstimatedEntryPrice,
+							"edge":                  decision.ModelEdge,
+						}, nil, nowMs)
+						fill, err := executor.MarketBuyMax(tokenID)
+						if err != nil {
+							log.Printf("[ENTRY] scale-in buy failed: %v", err)
+							delayMs := scaleInRetryDelayMs(tauSec)
+							updated.NextScaleInMs = nowMs + delayMs
+							log.Printf("[ENTRY] scale-in retry scheduled in %ds", delayMs/1000)
+							mt.emitDebugEvent(ctx, updated, market, cctxdebug.EventAnomaly, nextDecisionID(updated), positionTradeID(updated), diagnostics.ReasonVenueUnavailable.String(), "scale_in_order_failed", map[string]any{
+								"token_id": tokenID,
+							}, nil, map[string]any{
+								"error":    err.Error(),
+								"retry_ms": delayMs,
+							}, nowMs)
+						} else if fill != nil {
+							applyFillToPosition(updated.Position, fill)
+							updated.NextScaleInMs = 0
+							updated.TradedThisHour = true
+							mt.emitDebugEvent(ctx, updated, market, cctxdebug.EventFillResult, nextDecisionID(updated), positionTradeID(updated), "", "scale_in_filled", map[string]any{
+								"token_id": tokenID,
+							}, nil, map[string]any{
+								"usdc":      fill.USDC,
+								"shares":    fill.Shares,
+								"avg_price": derefFloat(fill.AvgPrice),
+								"partial":   fill.Partial,
+							}, nowMs)
+						} else {
+							delayMs := scaleInRetryDelayMs(tauSec)
+							updated.NextScaleInMs = nowMs + delayMs
+							log.Printf("[ENTRY] scale-in no fill; backing off for %ds", delayMs/1000)
+							mt.emitDebugEvent(ctx, updated, market, cctxdebug.EventOrderAction, nextDecisionID(updated), positionTradeID(updated), diagnostics.ReasonExecutionNoFill.String(), "scale_in_no_fill", map[string]any{
+								"token_id": tokenID,
+							}, nil, map[string]any{
+								"retry_ms": delayMs,
+							}, nowMs)
+						}
+					}
 				}
 			}
 		}
+
 	}
 
 	if updated.Position == nil {
@@ -829,7 +1179,27 @@ func (mt *ManagedTrader) processKline(ctx hersh.HershContext, model *ProbModel, 
 
 	exitNow := false
 	exitReason := ""
-	if mt.cfg.Strategy.Mode == "pm" {
+	if decision, err := mt.evaluatePositionStopDecision(updated.Position); err != nil {
+		log.Printf("[RISK] stop-loss check failed token_id=%s: %v", updated.Position.TokenID, err)
+		mt.emitDebugEvent(ctx, updated, market, cctxdebug.EventAnomaly, nextDecisionID(updated), positionTradeID(updated), diagnostics.ReasonVenueUnavailable.String(), "stop_loss_check_failed", map[string]any{
+			"token_id": updated.Position.TokenID,
+		}, nil, map[string]any{
+			"error": err.Error(),
+		}, nowMs)
+	} else if decision.Exit {
+		exitNow = true
+		exitReason = "stop_loss"
+		log.Printf("[RISK] stop_loss token_id=%s current_exit_px=%.4f unrealized_roi=%.2f%% max_loss_roi=%.2f%%",
+			updated.Position.TokenID, decision.CurrentExitPrice, decision.UnrealizedROI*100.0, mt.cfg.Strategy.MaxPositionLossROI*100.0)
+		mt.emitDebugEvent(ctx, updated, market, cctxdebug.EventRiskEval, nextDecisionID(updated), positionTradeID(updated), diagnostics.ReasonRiskStopLossTriggered.String(), "exit", map[string]any{
+			"token_id": updated.Position.TokenID,
+		}, map[string]any{
+			"current_exit_price":    decision.CurrentExitPrice,
+			"unrealized_roi":        decision.UnrealizedROI,
+			"max_position_loss_roi": mt.cfg.Strategy.MaxPositionLossROI,
+		}, nil, nowMs)
+	}
+	if !exitNow && mt.cfg.Strategy.Mode == "pm" {
 		if updated.Position.BetUp && pUp < mt.cfg.Strategy.ExitHigh {
 			exitNow = true
 			exitReason = "pm_exit"
@@ -837,20 +1207,44 @@ func (mt *ManagedTrader) processKline(ctx hersh.HershContext, model *ProbModel, 
 			exitNow = true
 			exitReason = "pm_exit"
 		}
-	} else if pbad > mt.cfg.Strategy.Theta {
+	} else if !exitNow && pbad > mt.cfg.Strategy.Theta {
 		exitNow = true
 		exitReason = "pbad"
 	}
 
 	if !exitNow && mt.cfg.Strategy.ExitAtWindowEnd && tauSec <= mt.cfg.Strategy.ExitAtWindowEndSec {
-		exitNow = true
-		exitReason = "window_end"
+		if decision, ok := mt.evaluateWindowEndHoldDecision(updated.Position, market, pUp); ok {
+			if !updated.Position.HoldToExpiry {
+				updated.Position.HoldToExpiry = true
+				log.Printf("[HOLD] keep_to_close reason=window_end slug=%s token_id=%s entry_px=%.4f current_exit_px=%.4f remaining_upside=%.4f position_prob=%.4f edge_vs_exit=%.4f",
+					updated.Position.MarketSlug, updated.Position.TokenID, decision.EntryPrice, decision.CurrentExitPrice,
+					decision.RemainingUpside, decision.PositionProb, decision.ModelEdgeVsExit)
+				mt.emitDebugEvent(ctx, updated, market, cctxdebug.EventRiskEval, nextDecisionID(updated), positionTradeID(updated), "", "hold_to_close", map[string]any{
+					"token_id": updated.Position.TokenID,
+					"tau_sec":  tauSec,
+				}, map[string]any{
+					"entry_price":        decision.EntryPrice,
+					"current_exit_price": decision.CurrentExitPrice,
+					"remaining_upside":   decision.RemainingUpside,
+					"position_prob":      decision.PositionProb,
+					"edge_vs_exit":       decision.ModelEdgeVsExit,
+				}, nil, nowMs)
+			}
+		} else {
+			exitNow = true
+			exitReason = "window_end"
+			mt.emitDebugEvent(ctx, updated, market, cctxdebug.EventRiskEval, nextDecisionID(updated), positionTradeID(updated), diagnostics.ReasonLifecycleWindowClosed.String(), "exit", map[string]any{
+				"token_id": updated.Position.TokenID,
+				"tau_sec":  tauSec,
+			}, nil, nil, nowMs)
+		}
 	}
 
 	if exitNow {
 		if mt.cfg.AllowScaleIn {
 			updated.TradedThisHour = true
 			updated.PendingBetUp = nil
+			updated.PendingTradeID = nil
 			updated.PendingSinceMs = nil
 		}
 		if mt.cfg.PaperCfg != nil && mt.cfg.PaperCfg.HoldToExpiry {
@@ -907,9 +1301,18 @@ func (mt *ManagedTrader) tryExitPosition(ctx hersh.HershContext, executor TradeE
 	}
 	pos := state.Position
 	log.Printf("[EXIT] reason=%s time=%s token_id=%s", reason, msToUTCStr(tMs), pos.TokenID)
+	mt.emitDebugEvent(ctx, state, nil, cctxdebug.EventOrderAction, nextDecisionID(state), pos.TradeID, reason, "attempt_exit", map[string]any{
+		"token_id": pos.TokenID,
+		"shares":   pos.Shares,
+	}, nil, nil, tMs)
 	fill, err := executor.MarketSellAll(pos.TokenID)
 	if err != nil {
 		log.Printf("[EXIT] failed: %v", err)
+		mt.emitDebugEvent(ctx, state, nil, cctxdebug.EventAnomaly, nextDecisionID(state), pos.TradeID, diagnostics.ReasonVenueUnavailable.String(), "exit_failed", map[string]any{
+			"token_id": pos.TokenID,
+		}, nil, map[string]any{
+			"error": err.Error(),
+		}, tMs)
 		return
 	}
 	if fill != nil {
@@ -929,8 +1332,27 @@ func (mt *ManagedTrader) tryExitPosition(ctx hersh.HershContext, executor TradeE
 			roiPct := (pnl / realizedCost) * 100
 			log.Printf("[EXIT] realized token_id=%s cost=%.4f proceeds=%.4f pnl=%.4f roi=%.2f%% shares=%.6f",
 				pos.TokenID, realizedCost, fill.USDC, pnl, roiPct, soldShares)
+			mt.emitDebugEvent(ctx, state, nil, cctxdebug.EventFillResult, nextDecisionID(state), pos.TradeID, reason, "exit_filled", map[string]any{
+				"token_id": pos.TokenID,
+			}, nil, map[string]any{
+				"shares":        soldShares,
+				"proceeds":      fill.USDC,
+				"avg_price":     derefFloat(fill.AvgPrice),
+				"realized_cost": realizedCost,
+				"pnl":           pnl,
+				"roi_pct":       roiPct,
+				"partial":       fill.Partial,
+			}, tMs)
 		} else {
 			log.Printf("[EXIT] realized token_id=%s proceeds=%.4f shares=%.6f", pos.TokenID, fill.USDC, soldShares)
+			mt.emitDebugEvent(ctx, state, nil, cctxdebug.EventFillResult, nextDecisionID(state), pos.TradeID, reason, "exit_filled", map[string]any{
+				"token_id": pos.TokenID,
+			}, nil, map[string]any{
+				"shares":    soldShares,
+				"proceeds":  fill.USDC,
+				"avg_price": derefFloat(fill.AvgPrice),
+				"partial":   fill.Partial,
+			}, tMs)
 		}
 		remainingShares := pos.Shares - soldShares
 		if remainingShares < 0 {
@@ -944,6 +1366,9 @@ func (mt *ManagedTrader) tryExitPosition(ctx hersh.HershContext, executor TradeE
 			if remainingShares > 1e-9 {
 				log.Printf("[EXIT] clearing residual dust token_id=%s shares=%.6f cost=%.4f", pos.TokenID, remainingShares, remainingCost)
 			}
+			mt.emitDebugEvent(ctx, state, nil, cctxdebug.EventStateChange, nextDecisionID(state), pos.TradeID, reason, "position_closed", nil, nil, map[string]any{
+				"state": "closed",
+			}, tMs)
 			state.Position = nil
 			return
 		}
@@ -954,7 +1379,16 @@ func (mt *ManagedTrader) tryExitPosition(ctx hersh.HershContext, executor TradeE
 			pos.EntryPrice = &v
 		}
 		log.Printf("[EXIT] partial token_id=%s remaining_shares=%.6f remaining_cost=%.4f", pos.TokenID, pos.Shares, pos.CostUSDC)
+		mt.emitDebugEvent(ctx, state, nil, cctxdebug.EventStateChange, nextDecisionID(state), pos.TradeID, reason, "partial_exit", nil, nil, map[string]any{
+			"state":            "partial",
+			"remaining_shares": pos.Shares,
+			"remaining_cost":   pos.CostUSDC,
+		}, tMs)
+		return
 	}
+	mt.emitDebugEvent(ctx, state, nil, cctxdebug.EventOrderAction, nextDecisionID(state), pos.TradeID, diagnostics.ReasonExecutionNoFill.String(), "exit_no_fill", map[string]any{
+		"token_id": pos.TokenID,
+	}, nil, nil, tMs)
 }
 
 func (mt *ManagedTrader) expireLivePosition(ctx hersh.HershContext, state *RuntimeState, reason string, tMs int64) {
@@ -962,7 +1396,306 @@ func (mt *ManagedTrader) expireLivePosition(ctx hersh.HershContext, state *Runti
 		return
 	}
 	log.Printf("[HOLD] expiry reason=%s time=%s token_id=%s (no exit order)", reason, msToUTCStr(tMs), state.Position.TokenID)
+	mt.emitDebugEvent(ctx, state, nil, cctxdebug.EventStateChange, nextDecisionID(state), state.Position.TradeID, reason, "expired_without_exit", nil, nil, map[string]any{
+		"state": "expired",
+	}, tMs)
 	state.Position = nil
+}
+
+func (mt *ManagedTrader) releaseHeldPositionForSettlement(state *RuntimeState, reason string, tMs int64) {
+	if state == nil || state.Position == nil {
+		return
+	}
+	log.Printf("[HOLD] release_to_settlement reason=%s time=%s slug=%s token_id=%s shares=%.6f",
+		reason, msToUTCStr(tMs), state.Position.MarketSlug, state.Position.TokenID, state.Position.Shares)
+	state.Position = nil
+}
+
+func (mt *ManagedTrader) evaluateWindowEndHoldDecision(pos *Position, market *MarketState, pUp float64) (windowEndHoldDecision, bool) {
+	decision := windowEndHoldDecision{}
+	if pos == nil || !mt.cfg.Strategy.WindowEndHoldEnabled || mt.cfg.PaperCfg != nil {
+		return decision, false
+	}
+	if market == nil || pos.MarketSlug == "" || pos.MarketSlug != market.MarketSlug {
+		return decision, false
+	}
+	if pos.EntryPrice == nil || *pos.EntryPrice <= 1e-9 {
+		return decision, false
+	}
+	positionProb := pUp
+	if !pos.BetUp {
+		positionProb = 1 - pUp
+	}
+	entryPrice := *pos.EntryPrice
+	currentExitPrice := entryPrice
+	if exitPx, err := mt.estimateCurrentExitPrice(pos.TokenID, pos.Shares); err == nil && exitPx != nil && *exitPx > 0 {
+		currentExitPrice = *exitPx
+	}
+	decision = computeWindowEndHoldDecision(entryPrice, positionProb, currentExitPrice, mt.cfg.Strategy)
+	return decision, decision.Hold
+}
+
+func computeWindowEndHoldDecision(entryPrice, positionProb, currentExitPrice float64, strategy StrategyConfig) windowEndHoldDecision {
+	remainingUpside := 1 - entryPrice
+	modelEdgeVsExit := positionProb - currentExitPrice
+	return windowEndHoldDecision{
+		Hold: remainingUpside <= strategy.WindowEndHoldRemainingUpsideMax &&
+			positionProb >= strategy.WindowEndHoldMinPositionProb &&
+			modelEdgeVsExit >= strategy.WindowEndHoldMinEdgeVsExit,
+		PositionProb:     positionProb,
+		EntryPrice:       entryPrice,
+		CurrentExitPrice: currentExitPrice,
+		RemainingUpside:  remainingUpside,
+		ModelEdgeVsExit:  modelEdgeVsExit,
+	}
+}
+
+func (mt *ManagedTrader) estimateCurrentExitPrice(tokenID string, shares float64) (*float64, error) {
+	book, err := fetchOrderbook(mt.cfg.ClobHost, tokenID)
+	if err != nil {
+		return nil, err
+	}
+	if fill := simulateMarketSell(book, shares); fill != nil && fill.AvgPrice != nil {
+		return fill.AvgPrice, nil
+	}
+	bid, _ := bestBidAsk(book)
+	return bid, nil
+}
+
+func entryRetryDelayMs(tauSec int) int64 {
+	switch {
+	case tauSec > 120:
+		return entryRetryLongMs
+	case tauSec > 30:
+		return entryRetryMediumMs
+	default:
+		return entryRetryShortMs
+	}
+}
+
+func scaleInRetryDelayMs(tauSec int) int64 {
+	switch {
+	case tauSec > 120:
+		return scaleInRetryLongMs
+	case tauSec > 30:
+		return scaleInRetryMediumMs
+	default:
+		return scaleInRetryShortMs
+	}
+}
+
+func positionProbForBet(betUp bool, pUp float64) float64 {
+	if betUp {
+		return pUp
+	}
+	return 1.0 - pUp
+}
+
+func computeEntryEdgeDecision(positionProb, estimatedEntryPrice, minEntryEdge float64) entryEdgeDecision {
+	decision := entryEdgeDecision{
+		Allow:               true,
+		PositionProb:        positionProb,
+		EstimatedEntryPrice: estimatedEntryPrice,
+		ModelEdge:           positionProb - estimatedEntryPrice,
+	}
+	if minEntryEdge > 0 && decision.ModelEdge < minEntryEdge {
+		decision.Allow = false
+	}
+	return decision
+}
+
+func computeGuardedEntryDecision(positionProb, estimatedEntryPrice, minEntryEdge, minPositionProb float64) entryEdgeDecision {
+	decision := computeEntryEdgeDecision(positionProb, estimatedEntryPrice, minEntryEdge)
+	if minPositionProb > 0 && positionProb < minPositionProb {
+		decision.Allow = false
+	}
+	return decision
+}
+
+func entryBlockReason(decision entryEdgeDecision, strategy StrategyConfig) diagnostics.ReasonCode {
+	if decision.EstimatedEntryPrice <= 0 {
+		return diagnostics.ReasonDataQuoteUnavailable
+	}
+	if strategy.MinPositionProbForEntry > 0 && decision.PositionProb < strategy.MinPositionProbForEntry {
+		return diagnostics.ReasonPolicyProbabilityBelowThreshold
+	}
+	return diagnostics.ReasonPolicyEdgeBelowThreshold
+}
+
+func prefersEntryCandidate(a, b entryCandidate, preferredBetUp bool) bool {
+	if math.Abs(a.Decision.ModelEdge-b.Decision.ModelEdge) > 1e-9 {
+		return a.Decision.ModelEdge > b.Decision.ModelEdge
+	}
+	aQuoted := a.Decision.EstimatedEntryPrice > 0
+	bQuoted := b.Decision.EstimatedEntryPrice > 0
+	if aQuoted != bQuoted {
+		return aQuoted
+	}
+	if a.BetUp == preferredBetUp && b.BetUp != preferredBetUp {
+		return true
+	}
+	if a.BetUp != preferredBetUp && b.BetUp == preferredBetUp {
+		return false
+	}
+	if a.Decision.PositionProb != b.Decision.PositionProb {
+		return a.Decision.PositionProb > b.Decision.PositionProb
+	}
+	return a.BetUp && !b.BetUp
+}
+
+func selectPreferredEntryCandidate(preferredBetUp bool, candidates ...entryCandidate) (entryCandidate, bool) {
+	var bestAllowed *entryCandidate
+	var bestQuoted *entryCandidate
+	var bestAny *entryCandidate
+
+	for _, candidate := range candidates {
+		if candidate.TokenID == "" {
+			continue
+		}
+		candidateCopy := candidate
+		if bestAny == nil || prefersEntryCandidate(candidateCopy, *bestAny, preferredBetUp) {
+			bestAny = &candidateCopy
+		}
+		if candidate.Decision.EstimatedEntryPrice > 0 {
+			if bestQuoted == nil || prefersEntryCandidate(candidateCopy, *bestQuoted, preferredBetUp) {
+				bestQuoted = &candidateCopy
+			}
+		}
+		if candidate.Decision.Allow {
+			if bestAllowed == nil || prefersEntryCandidate(candidateCopy, *bestAllowed, preferredBetUp) {
+				bestAllowed = &candidateCopy
+			}
+		}
+	}
+
+	switch {
+	case bestAllowed != nil:
+		return *bestAllowed, true
+	case bestQuoted != nil:
+		return *bestQuoted, true
+	case bestAny != nil:
+		return *bestAny, true
+	default:
+		return entryCandidate{BetUp: preferredBetUp}, false
+	}
+}
+
+func computePositionStopDecision(costUSDC, shares, currentExitPrice, maxPositionLossROI float64) positionStopDecision {
+	if maxPositionLossROI < 0 || costUSDC <= 1e-9 || shares <= 1e-9 || currentExitPrice <= 0 {
+		return positionStopDecision{}
+	}
+	proceeds := currentExitPrice * shares
+	unrealizedROI := (proceeds - costUSDC) / costUSDC
+	return positionStopDecision{
+		Exit:             unrealizedROI <= -maxPositionLossROI,
+		CurrentExitPrice: currentExitPrice,
+		UnrealizedROI:    unrealizedROI,
+	}
+}
+
+func (mt *ManagedTrader) evaluateEntryEdgeDecision(tokenID string, positionProb, amountUSDC float64) (entryEdgeDecision, error) {
+	if amountUSDC < mt.cfg.TradeCfg.MinUSDC {
+		return entryEdgeDecision{Allow: false, PositionProb: positionProb}, nil
+	}
+	estimatedEntryPrice, err := mt.estimateCurrentEntryPrice(tokenID, amountUSDC)
+	if err != nil {
+		return entryEdgeDecision{}, err
+	}
+	if estimatedEntryPrice == nil {
+		return entryEdgeDecision{Allow: false, PositionProb: positionProb}, nil
+	}
+	return computeGuardedEntryDecision(positionProb, *estimatedEntryPrice, mt.cfg.Strategy.MinEntryEdge, mt.cfg.Strategy.MinPositionProbForEntry), nil
+}
+
+func (mt *ManagedTrader) evaluateEntryCandidate(tokenID string, betUp bool, pUp, amountUSDC float64) (entryCandidate, error) {
+	candidate := entryCandidate{
+		BetUp:   betUp,
+		TokenID: tokenID,
+		Decision: entryEdgeDecision{
+			PositionProb: positionProbForBet(betUp, pUp),
+		},
+	}
+	if tokenID == "" || amountUSDC < mt.cfg.TradeCfg.MinUSDC {
+		return candidate, nil
+	}
+	estimatedEntryPrice, err := mt.estimateCurrentEntryPrice(tokenID, amountUSDC)
+	if err != nil {
+		return candidate, err
+	}
+	if estimatedEntryPrice == nil {
+		return candidate, nil
+	}
+	candidate.Decision = computeGuardedEntryDecision(candidate.Decision.PositionProb, *estimatedEntryPrice, mt.cfg.Strategy.MinEntryEdge, mt.cfg.Strategy.MinPositionProbForEntry)
+	return candidate, nil
+}
+
+func (mt *ManagedTrader) evaluateBestEntryCandidate(market *MarketState, pUp, amountUSDC float64, preferredBetUp bool) (entryCandidate, error) {
+	if market == nil {
+		return entryCandidate{BetUp: preferredBetUp}, fmt.Errorf("market state unavailable")
+	}
+
+	var (
+		candidates []entryCandidate
+		errs       []string
+	)
+
+	upCandidate, err := mt.evaluateEntryCandidate(market.TokenIDUp, true, pUp, amountUSDC)
+	if err != nil {
+		errs = append(errs, fmt.Sprintf("up: %v", err))
+	} else {
+		candidates = append(candidates, upCandidate)
+	}
+
+	downCandidate, err := mt.evaluateEntryCandidate(market.TokenIDDown, false, pUp, amountUSDC)
+	if err != nil {
+		errs = append(errs, fmt.Sprintf("down: %v", err))
+	} else {
+		candidates = append(candidates, downCandidate)
+	}
+
+	selected, ok := selectPreferredEntryCandidate(preferredBetUp, candidates...)
+	if !ok {
+		if len(errs) > 0 {
+			return entryCandidate{BetUp: preferredBetUp}, fmt.Errorf("%s", strings.Join(errs, "; "))
+		}
+		return entryCandidate{BetUp: preferredBetUp}, nil
+	}
+	if !selected.Decision.Allow && len(errs) > 0 {
+		return entryCandidate{BetUp: preferredBetUp}, fmt.Errorf("%s", strings.Join(errs, "; "))
+	}
+	return selected, nil
+}
+
+func (mt *ManagedTrader) evaluatePositionStopDecision(pos *Position) (positionStopDecision, error) {
+	if pos == nil || mt.cfg.Strategy.MaxPositionLossROI < 0 {
+		return positionStopDecision{}, nil
+	}
+	currentExitPrice, err := mt.estimateCurrentExitPrice(pos.TokenID, pos.Shares)
+	if err != nil {
+		return positionStopDecision{}, err
+	}
+	if currentExitPrice == nil {
+		return positionStopDecision{}, nil
+	}
+	return computePositionStopDecision(pos.CostUSDC, pos.Shares, *currentExitPrice, mt.cfg.Strategy.MaxPositionLossROI), nil
+}
+
+func (mt *ManagedTrader) estimateCurrentEntryPrice(tokenID string, amountUSDC float64) (*float64, error) {
+	book, err := fetchOrderbook(mt.cfg.ClobHost, tokenID)
+	if err != nil {
+		return nil, err
+	}
+	if fill := simulateMarketBuy(book, amountUSDC); fill != nil {
+		if fill.WorstPrice > 0 {
+			price := fill.WorstPrice
+			return &price, nil
+		}
+		if fill.AvgPrice != nil {
+			return fill.AvgPrice, nil
+		}
+	}
+	_, ask := bestBidAsk(book)
+	return ask, nil
 }
 
 func (mt *ManagedTrader) settlePaperPosition(ctx hersh.HershContext, executor TradeExecutor, state *RuntimeState, reason string, tMs int64, closePrice float64, o1h *float64, marketSlug string) {
@@ -1048,6 +1781,10 @@ func cloneRuntimeState(state *RuntimeState) *RuntimeState {
 		return &RuntimeState{O1hByHour: map[int64]float64{}, Last60Closes: make([]float64, 0, 61)}
 	}
 	clone := *state
+	if state.Position != nil {
+		posClone := *state.Position
+		clone.Position = &posClone
+	}
 	if state.O1hByHour != nil {
 		clone.O1hByHour = make(map[int64]float64, len(state.O1hByHour))
 		for k, v := range state.O1hByHour {
@@ -1060,6 +1797,10 @@ func cloneRuntimeState(state *RuntimeState) *RuntimeState {
 		clone.Last60Closes = append([]float64(nil), state.Last60Closes...)
 	} else {
 		clone.Last60Closes = make([]float64, 0, 61)
+	}
+	if state.PendingTradeID != nil {
+		value := *state.PendingTradeID
+		clone.PendingTradeID = &value
 	}
 	return &clone
 }

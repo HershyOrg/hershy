@@ -4,6 +4,13 @@ const KNOWN_CONNECTION_KINDS = new Set(['stream-monitor', 'trigger-action', 'act
 
 const normalizeString = (value) => (typeof value === 'string' ? value.trim() : '');
 
+const cloneObject = (value) => {
+  if (!value || typeof value !== 'object') {
+    return null;
+  }
+  return JSON.parse(JSON.stringify(value));
+};
+
 const normalizeNumber = (value, fallback = null) => {
   const parsed = Number(value);
   return Number.isFinite(parsed) ? parsed : fallback;
@@ -144,7 +151,13 @@ const compileBlockConfig = (block) => {
   }
 };
 
-export const buildStrategyDefinition = ({ tabId, tabLabel, blocks = [], connections = [] }) => {
+export const buildStrategyDefinition = ({
+  tabId,
+  tabLabel,
+  blocks = [],
+  connections = [],
+  runtime = null
+}) => {
   const strategyName = normalizeString(tabLabel) || normalizeString(tabId) || 'strategy';
 
   const compiledBlocks = blocks.map((block) => ({
@@ -179,7 +192,7 @@ export const buildStrategyDefinition = ({ tabId, tabLabel, blocks = [], connecti
     }
   };
 
-  return {
+  const definition = {
     schemaVersion: STRATEGY_SCHEMA_VERSION,
     kind: 'hershy-strategy-graph',
     strategy: {
@@ -191,6 +204,13 @@ export const buildStrategyDefinition = ({ tabId, tabLabel, blocks = [], connecti
     blocks: compiledBlocks,
     connections: compiledConnections
   };
+
+  const runtimeConfig = cloneObject(runtime);
+  if (runtimeConfig) {
+    definition.runtime = runtimeConfig;
+  }
+
+  return definition;
 };
 
 const collectNameDuplicates = (blocks) => {
@@ -582,7 +602,11 @@ export const strategyDefinitionToCanvas = (strategy) => {
       .filter((connection) => connection.kind && connection.fromId && connection.toId)
     : [];
 
-  return { blocks, connections };
+  return {
+    blocks,
+    connections,
+    runtime: cloneObject(strategy?.runtime)
+  };
 };
 
 export { STRATEGY_SCHEMA_VERSION };

@@ -38,6 +38,7 @@ import (
 	"net/http"
 	"net/url"
 	"os"
+	"os/exec"
 	"os/signal"
 	"strconv"
 	"strings"
@@ -501,6 +502,12 @@ func (e *Engine) resolveActionParams(action ActionDef, inputs map[string]any) ma
 	if value := asString(action.Config["evmFunctionStateMutability"]); value != "" {
 		params["evmFunctionStateMutability"] = value
 	}
+	if value := asString(action.Config["evmTransport"]); value != "" {
+		params["evmTransport"] = value
+	}
+	if value := asString(action.Config["evmCalldata"]); value != "" {
+		params["evmCalldata"] = value
+	}
 	if value := asString(action.Config["chainId"]); value != "" {
 		params["chainId"] = value
 	}
@@ -509,6 +516,9 @@ func (e *Engine) resolveActionParams(action ActionDef, inputs map[string]any) ma
 	}
 	if value := asString(action.Config["rpcUrl"]); value != "" {
 		params["rpcUrl"] = value
+	}
+	if value := asString(action.Config["evmValue"]); value != "" {
+		params["value"] = value
 	}
 	return params
 }
@@ -754,13 +764,64 @@ func executeEVMContractAction(params map[string]any, credentials map[string]stri
 	}
 	contractAddress := common.HexToAddress(contractAddressRaw)
 
+	callData, method, functionName, stateMutability, err := resolveEVMCallSpec(params)
+	if err != nil {
+		return nil, err
+	}
+
+	transport := strings.ToLower(firstNonEmpty(toTrimmedString(params["evmTransport"]), toTrimmedString(params["txTransport"]), "foundry"))
+	switch transport {
+	case "", "foundry":
+		return executeEVMContractActionViaFoundry(params, rpcURL, privateKeyHex, contractAddress, callData, method, functionName, stateMutability)
+	case "rpc":
+		return executeEVMContractActionViaRPC(params, rpcURL, privateKeyHex, contractAddress, callData, method, functionName, stateMutability)
+	default:
+		return nil, fmt.Errorf("unsupported evm transport: %s", transport)
+	}
+}
+
+func resolveEVMRPCURL(params map[string]any, credentials map[string]string) (string, error) {
+	chain := firstNonEmpty(toTrimmedString(params["evmChain"]), "eth-mainnet")
+	rpcURL := firstNonEmpty(
+		toTrimmedString(params["rpcUrl"]),
+		resolveChainSpecificRPCURL(chain, credentials),
+		toTrimmedString(params["apiUrl"]),
+	)
+	if rpcURL != "" {
+		return rpcURL, nil
+	}
+
+	alchemyKey := strings.TrimSpace(credentials["alchemyApiKey"])
+	if alchemyKey == "" {
+		return "", errors.New("evm rpc url or alchemy api key is required")
+	}
+
+	alchemyChain := normalizeAlchemyChainSlug(chain)
+	if alchemyChain == "" {
+		return "", errors.New("unsupported evm chain slug")
+	}
+	return fmt.Sprintf("https://%s.g.alchemy.com/v2/%s", alchemyChain, alchemyKey), nil
+}
+
+func resolveEVMCallSpec(params map[string]any) ([]byte, *ethabi.Method, string, string, error) {
+	rawCalldata := firstNonEmpty(toTrimmedString(params["evmCalldata"]), toTrimmedString(params["calldata"]), toTrimmedString(params["data"]))
+	if rawCalldata != "" {
+		callData, err := decodeHexOrPlainBytes(rawCalldata)
+		if err != nil {
+			return nil, nil, "", "", fmt.Errorf("invalid evm calldata: %w", err)
+		}
+		functionName := firstNonEmpty(toTrimmedString(params["evmFunctionName"]), "raw_calldata")
+		stateMutability := firstNonEmpty(toTrimmedString(params["evmFunctionStateMutability"]), "nonpayable")
+		return callData, nil, functionName, stateMutability, nil
+	}
+
 	abiText := strings.TrimSpace(toTrimmedString(params["contractAbi"]))
 	if abiText == "" {
-		return nil, errors.New("evm contractAbi is required")
+		return nil, nil, "", "", errors.New("evm calldata or contractAbi is required")
 	}
 	parsedABI, err := ethabi.JSON(strings.NewReader(abiText))
 	if err != nil {
-		return nil, fmt.Errorf("evm abi parse failed: %w", err)
+		return nil, nil, "", "", fmt.Errorf("evm abi parse failed: %w", err)
 	}
 
 	functionName := strings.TrimSpace(firstNonEmpty(toTrimmedString(params["evmFunctionName"]), toTrimmedString(params["functionName"])))
@@ -769,32 +830,91 @@ func executeEVMContractAction(params map[string]any, credentials map[string]stri
 		functionName = parseFunctionNameFromSignature(functionSignature)
 	}
 	if functionName == "" && functionSignature == "" {
-		return nil, errors.New("evm function name or signature is required")
+		return nil, nil, "", "", errors.New("evm function name or signature is required")
 	}
 
 	method, err := resolveEVMABIMethod(parsedABI, functionName, functionSignature)
 	if err != nil {
-		return nil, err
+		return nil, nil, "", "", err
 	}
 	inputArgs, err := buildEVMFunctionArgs(method, params)
 	if err != nil {
-		return nil, err
+		return nil, nil, "", "", err
 	}
 	callData, err := parsedABI.Pack(method.Name, inputArgs...)
 	if err != nil {
-		return nil, fmt.Errorf("evm abi pack failed: %w", err)
+		return nil, nil, "", "", fmt.Errorf("evm abi pack failed: %w", err)
 	}
+	return callData, &method, method.Name, method.StateMutability, nil
+}
+
+func executeEVMContractActionViaFoundry(params map[string]any, rpcURL, privateKeyHex string, contractAddress common.Address, callData []byte, method *ethabi.Method, functionName, stateMutability string) (map[string]any, error) {
+	if _, err := exec.LookPath("cast"); err != nil {
+		return nil, errors.New("foundry cast binary not found")
+	}
+
+	callDataHex := fmt.Sprintf("0x%x", callData)
+	chain := firstNonEmpty(toTrimmedString(params["evmChain"]), "custom")
+	readOnly := stateMutability == "view" || stateMutability == "pure"
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+
+	if readOnly {
+		rawOutput, err := runCastCall(ctx, rpcURL, contractAddress.Hex(), callDataHex)
+		if err != nil {
+			return nil, err
+		}
+		result := map[string]any{
+			"mode":             "call",
+			"transport":        "foundry",
+			"chain":            chain,
+			"rpc_url":          rpcURL,
+			"to":               contractAddress.Hex(),
+			"function":         functionName,
+			"state_mutability": stateMutability,
+			"raw_output":       rawOutput,
+			"calldata":         callDataHex,
+		}
+		if decoded, ok := decodeEVMCallOutput(rawOutput, method); ok {
+			result["outputs"] = decoded
+		}
+		return result, nil
+	}
+
+	txHash, err := runCastSend(ctx, rpcURL, privateKeyHex, contractAddress.Hex(), callDataHex, toTrimmedString(params["value"]), params)
+	if err != nil {
+		return nil, err
+	}
+	return map[string]any{
+		"mode":             "transaction",
+		"transport":        "foundry",
+		"chain":            chain,
+		"rpc_url":          rpcURL,
+		"to":               contractAddress.Hex(),
+		"function":         functionName,
+		"state_mutability": stateMutability,
+		"tx_hash":          txHash,
+		"calldata":         callDataHex,
+		"value":            toTrimmedString(params["value"]),
+	}, nil
+}
+
+func executeEVMContractActionViaRPC(params map[string]any, rpcURL, privateKeyHex string, contractAddress common.Address, callData []byte, method *ethabi.Method, functionName, stateMutability string) (map[string]any, error) {
+	client, err := ethclient.Dial(rpcURL)
+	if err != nil {
+		return nil, fmt.Errorf("evm rpc dial failed: %w", err)
+	}
+	defer client.Close()
 
 	privateKey, err := crypto.HexToECDSA(strings.TrimPrefix(privateKeyHex, "0x"))
 	if err != nil {
 		return nil, fmt.Errorf("evm private key invalid: %w", err)
 	}
 	fromAddress := crypto.PubkeyToAddress(privateKey.PublicKey)
-
 	ctx, cancel := context.WithTimeout(context.Background(), 25*time.Second)
 	defer cancel()
 
-	isReadOnly := method.StateMutability == "view" || method.StateMutability == "pure"
+	isReadOnly := stateMutability == "view" || stateMutability == "pure"
 	if isReadOnly {
 		callMsg := ethereum.CallMsg{
 			From: fromAddress,
@@ -805,21 +925,25 @@ func executeEVMContractAction(params map[string]any, credentials map[string]stri
 		if err != nil {
 			return nil, fmt.Errorf("evm eth_call failed: %w", err)
 		}
-		decoded, err := method.Outputs.Unpack(outBytes)
-		if err != nil {
-			return nil, fmt.Errorf("evm call output decode failed: %w", err)
-		}
-		return map[string]any{
+		result := map[string]any{
 			"mode":             "call",
+			"transport":        "rpc",
 			"chain":            firstNonEmpty(toTrimmedString(params["evmChain"]), "custom"),
 			"rpc_url":          rpcURL,
 			"from":             fromAddress.Hex(),
 			"to":               contractAddress.Hex(),
-			"function":         method.Name,
-			"state_mutability": method.StateMutability,
-			"outputs":          formatEVMOutputs(method, decoded),
+			"function":         functionName,
+			"state_mutability": stateMutability,
 			"raw_output":       fmt.Sprintf("0x%x", outBytes),
-		}, nil
+			"calldata":         fmt.Sprintf("0x%x", callData),
+		}
+		if method != nil {
+			decoded, err := method.Outputs.Unpack(outBytes)
+			if err == nil {
+				result["outputs"] = formatEVMOutputs(*method, decoded)
+			}
+		}
+		return result, nil
 	}
 
 	valueWei, err := parseETHValueToWei(params["value"])
@@ -884,41 +1008,145 @@ func executeEVMContractAction(params map[string]any, credentials map[string]stri
 
 	return map[string]any{
 		"mode":             "transaction",
+		"transport":        "rpc",
 		"chain":            firstNonEmpty(toTrimmedString(params["evmChain"]), "custom"),
 		"rpc_url":          rpcURL,
 		"from":             fromAddress.Hex(),
 		"to":               contractAddress.Hex(),
-		"function":         method.Name,
-		"state_mutability": method.StateMutability,
+		"function":         functionName,
+		"state_mutability": stateMutability,
 		"tx_hash":          signedTx.Hash().Hex(),
 		"nonce":            nonce,
 		"gas_limit":        gasLimit,
 		"max_fee_per_gas":  feeCap.String(),
 		"max_priority_fee": tipCap.String(),
 		"value_wei":        valueWei.String(),
+		"calldata":         fmt.Sprintf("0x%x", callData),
 	}, nil
 }
 
-func resolveEVMRPCURL(params map[string]any, credentials map[string]string) (string, error) {
-	rpcURL := firstNonEmpty(
-		toTrimmedString(params["rpcUrl"]),
-		toTrimmedString(params["apiUrl"]),
-		strings.TrimSpace(credentials["rpcUrl"]),
-	)
-	if rpcURL != "" {
-		return rpcURL, nil
+func runCastCall(ctx context.Context, rpcURL, to, calldataHex string) (string, error) {
+	args := []string{"call", to, "--data", calldataHex, "--rpc-url", rpcURL}
+	cmd := exec.CommandContext(ctx, "cast", args...)
+	output, err := cmd.CombinedOutput()
+	if err != nil {
+		return "", fmt.Errorf("cast call failed: %s", strings.TrimSpace(string(output)))
+	}
+	return strings.TrimSpace(string(output)), nil
+}
+
+func runCastSend(ctx context.Context, rpcURL, privateKeyHex, to, calldataHex, valueText string, params map[string]any) (string, error) {
+	args := []string{
+		"send",
+		to,
+		"--data", calldataHex,
+		"--private-key", privateKeyHex,
+		"--rpc-url", rpcURL,
+		"--async",
+	}
+	if value := strings.TrimSpace(valueText); value != "" {
+		args = append(args, "--value", value)
+	}
+	if gasLimit := strings.TrimSpace(toTrimmedString(params["gasLimit"])); gasLimit != "" {
+		args = append(args, "--gas-limit", gasLimit)
+	}
+	if gasPrice := normalizeFoundryGwei(toTrimmedString(params["maxFeeGwei"])); gasPrice != "" {
+		args = append(args, "--gas-price", gasPrice)
+	}
+	if priorityFee := normalizeFoundryGwei(toTrimmedString(params["maxPriorityFeeGwei"])); priorityFee != "" {
+		args = append(args, "--priority-gas-price", priorityFee)
 	}
 
-	alchemyKey := strings.TrimSpace(credentials["alchemyApiKey"])
-	if alchemyKey == "" {
-		return "", errors.New("evm rpc url or alchemy api key is required")
+	cmd := exec.CommandContext(ctx, "cast", args...)
+	output, err := cmd.CombinedOutput()
+	if err != nil {
+		return "", fmt.Errorf("cast send failed: %s", strings.TrimSpace(string(output)))
 	}
+	txHash := extractHexHash(string(output), 64)
+	if txHash == "" {
+		return "", fmt.Errorf("cast send returned no tx hash: %s", strings.TrimSpace(string(output)))
+	}
+	return txHash, nil
+}
 
-	chain := normalizeAlchemyChainSlug(firstNonEmpty(toTrimmedString(params["evmChain"]), "eth-mainnet"))
-	if chain == "" {
-		return "", errors.New("unsupported evm chain slug")
+func resolveChainSpecificRPCURL(chain string, credentials map[string]string) string {
+	if key := evmRPCURLCredentialKey(chain); key != "" {
+		if rpcURL := strings.TrimSpace(credentials[key]); rpcURL != "" {
+			return rpcURL
+		}
 	}
-	return fmt.Sprintf("https://%s.g.alchemy.com/v2/%s", chain, alchemyKey), nil
+	return strings.TrimSpace(credentials["rpcUrl"])
+}
+
+func evmRPCURLCredentialKey(chain string) string {
+	normalized := normalizeEVMRPCKey(chain)
+	if normalized == "" {
+		return ""
+	}
+	return "rpcUrl_" + normalized
+}
+
+func normalizeEVMRPCKey(raw string) string {
+	text := strings.ToLower(strings.TrimSpace(raw))
+	if text == "" {
+		return ""
+	}
+	var builder strings.Builder
+	lastUnderscore := false
+	for _, char := range text {
+		isAlphaNum := (char >= 'a' && char <= 'z') || (char >= '0' && char <= '9')
+		if isAlphaNum {
+			builder.WriteRune(char)
+			lastUnderscore = false
+			continue
+		}
+		if !lastUnderscore {
+			builder.WriteRune('_')
+			lastUnderscore = true
+		}
+	}
+	return strings.Trim(builder.String(), "_")
+}
+
+func normalizeFoundryGwei(raw string) string {
+	text := strings.TrimSpace(raw)
+	if text == "" {
+		return ""
+	}
+	if strings.ContainsAny(text, "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ") {
+		return text
+	}
+	return text + "gwei"
+}
+
+func extractHexHash(raw string, byteLen int) string {
+	fields := strings.Fields(strings.TrimSpace(raw))
+	expectedLen := 2 + (byteLen * 2)
+	for _, field := range fields {
+		candidate := strings.TrimSpace(strings.Trim(field, `"'`))
+		if len(candidate) != expectedLen || !strings.HasPrefix(candidate, "0x") {
+			continue
+		}
+		if _, err := hex.DecodeString(candidate[2:]); err == nil {
+			return candidate
+		}
+	}
+	return ""
+}
+
+func decodeEVMCallOutput(rawOutput string, method *ethabi.Method) (map[string]any, bool) {
+	if method == nil {
+		return nil, false
+	}
+	decodedBytes, err := decodeHexOrPlainBytes(rawOutput)
+	if err != nil {
+		return nil, false
+	}
+	values, err := method.Outputs.Unpack(decodedBytes)
+	if err != nil {
+		return nil, false
+	}
+	return formatEVMOutputs(*method, values), true
 }
 
 func normalizeAlchemyChainSlug(raw string) string {

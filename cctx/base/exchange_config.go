@@ -129,6 +129,56 @@ func (c LimitlessConfig) ToMap() map[string]any {
 	return out
 }
 
+// EVMDEXConfig holds generic EVM DEX executor configuration.
+type EVMDEXConfig struct {
+	// BaseExchangeConfig embeds shared configuration.
+	BaseExchangeConfig
+	// PrivateKey is the EOA signer private key.
+	PrivateKey string
+	// RPCURL is the default chain RPC URL.
+	RPCURL string
+	// RPCURLs stores chain-specific RPC URLs keyed by chain slug.
+	RPCURLs map[string]string
+	// ChainID is the configured chain ID.
+	ChainID int64
+	// CastBinary overrides the Foundry cast binary path.
+	CastBinary string
+	// NativeSymbol labels the native balance returned by FetchBalance.
+	NativeSymbol string
+}
+
+// ToMap converts config to a map, omitting zero values.
+func (c EVMDEXConfig) ToMap() map[string]any {
+	out := c.BaseExchangeConfig.ToMap()
+	if c.PrivateKey != "" {
+		out["private_key"] = c.PrivateKey
+	}
+	if c.RPCURL != "" {
+		out["rpc_url"] = c.RPCURL
+	}
+	if len(c.RPCURLs) > 0 {
+		rpcURLs := make(map[string]any, len(c.RPCURLs))
+		for key, value := range c.RPCURLs {
+			if value != "" {
+				rpcURLs[key] = value
+			}
+		}
+		if len(rpcURLs) > 0 {
+			out["rpc_urls"] = rpcURLs
+		}
+	}
+	if c.ChainID > 0 {
+		out["chain_id"] = c.ChainID
+	}
+	if c.CastBinary != "" {
+		out["cast_binary"] = c.CastBinary
+	}
+	if c.NativeSymbol != "" {
+		out["native_symbol"] = c.NativeSymbol
+	}
+	return out
+}
+
 // mergeConfigMaps merges source into target and returns target.
 func mergeConfigMaps(target map[string]any, source map[string]any) map[string]any {
 	if target == nil {

@@ -5,6 +5,17 @@
     "id": "sample-strategy",
     "name": "Sample Strategy"
   },
+  "runtime": {
+    "auth": {
+      "binance": {
+        "authenticated": false,
+        "credentials": {
+          "apiKey": "YOUR_BINANCE_API_KEY",
+          "hmacSecret": "YOUR_BINANCE_HMAC_SECRET"
+        }
+      }
+    }
+  },
   "blocks": [
     {
       "id": "streaming-1",
@@ -39,9 +50,27 @@
       "id": "action-1",
       "type": "action",
       "config": {
-        "name": "Paper Buy",
+        "name": "Binance Market Buy",
         "actionType": "cex",
-        "exchange": "Binance"
+        "exchange": "Binance",
+        "parameters": [
+          {
+            "name": "symbol",
+            "value": "BTCUSDT"
+          },
+          {
+            "name": "side",
+            "value": "BUY"
+          },
+          {
+            "name": "type",
+            "value": "MARKET"
+          },
+          {
+            "name": "quoteOrderQty",
+            "value": "25"
+          }
+        ]
       }
     }
   ],

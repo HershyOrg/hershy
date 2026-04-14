@@ -20,7 +20,7 @@ type RealEffectHandler struct {
 	compose        *compose.Builder
 	runtime        *runtime.DockerManager
 	defaultRuntime string // Default container runtime (runsc or runc)
-	log 					 *logger.Logger
+	log            *logger.Logger
 }
 
 // NewRealEffectHandler creates a new RealEffectHandler
@@ -32,7 +32,7 @@ func NewRealEffectHandler(storage *storage.StorageManager, compose *compose.Buil
 		compose:        compose,
 		runtime:        runtime,
 		defaultRuntime: "runsc", // Default to gVisor
-		log:						l,
+		log:            l,
 	}
 }
 
@@ -107,7 +107,7 @@ func (h *RealEffectHandler) handleBuildRuntime(ctx context.Context, eff program.
 		Tags:         tags,
 		NoCache:      false,
 		PullParent:   true,
-		BuildLogPath: filepath.Join(h.storage.GetLogsPath(eff.ProgramID), "build.log"),
+		BuildLogPath: h.storage.GetBuildLogPath(eff.ProgramID),
 	}
 
 	// Execute build
@@ -128,21 +128,21 @@ func (h *RealEffectHandler) handleBuildRuntime(ctx context.Context, eff program.
 // handleStartRuntime starts container from built image
 func (h *RealEffectHandler) handleStartRuntime(ctx context.Context, eff program.StartRuntime) program.Event {
 	startTs := time.Now().UTC()
-  
+
 	// Get state path
 	statePath := eff.StatePath
 	if statePath == "" {
 		statePath = h.storage.GetStatePath(eff.ProgramID)
 	}
 	h.log.Emit(logger.LogEntry{
-    	Level:     "INFO",
-      Msg:       "StartRuntime invoked",
-      ProgramID: string(eff.ProgramID),
-      Vars: map[string]interface{}{
-          "image_id": eff.ImageID,
-					"State path": statePath,
-      },
-    })
+		Level:     "INFO",
+		Msg:       "StartRuntime invoked",
+		ProgramID: string(eff.ProgramID),
+		Vars: map[string]interface{}{
+			"image_id":   eff.ImageID,
+			"State path": statePath,
+		},
+	})
 
 	// Generate compose spec with security contracts
 	composeOpts := compose.BuildOpts{
@@ -154,24 +154,24 @@ func (h *RealEffectHandler) handleStartRuntime(ctx context.Context, eff program.
 		PublishPort: eff.PublishPort,
 	}
 	h.log.Emit(logger.LogEntry{
-    Level:     "DEBUG",
-    Msg:       "compose options",
-    ProgramID: string(eff.ProgramID),
-    Vars: map[string]interface{}{
-      "runtime":      composeOpts.Runtime,
-      "network_mode": composeOpts.NetworkMode,
-      "publish_port": composeOpts.PublishPort,
-    	},
-    })
+		Level:     "DEBUG",
+		Msg:       "compose options",
+		ProgramID: string(eff.ProgramID),
+		Vars: map[string]interface{}{
+			"runtime":      composeOpts.Runtime,
+			"network_mode": composeOpts.NetworkMode,
+			"publish_port": composeOpts.PublishPort,
+		},
+	})
 	spec, err := h.compose.GenerateSpec(composeOpts)
 	if err != nil {
 		errMsg := err.Error()
-    h.log.Emit(logger.LogEntry{
-      Level:     "ERROR",
-      Msg:       "failed to generate compose spec",
-      ProgramID: string(eff.ProgramID),
-      Vars: map[string]interface{}{"error": errMsg},
-    })
+		h.log.Emit(logger.LogEntry{
+			Level:     "ERROR",
+			Msg:       "failed to generate compose spec",
+			ProgramID: string(eff.ProgramID),
+			Vars:      map[string]interface{}{"error": errMsg},
+		})
 		return program.StartFailed{
 			Reason: errMsg,
 		}
@@ -184,33 +184,33 @@ func (h *RealEffectHandler) handleStartRuntime(ctx context.Context, eff program.
 			Level:     "ERROR",
 			Msg:       "compose spec validated",
 			ProgramID: string(eff.ProgramID),
-			Vars:			map[string]interface{}{"error": errMsg},
+			Vars:      map[string]interface{}{"error": errMsg},
 		})
 		return program.StartFailed{
 			Reason: errMsg,
 		}
 	}
 	h.log.Emit(logger.LogEntry{
-    Level:     "INFO",
-    Msg:       "compose spec validated",
-    ProgramID: string(eff.ProgramID),
-  })
+		Level:     "INFO",
+		Msg:       "compose spec validated",
+		ProgramID: string(eff.ProgramID),
+	})
 	// Start container
 	startOpts := runtime.StartOpts{
-		ProgramID: eff.ProgramID,
-		Spec:      spec,
-		LogPath: filepath.Join(h.storage.GetLogsPath(eff.ProgramID), "runtime.log"),
+		ProgramID:      eff.ProgramID,
+		Spec:           spec,
+		RuntimeLogPath: h.storage.GetRuntimeLogPath(eff.ProgramID),
 	}
 
 	result, err := h.runtime.Start(ctx, startOpts)
 	if err != nil {
 		errMsg := err.Error()
-    h.log.Emit(logger.LogEntry{
-      Level:     "ERROR",
-      Msg:       "docker container start failed",
-      ProgramID: string(eff.ProgramID),
-      Vars: map[string]interface{}{"error": errMsg},
-    })
+		h.log.Emit(logger.LogEntry{
+			Level:     "ERROR",
+			Msg:       "docker container start failed",
+			ProgramID: string(eff.ProgramID),
+			Vars:      map[string]interface{}{"error": errMsg},
+		})
 		return program.StartFailed{
 			Reason: errMsg,
 		}
@@ -218,14 +218,14 @@ func (h *RealEffectHandler) handleStartRuntime(ctx context.Context, eff program.
 
 	durationMs := time.Since(startTs).Milliseconds()
 	h.log.Emit(logger.LogEntry{
-    Level:      "INFO",
-    Msg:        "container started",
-    ProgramID:  string(eff.ProgramID),
-    DurationMs: &durationMs,
-    Vars: map[string]interface{}{
-      "container_id": result.ContainerID,
-    },
-  })
+		Level:      "INFO",
+		Msg:        "container started",
+		ProgramID:  string(eff.ProgramID),
+		DurationMs: &durationMs,
+		Vars: map[string]interface{}{
+			"container_id": result.ContainerID,
+		},
+	})
 	return program.RuntimeStarted{
 		ContainerID: result.ContainerID,
 	}

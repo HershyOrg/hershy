@@ -3,15 +3,22 @@ package main
 import "time"
 
 type StrategyConfig struct {
-	Mode               string
-	EntryHigh          float64
-	EntryLow           float64
-	ExitHigh           float64
-	ExitLow            float64
-	Theta              float64
-	WindowSec          int
-	ExitAtWindowEnd    bool
-	ExitAtWindowEndSec int
+	Mode                            string
+	EntryHigh                       float64
+	EntryLow                        float64
+	ExitHigh                        float64
+	ExitLow                         float64
+	Theta                           float64
+	MinEntryEdge                    float64
+	MinPositionProbForEntry         float64
+	MaxPositionLossROI              float64
+	WindowSec                       int
+	ExitAtWindowEnd                 bool
+	ExitAtWindowEndSec              int
+	WindowEndHoldEnabled            bool
+	WindowEndHoldRemainingUpsideMax float64
+	WindowEndHoldMinPositionProb    float64
+	WindowEndHoldMinEdgeVsExit      float64
 }
 
 type TradeConfig struct {
@@ -38,19 +45,23 @@ type FillResult struct {
 }
 
 type Position struct {
-	TokenID    string
-	BetUp      bool
-	EntryTsMs  int64
-	EntryPrice *float64
-	Shares     float64
-	CostUSDC   float64
-	EntryO1h   *float64
+	TradeID      string
+	TokenID      string
+	MarketSlug   string
+	BetUp        bool
+	EntryTsMs    int64
+	EntryPrice   *float64
+	Shares       float64
+	CostUSDC     float64
+	EntryO1h     *float64
+	HoldToExpiry bool
 }
 
 type TradeState struct {
 	Position       *Position
 	TradedThisHour bool
 	PendingBetUp   *bool
+	PendingTradeID *string
 	PendingSinceMs *int64
 }
 
@@ -101,10 +112,12 @@ type TraderConfig struct {
 	ClobHost            string
 	ModelPath           string
 	WSURL               string
+	DebugEventsPath     string
 }
 
 type RuntimeState struct {
 	TradeState
+	RunID              string
 	O1hByHour          map[int64]float64
 	CurHour            int64
 	O1h                *float64
@@ -124,6 +137,10 @@ type RuntimeState struct {
 	Paused             bool
 	StartTimeMs        int64
 	LastPositionSyncMs int64
+	NextEntryAttemptMs int64
+	NextScaleInMs      int64
+	NextDecisionSeq    int64
+	NextTradeSeq       int64
 }
 
 type MarketState struct {

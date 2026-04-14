@@ -56,6 +56,9 @@ export default function BackendTab() {
   const [selectedBlockIdsByTab, setSelectedBlockIdsByTab] = useState(() => ({
     [initialTabs[0].id]: []
   }));
+  const [strategyRuntimeByTab, setStrategyRuntimeByTab] = useState(() => ({
+    [initialTabs[0].id]: null
+  }));
   const [actionAuthByTab, setActionAuthByTab] = useState(() => ({
     [initialTabs[0].id]: createEmptyActionAuthState()
   }));
@@ -84,6 +87,10 @@ export default function BackendTab() {
     setSelectedBlockIdsByTab((prevSelected) => ({
       ...prevSelected,
       [nextId]: []
+    }));
+    setStrategyRuntimeByTab((prevRuntime) => ({
+      ...prevRuntime,
+      [nextId]: null
     }));
     setActionAuthByTab((prevAuth) => ({
       ...prevAuth,
@@ -127,6 +134,12 @@ export default function BackendTab() {
       return nextSelected;
     });
 
+    setStrategyRuntimeByTab((prevRuntime) => {
+      const nextRuntime = { ...prevRuntime };
+      delete nextRuntime[tabId];
+      return nextRuntime;
+    });
+
     setActionAuthByTab((prevAuth) => {
       const nextAuth = { ...prevAuth };
       delete nextAuth[tabId];
@@ -155,6 +168,17 @@ export default function BackendTab() {
     ));
   }, [activeTabId]);
 
+  useEffect(() => {
+    if (!activeTabId) {
+      return;
+    }
+    setStrategyRuntimeByTab((prevRuntime) => (
+      Object.prototype.hasOwnProperty.call(prevRuntime, activeTabId)
+        ? prevRuntime
+        : { ...prevRuntime, [activeTabId]: null }
+    ));
+  }, [activeTabId]);
+
   const getDefaultPosition = (blocks) => {
     const index = blocks.length;
     const column = index % spawnColumnCount;
@@ -168,6 +192,7 @@ export default function BackendTab() {
   const activeBlocks = activeTabId ? blocksByTab[activeTabId] || [] : [];
   const activeConnections = activeTabId ? connectionsByTab[activeTabId] || [] : [];
   const activeSelectedIds = activeTabId ? selectedBlockIdsByTab[activeTabId] || [] : [];
+  const activeStrategyRuntime = activeTabId ? strategyRuntimeByTab[activeTabId] || null : null;
   const activeActionAuth = activeTabId ? actionAuthByTab[activeTabId] || createEmptyActionAuthState() : createEmptyActionAuthState();
   const activeTabLabel = useMemo(
     () => tabs.find((tab) => tab.id === activeTabId)?.label || '',
@@ -211,7 +236,8 @@ export default function BackendTab() {
       tabId: activeTabId,
       tabLabel: activeTabLabel,
       blocks: activeBlocks,
-      connections: activeConnections
+      connections: activeConnections,
+      runtime: activeStrategyRuntime
     });
     const report = validateStrategyDefinition(strategy);
     setStrategyReport(report);
@@ -248,6 +274,10 @@ export default function BackendTab() {
     setConnectionsByTab((prevConnections) => ({
       ...prevConnections,
       [activeTabId]: canvasState.connections
+    }));
+    setStrategyRuntimeByTab((prevRuntime) => ({
+      ...prevRuntime,
+      [activeTabId]: canvasState.runtime || null
     }));
     setSelectedBlockIdsByTab((prevSelected) => ({
       ...prevSelected,

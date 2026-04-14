@@ -28,7 +28,7 @@ export default function AISidePanel({
           className="ai-control-input"
           value={aiPrompt}
           onChange={(event) => onChangePrompt(event.target.value)}
-          placeholder="예: BTCUSDT 1시간 마켓 기준으로 돌파 매수/이탈 매도 전략 만들어줘"
+          placeholder="예: BTCUSDT 돌파매매 전략 또는 Polymarket BTC 업오다운 전략 만들어줘"
           rows={7}
         />
         <div className="ai-control-actions">
@@ -50,7 +50,7 @@ export default function AISidePanel({
           </button>
         </div>
         <div className="ai-control-hint">
-          front 서버의 `/api/ai/strategy-draft`(오케스트레이션 to 리서치 to 전략)를 호출하고, 실패하면 로컬 규칙 생성으로 대체합니다.
+          front 서버의 `/api/ai/strategy-draft`를 호출하고, Polymarket 프롬프트는 기존 그래프 흐름을 유지한 전용 graph로 생성합니다.
         </div>
         {aiNotice && (
           <div className={`ai-control-message ${aiNotice.type}`}>

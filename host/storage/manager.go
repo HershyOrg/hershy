@@ -34,7 +34,7 @@ func NewManager(baseDir string) *StorageManager {
 //	  ├─ meta/       (metadata: meta.json, etc.)
 //	  ├─ state/      (persistent state - RW volume)
 //	  ├─ compose/    (generated compose spec)
-//	  ├─ logs/       (runtime logs)
+//	  ├─ logs/       (persisted logs such as build.log, runtime.log)
 //	  └─ runtime/    (container/build metadata)
 func (m *StorageManager) EnsureProgramFolders(id program.ProgramID) error {
 	programDir := m.getProgramDir(id)
@@ -86,6 +86,16 @@ func (m *StorageManager) GetComposePath(id program.ProgramID) string {
 // GetLogsPath returns the path to program logs directory
 func (m *StorageManager) GetLogsPath(id program.ProgramID) string {
 	return m.GetProgramPath(id, "logs")
+}
+
+// GetBuildLogPath returns the path to the persisted build log file.
+func (m *StorageManager) GetBuildLogPath(id program.ProgramID) string {
+	return filepath.Join(m.GetLogsPath(id), "build.log")
+}
+
+// GetRuntimeLogPath returns the path to the persisted runtime log file.
+func (m *StorageManager) GetRuntimeLogPath(id program.ProgramID) string {
+	return filepath.Join(m.GetLogsPath(id), "runtime.log")
 }
 
 // GetRuntimePath returns the path to program runtime metadata directory

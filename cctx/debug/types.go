@@ -53,3 +53,30 @@ type EventSink interface {
 	WriteEvent(EventEnvelope) error
 	Close() error
 }
+
+type TimelineState struct {
+	StrategyID  string                   `json:"strategy_id"`
+	UpdatedTsMs int64                    `json:"updated_ts_ms"`
+	Timeline    []string                 `json:"timeline,omitempty"`
+	Entries     map[string]TimelineEntry `json:"entries,omitempty"`
+}
+
+type TimelineEntry struct {
+	TsMs       int64             `json:"ts_ms"`
+	LastTsMs   int64             `json:"last_ts_ms,omitempty"`
+	RunID      RunID             `json:"run_id,omitempty"`
+	TradeID    *TradeID          `json:"trade_id,omitempty"`
+	DecisionID *DecisionID       `json:"decision_id,omitempty"`
+	MarketID   string            `json:"market_id,omitempty"`
+	Venue      string            `json:"venue,omitempty"`
+	Tags       map[string]string `json:"tags,omitempty"`
+	Steps      []TimelineStep    `json:"steps,omitempty"`
+}
+
+type TimelineStep struct {
+	TsMs       int64          `json:"ts_ms"`
+	Event      EventType      `json:"event"`
+	ReasonCode string         `json:"reason_code,omitempty"`
+	Decision   string         `json:"decision,omitempty"`
+	Data       map[string]any `json:"data,omitempty"`
+}

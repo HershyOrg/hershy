@@ -5,10 +5,13 @@
 - Host 서버 로그 (plain text): `{storageRoot}/logs/host.log`
   - `effect.log` — Effect 관련 JSONL 로그
   - `host.log` - Host 서버 관련 JSONL 로그
-- 프로그램별 로그 (JSONL): `{storageRoot}/programs/{program_id}/logs/`
+- 프로그램별 persisted logs: `{storageRoot}/programs/{program_id}/logs/`
   - `build.log` — Docker build 출력
-  - `runtime.log` — Program 로그 = Docker stdout, stderr 관련 로그
-  - TODO 두 로그 또한 JSONL 스키마로 변경할 예정
+  - `runtime.log` — persisted runtime stream
+    Docker stdout/stderr를 Vector 수집용으로 slim하게 append 저장
+  - `timeline.json` — 전략 AI 피드백용 구조화 상태
+    기본적으로 `{storageRoot}/programs/{program_id}/state/debug/timeline.json`
+    Vector 기본 설정에서는 수집 대상이 아님
     기본 `storageRoot`는 `./host-storage` (main.go 기본값).
 
 ---
@@ -21,37 +24,29 @@
 - 프로그램 로그 예시 (프로그램 ID: `ID`):
   - `./host-storage/programs/ID/logs/build.log`
   - `./host-storage/programs/ID/logs/runtime.log`
+  - `./host-storage/programs/ID/state/debug/timeline.json`
 
 ---
 
 ## 로그 포맷
 
-### 프로그램별 로그 (JSONL)
+### 프로그램별 로그
 
-- 각 줄이 하나의 JSON 객체(JSONL)
-- 스키마 (IHershyLog, 주요 필드)
-
-```json
-{
-  "ts": "2026-02-27T11:32:25.000000000Z",
-  "level": "INFO",
-  "log_type": "EFFECT",
-  "component": "RealEffectHandler",
-  "msg": "container started",
-  "program_id": "test-user-...",
-  "duration_ms": 170,
-  "vars": { "container_id": "67b0c3f95152" },
-  "meta": { "file_path": "..." }
-}
-```
-
-- `log_type` 예: EVENT, WATCH, EFFECT, REDUCE, STATE, CONTEXT, BUILD, HOST
-- `level` 예: DEBUG, INFO, WARN, ERROR, FATAL
+- `build.log`는 Docker build 출력 저장
+- `runtime.log`는 `stdout/stderr`를 `[stdout] ...`, `[stderr] ...` 형식으로 append 저장
+- `timeline.json`은 전략 디버그 핵심 이벤트만 구조화 저장
 
 확인(파싱):
 
 ```bash
-tail -n 200 ./host-storage/programs/ID/logs/runtime.log | jq -c '.'
+tail -n 200 ./host-storage/programs/ID/logs/build.log
+tail -n 200 ./host-storage/programs/ID/logs/runtime.log
+```
+
+런타임 로그 확인:
+
+```bash
+curl http://localhost:9000/programs/ID/logs | jq -r '.logs'
 ```
 
 ---
