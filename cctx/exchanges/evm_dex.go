@@ -19,6 +19,7 @@ import (
 
 	"github.com/HershyOrg/hershy/cctx/base"
 	"github.com/HershyOrg/hershy/cctx/models"
+	"github.com/HershyOrg/hershy/cctx/secureconfig"
 )
 
 const (
@@ -63,6 +64,11 @@ func NewEVMDEX(config map[string]any) (base.Exchange, error) {
 	if config == nil {
 		return nil, fmt.Errorf("exchanges.NewEVMDEX: config is nil")
 	}
+	resolvedConfig, err := secureconfig.ResolveMap(config)
+	if err != nil {
+		return nil, fmt.Errorf("exchanges.NewEVMDEX: resolve secure config: %w", err)
+	}
+	config = resolvedConfig
 	ex := &EVMDEX{
 		BaseExchange: base.NewBaseExchange(config),
 		privateKey:   firstNonEmptyString(stringFromConfig(config, "private_key"), stringFromConfig(config, "privateKey")),

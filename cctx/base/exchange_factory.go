@@ -5,6 +5,8 @@ import (
 	"fmt"
 	"strconv"
 	"strings"
+
+	"github.com/HershyOrg/hershy/cctx/secureconfig"
 )
 
 // ExchangeFactory creates an Exchange from a config map.
@@ -30,6 +32,12 @@ func CreateExchange(name string, factory ExchangeFactory, config ExchangeConfig,
 	if config != nil {
 		finalConfig = mergeConfigMaps(finalConfig, config.ToMap())
 	}
+
+	resolvedConfig, err := secureconfig.ResolveMap(finalConfig)
+	if err != nil {
+		return nil, fmt.Errorf("resolve secure config for %s: %w", nameLower, err)
+	}
+	finalConfig = resolvedConfig
 
 	if validate {
 		if err := validateConfig(nameLower, finalConfig); err != nil {
@@ -58,6 +66,43 @@ func loadMapConfig(name string, values map[string]string) map[string]any {
 			if parsed, err := strconv.ParseInt(recvWindow, 10, 64); err == nil {
 				out["recv_window"] = float64(parsed)
 			}
+		}
+		return out
+	case "bybit":
+		out := map[string]any{
+			"api_key":      values["api_key"],
+			"api_secret":   firstNonEmpty(values["api_secret"], values["hmac_secret"]),
+			"account_type": firstNonEmpty(values["account_type"], "UNIFIED"),
+		}
+		if host := firstNonEmpty(values["base_url"], values["host"]); host != "" {
+			out["base_url"] = host
+		}
+		if recvWindow := values["recv_window"]; recvWindow != "" {
+			if parsed, err := strconv.ParseInt(recvWindow, 10, 64); err == nil {
+				out["recv_window"] = float64(parsed)
+			}
+		}
+		return out
+	case "okx":
+		out := map[string]any{
+			"api_key":        values["api_key"],
+			"api_secret":     firstNonEmpty(values["api_secret"], values["hmac_secret"]),
+			"api_passphrase": firstNonEmpty(values["api_passphrase"], values["passphrase"]),
+		}
+		if host := firstNonEmpty(values["base_url"], values["host"]); host != "" {
+			out["base_url"] = host
+		}
+		if simulated := firstNonEmpty(values["simulated"], values["simulated_trading"], values["demo_trading"]); simulated != "" {
+			out["simulated"] = strings.EqualFold(simulated, "1") || strings.EqualFold(simulated, "true") || strings.EqualFold(simulated, "yes") || strings.EqualFold(simulated, "on")
+		}
+		return out
+	case "gateio", "gate":
+		out := map[string]any{
+			"api_key":    values["api_key"],
+			"api_secret": firstNonEmpty(values["api_secret"], values["hmac_secret"]),
+		}
+		if host := firstNonEmpty(values["base_url"], values["host"]); host != "" {
+			out["base_url"] = host
 		}
 		return out
 	case "polymarket":
@@ -149,6 +194,10 @@ func loadMapConfig(name string, values map[string]string) map[string]any {
 func validateConfig(name string, config map[string]any) error {
 	required := map[string][]string{
 		"binance":    {"api_key", "api_secret"},
+		"bybit":      {"api_key", "api_secret"},
+		"okx":        {"api_key", "api_secret", "api_passphrase"},
+		"gateio":     {"api_key", "api_secret"},
+		"gate":       {"api_key", "api_secret"},
 		"polymarket": {"private_key", "funder"},
 		"opinion":    {"api_key", "private_key", "multi_sig_addr"},
 		"limitless":  {"private_key"},

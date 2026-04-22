@@ -112,6 +112,107 @@ func (c BinanceConfig) ToMap() map[string]any {
 	return out
 }
 
+// BybitConfig holds Bybit spot configuration.
+type BybitConfig struct {
+	// BaseExchangeConfig embeds shared configuration.
+	BaseExchangeConfig
+	// APIKey is the API key for Bybit.
+	APIKey string
+	// APISecret is the HMAC secret for Bybit.
+	APISecret string
+	// BaseURL overrides the Bybit API base URL.
+	BaseURL string
+	// AccountType configures the V5 wallet account type.
+	AccountType string
+	// RecvWindow is the Bybit recv window in milliseconds.
+	RecvWindow int64
+}
+
+// ToMap converts config to a map, omitting zero values.
+func (c BybitConfig) ToMap() map[string]any {
+	out := c.BaseExchangeConfig.ToMap()
+	if c.APIKey != "" {
+		out["api_key"] = c.APIKey
+	}
+	if c.APISecret != "" {
+		out["api_secret"] = c.APISecret
+	}
+	if c.BaseURL != "" {
+		out["base_url"] = c.BaseURL
+	}
+	if c.AccountType != "" {
+		out["account_type"] = c.AccountType
+	}
+	if c.RecvWindow > 0 {
+		out["recv_window"] = c.RecvWindow
+	}
+	return out
+}
+
+// OKXConfig holds OKX spot configuration.
+type OKXConfig struct {
+	// BaseExchangeConfig embeds shared configuration.
+	BaseExchangeConfig
+	// APIKey is the API key for OKX.
+	APIKey string
+	// APISecret is the secret key for OKX.
+	APISecret string
+	// APIPassphrase is the passphrase for OKX.
+	APIPassphrase string
+	// BaseURL overrides the OKX API base URL.
+	BaseURL string
+	// Simulated toggles OKX demo trading mode.
+	Simulated bool
+}
+
+// ToMap converts config to a map, omitting zero values.
+func (c OKXConfig) ToMap() map[string]any {
+	out := c.BaseExchangeConfig.ToMap()
+	if c.APIKey != "" {
+		out["api_key"] = c.APIKey
+	}
+	if c.APISecret != "" {
+		out["api_secret"] = c.APISecret
+	}
+	if c.APIPassphrase != "" {
+		out["api_passphrase"] = c.APIPassphrase
+	}
+	if c.BaseURL != "" {
+		out["base_url"] = c.BaseURL
+	}
+	if c.Simulated {
+		out["simulated"] = true
+	}
+	return out
+}
+
+// GateIOConfig holds Gate.io spot configuration.
+type GateIOConfig struct {
+	// BaseExchangeConfig embeds shared configuration.
+	BaseExchangeConfig
+	// APIKey is the API key for Gate.io.
+	APIKey string
+	// APISecret is the API secret for Gate.io.
+	APISecret string
+	// BaseURL overrides the Gate.io API base URL.
+	BaseURL string
+}
+
+// ToMap converts config to a map, omitting zero values.
+func (c GateIOConfig) ToMap() map[string]any {
+	out := c.BaseExchangeConfig.ToMap()
+	if c.APIKey != "" {
+		out["api_key"] = c.APIKey
+	}
+	if c.APISecret != "" {
+		out["api_secret"] = c.APISecret
+	}
+	if c.BaseURL != "" {
+		out["base_url"] = c.BaseURL
+	}
+	return out
+}
+
 // LimitlessConfig holds Limitless configuration.
 type LimitlessConfig struct {
 	// BaseExchangeConfig embeds shared configuration.

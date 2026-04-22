@@ -1,4 +1,4 @@
-package cex
+package binance
 
 import (
 	"bufio"

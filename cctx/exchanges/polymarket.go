@@ -13,6 +13,7 @@ import (
 
 	"github.com/HershyOrg/hershy/cctx/base"
 	"github.com/HershyOrg/hershy/cctx/models"
+	"github.com/HershyOrg/hershy/cctx/secureconfig"
 	"github.com/HershyOrg/hershy/cctx/utils"
 )
 
@@ -142,6 +143,11 @@ func NewPolymarket(config map[string]any) (base.Exchange, error) {
 		utils.DefaultLogger().Debugf("exchanges.NewPolymarket: config is nil")
 		return nil, fmt.Errorf("exchanges.NewPolymarket: config is nil")
 	}
+	resolvedConfig, err := secureconfig.ResolveMap(config)
+	if err != nil {
+		return nil, fmt.Errorf("exchanges.NewPolymarket: resolve secure config: %w", err)
+	}
+	config = resolvedConfig
 	ex := &Polymarket{
 		BaseExchange:       base.NewBaseExchange(config),
 		BaseURL:            polymarketBaseURL,
