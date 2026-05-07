@@ -137,15 +137,22 @@ const buildSnapshotEntries = (block, fields) => {
     }));
   }
 
+  const previewValues = block.previewValues && typeof block.previewValues === 'object'
+    ? block.previewValues
+    : null;
+  if (!previewValues || Object.keys(previewValues).length === 0) {
+    return [];
+  }
+
   const fallbackValues = fields.reduce((acc, field) => {
-    acc[field] = block.previewValues?.[field] ?? '--';
+    acc[field] = previewValues[field] ?? '--';
     return acc;
   }, {});
 
   return [{
     id: `${block.id}-snapshot-latest`,
     index: 1,
-    timestamp: formatSnapshotTime(block.previewTimestamp || block.lastUpdated) || '방금',
+    timestamp: formatSnapshotTime(block.previewTimestamp || block.lastUpdated),
     values: fallbackValues
   }];
 };
@@ -376,7 +383,7 @@ export default function FrontTab({
 
   const applyMonitoringValue = (monitorBlock, field, mode, snapshotValueOverride, snapshotId) => {
     const resolvedMode = mode || 'live';
-    const snapshotValue = snapshotValueOverride ?? monitorBlock?.previewValues?.[field] ?? '스냅샷값';
+    const snapshotValue = snapshotValueOverride ?? monitorBlock?.previewValues?.[field] ?? '--';
     const matchesSource = (source) => (
       source?.blockId === monitorBlock.id
       && (!source?.field || source.field === field)
@@ -466,6 +473,8 @@ export default function FrontTab({
       ? '실시간'
       : `${sourceBlock?.updateInterval || 1000}ms`;
     const visibleFields = `${fields.length}/${fields.length || 0}`;
+    const lastUpdate = formatSnapshotTime(block.previewTimestamp || block.lastUpdated) || '--';
+    const previewError = typeof block.previewError === 'string' ? block.previewError.trim() : '';
     const snapshotView = block.snapshotView || (block.monitorType === 'search' ? 'card' : 'list');
     const snapshotEntries = buildSnapshotEntries(block, fields);
     const searchQuery = searchQueryById[block.id] || '';
@@ -487,6 +496,7 @@ export default function FrontTab({
       name: block.name || block.id,
       source: sourceName,
       visibleFields,
+      lastUpdate,
       updateSpeed,
       totalRecords,
       totalPages,
@@ -556,6 +566,9 @@ export default function FrontTab({
           <StreamingSearchMonitor {...sharedProps} {...searchProps} />
         ) : (
           <StreamingTableMonitor {...sharedProps} />
+        )}
+        {previewError && (
+          <div className="front-snapshot-empty">{previewError}</div>
         )}
         {fields.length > 0 && snapshotEntries.length > 0 && (
           <div className="front-monitoring-fields">

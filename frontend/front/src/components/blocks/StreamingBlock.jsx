@@ -8,8 +8,8 @@ import { NumberStepper } from '../ui/number-stepper';
 
 const StreamingBlock = ({
   blockId,
-  name = "Binance_BTC_Stream",
-  fields = ["timestamp", "price", "volume"],
+  name = "Streaming_Block",
+  fields = [],
   apiUrl = '',
   streamKind = 'url',
   streamChain = '',

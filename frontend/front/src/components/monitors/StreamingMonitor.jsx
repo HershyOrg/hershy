@@ -4,20 +4,22 @@ import { Button } from '../ui/button';
 import { Input } from '../ui/input';
 
 export const StreamingTableMonitor = ({
-  name = "Price_Table_Monitor",
-  source = "TABLE NAME",
-  totalRecords = 100,
-  visibleFields = "5/6",
-  lastUpdate = "오후 06:27:19",
-  updateSpeed = "실시간",
+  name = "Streaming_Monitor",
+  source = "--",
+  totalRecords = 0,
+  visibleFields = "0/0",
+  lastUpdate = "--",
+  updateSpeed = "--",
   currentPage = 1,
-  totalPages = 10,
+  totalPages = 1,
   viewMode = "card", // "card" or "list"
   onViewModeChange,
   onPageChange
 }) => {
   const [mode, setMode] = useState(viewMode);
   const [page, setPage] = useState(currentPage);
+  const rangeStart = totalRecords === 0 ? 0 : (page - 1) * 10 + 1;
+  const rangeEnd = totalRecords === 0 ? 0 : Math.min(page * 10, totalRecords);
 
   useEffect(() => {
     setMode(viewMode);
@@ -121,7 +123,7 @@ export const StreamingTableMonitor = ({
 
       <div className="streaming-monitor-footer">
         <div className="monitor-pagination-info">
-          <span>{(page - 1) * 10 + 1} - {Math.min(page * 10, totalRecords)} / {totalRecords}</span>
+          <span>{rangeStart} - {rangeEnd} / {totalRecords}</span>
         </div>
         <div className="monitor-pagination-controls">
           <Button
@@ -146,14 +148,14 @@ export const StreamingTableMonitor = ({
 };
 
 export const StreamingSearchMonitor = ({
-  name = "Trade_Search",
-  source = "Binance_BTC_Stream",
+  name = "Streaming_Search",
+  source = "--",
   searchPlaceholder = "데이터 검색... (모든 필드 대상)",
   searchQuery: externalSearchQuery,
   onSearchChange,
   currentPage = 1,
-  totalPages = 10,
-  totalRecords = 100,
+  totalPages = 1,
+  totalRecords = 0,
   viewMode = "card",
   onViewModeChange,
   onPageChange
@@ -161,6 +163,8 @@ export const StreamingSearchMonitor = ({
   const [mode, setMode] = useState(viewMode);
   const [page, setPage] = useState(currentPage);
   const [searchQuery, setSearchQuery] = useState(externalSearchQuery || "");
+  const rangeStart = totalRecords === 0 ? 0 : (page - 1) * 10 + 1;
+  const rangeEnd = totalRecords === 0 ? 0 : Math.min(page * 10, totalRecords);
 
   useEffect(() => {
     setMode(viewMode);
@@ -269,7 +273,7 @@ export const StreamingSearchMonitor = ({
         </div>
         <div className="streaming-search-footer">
           <div className="monitor-pagination-info">
-            <span>{(page - 1) * 10 + 1} - {Math.min(page * 10, totalRecords)} / {totalRecords}</span>
+            <span>{rangeStart} - {rangeEnd} / {totalRecords}</span>
           </div>
           <div className="monitor-pagination-controls">
             <Button

@@ -185,6 +185,39 @@ app.get('/api/config', (_req, res) => {
   });
 });
 
+app.post('/api/stream/sample', express.json({ limit: '256kb' }), async (req, res) => {
+  const input = normalizeStreamSampleInput(req.body);
+  if (input.streamKind === 'evm-rpc') {
+    if (!input.streamChain) {
+      sendError(res, 400, 'stream_chain is required for evm-rpc');
+      return;
+    }
+    if (!input.streamMethod) {
+      sendError(res, 400, 'stream_method is required for evm-rpc');
+      return;
+    }
+  } else if (!input.sourceURL) {
+    sendError(res, 400, 'source_url is required for url/websocket streams');
+    return;
+  }
+
+  try {
+    const payload = await sampleStreamPayload(input);
+    const schemaFields = parseResponseSchemaFields(input.responseSchema);
+    const derivedFields = schemaFields.length > 0 ? schemaFields : derivePayloadFields(payload);
+    const snapshotFields = input.fields.length > 0 ? input.fields : derivedFields;
+    res.json({
+      fields: derivedFields,
+      snapshot: {
+        timestamp: new Date().toISOString(),
+        values: buildPreviewValues(payload, snapshotFields),
+      },
+    });
+  } catch (error) {
+    sendError(res, 502, `stream sample failed: ${error?.message || 'unknown error'}`);
+  }
+});
+
 app.post('/api/ai/research', express.json({ limit: '2mb' }), async (req, res) => {
   const prompt = normalizeText(req.body?.prompt);
   if (!prompt) {
@@ -434,6 +467,389 @@ function normalizeBaseURL(raw) {
 
 function normalizeText(value) {
   return typeof value === 'string' ? value.trim() : '';
+}
+
+function normalizeStreamSampleInput(raw) {
+  const body = normalizeObject(raw) || {};
+  const sourceURL = normalizeText(body.source_url || body.sourceUrl);
+  const streamChain = normalizeText(body.stream_chain || body.streamChain).toLowerCase();
+  return {
+    streamKind: normalizeStreamKind(body.stream_kind || body.streamKind, sourceURL, streamChain),
+    sourceURL,
+    streamChain,
+    streamMethod: normalizeText(body.stream_method || body.streamMethod),
+    streamParamsJSON: normalizeText(body.stream_params_json || body.streamParamsJson) || '[]',
+    responseSchema: normalizeText(body.response_schema || body.responseSchema),
+    fields: normalizeStringArray(body.fields),
+    authContext: normalizeObject(body.auth_context || body.authContext) || null,
+    timeoutMs: clampTimeoutMs(body.timeout_ms || body.timeoutMs, 6000),
+  };
+}
+
+function normalizeStreamKind(rawKind, sourceURL = '', streamChain = '') {
+  const text = normalizeText(rawKind).toLowerCase();
+  if (text === 'evm-rpc' || streamChain) {
+    return 'evm-rpc';
+  }
+  if (text === 'url' || text === 'ws' || text === 'websocket') {
+    return 'url';
+  }
+  if (isWebSocketSourceURL(sourceURL) || isHTTPSourceURL(sourceURL)) {
+    return 'url';
+  }
+  return 'url';
+}
+
+function clampTimeoutMs(rawValue, fallback) {
+  const parsed = Number.parseInt(String(rawValue || '').trim(), 10);
+  if (!Number.isFinite(parsed) || parsed <= 0) {
+    return fallback;
+  }
+  return Math.max(1000, Math.min(parsed, 15000));
+}
+
+function isHTTPSourceURL(value) {
+  return /^https?:\/\//i.test(normalizeText(value));
+}
+
+function isWebSocketSourceURL(value) {
+  return /^wss?:\/\//i.test(normalizeText(value));
+}
+
+function parseResponseSchemaFields(rawSchema) {
+  const text = normalizeText(rawSchema);
+  if (!text) {
+    return [];
+  }
+  try {
+    const parsed = JSON.parse(text);
+    const fields = flattenPayloadFields(parsed);
+    return fields.length > 0 ? Array.from(new Set(fields)) : [];
+  } catch {
+    return [];
+  }
+}
+
+async function sampleStreamPayload(input) {
+  if (input.streamKind === 'evm-rpc') {
+    return sampleEVMRPCPayload(input);
+  }
+  if (isWebSocketSourceURL(input.sourceURL)) {
+    return sampleWebSocketPayload(input.sourceURL, input.timeoutMs);
+  }
+  if (isHTTPSourceURL(input.sourceURL)) {
+    return sampleHTTPPayload(input.sourceURL, input.timeoutMs);
+  }
+  throw new Error('unsupported stream source');
+}
+
+async function sampleHTTPPayload(sourceURL, timeoutMs) {
+  const response = await fetch(sourceURL, {
+    method: 'GET',
+    headers: {
+      Accept: 'application/json, text/plain;q=0.9, */*;q=0.8',
+    },
+    signal: AbortSignal.timeout(timeoutMs),
+  });
+  const text = await response.text();
+  if (!response.ok) {
+    throw new Error(`status ${response.status}: ${trimSnippet(text, 160)}`);
+  }
+  return parseSamplePayload(text);
+}
+
+async function sampleWebSocketPayload(sourceURL, timeoutMs) {
+  return new Promise((resolve, reject) => {
+    let settled = false;
+    const socket = new WebSocket(sourceURL);
+
+    const finish = (handler, value) => {
+      if (settled) {
+        return;
+      }
+      settled = true;
+      clearTimeout(timer);
+      try {
+        if (socket.readyState === WebSocket.OPEN || socket.readyState === WebSocket.CONNECTING) {
+          socket.close();
+        }
+      } catch {
+        // Ignore close errors for one-shot sampling.
+      }
+      handler(value);
+    };
+
+    const timer = setTimeout(() => {
+      finish(reject, new Error('timed out waiting for websocket payload'));
+    }, timeoutMs);
+
+    socket.addEventListener('message', async (event) => {
+      try {
+        const text = await normalizeWebSocketMessageData(event.data);
+        finish(resolve, parseSamplePayload(text));
+      } catch (error) {
+        finish(reject, error);
+      }
+    });
+
+    socket.addEventListener('error', () => {
+      finish(reject, new Error('websocket sample failed'));
+    });
+
+    socket.addEventListener('close', (event) => {
+      if (!settled) {
+        finish(reject, new Error(`websocket closed before payload (${event.code})`));
+      }
+    });
+  });
+}
+
+async function normalizeWebSocketMessageData(data) {
+  if (typeof data === 'string') {
+    return data;
+  }
+  if (data instanceof ArrayBuffer) {
+    return Buffer.from(data).toString('utf8');
+  }
+  if (ArrayBuffer.isView(data)) {
+    return Buffer.from(data.buffer, data.byteOffset, data.byteLength).toString('utf8');
+  }
+  if (typeof Blob !== 'undefined' && data instanceof Blob) {
+    const arrayBuffer = await data.arrayBuffer();
+    return Buffer.from(arrayBuffer).toString('utf8');
+  }
+  if (Buffer.isBuffer(data)) {
+    return data.toString('utf8');
+  }
+  return String(data ?? '');
+}
+
+async function sampleEVMRPCPayload(input) {
+  const rpcURL = resolvePreviewEVMRPCURL(input.streamChain, input.sourceURL, input.authContext);
+  const requestBody = {
+    jsonrpc: '2.0',
+    id: 1,
+    method: input.streamMethod,
+    params: parsePreviewRPCParams(input.streamParamsJSON),
+  };
+
+  const response = await fetch(rpcURL, {
+    method: 'POST',
+    headers: {
+      Accept: 'application/json',
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify(requestBody),
+    signal: AbortSignal.timeout(input.timeoutMs),
+  });
+
+  const text = await response.text();
+  if (!response.ok) {
+    throw new Error(`rpc status ${response.status}: ${trimSnippet(text, 160)}`);
+  }
+
+  const rpcResponse = parseSamplePayload(text);
+  if (!rpcResponse || typeof rpcResponse !== 'object' || Array.isArray(rpcResponse)) {
+    throw new Error('unexpected rpc response payload');
+  }
+  if (rpcResponse.error && typeof rpcResponse.error === 'object') {
+    const message = normalizeText(rpcResponse.error.message) || 'rpc error';
+    throw new Error(message);
+  }
+
+  const payload = {
+    result: rpcResponse.result,
+    method: input.streamMethod,
+    chain: input.streamChain,
+  };
+  if (typeof rpcResponse.result === 'string' && /^0x[0-9a-f]+$/i.test(rpcResponse.result)) {
+    try {
+      payload.result_dec = BigInt(rpcResponse.result).toString();
+    } catch {
+      // Keep hex string only when BigInt parsing fails.
+    }
+  }
+  return payload;
+}
+
+function resolvePreviewEVMRPCURL(streamChain, sourceURL, authContext) {
+  const direct = normalizeText(sourceURL);
+  if (direct) {
+    return direct;
+  }
+
+  const evm = normalizeObject(authContext?.evm) || {};
+  const authRPCURL = normalizeText(evm.rpcUrl);
+  if (authRPCURL) {
+    return authRPCURL;
+  }
+
+  const chainEnvKey = toEnvKey(streamChain);
+  const envRPCURL = normalizeText(process.env[`${chainEnvKey}_RPC_URL`]) || normalizeText(process.env.EVM_RPC_URL);
+  if (envRPCURL) {
+    return envRPCURL;
+  }
+
+  const alchemyKey = normalizeText(evm.alchemyApiKey)
+    || normalizeText(process.env[`${chainEnvKey}_ALCHEMY_API_KEY`])
+    || normalizeText(process.env.ALCHEMY_API_KEY);
+  if (!alchemyKey) {
+    throw new Error('evm rpc url or alchemy api key is required');
+  }
+
+  const chainSlug = normalizeAlchemyChainSlug(streamChain);
+  if (!chainSlug) {
+    throw new Error('unsupported evm chain slug');
+  }
+  return `https://${chainSlug}.g.alchemy.com/v2/${alchemyKey}`;
+}
+
+function normalizeAlchemyChainSlug(raw) {
+  return normalizeChainSlug(raw);
+}
+
+function toEnvKey(rawValue) {
+  return normalizeText(rawValue).toUpperCase().replace(/[^A-Z0-9]/g, '_');
+}
+
+function parsePreviewRPCParams(rawValue) {
+  const text = normalizeText(rawValue);
+  if (!text) {
+    return [];
+  }
+  try {
+    const parsed = JSON.parse(text);
+    return Array.isArray(parsed) ? parsed : [parsed];
+  } catch {
+    return [];
+  }
+}
+
+function parseSamplePayload(rawValue) {
+  const text = typeof rawValue === 'string' ? rawValue.trim() : String(rawValue ?? '').trim();
+  if (!text) {
+    throw new Error('empty payload');
+  }
+  try {
+    return JSON.parse(text);
+  } catch {
+    const numeric = Number(text);
+    if (Number.isFinite(numeric)) {
+      return { value: numeric };
+    }
+    return { value: text };
+  }
+}
+
+function flattenPayloadFields(value, prefix = '') {
+  if (Array.isArray(value)) {
+    if (value.length === 0) {
+      return prefix ? [prefix] : [];
+    }
+    const first = value[0];
+    if (first && typeof first === 'object' && !Array.isArray(first)) {
+      return flattenPayloadFields(first, prefix);
+    }
+    return prefix ? [prefix] : [];
+  }
+
+  if (value && typeof value === 'object') {
+    const keys = Object.keys(value);
+    if (keys.length === 0) {
+      return prefix ? [prefix] : [];
+    }
+    return keys.flatMap((key) => {
+      const nextPrefix = prefix ? `${prefix}::${key}` : key;
+      return flattenPayloadFields(value[key], nextPrefix);
+    });
+  }
+
+  return prefix ? [prefix] : [];
+}
+
+function derivePayloadFields(payload) {
+  const fields = flattenPayloadFields(payload);
+  if (fields.length > 0) {
+    return Array.from(new Set(fields));
+  }
+  return ['value'];
+}
+
+function buildPreviewValues(payload, fields) {
+  const output = {};
+  const normalizedFields = fields.length > 0 ? fields : derivePayloadFields(payload);
+  normalizedFields.forEach((field) => {
+    output[field] = extractPayloadField(payload, field);
+  });
+  return output;
+}
+
+function extractPayloadField(payload, field) {
+  if (field === 'value') {
+    return normalizePreviewValue(payload?.value !== undefined ? payload.value : payload);
+  }
+
+  const path = parsePreviewFieldPath(field);
+  const direct = lookupPayloadPath(payload, path);
+  if (direct.found) {
+    return normalizePreviewValue(direct.value);
+  }
+  if (payload && typeof payload === 'object' && payload.data !== undefined) {
+    const nested = lookupPayloadPath(payload.data, path);
+    if (nested.found) {
+      return normalizePreviewValue(nested.value);
+    }
+  }
+  return null;
+}
+
+function parsePreviewFieldPath(field) {
+  const text = normalizeText(field);
+  if (!text) {
+    return ['value'];
+  }
+  if (text.includes('::')) {
+    return text.split('::').map((part) => normalizeText(part)).filter(Boolean);
+  }
+  if (text.includes('.')) {
+    return text.split('.').map((part) => normalizeText(part)).filter(Boolean);
+  }
+  return [text];
+}
+
+function lookupPayloadPath(payload, path) {
+  let current = payload;
+  for (const rawSegment of path) {
+    const segment = normalizeText(rawSegment);
+    if (!segment) {
+      return { found: false, value: null };
+    }
+    if (Array.isArray(current)) {
+      const index = Number(segment);
+      if (!Number.isInteger(index) || index < 0 || index >= current.length) {
+        return { found: false, value: null };
+      }
+      current = current[index];
+      continue;
+    }
+    if (!current || typeof current !== 'object' || !(segment in current)) {
+      return { found: false, value: null };
+    }
+    current = current[segment];
+  }
+  return { found: true, value: current };
+}
+
+function normalizePreviewValue(value) {
+  if (typeof value === 'string') {
+    const trimmed = value.trim();
+    const numeric = Number(trimmed);
+    if (trimmed !== '' && Number.isFinite(numeric)) {
+      return numeric;
+    }
+    return value;
+  }
+  return value ?? null;
 }
 
 function getAIBooleanEnv(key, fallback = false) {
@@ -1372,6 +1788,10 @@ function trimForLog(text, limit) {
     return text;
   }
   return `${text.slice(0, limit)}...(truncated)`;
+}
+
+function trimSnippet(text, limit) {
+  return trimForLog(String(text || '').replace(/\s+/g, ' ').trim(), limit);
 }
 
 function stringifyJSON(value) {

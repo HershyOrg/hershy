@@ -5,10 +5,10 @@ import { Input } from '../ui/input';
 
 const MonitoringBlock = ({
   blockId,
-  name = "Price_Table_Monitor",
+  name = "Monitoring_Block",
   type = "table", // "table" or "search"
-  connectedStream = "Binance_BTC_Stream",
-  fields = ["timestamp", "price", "volume", "change"],
+  connectedStream = "",
+  fields = [],
   onRemoveStream,
   onUpdateBlock
 }) => {

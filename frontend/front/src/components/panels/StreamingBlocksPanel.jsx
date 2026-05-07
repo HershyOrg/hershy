@@ -1,52 +1,11 @@
 import { useState } from 'react';
-import { getStreamingFields } from '../../data/blockFixtures';
+import { getProviderCredentials } from '../../lib/actionAuth';
 import { EVM_CHAINS } from '../../lib/evmChains';
+import { parseJsonFields, sampleStreamDefinition } from '../../lib/streamPreview';
 import { Button } from '../ui/button';
 import { Input } from '../ui/input';
 
-const flattenJsonFields = (value, prefix = '') => {
-  if (Array.isArray(value)) {
-    if (value.length === 0) {
-      return prefix ? [prefix] : [];
-    }
-    const first = value[0];
-    if (first && typeof first === 'object' && !Array.isArray(first)) {
-      return flattenJsonFields(first, prefix);
-    }
-    return prefix ? [prefix] : [];
-  }
-
-  if (value && typeof value === 'object') {
-    const keys = Object.keys(value);
-    if (keys.length === 0) {
-      return prefix ? [prefix] : [];
-    }
-    return keys.flatMap((key) => {
-      const nextPrefix = prefix ? `${prefix}::${key}` : key;
-      return flattenJsonFields(value[key], nextPrefix);
-    });
-  }
-
-  return prefix ? [prefix] : [];
-};
-
-const parseJsonFields = (rawValue) => {
-  const trimmed = rawValue.trim();
-  if (!trimmed) {
-    return [];
-  }
-
-  try {
-    const parsed = JSON.parse(trimmed);
-    return flattenJsonFields(parsed);
-  } catch (error) {
-    return [];
-  }
-
-  return [];
-};
-
-export default function StreamingBlocksPanel({ onClose, onCreate }) {
+export default function StreamingBlocksPanel({ onClose, onCreate, authState = {} }) {
   const [streamKind, setStreamKind] = useState('url');
   const [dataReceptionType, setDataReceptionType] = useState('realtime');
   const [blockName, setBlockName] = useState('');
@@ -57,40 +16,84 @@ export default function StreamingBlocksPanel({ onClose, onCreate }) {
   const [updateInterval, setUpdateInterval] = useState('');
   const [responseFormat, setResponseFormat] = useState('');
   const [fields, setFields] = useState([]);
+  const [parseBusy, setParseBusy] = useState(false);
+  const [parseNotice, setParseNotice] = useState('');
 
   const isEVMRPCStream = streamKind === 'evm-rpc';
   const canParse = isEVMRPCStream
-    ? Boolean(streamMethod.trim() || responseFormat.trim())
+    ? Boolean(streamChain.trim() && streamMethod.trim())
     : Boolean(apiUrl.trim() || responseFormat.trim());
   const hasRequiredStreamMeta = isEVMRPCStream
     ? Boolean(streamChain.trim() && streamMethod.trim())
-    : true;
+    : Boolean(apiUrl.trim());
   const canCreate = Boolean(blockName.trim()) && hasRequiredStreamMeta && (fields.length > 0 || canParse);
+  const evmCredentials = getProviderCredentials(authState, 'evm');
 
-  const resolveFields = () => {
+  const buildAuthContext = () => {
+    const rpcUrl = typeof evmCredentials?.rpcUrl === 'string' ? evmCredentials.rpcUrl.trim() : '';
+    const alchemyApiKey = typeof evmCredentials?.alchemyApiKey === 'string'
+      ? evmCredentials.alchemyApiKey.trim()
+      : '';
+    if (!rpcUrl && !alchemyApiKey) {
+      return null;
+    }
+    return {
+      evm: {
+        rpcUrl,
+        alchemyApiKey
+      }
+    };
+  };
+
+  const resolveFields = async () => {
     const jsonFields = parseJsonFields(responseFormat);
     if (jsonFields.length > 0) {
       return jsonFields;
     }
-    if (isEVMRPCStream) {
-      return ['result'];
+
+    const payload = await sampleStreamDefinition({
+      streamKind,
+      apiUrl: apiUrl.trim(),
+      streamChain: streamChain.trim(),
+      streamMethod: streamMethod.trim(),
+      streamParamsJson: streamParamsJson.trim() || '[]',
+      responseSchema: responseFormat.trim(),
+      authContext: buildAuthContext()
+    });
+    return Array.isArray(payload?.fields) ? payload.fields : [];
+  };
+
+  const handleParseFields = async () => {
+    setParseBusy(true);
+    setParseNotice('');
+    try {
+      const nextFields = await resolveFields();
+      if (nextFields.length === 0) {
+        throw new Error('실제 응답에서 감지된 필드가 없습니다.');
+      }
+      setFields(nextFields);
+      setParseNotice(`필드 ${nextFields.length}개를 실제 응답 기준으로 감지했습니다.`);
+    } catch (error) {
+      setParseNotice(error?.message || '필드 파싱에 실패했습니다.');
+    } finally {
+      setParseBusy(false);
     }
-    return getStreamingFields(apiUrl.trim());
   };
 
-  const handleParseFields = () => {
-    setFields(resolveFields());
-  };
-
-  const handleCreate = () => {
+  const handleCreate = async () => {
     if (!blockName.trim()) {
       return;
     }
 
     let nextFields = fields;
     if (nextFields.length === 0) {
-      nextFields = resolveFields();
-      setFields(nextFields);
+      try {
+        nextFields = await resolveFields();
+        setFields(nextFields);
+      } catch (error) {
+        setParseNotice(error?.message || '블록 생성 전에 필드 파싱이 필요합니다.');
+        return;
+      }
     }
 
     if (nextFields.length === 0 || !onCreate) {
@@ -117,6 +120,7 @@ export default function StreamingBlocksPanel({ onClose, onCreate }) {
 
     setBlockName('');
     setFields([]);
+    setParseNotice('');
   };
 
   return (
@@ -256,11 +260,17 @@ export default function StreamingBlocksPanel({ onClose, onCreate }) {
           <Button
             type="button"
             className={`btn-parse ${canParse ? '' : 'disabled'}`}
-            disabled={!canParse}
+            disabled={!canParse || parseBusy}
             onClick={handleParseFields}
           >
-            필드 파싱
+            {parseBusy ? '실제 응답 확인 중...' : '필드 파싱'}
           </Button>
+
+          {parseNotice && (
+            <div className="field-preview">
+              <span className="field-preview-label">{parseNotice}</span>
+            </div>
+          )}
 
           {fields.length > 0 && (
             <div className="field-preview">

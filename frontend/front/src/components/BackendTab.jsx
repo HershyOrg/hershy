@@ -27,6 +27,7 @@ import {
   isProviderAuthorized,
   resolveActionAuthRequirement
 } from '../lib/actionAuth';
+import { sampleStreamDefinition } from '../lib/streamPreview';
 
 const DEFAULT_LIVE_INTERVAL = 1200;
 const MAX_SNAPSHOT_RECORDS = 30;
@@ -56,46 +57,6 @@ const stripJsonCodeFence = (raw) => {
     .trim();
 };
 
-const buildSnapshotValue = (field, seq, previousValues = {}) => {
-  const lower = field.toLowerCase();
-  if (lower.includes('time') || lower.includes('date')) {
-    return new Date().toISOString();
-  }
-  if (lower.includes('symbol')) {
-    return 'BTCUSDT';
-  }
-  if (lower.includes('address')) {
-    return `0x${Math.random().toString(16).slice(2, 10)}`;
-  }
-  const prevRaw = previousValues[field];
-  const prevNumber = Number(prevRaw);
-  if (Number.isFinite(prevNumber)) {
-    const jitter = (Math.random() - 0.5) * Math.max(1, Math.abs(prevNumber) * 0.02);
-    return Number((prevNumber + jitter).toFixed(4));
-  }
-  if (
-    lower.includes('price')
-    || lower.includes('amount')
-    || lower.includes('volume')
-    || lower.includes('value')
-    || lower.includes('rate')
-  ) {
-    const nextValue = 100 + seq * 0.7 + Math.random() * 5;
-    return Number(nextValue.toFixed(4));
-  }
-  if (lower.includes('id')) {
-    return `${seq}`;
-  }
-  return `${field}-${seq}`;
-};
-
-const buildSnapshotValues = (fields, seq, previousValues) => (
-  fields.reduce((acc, field) => {
-    acc[field] = buildSnapshotValue(field, seq, previousValues);
-    return acc;
-  }, {})
-);
-
 const buildAIAuthContext = (actionAuthState = {}) => {
   const evmCredentials = getProviderCredentials(actionAuthState, 'evm');
   const explorerApiKey = String(evmCredentials?.explorerApiKey || '').trim();
@@ -105,6 +66,21 @@ const buildAIAuthContext = (actionAuthState = {}) => {
   return {
     evm: {
       explorerApiKey
+    }
+  };
+};
+
+const buildStreamPreviewAuthContext = (actionAuthState = {}) => {
+  const evmCredentials = getProviderCredentials(actionAuthState, 'evm');
+  const rpcUrl = String(evmCredentials?.rpcUrl || '').trim();
+  const alchemyApiKey = String(evmCredentials?.alchemyApiKey || '').trim();
+  if (!rpcUrl && !alchemyApiKey) {
+    return null;
+  }
+  return {
+    evm: {
+      rpcUrl,
+      alchemyApiKey
     }
   };
 };
@@ -1411,64 +1387,97 @@ export default function BackendTab() {
             ...block,
             connectedStreamId: null,
             connectedStream: '',
-            fields: []
+            fields: [],
+            previewRecords: [],
+            previewValues: {},
+            previewTimestamp: '',
+            previewError: ''
           }
           : block
       ))
     }));
   };
 
-  const pushMonitoringSnapshot = (tabId, monitoringId, streamId) => {
+  const refreshMonitoringSnapshot = async (
+    tabId,
+    monitoringId,
+    streamingBlock,
+    monitoringFields,
+    previewAuthContext
+  ) => {
     if (!tabId) {
       return;
     }
 
-    setBlocksByTab((prevBlocks) => {
-      const tabBlocks = prevBlocks[tabId] || [];
-      let changed = false;
+    const fields = Array.isArray(monitoringFields) ? monitoringFields : [];
+    if (fields.length === 0) {
+      return;
+    }
 
-      const nextBlocks = tabBlocks.map((block) => {
-        if (block.id !== monitoringId || block.type !== 'monitoring') {
-          return block;
-        }
-        if (block.connectedStreamId !== streamId) {
-          return block;
-        }
-        const fields = Array.isArray(block.fields) ? block.fields : [];
-        if (fields.length === 0) {
-          return block;
-        }
-
-        const nextSeq = (block.snapshotSeq ?? 0) + 1;
-        const timestamp = new Date().toISOString();
-        const values = buildSnapshotValues(fields, nextSeq, block.previewValues || {});
-        const record = {
-          id: `${block.id}-snapshot-${nextSeq}`,
-          seq: nextSeq,
-          timestamp,
-          values
-        };
-        const existing = Array.isArray(block.previewRecords) ? block.previewRecords : [];
-        const nextRecords = [record, ...existing].slice(0, MAX_SNAPSHOT_RECORDS);
-        changed = true;
-        return {
-          ...block,
-          snapshotSeq: nextSeq,
-          previewRecords: nextRecords,
-          previewValues: values,
-          previewTimestamp: timestamp
-        };
+    try {
+      const sampled = await sampleStreamDefinition({
+        streamKind: streamingBlock.streamKind || (streamingBlock.streamChain ? 'evm-rpc' : 'url'),
+        apiUrl: streamingBlock.apiUrl || '',
+        streamChain: streamingBlock.streamChain || '',
+        streamMethod: streamingBlock.streamMethod || '',
+        streamParamsJson: streamingBlock.streamParamsJson || '[]',
+        responseSchema: streamingBlock.responseSchema || '',
+        fields,
+        authContext: previewAuthContext
       });
 
-      if (!changed) {
-        return prevBlocks;
-      }
+      const timestamp = sampled?.snapshot?.timestamp || new Date().toISOString();
+      const values = sampled?.snapshot?.values && typeof sampled.snapshot.values === 'object'
+        ? sampled.snapshot.values
+        : {};
 
-      return {
+      setBlocksByTab((prevBlocks) => {
+        const nextTabBlocks = (prevBlocks[tabId] || []).map((block) => {
+          if (block.id !== monitoringId || block.type !== 'monitoring') {
+            return block;
+          }
+          if (block.connectedStreamId !== streamingBlock.id) {
+            return block;
+          }
+
+          const nextSeq = (block.snapshotSeq ?? 0) + 1;
+          const record = {
+            id: `${block.id}-snapshot-${nextSeq}`,
+            seq: nextSeq,
+            timestamp,
+            values
+          };
+          const existing = Array.isArray(block.previewRecords) ? block.previewRecords : [];
+          return {
+            ...block,
+            snapshotSeq: nextSeq,
+            previewRecords: [record, ...existing].slice(0, MAX_SNAPSHOT_RECORDS),
+            previewValues: values,
+            previewTimestamp: timestamp,
+            previewError: ''
+          };
+        });
+
+        return {
+          ...prevBlocks,
+          [tabId]: nextTabBlocks
+        };
+      });
+    } catch (error) {
+      setBlocksByTab((prevBlocks) => ({
         ...prevBlocks,
-        [tabId]: nextBlocks
-      };
-    });
+        [tabId]: (prevBlocks[tabId] || []).map((block) => (
+          block.id === monitoringId
+          && block.type === 'monitoring'
+          && block.connectedStreamId === streamingBlock.id
+            ? {
+              ...block,
+              previewError: error?.message || '스트림 샘플링 실패'
+            }
+            : block
+        ))
+      }));
+    }
   };
 
   const handleCreateStreamingFieldBlock = (sourceId, fieldName) => {
@@ -1621,7 +1630,11 @@ export default function BackendTab() {
                 ...block,
                 connectedStreamId: streamingBlock.id,
                 connectedStream: streamName,
-                fields: streamingFields
+                fields: streamingFields,
+                previewRecords: [],
+                previewValues: {},
+                previewTimestamp: '',
+                previewError: ''
               }
               : block
           ))
@@ -1708,6 +1721,8 @@ export default function BackendTab() {
     const monitoringBlocks = tabBlocks.filter((block) => (
       block.type === 'monitoring' && block.connectedStreamId
     ));
+    const previewAuthContext = buildStreamPreviewAuthContext(activeActionAuth);
+    const authKey = JSON.stringify(previewAuthContext || {});
 
     const activeKeys = new Set();
 
@@ -1720,6 +1735,15 @@ export default function BackendTab() {
         ? Math.max(300, Number(streaming.updateInterval) || 1000)
         : DEFAULT_LIVE_INTERVAL;
       const fieldsKey = Array.isArray(monitor.fields) ? monitor.fields.join('|') : '';
+      const streamConfigKey = [
+        streaming.streamKind || '',
+        streaming.apiUrl || '',
+        streaming.streamChain || '',
+        streaming.streamMethod || '',
+        streaming.streamParamsJson || '',
+        streaming.responseSchema || '',
+        Array.isArray(streaming.fields) ? streaming.fields.join('|') : ''
+      ].join('::');
       const existing = streamIntervalsRef.current.get(monitor.id);
 
       activeKeys.add(monitor.id);
@@ -1729,19 +1753,48 @@ export default function BackendTab() {
         || existing.intervalMs !== intervalMs
         || existing.streamId !== streaming.id
         || existing.fieldsKey !== fieldsKey
+        || existing.streamConfigKey !== streamConfigKey
+        || existing.authKey !== authKey
       ) {
         if (existing) {
           clearInterval(existing.timerId);
         }
-        const timerId = window.setInterval(() => {
-          pushMonitoringSnapshot(activeTabId, monitor.id, streaming.id);
-        }, intervalMs);
-        streamIntervalsRef.current.set(monitor.id, {
-          timerId,
+        const monitoringFields = Array.isArray(monitor.fields) ? monitor.fields : [];
+        void refreshMonitoringSnapshot(
+          activeTabId,
+          monitor.id,
+          streaming,
+          monitoringFields,
+          previewAuthContext
+        );
+        const entry = {
+          timerId: 0,
           intervalMs,
           streamId: streaming.id,
-          fieldsKey
-        });
+          fieldsKey,
+          streamConfigKey,
+          authKey,
+          pending: false
+        };
+        const timerId = window.setInterval(async () => {
+          if (entry.pending) {
+            return;
+          }
+          entry.pending = true;
+          try {
+            await refreshMonitoringSnapshot(
+              activeTabId,
+              monitor.id,
+              streaming,
+              monitoringFields,
+              previewAuthContext
+            );
+          } finally {
+            entry.pending = false;
+          }
+        }, intervalMs);
+        entry.timerId = timerId;
+        streamIntervalsRef.current.set(monitor.id, entry);
       }
     });
 
@@ -1751,7 +1804,7 @@ export default function BackendTab() {
         streamIntervalsRef.current.delete(key);
       }
     });
-  }, [activeTabId, blocksByTab]);
+  }, [activeActionAuth, activeTabId, blocksByTab]);
 
   useEffect(() => () => {
     streamIntervalsRef.current.forEach((entry) => clearInterval(entry.timerId));
@@ -2118,6 +2171,7 @@ export default function BackendTab() {
             <StreamingBlocksPanel
               onClose={() => setActivePanel(null)}
               onCreate={handleCreateStreamingBlock}
+              authState={activeActionAuth}
             />
           )}
           {activePanel === 'normal-blocks' && (
