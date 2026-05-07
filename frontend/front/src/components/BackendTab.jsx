@@ -2200,13 +2200,6 @@ export default function BackendTab() {
               >
                 예시 입력
               </Button>
-              <Button
-                className="strategy-tool-btn"
-                onClick={() => setAiPrompt('ETH/USDT 기준 V2 유동성 봇 전략을 만들어줘. 초기에는 지갑 비율을 맞춘 뒤 DEX LP 공급과 CEX 숏을 동시에 열고, 수수료가 쌓이면 재투자하고, 가격이 10% 이상 급등하거나 margin ratio가 낮아지면 델타 뉴트럴을 재정렬하고, 수동 긴급 종료 시에는 LP 회수 후 숏을 닫고 전량 USDT로 전환하도록 구성해줘.')}
-                disabled={aiBusy}
-              >
-                V2 예시
-              </Button>
             </div>
             <div className="ai-control-hint">
               front 서버의 `/api/ai/strategy-draft`(오케스트레이션 to 리서치 to 전략)를 호출하고, 실패하면 로컬 규칙 생성으로 대체합니다.

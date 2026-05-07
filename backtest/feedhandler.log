@@ -1,0 +1,1518 @@
+2026-01-28 15:03:38,203 : ERROR : COINBASE: Failed to parse symbol information: 401 Client Error: Unauthorized for url: https://api.coinbase.com/api/v3/brokerage/products
+Traceback (most recent call last):
+  File "/Users/hongraecho/hershy/code/hershy/backtest/.venv/lib/python3.13/site-packages/cryptofeed/exchange.py", line 103, in symbol_mapping
+    data.append(cls.http_sync.read(addr, json=True, headers=headers, uuid=cls.id))
+                ~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/Users/hongraecho/hershy/code/hershy/backtest/.venv/lib/python3.13/site-packages/cryptofeed/connection.py", line 57, in read
+    return self.process_response(r, address, json=json, text=text, uuid=uuid)
+           ~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/Users/hongraecho/hershy/code/hershy/backtest/.venv/lib/python3.13/site-packages/cryptofeed/connection.py", line 47, in process_response
+    r.raise_for_status()
+    ~~~~~~~~~~~~~~~~~~^^
+  File "/Users/hongraecho/hershy/code/hershy/backtest/.venv/lib/python3.13/site-packages/requests/models.py", line 1026, in raise_for_status
+    raise HTTPError(http_error_msg, response=self)
+requests.exceptions.HTTPError: 401 Client Error: Unauthorized for url: https://api.coinbase.com/api/v3/brokerage/products
+2026-01-28 15:09:44,664 : ERROR : BITGET: Failed to parse symbol information: 400 Client Error: Bad Request for url: https://api.bitget.com/api/spot/v1/public/products
+Traceback (most recent call last):
+  File "/Users/hongraecho/hershy/code/hershy/backtest/.venv/lib/python3.13/site-packages/cryptofeed/exchange.py", line 103, in symbol_mapping
+    data.append(cls.http_sync.read(addr, json=True, headers=headers, uuid=cls.id))
+                ~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/Users/hongraecho/hershy/code/hershy/backtest/.venv/lib/python3.13/site-packages/cryptofeed/connection.py", line 57, in read
+    return self.process_response(r, address, json=json, text=text, uuid=uuid)
+           ~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/Users/hongraecho/hershy/code/hershy/backtest/.venv/lib/python3.13/site-packages/cryptofeed/connection.py", line 47, in process_response
+    r.raise_for_status()
+    ~~~~~~~~~~~~~~~~~~^^
+  File "/Users/hongraecho/hershy/code/hershy/backtest/.venv/lib/python3.13/site-packages/requests/models.py", line 1026, in raise_for_status
+    raise HTTPError(http_error_msg, response=self)
+requests.exceptions.HTTPError: 400 Client Error: Bad Request for url: https://api.bitget.com/api/spot/v1/public/products
+2026-01-28 15:17:37,414 : WARNING : KUCOIN: error from exchange {'id': '1', 'type': 'error', 'code': 400, 'data': 'topic /market/ticker: BTC-USDT is invalid'}
+2026-01-28 15:19:37,440 : WARNING : KUCOIN.ws.9: received no messages within timeout, restarting connection
+2026-01-28 15:19:37,732 : WARNING : KUCOIN: error from exchange {'id': '1', 'type': 'error', 'code': 400, 'data': 'topic /market/ticker: BTC-USDT is invalid'}
+2026-01-28 15:22:07,699 : WARNING : KUCOIN.ws.9: received no messages within timeout, restarting connection
+2026-01-28 15:22:07,989 : WARNING : KUCOIN: error from exchange {'id': '1', 'type': 'error', 'code': 400, 'data': 'topic /market/ticker: BTC-USDT is invalid'}
+2026-01-28 15:24:37,954 : WARNING : KUCOIN.ws.9: received no messages within timeout, restarting connection
+2026-01-28 15:24:38,258 : WARNING : KUCOIN: error from exchange {'id': '1', 'type': 'error', 'code': 400, 'data': 'topic /market/ticker: BTC-USDT is invalid'}
+2026-01-28 15:27:08,221 : WARNING : KUCOIN.ws.9: received no messages within timeout, restarting connection
+2026-01-28 15:27:08,502 : WARNING : KUCOIN: error from exchange {'id': '1', 'type': 'error', 'code': 400, 'data': 'topic /market/ticker: BTC-USDT is invalid'}
+2026-01-28 15:29:38,468 : WARNING : KUCOIN.ws.9: received no messages within timeout, restarting connection
+2026-01-28 15:29:38,753 : WARNING : KUCOIN: error from exchange {'id': '1', 'type': 'error', 'code': 400, 'data': 'topic /market/ticker: BTC-USDT is invalid'}
+2026-01-28 15:32:08,716 : WARNING : KUCOIN.ws.9: received no messages within timeout, restarting connection
+2026-01-28 15:32:09,200 : WARNING : KUCOIN: error from exchange {'id': '1', 'type': 'error', 'code': 400, 'data': 'topic /market/ticker: BTC-USDT is invalid'}
+2026-01-28 15:34:39,162 : WARNING : KUCOIN.ws.9: received no messages within timeout, restarting connection
+2026-01-28 15:34:39,451 : WARNING : KUCOIN: error from exchange {'id': '1', 'type': 'error', 'code': 400, 'data': 'topic /market/ticker: BTC-USDT is invalid'}
+2026-01-28 15:37:09,414 : WARNING : KUCOIN.ws.9: received no messages within timeout, restarting connection
+2026-01-28 15:37:09,694 : WARNING : KUCOIN: error from exchange {'id': '1', 'type': 'error', 'code': 400, 'data': 'topic /market/ticker: BTC-USDT is invalid'}
+2026-01-28 15:39:39,691 : WARNING : KUCOIN.ws.9: received no messages within timeout, restarting connection
+2026-01-28 15:39:39,990 : WARNING : KUCOIN: error from exchange {'id': '1', 'type': 'error', 'code': 400, 'data': 'topic /market/ticker: BTC-USDT is invalid'}
+2026-01-28 15:42:09,952 : WARNING : KUCOIN.ws.9: received no messages within timeout, restarting connection
+2026-01-28 15:42:10,250 : WARNING : KUCOIN: error from exchange {'id': '1', 'type': 'error', 'code': 400, 'data': 'topic /market/ticker: BTC-USDT is invalid'}
+2026-01-28 15:44:40,207 : WARNING : KUCOIN.ws.9: received no messages within timeout, restarting connection
+2026-01-28 15:44:40,585 : WARNING : KUCOIN: error from exchange {'id': '1', 'type': 'error', 'code': 400, 'data': 'topic /market/ticker: BTC-USDT is invalid'}
+2026-01-28 15:47:10,550 : WARNING : KUCOIN.ws.9: received no messages within timeout, restarting connection
+2026-01-28 15:47:10,871 : WARNING : KUCOIN: error from exchange {'id': '1', 'type': 'error', 'code': 400, 'data': 'topic /market/ticker: BTC-USDT is invalid'}
+2026-01-28 15:49:40,835 : WARNING : KUCOIN.ws.9: received no messages within timeout, restarting connection
+2026-01-28 15:49:41,177 : WARNING : KUCOIN: error from exchange {'id': '1', 'type': 'error', 'code': 400, 'data': 'topic /market/ticker: BTC-USDT is invalid'}
+2026-01-28 16:01:49,176 : WARNING : HUOBI.ws.10: received no messages within timeout, restarting connection
+2026-01-28 16:01:49,180 : WARNING : GATEIO.ws.8: received no messages within timeout, restarting connection
+2026-01-28 16:01:49,180 : WARNING : BINANCE.ws.6: received no messages within timeout, restarting connection
+2026-01-28 16:01:49,181 : WARNING : OKX.ws.7: received no messages within timeout, restarting connection
+2026-01-28 16:01:49,181 : WARNING : KUCOIN.ws.9: received no messages within timeout, restarting connection
+2026-01-28 16:01:49,190 : WARNING : HUOBI.ws.10: encountered connection issue sent 1000 (OK); no close frame received - reconnecting in 1.0 seconds...
+ConnectionResetError: [Errno 54] Connection reset by peer
+
+The above exception was the direct cause of the following exception:
+
+Traceback (most recent call last):
+  File "/Users/hongraecho/hershy/code/hershy/backtest/.venv/lib/python3.13/site-packages/cryptofeed/connection_handler.py", line 65, in _create_connection
+    await self._handler(connection, self.handler)
+  File "/Users/hongraecho/hershy/code/hershy/backtest/.venv/lib/python3.13/site-packages/cryptofeed/connection_handler.py", line 95, in _handler
+    async for message in connection.read():
+    ...<3 lines>...
+        await handler(message, connection, self.conn.last_message)
+  File "/Users/hongraecho/hershy/code/hershy/backtest/.venv/lib/python3.13/site-packages/cryptofeed/connection.py", line 339, in read
+    async for data in self.conn:
+    ...<2 lines>...
+        yield data
+  File "/Users/hongraecho/hershy/code/hershy/backtest/.venv/lib/python3.13/site-packages/websockets/asyncio/connection.py", line 244, in __aiter__
+    yield await self.recv()
+          ^^^^^^^^^^^^^^^^^
+  File "/Users/hongraecho/hershy/code/hershy/backtest/.venv/lib/python3.13/site-packages/websockets/asyncio/connection.py", line 324, in recv
+    raise self.protocol.close_exc from self.recv_exc
+websockets.exceptions.ConnectionClosedError: sent 1000 (OK); no close frame received
+2026-01-28 16:01:49,241 : WARNING : KUCOIN.ws.9: encountered connection issue sent 1000 (OK); no close frame received - reconnecting in 1.0 seconds...
+ConnectionResetError: [Errno 54] Connection reset by peer
+
+The above exception was the direct cause of the following exception:
+
+Traceback (most recent call last):
+  File "/Users/hongraecho/hershy/code/hershy/backtest/.venv/lib/python3.13/site-packages/cryptofeed/connection_handler.py", line 65, in _create_connection
+    await self._handler(connection, self.handler)
+  File "/Users/hongraecho/hershy/code/hershy/backtest/.venv/lib/python3.13/site-packages/cryptofeed/connection_handler.py", line 95, in _handler
+    async for message in connection.read():
+    ...<3 lines>...
+        await handler(message, connection, self.conn.last_message)
+  File "/Users/hongraecho/hershy/code/hershy/backtest/.venv/lib/python3.13/site-packages/cryptofeed/connection.py", line 339, in read
+    async for data in self.conn:
+    ...<2 lines>...
+        yield data
+  File "/Users/hongraecho/hershy/code/hershy/backtest/.venv/lib/python3.13/site-packages/websockets/asyncio/connection.py", line 244, in __aiter__
+    yield await self.recv()
+          ^^^^^^^^^^^^^^^^^
+  File "/Users/hongraecho/hershy/code/hershy/backtest/.venv/lib/python3.13/site-packages/websockets/asyncio/connection.py", line 324, in recv
+    raise self.protocol.close_exc from self.recv_exc
+websockets.exceptions.ConnectionClosedError: sent 1000 (OK); no close frame received
+2026-01-28 16:01:50,616 : WARNING : KUCOIN: error from exchange {'id': '1', 'type': 'error', 'code': 400, 'data': 'topic /market/ticker: BTC-USDT is invalid'}
+2026-01-28 16:01:59,195 : WARNING : GATEIO.ws.8: encountered connection issue sent 1000 (OK); no close frame received - reconnecting in 1.0 seconds...
+TimeoutError: timed out while closing connection
+
+The above exception was the direct cause of the following exception:
+
+Traceback (most recent call last):
+  File "/Users/hongraecho/hershy/code/hershy/backtest/.venv/lib/python3.13/site-packages/cryptofeed/connection_handler.py", line 65, in _create_connection
+    await self._handler(connection, self.handler)
+  File "/Users/hongraecho/hershy/code/hershy/backtest/.venv/lib/python3.13/site-packages/cryptofeed/connection_handler.py", line 95, in _handler
+    async for message in connection.read():
+    ...<3 lines>...
+        await handler(message, connection, self.conn.last_message)
+  File "/Users/hongraecho/hershy/code/hershy/backtest/.venv/lib/python3.13/site-packages/cryptofeed/connection.py", line 339, in read
+    async for data in self.conn:
+    ...<2 lines>...
+        yield data
+  File "/Users/hongraecho/hershy/code/hershy/backtest/.venv/lib/python3.13/site-packages/websockets/asyncio/connection.py", line 244, in __aiter__
+    yield await self.recv()
+          ^^^^^^^^^^^^^^^^^
+  File "/Users/hongraecho/hershy/code/hershy/backtest/.venv/lib/python3.13/site-packages/websockets/asyncio/connection.py", line 324, in recv
+    raise self.protocol.close_exc from self.recv_exc
+websockets.exceptions.ConnectionClosedError: sent 1000 (OK); no close frame received
+2026-01-28 16:01:59,199 : WARNING : BINANCE.ws.6: encountered connection issue sent 1000 (OK); no close frame received - reconnecting in 1.0 seconds...
+TimeoutError: timed out while closing connection
+
+The above exception was the direct cause of the following exception:
+
+Traceback (most recent call last):
+  File "/Users/hongraecho/hershy/code/hershy/backtest/.venv/lib/python3.13/site-packages/cryptofeed/connection_handler.py", line 65, in _create_connection
+    await self._handler(connection, self.handler)
+  File "/Users/hongraecho/hershy/code/hershy/backtest/.venv/lib/python3.13/site-packages/cryptofeed/connection_handler.py", line 95, in _handler
+    async for message in connection.read():
+    ...<3 lines>...
+        await handler(message, connection, self.conn.last_message)
+  File "/Users/hongraecho/hershy/code/hershy/backtest/.venv/lib/python3.13/site-packages/cryptofeed/connection.py", line 339, in read
+    async for data in self.conn:
+    ...<2 lines>...
+        yield data
+  File "/Users/hongraecho/hershy/code/hershy/backtest/.venv/lib/python3.13/site-packages/websockets/asyncio/connection.py", line 244, in __aiter__
+    yield await self.recv()
+          ^^^^^^^^^^^^^^^^^
+  File "/Users/hongraecho/hershy/code/hershy/backtest/.venv/lib/python3.13/site-packages/websockets/asyncio/connection.py", line 324, in recv
+    raise self.protocol.close_exc from self.recv_exc
+websockets.exceptions.ConnectionClosedError: sent 1000 (OK); no close frame received
+2026-01-28 16:01:59,200 : WARNING : OKX.ws.7: encountered connection issue sent 1000 (OK); no close frame received - reconnecting in 1.0 seconds...
+TimeoutError: timed out while closing connection
+
+The above exception was the direct cause of the following exception:
+
+Traceback (most recent call last):
+  File "/Users/hongraecho/hershy/code/hershy/backtest/.venv/lib/python3.13/site-packages/cryptofeed/connection_handler.py", line 65, in _create_connection
+    await self._handler(connection, self.handler)
+  File "/Users/hongraecho/hershy/code/hershy/backtest/.venv/lib/python3.13/site-packages/cryptofeed/connection_handler.py", line 95, in _handler
+    async for message in connection.read():
+    ...<3 lines>...
+        await handler(message, connection, self.conn.last_message)
+  File "/Users/hongraecho/hershy/code/hershy/backtest/.venv/lib/python3.13/site-packages/cryptofeed/connection.py", line 339, in read
+    async for data in self.conn:
+    ...<2 lines>...
+        yield data
+  File "/Users/hongraecho/hershy/code/hershy/backtest/.venv/lib/python3.13/site-packages/websockets/asyncio/connection.py", line 244, in __aiter__
+    yield await self.recv()
+          ^^^^^^^^^^^^^^^^^
+  File "/Users/hongraecho/hershy/code/hershy/backtest/.venv/lib/python3.13/site-packages/websockets/asyncio/connection.py", line 324, in recv
+    raise self.protocol.close_exc from self.recv_exc
+websockets.exceptions.ConnectionClosedError: sent 1000 (OK); no close frame received
+2026-01-28 16:04:20,584 : WARNING : KUCOIN.ws.9: received no messages within timeout, restarting connection
+2026-01-28 16:04:20,890 : WARNING : KUCOIN: error from exchange {'id': '1', 'type': 'error', 'code': 400, 'data': 'topic /market/ticker: BTC-USDT is invalid'}
+2026-01-28 16:52:20,876 : WARNING : HUOBI.ws.8: received no messages within timeout, restarting connection
+2026-01-28 16:52:20,933 : WARNING : GATEIO.ws.7: received no messages within timeout, restarting connection
+2026-01-28 16:52:20,971 : WARNING : BINANCE.ws.5: received no messages within timeout, restarting connection
+2026-01-28 16:52:20,983 : WARNING : OKX.ws.6: received no messages within timeout, restarting connection
+2026-01-28 16:52:21,038 : WARNING : HUOBI.ws.8: encountered connection issue sent 1000 (OK); no close frame received - reconnecting in 1.0 seconds...
+ConnectionResetError: [Errno 54] Connection reset by peer
+
+The above exception was the direct cause of the following exception:
+
+Traceback (most recent call last):
+  File "/Users/hongraecho/hershy/code/hershy/backtest/.venv/lib/python3.13/site-packages/cryptofeed/connection_handler.py", line 65, in _create_connection
+    await self._handler(connection, self.handler)
+  File "/Users/hongraecho/hershy/code/hershy/backtest/.venv/lib/python3.13/site-packages/cryptofeed/connection_handler.py", line 95, in _handler
+    async for message in connection.read():
+    ...<3 lines>...
+        await handler(message, connection, self.conn.last_message)
+  File "/Users/hongraecho/hershy/code/hershy/backtest/.venv/lib/python3.13/site-packages/cryptofeed/connection.py", line 339, in read
+    async for data in self.conn:
+    ...<2 lines>...
+        yield data
+  File "/Users/hongraecho/hershy/code/hershy/backtest/.venv/lib/python3.13/site-packages/websockets/asyncio/connection.py", line 244, in __aiter__
+    yield await self.recv()
+          ^^^^^^^^^^^^^^^^^
+  File "/Users/hongraecho/hershy/code/hershy/backtest/.venv/lib/python3.13/site-packages/websockets/asyncio/connection.py", line 324, in recv
+    raise self.protocol.close_exc from self.recv_exc
+websockets.exceptions.ConnectionClosedError: sent 1000 (OK); no close frame received
+2026-01-28 16:52:21,089 : WARNING : BINANCE.ws.5: encountered connection issue sent 1000 (OK); no close frame received - reconnecting in 1.0 seconds...
+ConnectionResetError: [Errno 54] Connection reset by peer
+
+The above exception was the direct cause of the following exception:
+
+Traceback (most recent call last):
+  File "/Users/hongraecho/hershy/code/hershy/backtest/.venv/lib/python3.13/site-packages/cryptofeed/connection_handler.py", line 65, in _create_connection
+    await self._handler(connection, self.handler)
+  File "/Users/hongraecho/hershy/code/hershy/backtest/.venv/lib/python3.13/site-packages/cryptofeed/connection_handler.py", line 95, in _handler
+    async for message in connection.read():
+    ...<3 lines>...
+        await handler(message, connection, self.conn.last_message)
+  File "/Users/hongraecho/hershy/code/hershy/backtest/.venv/lib/python3.13/site-packages/cryptofeed/connection.py", line 339, in read
+    async for data in self.conn:
+    ...<2 lines>...
+        yield data
+  File "/Users/hongraecho/hershy/code/hershy/backtest/.venv/lib/python3.13/site-packages/websockets/asyncio/connection.py", line 244, in __aiter__
+    yield await self.recv()
+          ^^^^^^^^^^^^^^^^^
+  File "/Users/hongraecho/hershy/code/hershy/backtest/.venv/lib/python3.13/site-packages/websockets/asyncio/connection.py", line 324, in recv
+    raise self.protocol.close_exc from self.recv_exc
+websockets.exceptions.ConnectionClosedError: sent 1000 (OK); no close frame received
+2026-01-28 16:52:30,934 : WARNING : GATEIO.ws.7: encountered connection issue sent 1000 (OK); no close frame received - reconnecting in 1.0 seconds...
+TimeoutError: timed out while closing connection
+
+The above exception was the direct cause of the following exception:
+
+Traceback (most recent call last):
+  File "/Users/hongraecho/hershy/code/hershy/backtest/.venv/lib/python3.13/site-packages/cryptofeed/connection_handler.py", line 65, in _create_connection
+    await self._handler(connection, self.handler)
+  File "/Users/hongraecho/hershy/code/hershy/backtest/.venv/lib/python3.13/site-packages/cryptofeed/connection_handler.py", line 95, in _handler
+    async for message in connection.read():
+    ...<3 lines>...
+        await handler(message, connection, self.conn.last_message)
+  File "/Users/hongraecho/hershy/code/hershy/backtest/.venv/lib/python3.13/site-packages/cryptofeed/connection.py", line 339, in read
+    async for data in self.conn:
+    ...<2 lines>...
+        yield data
+  File "/Users/hongraecho/hershy/code/hershy/backtest/.venv/lib/python3.13/site-packages/websockets/asyncio/connection.py", line 244, in __aiter__
+    yield await self.recv()
+          ^^^^^^^^^^^^^^^^^
+  File "/Users/hongraecho/hershy/code/hershy/backtest/.venv/lib/python3.13/site-packages/websockets/asyncio/connection.py", line 324, in recv
+    raise self.protocol.close_exc from self.recv_exc
+websockets.exceptions.ConnectionClosedError: sent 1000 (OK); no close frame received
+2026-01-28 16:52:30,980 : WARNING : OKX.ws.6: encountered connection issue sent 1000 (OK); no close frame received - reconnecting in 1.0 seconds...
+TimeoutError: timed out while closing connection
+
+The above exception was the direct cause of the following exception:
+
+Traceback (most recent call last):
+  File "/Users/hongraecho/hershy/code/hershy/backtest/.venv/lib/python3.13/site-packages/cryptofeed/connection_handler.py", line 65, in _create_connection
+    await self._handler(connection, self.handler)
+  File "/Users/hongraecho/hershy/code/hershy/backtest/.venv/lib/python3.13/site-packages/cryptofeed/connection_handler.py", line 95, in _handler
+    async for message in connection.read():
+    ...<3 lines>...
+        await handler(message, connection, self.conn.last_message)
+  File "/Users/hongraecho/hershy/code/hershy/backtest/.venv/lib/python3.13/site-packages/cryptofeed/connection.py", line 339, in read
+    async for data in self.conn:
+    ...<2 lines>...
+        yield data
+  File "/Users/hongraecho/hershy/code/hershy/backtest/.venv/lib/python3.13/site-packages/websockets/asyncio/connection.py", line 244, in __aiter__
+    yield await self.recv()
+          ^^^^^^^^^^^^^^^^^
+  File "/Users/hongraecho/hershy/code/hershy/backtest/.venv/lib/python3.13/site-packages/websockets/asyncio/connection.py", line 324, in recv
+    raise self.protocol.close_exc from self.recv_exc
+websockets.exceptions.ConnectionClosedError: sent 1000 (OK); no close frame received
+2026-01-28 19:07:29,218 : WARNING : GATEIO: Unhandled message type {'time': 1769594849, 'time_ms': 1769594849142, 'channel': 'spot.system', 'event': 'update', 'result': {'type': 'upgrade', 'msg': 'The connection will soon be closed for a service upgrade. Please reconnect.'}}
+2026-01-28 19:07:39,978 : WARNING : GATEIO.ws.7: encountered connection issue no close frame received or sent - reconnecting in 1.0 seconds...
+Traceback (most recent call last):
+  File "/Users/hongraecho/hershy/code/hershy/backtest/.venv/lib/python3.13/site-packages/cryptofeed/connection_handler.py", line 65, in _create_connection
+    await self._handler(connection, self.handler)
+  File "/Users/hongraecho/hershy/code/hershy/backtest/.venv/lib/python3.13/site-packages/cryptofeed/connection_handler.py", line 95, in _handler
+    async for message in connection.read():
+    ...<3 lines>...
+        await handler(message, connection, self.conn.last_message)
+  File "/Users/hongraecho/hershy/code/hershy/backtest/.venv/lib/python3.13/site-packages/cryptofeed/connection.py", line 339, in read
+    async for data in self.conn:
+    ...<2 lines>...
+        yield data
+  File "/Users/hongraecho/hershy/code/hershy/backtest/.venv/lib/python3.13/site-packages/websockets/asyncio/connection.py", line 244, in __aiter__
+    return
+    
+  File "/Users/hongraecho/hershy/code/hershy/backtest/.venv/lib/python3.13/site-packages/websockets/asyncio/connection.py", line 324, in recv
+    @overload
+        ^^^^^
+websockets.exceptions.ConnectionClosedError: no close frame received or sent
+2026-01-28 19:17:20,849 : WARNING : GATEIO: Unhandled message type {'time': 1769595440, 'time_ms': 1769595440620, 'channel': 'spot.system', 'event': 'update', 'result': {'type': 'upgrade', 'msg': 'The connection will soon be closed for a service upgrade. Please reconnect.'}}
+2026-01-28 19:17:31,588 : WARNING : GATEIO.ws.7: encountered connection issue no close frame received or sent - reconnecting in 1.0 seconds...
+Traceback (most recent call last):
+  File "/Users/hongraecho/hershy/code/hershy/backtest/.venv/lib/python3.13/site-packages/cryptofeed/connection_handler.py", line 65, in _create_connection
+    await self._handler(connection, self.handler)
+  File "/Users/hongraecho/hershy/code/hershy/backtest/.venv/lib/python3.13/site-packages/cryptofeed/connection_handler.py", line 95, in _handler
+    async for message in connection.read():
+    ...<3 lines>...
+        await handler(message, connection, self.conn.last_message)
+  File "/Users/hongraecho/hershy/code/hershy/backtest/.venv/lib/python3.13/site-packages/cryptofeed/connection.py", line 339, in read
+    async for data in self.conn:
+    ...<2 lines>...
+        yield data
+  File "/Users/hongraecho/hershy/code/hershy/backtest/.venv/lib/python3.13/site-packages/websockets/asyncio/connection.py", line 244, in __aiter__
+    return
+    
+  File "/Users/hongraecho/hershy/code/hershy/backtest/.venv/lib/python3.13/site-packages/websockets/asyncio/connection.py", line 324, in recv
+    @overload
+        ^^^^^
+websockets.exceptions.ConnectionClosedError: no close frame received or sent
+2026-01-28 19:39:56,159 : WARNING : HUOBI.ws.8: encountered connection issue no close frame received or sent - reconnecting in 1.0 seconds...
+Traceback (most recent call last):
+  File "/Users/hongraecho/hershy/code/hershy/backtest/.venv/lib/python3.13/site-packages/cryptofeed/connection_handler.py", line 65, in _create_connection
+    await self._handler(connection, self.handler)
+  File "/Users/hongraecho/hershy/code/hershy/backtest/.venv/lib/python3.13/site-packages/cryptofeed/connection_handler.py", line 95, in _handler
+    async for message in connection.read():
+    ...<3 lines>...
+        await handler(message, connection, self.conn.last_message)
+  File "/Users/hongraecho/hershy/code/hershy/backtest/.venv/lib/python3.13/site-packages/cryptofeed/connection.py", line 339, in read
+    async for data in self.conn:
+    ...<2 lines>...
+        yield data
+  File "/Users/hongraecho/hershy/code/hershy/backtest/.venv/lib/python3.13/site-packages/websockets/asyncio/connection.py", line 244, in __aiter__
+    return
+    
+  File "/Users/hongraecho/hershy/code/hershy/backtest/.venv/lib/python3.13/site-packages/websockets/asyncio/connection.py", line 324, in recv
+    @overload
+        ^^^^^
+websockets.exceptions.ConnectionClosedError: no close frame received or sent
+2026-01-28 21:26:53,486 : WARNING : HUOBI.ws.8: received no messages within timeout, restarting connection
+2026-01-28 21:27:03,490 : WARNING : HUOBI.ws.8: encountered connection issue sent 1000 (OK); no close frame received - reconnecting in 1.0 seconds...
+TimeoutError: timed out while closing connection
+
+The above exception was the direct cause of the following exception:
+
+Traceback (most recent call last):
+  File "/Users/hongraecho/hershy/code/hershy/backtest/.venv/lib/python3.13/site-packages/cryptofeed/connection_handler.py", line 65, in _create_connection
+    await self._handler(connection, self.handler)
+  File "/Users/hongraecho/hershy/code/hershy/backtest/.venv/lib/python3.13/site-packages/cryptofeed/connection_handler.py", line 95, in _handler
+    async for message in connection.read():
+    ...<3 lines>...
+        await handler(message, connection, self.conn.last_message)
+  File "/Users/hongraecho/hershy/code/hershy/backtest/.venv/lib/python3.13/site-packages/cryptofeed/connection.py", line 339, in read
+    async for data in self.conn:
+    ...<2 lines>...
+        yield data
+  File "/Users/hongraecho/hershy/code/hershy/backtest/.venv/lib/python3.13/site-packages/websockets/asyncio/connection.py", line 244, in __aiter__
+    return
+    
+  File "/Users/hongraecho/hershy/code/hershy/backtest/.venv/lib/python3.13/site-packages/websockets/asyncio/connection.py", line 324, in recv
+    @overload
+        ^^^^^
+websockets.exceptions.ConnectionClosedError: sent 1000 (OK); no close frame received
+2026-01-28 22:05:04,847 : WARNING : HUOBI.ws.8: received no messages within timeout, restarting connection
+2026-01-28 22:05:14,851 : WARNING : HUOBI.ws.8: encountered connection issue sent 1000 (OK); no close frame received - reconnecting in 1.0 seconds...
+TimeoutError: timed out while closing connection
+
+The above exception was the direct cause of the following exception:
+
+Traceback (most recent call last):
+  File "/Users/hongraecho/hershy/code/hershy/backtest/.venv/lib/python3.13/site-packages/cryptofeed/connection_handler.py", line 65, in _create_connection
+    await self._handler(connection, self.handler)
+  File "/Users/hongraecho/hershy/code/hershy/backtest/.venv/lib/python3.13/site-packages/cryptofeed/connection_handler.py", line 95, in _handler
+    async for message in connection.read():
+    ...<3 lines>...
+        await handler(message, connection, self.conn.last_message)
+  File "/Users/hongraecho/hershy/code/hershy/backtest/.venv/lib/python3.13/site-packages/cryptofeed/connection.py", line 339, in read
+    async for data in self.conn:
+    ...<2 lines>...
+        yield data
+  File "/Users/hongraecho/hershy/code/hershy/backtest/.venv/lib/python3.13/site-packages/websockets/asyncio/connection.py", line 244, in __aiter__
+    return
+    
+  File "/Users/hongraecho/hershy/code/hershy/backtest/.venv/lib/python3.13/site-packages/websockets/asyncio/connection.py", line 324, in recv
+    @overload
+        ^^^^^
+websockets.exceptions.ConnectionClosedError: sent 1000 (OK); no close frame received
+2026-01-28 22:09:40,704 : WARNING : HUOBI.ws.8: encountered connection issue received 1003 (unsupported data) ping check expired; then sent 1003 (unsupported data) ping check expired - reconnecting in 1.0 seconds...
+Traceback (most recent call last):
+  File "/Users/hongraecho/hershy/code/hershy/backtest/.venv/lib/python3.13/site-packages/cryptofeed/connection_handler.py", line 65, in _create_connection
+    await self._handler(connection, self.handler)
+  File "/Users/hongraecho/hershy/code/hershy/backtest/.venv/lib/python3.13/site-packages/cryptofeed/connection_handler.py", line 95, in _handler
+    async for message in connection.read():
+    ...<3 lines>...
+        await handler(message, connection, self.conn.last_message)
+  File "/Users/hongraecho/hershy/code/hershy/backtest/.venv/lib/python3.13/site-packages/cryptofeed/connection.py", line 339, in read
+    async for data in self.conn:
+    ...<2 lines>...
+        yield data
+  File "/Users/hongraecho/hershy/code/hershy/backtest/.venv/lib/python3.13/site-packages/websockets/asyncio/connection.py", line 244, in __aiter__
+    return
+    
+  File "/Users/hongraecho/hershy/code/hershy/backtest/.venv/lib/python3.13/site-packages/websockets/asyncio/connection.py", line 324, in recv
+    @overload
+        ^^^^^
+websockets.exceptions.ConnectionClosedError: received 1003 (unsupported data) ping check expired; then sent 1003 (unsupported data) ping check expired
+2026-01-29 00:08:05,132 : WARNING : OKX.ws.6: encountered connection issue no close frame received or sent - reconnecting in 1.0 seconds...
+Traceback (most recent call last):
+  File "/Users/hongraecho/hershy/code/hershy/backtest/.venv/lib/python3.13/site-packages/cryptofeed/connection_handler.py", line 65, in _create_connection
+    await self._handler(connection, self.handler)
+  File "/Users/hongraecho/hershy/code/hershy/backtest/.venv/lib/python3.13/site-packages/cryptofeed/connection_handler.py", line 95, in _handler
+    async for message in connection.read():
+    ...<3 lines>...
+        await handler(message, connection, self.conn.last_message)
+  File "/Users/hongraecho/hershy/code/hershy/backtest/.venv/lib/python3.13/site-packages/cryptofeed/connection.py", line 339, in read
+    async for data in self.conn:
+    ...<2 lines>...
+        yield data
+  File "/Users/hongraecho/hershy/code/hershy/backtest/.venv/lib/python3.13/site-packages/websockets/asyncio/connection.py", line 244, in __aiter__
+    return
+    
+  File "/Users/hongraecho/hershy/code/hershy/backtest/.venv/lib/python3.13/site-packages/websockets/asyncio/connection.py", line 324, in recv
+    @overload
+        ^^^^^
+websockets.exceptions.ConnectionClosedError: no close frame received or sent
+2026-01-29 00:26:16,936 : WARNING : OKX.ws.6: encountered connection issue no close frame received or sent - reconnecting in 1.0 seconds...
+Traceback (most recent call last):
+  File "/Users/hongraecho/hershy/code/hershy/backtest/.venv/lib/python3.13/site-packages/cryptofeed/connection_handler.py", line 65, in _create_connection
+    await self._handler(connection, self.handler)
+  File "/Users/hongraecho/hershy/code/hershy/backtest/.venv/lib/python3.13/site-packages/cryptofeed/connection_handler.py", line 95, in _handler
+    async for message in connection.read():
+    ...<3 lines>...
+        await handler(message, connection, self.conn.last_message)
+  File "/Users/hongraecho/hershy/code/hershy/backtest/.venv/lib/python3.13/site-packages/cryptofeed/connection.py", line 339, in read
+    async for data in self.conn:
+    ...<2 lines>...
+        yield data
+  File "/Users/hongraecho/hershy/code/hershy/backtest/.venv/lib/python3.13/site-packages/websockets/asyncio/connection.py", line 244, in __aiter__
+    return
+    
+  File "/Users/hongraecho/hershy/code/hershy/backtest/.venv/lib/python3.13/site-packages/websockets/asyncio/connection.py", line 324, in recv
+    @overload
+        ^^^^^
+websockets.exceptions.ConnectionClosedError: no close frame received or sent
+2026-01-29 14:47:03,950 : WARNING : OKX.ws.6: received no messages within timeout, restarting connection
+2026-01-29 14:47:03,988 : WARNING : GATEIO.ws.7: received no messages within timeout, restarting connection
+2026-01-29 14:47:03,988 : WARNING : HUOBI.ws.8: received no messages within timeout, restarting connection
+2026-01-29 14:47:03,999 : ERROR : HUOBI.ws.8: encountered an exception, reconnecting in 1.0 seconds
+Traceback (most recent call last):
+  File "/Users/hongraecho/hershy/code/hershy/backtest/.venv/lib/python3.13/site-packages/cryptofeed/connection_handler.py", line 65, in _create_connection
+    await self._handler(connection, self.handler)
+  File "/Users/hongraecho/hershy/code/hershy/backtest/.venv/lib/python3.13/site-packages/cryptofeed/connection_handler.py", line 99, in _handler
+    await handler(message, connection, self.conn.last_message)
+  File "/Users/hongraecho/hershy/code/hershy/backtest/.venv/lib/python3.13/site-packages/cryptofeed/exchanges/huobi.py", line 183, in message_handler
+    await conn.write(json.dumps({'pong': msg['ping']}))
+  File "/Users/hongraecho/hershy/code/hershy/backtest/.venv/lib/python3.13/site-packages/cryptofeed/connection.py", line 346, in write
+    raise ConnectionClosed
+cryptofeed.exceptions.ConnectionClosed
+2026-01-29 14:47:10,197 : WARNING : HUOBI.ws.8: encountered connection issue [Errno 8] nodename nor servname provided, or not known - reconnecting in 2.0 seconds...
+Traceback (most recent call last):
+  File "/Users/hongraecho/hershy/code/hershy/backtest/.venv/lib/python3.13/site-packages/cryptofeed/connection_handler.py", line 56, in _create_connection
+    async with self.conn.connect() as connection:
+               ~~~~~~~~~~~~~~~~~^^
+  File "/opt/homebrew/Cellar/python@3.13/3.13.2/Frameworks/Python.framework/Versions/3.13/lib/python3.13/contextlib.py", line 214, in __aenter__
+    return await anext(self.gen)
+           ^^^^^^^^^^^^^^^^^^^^^
+  File "/Users/hongraecho/hershy/code/hershy/backtest/.venv/lib/python3.13/site-packages/cryptofeed/connection.py", line 109, in connect
+    await self._open()
+  File "/Users/hongraecho/hershy/code/hershy/backtest/.venv/lib/python3.13/site-packages/cryptofeed/connection.py", line 323, in _open
+    self.conn = await connect(self.address, **self.ws_kwargs)
+                ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/Users/hongraecho/hershy/code/hershy/backtest/.venv/lib/python3.13/site-packages/websockets/asyncio/client.py", line 544, in __await_impl__
+    self.additional_headers,
+              ^^^^^^^^^^^^^^
+  File "/Users/hongraecho/hershy/code/hershy/backtest/.venv/lib/python3.13/site-packages/websockets/asyncio/client.py", line 470, in create_connection
+    def process_redirect(self, exc: Exception) -> Exception | str:
+                            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "uvloop/loop.pyx", line 1982, in create_connection
+socket.gaierror: [Errno 8] nodename nor servname provided, or not known
+2026-01-29 14:47:12,239 : WARNING : HUOBI.ws.8: encountered connection issue [Errno 8] nodename nor servname provided, or not known - reconnecting in 4.0 seconds...
+Traceback (most recent call last):
+  File "/Users/hongraecho/hershy/code/hershy/backtest/.venv/lib/python3.13/site-packages/cryptofeed/connection_handler.py", line 56, in _create_connection
+    async with self.conn.connect() as connection:
+               ~~~~~~~~~~~~~~~~~^^
+  File "/opt/homebrew/Cellar/python@3.13/3.13.2/Frameworks/Python.framework/Versions/3.13/lib/python3.13/contextlib.py", line 214, in __aenter__
+    return await anext(self.gen)
+           ^^^^^^^^^^^^^^^^^^^^^
+  File "/Users/hongraecho/hershy/code/hershy/backtest/.venv/lib/python3.13/site-packages/cryptofeed/connection.py", line 109, in connect
+    await self._open()
+  File "/Users/hongraecho/hershy/code/hershy/backtest/.venv/lib/python3.13/site-packages/cryptofeed/connection.py", line 323, in _open
+    self.conn = await connect(self.address, **self.ws_kwargs)
+                ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/Users/hongraecho/hershy/code/hershy/backtest/.venv/lib/python3.13/site-packages/websockets/asyncio/client.py", line 544, in __await_impl__
+    self.additional_headers,
+              ^^^^^^^^^^^^^^
+  File "/Users/hongraecho/hershy/code/hershy/backtest/.venv/lib/python3.13/site-packages/websockets/asyncio/client.py", line 470, in create_connection
+    def process_redirect(self, exc: Exception) -> Exception | str:
+                            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "uvloop/loop.pyx", line 1982, in create_connection
+socket.gaierror: [Errno 8] nodename nor servname provided, or not known
+2026-01-29 14:47:13,984 : WARNING : OKX.ws.6: encountered connection issue sent 1000 (OK); no close frame received - reconnecting in 1.0 seconds...
+TimeoutError: timed out while closing connection
+
+The above exception was the direct cause of the following exception:
+
+Traceback (most recent call last):
+  File "/Users/hongraecho/hershy/code/hershy/backtest/.venv/lib/python3.13/site-packages/cryptofeed/connection_handler.py", line 65, in _create_connection
+    await self._handler(connection, self.handler)
+  File "/Users/hongraecho/hershy/code/hershy/backtest/.venv/lib/python3.13/site-packages/cryptofeed/connection_handler.py", line 95, in _handler
+    async for message in connection.read():
+    ...<3 lines>...
+        await handler(message, connection, self.conn.last_message)
+  File "/Users/hongraecho/hershy/code/hershy/backtest/.venv/lib/python3.13/site-packages/cryptofeed/connection.py", line 339, in read
+    async for data in self.conn:
+    ...<2 lines>...
+        yield data
+  File "/Users/hongraecho/hershy/code/hershy/backtest/.venv/lib/python3.13/site-packages/websockets/asyncio/connection.py", line 244, in __aiter__
+    return
+    
+  File "/Users/hongraecho/hershy/code/hershy/backtest/.venv/lib/python3.13/site-packages/websockets/asyncio/connection.py", line 324, in recv
+    @overload
+        ^^^^^
+websockets.exceptions.ConnectionClosedError: sent 1000 (OK); no close frame received
+2026-01-29 14:47:13,989 : WARNING : GATEIO.ws.7: encountered connection issue sent 1000 (OK); no close frame received - reconnecting in 1.0 seconds...
+TimeoutError: timed out while closing connection
+
+The above exception was the direct cause of the following exception:
+
+Traceback (most recent call last):
+  File "/Users/hongraecho/hershy/code/hershy/backtest/.venv/lib/python3.13/site-packages/cryptofeed/connection_handler.py", line 65, in _create_connection
+    await self._handler(connection, self.handler)
+  File "/Users/hongraecho/hershy/code/hershy/backtest/.venv/lib/python3.13/site-packages/cryptofeed/connection_handler.py", line 95, in _handler
+    async for message in connection.read():
+    ...<3 lines>...
+        await handler(message, connection, self.conn.last_message)
+  File "/Users/hongraecho/hershy/code/hershy/backtest/.venv/lib/python3.13/site-packages/cryptofeed/connection.py", line 339, in read
+    async for data in self.conn:
+    ...<2 lines>...
+        yield data
+  File "/Users/hongraecho/hershy/code/hershy/backtest/.venv/lib/python3.13/site-packages/websockets/asyncio/connection.py", line 244, in __aiter__
+    return
+    
+  File "/Users/hongraecho/hershy/code/hershy/backtest/.venv/lib/python3.13/site-packages/websockets/asyncio/connection.py", line 324, in recv
+    @overload
+        ^^^^^
+websockets.exceptions.ConnectionClosedError: sent 1000 (OK); no close frame received
+2026-01-29 14:47:15,038 : WARNING : OKX.ws.6: encountered connection issue [Errno 8] nodename nor servname provided, or not known - reconnecting in 2.0 seconds...
+Traceback (most recent call last):
+  File "/Users/hongraecho/hershy/code/hershy/backtest/.venv/lib/python3.13/site-packages/cryptofeed/connection_handler.py", line 56, in _create_connection
+    async with self.conn.connect() as connection:
+               ~~~~~~~~~~~~~~~~~^^
+  File "/opt/homebrew/Cellar/python@3.13/3.13.2/Frameworks/Python.framework/Versions/3.13/lib/python3.13/contextlib.py", line 214, in __aenter__
+    return await anext(self.gen)
+           ^^^^^^^^^^^^^^^^^^^^^
+  File "/Users/hongraecho/hershy/code/hershy/backtest/.venv/lib/python3.13/site-packages/cryptofeed/connection.py", line 109, in connect
+    await self._open()
+  File "/Users/hongraecho/hershy/code/hershy/backtest/.venv/lib/python3.13/site-packages/cryptofeed/connection.py", line 323, in _open
+    self.conn = await connect(self.address, **self.ws_kwargs)
+                ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/Users/hongraecho/hershy/code/hershy/backtest/.venv/lib/python3.13/site-packages/websockets/asyncio/client.py", line 544, in __await_impl__
+    self.additional_headers,
+              ^^^^^^^^^^^^^^
+  File "/Users/hongraecho/hershy/code/hershy/backtest/.venv/lib/python3.13/site-packages/websockets/asyncio/client.py", line 470, in create_connection
+    def process_redirect(self, exc: Exception) -> Exception | str:
+                            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "uvloop/loop.pyx", line 1982, in create_connection
+socket.gaierror: [Errno 8] nodename nor servname provided, or not known
+2026-01-29 14:47:15,042 : WARNING : GATEIO.ws.7: encountered connection issue [Errno 8] nodename nor servname provided, or not known - reconnecting in 2.0 seconds...
+Traceback (most recent call last):
+  File "/Users/hongraecho/hershy/code/hershy/backtest/.venv/lib/python3.13/site-packages/cryptofeed/connection_handler.py", line 56, in _create_connection
+    async with self.conn.connect() as connection:
+               ~~~~~~~~~~~~~~~~~^^
+  File "/opt/homebrew/Cellar/python@3.13/3.13.2/Frameworks/Python.framework/Versions/3.13/lib/python3.13/contextlib.py", line 214, in __aenter__
+    return await anext(self.gen)
+           ^^^^^^^^^^^^^^^^^^^^^
+  File "/Users/hongraecho/hershy/code/hershy/backtest/.venv/lib/python3.13/site-packages/cryptofeed/connection.py", line 109, in connect
+    await self._open()
+  File "/Users/hongraecho/hershy/code/hershy/backtest/.venv/lib/python3.13/site-packages/cryptofeed/connection.py", line 323, in _open
+    self.conn = await connect(self.address, **self.ws_kwargs)
+                ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/Users/hongraecho/hershy/code/hershy/backtest/.venv/lib/python3.13/site-packages/websockets/asyncio/client.py", line 544, in __await_impl__
+    self.additional_headers,
+              ^^^^^^^^^^^^^^
+  File "/Users/hongraecho/hershy/code/hershy/backtest/.venv/lib/python3.13/site-packages/websockets/asyncio/client.py", line 470, in create_connection
+    def process_redirect(self, exc: Exception) -> Exception | str:
+                            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "uvloop/loop.pyx", line 1982, in create_connection
+socket.gaierror: [Errno 8] nodename nor servname provided, or not known
+2026-01-29 14:47:16,257 : WARNING : HUOBI.ws.8: encountered connection issue [Errno 8] nodename nor servname provided, or not known - reconnecting in 8.0 seconds...
+Traceback (most recent call last):
+  File "/Users/hongraecho/hershy/code/hershy/backtest/.venv/lib/python3.13/site-packages/cryptofeed/connection_handler.py", line 56, in _create_connection
+    async with self.conn.connect() as connection:
+               ~~~~~~~~~~~~~~~~~^^
+  File "/opt/homebrew/Cellar/python@3.13/3.13.2/Frameworks/Python.framework/Versions/3.13/lib/python3.13/contextlib.py", line 214, in __aenter__
+    return await anext(self.gen)
+           ^^^^^^^^^^^^^^^^^^^^^
+  File "/Users/hongraecho/hershy/code/hershy/backtest/.venv/lib/python3.13/site-packages/cryptofeed/connection.py", line 109, in connect
+    await self._open()
+  File "/Users/hongraecho/hershy/code/hershy/backtest/.venv/lib/python3.13/site-packages/cryptofeed/connection.py", line 323, in _open
+    self.conn = await connect(self.address, **self.ws_kwargs)
+                ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/Users/hongraecho/hershy/code/hershy/backtest/.venv/lib/python3.13/site-packages/websockets/asyncio/client.py", line 544, in __await_impl__
+    self.additional_headers,
+              ^^^^^^^^^^^^^^
+  File "/Users/hongraecho/hershy/code/hershy/backtest/.venv/lib/python3.13/site-packages/websockets/asyncio/client.py", line 470, in create_connection
+    def process_redirect(self, exc: Exception) -> Exception | str:
+                            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "uvloop/loop.pyx", line 1982, in create_connection
+socket.gaierror: [Errno 8] nodename nor servname provided, or not known
+2026-01-29 14:47:17,069 : WARNING : OKX.ws.6: encountered connection issue [Errno 8] nodename nor servname provided, or not known - reconnecting in 4.0 seconds...
+Traceback (most recent call last):
+  File "/Users/hongraecho/hershy/code/hershy/backtest/.venv/lib/python3.13/site-packages/cryptofeed/connection_handler.py", line 56, in _create_connection
+    async with self.conn.connect() as connection:
+               ~~~~~~~~~~~~~~~~~^^
+  File "/opt/homebrew/Cellar/python@3.13/3.13.2/Frameworks/Python.framework/Versions/3.13/lib/python3.13/contextlib.py", line 214, in __aenter__
+    return await anext(self.gen)
+           ^^^^^^^^^^^^^^^^^^^^^
+  File "/Users/hongraecho/hershy/code/hershy/backtest/.venv/lib/python3.13/site-packages/cryptofeed/connection.py", line 109, in connect
+    await self._open()
+  File "/Users/hongraecho/hershy/code/hershy/backtest/.venv/lib/python3.13/site-packages/cryptofeed/connection.py", line 323, in _open
+    self.conn = await connect(self.address, **self.ws_kwargs)
+                ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/Users/hongraecho/hershy/code/hershy/backtest/.venv/lib/python3.13/site-packages/websockets/asyncio/client.py", line 544, in __await_impl__
+    self.additional_headers,
+              ^^^^^^^^^^^^^^
+  File "/Users/hongraecho/hershy/code/hershy/backtest/.venv/lib/python3.13/site-packages/websockets/asyncio/client.py", line 470, in create_connection
+    def process_redirect(self, exc: Exception) -> Exception | str:
+                            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "uvloop/loop.pyx", line 1982, in create_connection
+socket.gaierror: [Errno 8] nodename nor servname provided, or not known
+2026-01-29 14:47:17,073 : WARNING : GATEIO.ws.7: encountered connection issue [Errno 8] nodename nor servname provided, or not known - reconnecting in 4.0 seconds...
+Traceback (most recent call last):
+  File "/Users/hongraecho/hershy/code/hershy/backtest/.venv/lib/python3.13/site-packages/cryptofeed/connection_handler.py", line 56, in _create_connection
+    async with self.conn.connect() as connection:
+               ~~~~~~~~~~~~~~~~~^^
+  File "/opt/homebrew/Cellar/python@3.13/3.13.2/Frameworks/Python.framework/Versions/3.13/lib/python3.13/contextlib.py", line 214, in __aenter__
+    return await anext(self.gen)
+           ^^^^^^^^^^^^^^^^^^^^^
+  File "/Users/hongraecho/hershy/code/hershy/backtest/.venv/lib/python3.13/site-packages/cryptofeed/connection.py", line 109, in connect
+    await self._open()
+  File "/Users/hongraecho/hershy/code/hershy/backtest/.venv/lib/python3.13/site-packages/cryptofeed/connection.py", line 323, in _open
+    self.conn = await connect(self.address, **self.ws_kwargs)
+                ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/Users/hongraecho/hershy/code/hershy/backtest/.venv/lib/python3.13/site-packages/websockets/asyncio/client.py", line 544, in __await_impl__
+    self.additional_headers,
+              ^^^^^^^^^^^^^^
+  File "/Users/hongraecho/hershy/code/hershy/backtest/.venv/lib/python3.13/site-packages/websockets/asyncio/client.py", line 470, in create_connection
+    def process_redirect(self, exc: Exception) -> Exception | str:
+                            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "uvloop/loop.pyx", line 1982, in create_connection
+socket.gaierror: [Errno 8] nodename nor servname provided, or not known
+2026-01-29 14:47:21,105 : WARNING : OKX.ws.6: encountered connection issue [Errno 8] nodename nor servname provided, or not known - reconnecting in 8.0 seconds...
+Traceback (most recent call last):
+  File "/Users/hongraecho/hershy/code/hershy/backtest/.venv/lib/python3.13/site-packages/cryptofeed/connection_handler.py", line 56, in _create_connection
+    async with self.conn.connect() as connection:
+               ~~~~~~~~~~~~~~~~~^^
+  File "/opt/homebrew/Cellar/python@3.13/3.13.2/Frameworks/Python.framework/Versions/3.13/lib/python3.13/contextlib.py", line 214, in __aenter__
+    return await anext(self.gen)
+           ^^^^^^^^^^^^^^^^^^^^^
+  File "/Users/hongraecho/hershy/code/hershy/backtest/.venv/lib/python3.13/site-packages/cryptofeed/connection.py", line 109, in connect
+    await self._open()
+  File "/Users/hongraecho/hershy/code/hershy/backtest/.venv/lib/python3.13/site-packages/cryptofeed/connection.py", line 323, in _open
+    self.conn = await connect(self.address, **self.ws_kwargs)
+                ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/Users/hongraecho/hershy/code/hershy/backtest/.venv/lib/python3.13/site-packages/websockets/asyncio/client.py", line 544, in __await_impl__
+    self.additional_headers,
+              ^^^^^^^^^^^^^^
+  File "/Users/hongraecho/hershy/code/hershy/backtest/.venv/lib/python3.13/site-packages/websockets/asyncio/client.py", line 470, in create_connection
+    def process_redirect(self, exc: Exception) -> Exception | str:
+                            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "uvloop/loop.pyx", line 1982, in create_connection
+socket.gaierror: [Errno 8] nodename nor servname provided, or not known
+2026-01-29 14:47:21,110 : WARNING : GATEIO.ws.7: encountered connection issue [Errno 8] nodename nor servname provided, or not known - reconnecting in 8.0 seconds...
+Traceback (most recent call last):
+  File "/Users/hongraecho/hershy/code/hershy/backtest/.venv/lib/python3.13/site-packages/cryptofeed/connection_handler.py", line 56, in _create_connection
+    async with self.conn.connect() as connection:
+               ~~~~~~~~~~~~~~~~~^^
+  File "/opt/homebrew/Cellar/python@3.13/3.13.2/Frameworks/Python.framework/Versions/3.13/lib/python3.13/contextlib.py", line 214, in __aenter__
+    return await anext(self.gen)
+           ^^^^^^^^^^^^^^^^^^^^^
+  File "/Users/hongraecho/hershy/code/hershy/backtest/.venv/lib/python3.13/site-packages/cryptofeed/connection.py", line 109, in connect
+    await self._open()
+  File "/Users/hongraecho/hershy/code/hershy/backtest/.venv/lib/python3.13/site-packages/cryptofeed/connection.py", line 323, in _open
+    self.conn = await connect(self.address, **self.ws_kwargs)
+                ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/Users/hongraecho/hershy/code/hershy/backtest/.venv/lib/python3.13/site-packages/websockets/asyncio/client.py", line 544, in __await_impl__
+    self.additional_headers,
+              ^^^^^^^^^^^^^^
+  File "/Users/hongraecho/hershy/code/hershy/backtest/.venv/lib/python3.13/site-packages/websockets/asyncio/client.py", line 470, in create_connection
+    def process_redirect(self, exc: Exception) -> Exception | str:
+                            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "uvloop/loop.pyx", line 1982, in create_connection
+socket.gaierror: [Errno 8] nodename nor servname provided, or not known
+2026-01-29 14:47:24,039 : WARNING : BINANCE.ws.5: encountered connection issue no close frame received or sent - reconnecting in 1.0 seconds...
+ConnectionResetError: [Errno 54] Connection reset by peer
+
+The above exception was the direct cause of the following exception:
+
+Traceback (most recent call last):
+  File "/Users/hongraecho/hershy/code/hershy/backtest/.venv/lib/python3.13/site-packages/cryptofeed/connection_handler.py", line 65, in _create_connection
+    await self._handler(connection, self.handler)
+  File "/Users/hongraecho/hershy/code/hershy/backtest/.venv/lib/python3.13/site-packages/cryptofeed/connection_handler.py", line 95, in _handler
+    async for message in connection.read():
+    ...<3 lines>...
+        await handler(message, connection, self.conn.last_message)
+  File "/Users/hongraecho/hershy/code/hershy/backtest/.venv/lib/python3.13/site-packages/cryptofeed/connection.py", line 339, in read
+    async for data in self.conn:
+    ...<2 lines>...
+        yield data
+  File "/Users/hongraecho/hershy/code/hershy/backtest/.venv/lib/python3.13/site-packages/websockets/asyncio/connection.py", line 244, in __aiter__
+    return
+    
+  File "/Users/hongraecho/hershy/code/hershy/backtest/.venv/lib/python3.13/site-packages/websockets/asyncio/connection.py", line 324, in recv
+    @overload
+        ^^^^^
+websockets.exceptions.ConnectionClosedError: no close frame received or sent
+2026-01-29 14:47:24,284 : WARNING : HUOBI.ws.8: encountered connection issue [Errno 8] nodename nor servname provided, or not known - reconnecting in 16.0 seconds...
+Traceback (most recent call last):
+  File "/Users/hongraecho/hershy/code/hershy/backtest/.venv/lib/python3.13/site-packages/cryptofeed/connection_handler.py", line 56, in _create_connection
+    async with self.conn.connect() as connection:
+               ~~~~~~~~~~~~~~~~~^^
+  File "/opt/homebrew/Cellar/python@3.13/3.13.2/Frameworks/Python.framework/Versions/3.13/lib/python3.13/contextlib.py", line 214, in __aenter__
+    return await anext(self.gen)
+           ^^^^^^^^^^^^^^^^^^^^^
+  File "/Users/hongraecho/hershy/code/hershy/backtest/.venv/lib/python3.13/site-packages/cryptofeed/connection.py", line 109, in connect
+    await self._open()
+  File "/Users/hongraecho/hershy/code/hershy/backtest/.venv/lib/python3.13/site-packages/cryptofeed/connection.py", line 323, in _open
+    self.conn = await connect(self.address, **self.ws_kwargs)
+                ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/Users/hongraecho/hershy/code/hershy/backtest/.venv/lib/python3.13/site-packages/websockets/asyncio/client.py", line 544, in __await_impl__
+    self.additional_headers,
+              ^^^^^^^^^^^^^^
+  File "/Users/hongraecho/hershy/code/hershy/backtest/.venv/lib/python3.13/site-packages/websockets/asyncio/client.py", line 470, in create_connection
+    def process_redirect(self, exc: Exception) -> Exception | str:
+                            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "uvloop/loop.pyx", line 1982, in create_connection
+socket.gaierror: [Errno 8] nodename nor servname provided, or not known
+2026-01-29 14:47:25,071 : WARNING : BINANCE.ws.5: encountered connection issue [Errno 8] nodename nor servname provided, or not known - reconnecting in 2.0 seconds...
+Traceback (most recent call last):
+  File "/Users/hongraecho/hershy/code/hershy/backtest/.venv/lib/python3.13/site-packages/cryptofeed/connection_handler.py", line 56, in _create_connection
+    async with self.conn.connect() as connection:
+               ~~~~~~~~~~~~~~~~~^^
+  File "/opt/homebrew/Cellar/python@3.13/3.13.2/Frameworks/Python.framework/Versions/3.13/lib/python3.13/contextlib.py", line 214, in __aenter__
+    return await anext(self.gen)
+           ^^^^^^^^^^^^^^^^^^^^^
+  File "/Users/hongraecho/hershy/code/hershy/backtest/.venv/lib/python3.13/site-packages/cryptofeed/connection.py", line 109, in connect
+    await self._open()
+  File "/Users/hongraecho/hershy/code/hershy/backtest/.venv/lib/python3.13/site-packages/cryptofeed/connection.py", line 323, in _open
+    self.conn = await connect(self.address, **self.ws_kwargs)
+                ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/Users/hongraecho/hershy/code/hershy/backtest/.venv/lib/python3.13/site-packages/websockets/asyncio/client.py", line 544, in __await_impl__
+    self.additional_headers,
+              ^^^^^^^^^^^^^^
+  File "/Users/hongraecho/hershy/code/hershy/backtest/.venv/lib/python3.13/site-packages/websockets/asyncio/client.py", line 470, in create_connection
+    def process_redirect(self, exc: Exception) -> Exception | str:
+                            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "uvloop/loop.pyx", line 1982, in create_connection
+socket.gaierror: [Errno 8] nodename nor servname provided, or not known
+2026-01-29 14:47:27,104 : WARNING : BINANCE.ws.5: encountered connection issue [Errno 8] nodename nor servname provided, or not known - reconnecting in 4.0 seconds...
+Traceback (most recent call last):
+  File "/Users/hongraecho/hershy/code/hershy/backtest/.venv/lib/python3.13/site-packages/cryptofeed/connection_handler.py", line 56, in _create_connection
+    async with self.conn.connect() as connection:
+               ~~~~~~~~~~~~~~~~~^^
+  File "/opt/homebrew/Cellar/python@3.13/3.13.2/Frameworks/Python.framework/Versions/3.13/lib/python3.13/contextlib.py", line 214, in __aenter__
+    return await anext(self.gen)
+           ^^^^^^^^^^^^^^^^^^^^^
+  File "/Users/hongraecho/hershy/code/hershy/backtest/.venv/lib/python3.13/site-packages/cryptofeed/connection.py", line 109, in connect
+    await self._open()
+  File "/Users/hongraecho/hershy/code/hershy/backtest/.venv/lib/python3.13/site-packages/cryptofeed/connection.py", line 323, in _open
+    self.conn = await connect(self.address, **self.ws_kwargs)
+                ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/Users/hongraecho/hershy/code/hershy/backtest/.venv/lib/python3.13/site-packages/websockets/asyncio/client.py", line 544, in __await_impl__
+    self.additional_headers,
+              ^^^^^^^^^^^^^^
+  File "/Users/hongraecho/hershy/code/hershy/backtest/.venv/lib/python3.13/site-packages/websockets/asyncio/client.py", line 470, in create_connection
+    def process_redirect(self, exc: Exception) -> Exception | str:
+                            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "uvloop/loop.pyx", line 1982, in create_connection
+socket.gaierror: [Errno 8] nodename nor servname provided, or not known
+2026-01-29 14:47:29,177 : WARNING : OKX.ws.6: encountered connection issue [Errno 8] nodename nor servname provided, or not known - reconnecting in 16.0 seconds...
+Traceback (most recent call last):
+  File "/Users/hongraecho/hershy/code/hershy/backtest/.venv/lib/python3.13/site-packages/cryptofeed/connection_handler.py", line 56, in _create_connection
+    async with self.conn.connect() as connection:
+               ~~~~~~~~~~~~~~~~~^^
+  File "/opt/homebrew/Cellar/python@3.13/3.13.2/Frameworks/Python.framework/Versions/3.13/lib/python3.13/contextlib.py", line 214, in __aenter__
+    return await anext(self.gen)
+           ^^^^^^^^^^^^^^^^^^^^^
+  File "/Users/hongraecho/hershy/code/hershy/backtest/.venv/lib/python3.13/site-packages/cryptofeed/connection.py", line 109, in connect
+    await self._open()
+  File "/Users/hongraecho/hershy/code/hershy/backtest/.venv/lib/python3.13/site-packages/cryptofeed/connection.py", line 323, in _open
+    self.conn = await connect(self.address, **self.ws_kwargs)
+                ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/Users/hongraecho/hershy/code/hershy/backtest/.venv/lib/python3.13/site-packages/websockets/asyncio/client.py", line 544, in __await_impl__
+    self.additional_headers,
+              ^^^^^^^^^^^^^^
+  File "/Users/hongraecho/hershy/code/hershy/backtest/.venv/lib/python3.13/site-packages/websockets/asyncio/client.py", line 470, in create_connection
+    def process_redirect(self, exc: Exception) -> Exception | str:
+                            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "uvloop/loop.pyx", line 1982, in create_connection
+socket.gaierror: [Errno 8] nodename nor servname provided, or not known
+2026-01-29 14:47:29,186 : WARNING : GATEIO.ws.7: encountered connection issue [Errno 8] nodename nor servname provided, or not known - reconnecting in 16.0 seconds...
+Traceback (most recent call last):
+  File "/Users/hongraecho/hershy/code/hershy/backtest/.venv/lib/python3.13/site-packages/cryptofeed/connection_handler.py", line 56, in _create_connection
+    async with self.conn.connect() as connection:
+               ~~~~~~~~~~~~~~~~~^^
+  File "/opt/homebrew/Cellar/python@3.13/3.13.2/Frameworks/Python.framework/Versions/3.13/lib/python3.13/contextlib.py", line 214, in __aenter__
+    return await anext(self.gen)
+           ^^^^^^^^^^^^^^^^^^^^^
+  File "/Users/hongraecho/hershy/code/hershy/backtest/.venv/lib/python3.13/site-packages/cryptofeed/connection.py", line 109, in connect
+    await self._open()
+  File "/Users/hongraecho/hershy/code/hershy/backtest/.venv/lib/python3.13/site-packages/cryptofeed/connection.py", line 323, in _open
+    self.conn = await connect(self.address, **self.ws_kwargs)
+                ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/Users/hongraecho/hershy/code/hershy/backtest/.venv/lib/python3.13/site-packages/websockets/asyncio/client.py", line 544, in __await_impl__
+    self.additional_headers,
+              ^^^^^^^^^^^^^^
+  File "/Users/hongraecho/hershy/code/hershy/backtest/.venv/lib/python3.13/site-packages/websockets/asyncio/client.py", line 470, in create_connection
+    def process_redirect(self, exc: Exception) -> Exception | str:
+                            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "uvloop/loop.pyx", line 1982, in create_connection
+socket.gaierror: [Errno 8] nodename nor servname provided, or not known
+2026-01-29 14:47:34,283 : WARNING : BINANCE.ws.5: encountered connection issue [Errno 8] nodename nor servname provided, or not known - reconnecting in 8.0 seconds...
+Traceback (most recent call last):
+  File "/Users/hongraecho/hershy/code/hershy/backtest/.venv/lib/python3.13/site-packages/cryptofeed/connection_handler.py", line 56, in _create_connection
+    async with self.conn.connect() as connection:
+               ~~~~~~~~~~~~~~~~~^^
+  File "/opt/homebrew/Cellar/python@3.13/3.13.2/Frameworks/Python.framework/Versions/3.13/lib/python3.13/contextlib.py", line 214, in __aenter__
+    return await anext(self.gen)
+           ^^^^^^^^^^^^^^^^^^^^^
+  File "/Users/hongraecho/hershy/code/hershy/backtest/.venv/lib/python3.13/site-packages/cryptofeed/connection.py", line 109, in connect
+    await self._open()
+  File "/Users/hongraecho/hershy/code/hershy/backtest/.venv/lib/python3.13/site-packages/cryptofeed/connection.py", line 323, in _open
+    self.conn = await connect(self.address, **self.ws_kwargs)
+                ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/Users/hongraecho/hershy/code/hershy/backtest/.venv/lib/python3.13/site-packages/websockets/asyncio/client.py", line 544, in __await_impl__
+    self.additional_headers,
+              ^^^^^^^^^^^^^^
+  File "/Users/hongraecho/hershy/code/hershy/backtest/.venv/lib/python3.13/site-packages/websockets/asyncio/client.py", line 470, in create_connection
+    def process_redirect(self, exc: Exception) -> Exception | str:
+                            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "uvloop/loop.pyx", line 1982, in create_connection
+socket.gaierror: [Errno 8] nodename nor servname provided, or not known
+2026-01-29 14:47:44,495 : WARNING : HUOBI.ws.8: encountered connection issue [Errno 8] nodename nor servname provided, or not known - reconnecting in 32.0 seconds...
+Traceback (most recent call last):
+  File "/Users/hongraecho/hershy/code/hershy/backtest/.venv/lib/python3.13/site-packages/cryptofeed/connection_handler.py", line 56, in _create_connection
+    async with self.conn.connect() as connection:
+               ~~~~~~~~~~~~~~~~~^^
+  File "/opt/homebrew/Cellar/python@3.13/3.13.2/Frameworks/Python.framework/Versions/3.13/lib/python3.13/contextlib.py", line 214, in __aenter__
+    return await anext(self.gen)
+           ^^^^^^^^^^^^^^^^^^^^^
+  File "/Users/hongraecho/hershy/code/hershy/backtest/.venv/lib/python3.13/site-packages/cryptofeed/connection.py", line 109, in connect
+    await self._open()
+  File "/Users/hongraecho/hershy/code/hershy/backtest/.venv/lib/python3.13/site-packages/cryptofeed/connection.py", line 323, in _open
+    self.conn = await connect(self.address, **self.ws_kwargs)
+                ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/Users/hongraecho/hershy/code/hershy/backtest/.venv/lib/python3.13/site-packages/websockets/asyncio/client.py", line 544, in __await_impl__
+    self.additional_headers,
+              ^^^^^^^^^^^^^^
+  File "/Users/hongraecho/hershy/code/hershy/backtest/.venv/lib/python3.13/site-packages/websockets/asyncio/client.py", line 470, in create_connection
+    def process_redirect(self, exc: Exception) -> Exception | str:
+                            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "uvloop/loop.pyx", line 1982, in create_connection
+socket.gaierror: [Errno 8] nodename nor servname provided, or not known
+2026-01-29 14:47:44,685 : WARNING : BINANCE.ws.5: encountered connection issue [Errno 8] nodename nor servname provided, or not known - reconnecting in 16.0 seconds...
+Traceback (most recent call last):
+  File "/Users/hongraecho/hershy/code/hershy/backtest/.venv/lib/python3.13/site-packages/cryptofeed/connection_handler.py", line 56, in _create_connection
+    async with self.conn.connect() as connection:
+               ~~~~~~~~~~~~~~~~~^^
+  File "/opt/homebrew/Cellar/python@3.13/3.13.2/Frameworks/Python.framework/Versions/3.13/lib/python3.13/contextlib.py", line 214, in __aenter__
+    return await anext(self.gen)
+           ^^^^^^^^^^^^^^^^^^^^^
+  File "/Users/hongraecho/hershy/code/hershy/backtest/.venv/lib/python3.13/site-packages/cryptofeed/connection.py", line 109, in connect
+    await self._open()
+  File "/Users/hongraecho/hershy/code/hershy/backtest/.venv/lib/python3.13/site-packages/cryptofeed/connection.py", line 323, in _open
+    self.conn = await connect(self.address, **self.ws_kwargs)
+                ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/Users/hongraecho/hershy/code/hershy/backtest/.venv/lib/python3.13/site-packages/websockets/asyncio/client.py", line 544, in __await_impl__
+    self.additional_headers,
+              ^^^^^^^^^^^^^^
+  File "/Users/hongraecho/hershy/code/hershy/backtest/.venv/lib/python3.13/site-packages/websockets/asyncio/client.py", line 470, in create_connection
+    def process_redirect(self, exc: Exception) -> Exception | str:
+                            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "uvloop/loop.pyx", line 1982, in create_connection
+socket.gaierror: [Errno 8] nodename nor servname provided, or not known
+2026-01-29 14:47:45,235 : WARNING : OKX.ws.6: encountered connection issue [Errno 8] nodename nor servname provided, or not known - reconnecting in 32.0 seconds...
+Traceback (most recent call last):
+  File "/Users/hongraecho/hershy/code/hershy/backtest/.venv/lib/python3.13/site-packages/cryptofeed/connection_handler.py", line 56, in _create_connection
+    async with self.conn.connect() as connection:
+               ~~~~~~~~~~~~~~~~~^^
+  File "/opt/homebrew/Cellar/python@3.13/3.13.2/Frameworks/Python.framework/Versions/3.13/lib/python3.13/contextlib.py", line 214, in __aenter__
+    return await anext(self.gen)
+           ^^^^^^^^^^^^^^^^^^^^^
+  File "/Users/hongraecho/hershy/code/hershy/backtest/.venv/lib/python3.13/site-packages/cryptofeed/connection.py", line 109, in connect
+    await self._open()
+  File "/Users/hongraecho/hershy/code/hershy/backtest/.venv/lib/python3.13/site-packages/cryptofeed/connection.py", line 323, in _open
+    self.conn = await connect(self.address, **self.ws_kwargs)
+                ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/Users/hongraecho/hershy/code/hershy/backtest/.venv/lib/python3.13/site-packages/websockets/asyncio/client.py", line 544, in __await_impl__
+    self.additional_headers,
+              ^^^^^^^^^^^^^^
+  File "/Users/hongraecho/hershy/code/hershy/backtest/.venv/lib/python3.13/site-packages/websockets/asyncio/client.py", line 470, in create_connection
+    def process_redirect(self, exc: Exception) -> Exception | str:
+                            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "uvloop/loop.pyx", line 1982, in create_connection
+socket.gaierror: [Errno 8] nodename nor servname provided, or not known
+2026-01-29 14:47:45,242 : WARNING : GATEIO.ws.7: encountered connection issue [Errno 8] nodename nor servname provided, or not known - reconnecting in 32.0 seconds...
+Traceback (most recent call last):
+  File "/Users/hongraecho/hershy/code/hershy/backtest/.venv/lib/python3.13/site-packages/cryptofeed/connection_handler.py", line 56, in _create_connection
+    async with self.conn.connect() as connection:
+               ~~~~~~~~~~~~~~~~~^^
+  File "/opt/homebrew/Cellar/python@3.13/3.13.2/Frameworks/Python.framework/Versions/3.13/lib/python3.13/contextlib.py", line 214, in __aenter__
+    return await anext(self.gen)
+           ^^^^^^^^^^^^^^^^^^^^^
+  File "/Users/hongraecho/hershy/code/hershy/backtest/.venv/lib/python3.13/site-packages/cryptofeed/connection.py", line 109, in connect
+    await self._open()
+  File "/Users/hongraecho/hershy/code/hershy/backtest/.venv/lib/python3.13/site-packages/cryptofeed/connection.py", line 323, in _open
+    self.conn = await connect(self.address, **self.ws_kwargs)
+                ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/Users/hongraecho/hershy/code/hershy/backtest/.venv/lib/python3.13/site-packages/websockets/asyncio/client.py", line 544, in __await_impl__
+    self.additional_headers,
+              ^^^^^^^^^^^^^^
+  File "/Users/hongraecho/hershy/code/hershy/backtest/.venv/lib/python3.13/site-packages/websockets/asyncio/client.py", line 470, in create_connection
+    def process_redirect(self, exc: Exception) -> Exception | str:
+                            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "uvloop/loop.pyx", line 1982, in create_connection
+socket.gaierror: [Errno 8] nodename nor servname provided, or not known
+2026-01-29 16:10:36,039 : WARNING : HUOBI.ws.8: received no messages within timeout, restarting connection
+2026-01-29 16:10:36,055 : WARNING : BINANCE.ws.5: received no messages within timeout, restarting connection
+2026-01-29 16:10:36,055 : WARNING : GATEIO.ws.7: received no messages within timeout, restarting connection
+2026-01-29 16:10:36,055 : WARNING : OKX.ws.6: received no messages within timeout, restarting connection
+2026-01-29 16:10:36,064 : WARNING : HUOBI.ws.8: encountered connection issue sent 1000 (OK); no close frame received - reconnecting in 1.0 seconds...
+ConnectionResetError: [Errno 54] Connection reset by peer
+
+The above exception was the direct cause of the following exception:
+
+Traceback (most recent call last):
+  File "/Users/hongraecho/hershy/code/hershy/backtest/.venv/lib/python3.13/site-packages/cryptofeed/connection_handler.py", line 65, in _create_connection
+    await self._handler(connection, self.handler)
+  File "/Users/hongraecho/hershy/code/hershy/backtest/.venv/lib/python3.13/site-packages/cryptofeed/connection_handler.py", line 95, in _handler
+    async for message in connection.read():
+    ...<3 lines>...
+        await handler(message, connection, self.conn.last_message)
+  File "/Users/hongraecho/hershy/code/hershy/backtest/.venv/lib/python3.13/site-packages/cryptofeed/connection.py", line 339, in read
+    async for data in self.conn:
+    ...<2 lines>...
+        yield data
+  File "/Users/hongraecho/hershy/code/hershy/backtest/.venv/lib/python3.13/site-packages/websockets/asyncio/connection.py", line 242, in __aiter__
+    yield await self.recv()
+          ^^^^^^^^^^^^^^^^^
+  File "/Users/hongraecho/hershy/code/hershy/backtest/.venv/lib/python3.13/site-packages/websockets/asyncio/connection.py", line 322, in recv
+    raise self.protocol.close_exc from self.recv_exc
+websockets.exceptions.ConnectionClosedError: sent 1000 (OK); no close frame received
+2026-01-29 16:14:48,613 : WARNING : HUOBI.ws.8: received no messages within timeout, restarting connection
+2026-01-29 16:14:48,614 : WARNING : BINANCE.ws.5: encountered connection issue sent 1000 (OK); no close frame received - reconnecting in 1.0 seconds...
+TimeoutError: timed out while closing connection
+
+The above exception was the direct cause of the following exception:
+
+Traceback (most recent call last):
+  File "/Users/hongraecho/hershy/code/hershy/backtest/.venv/lib/python3.13/site-packages/cryptofeed/connection_handler.py", line 65, in _create_connection
+    await self._handler(connection, self.handler)
+  File "/Users/hongraecho/hershy/code/hershy/backtest/.venv/lib/python3.13/site-packages/cryptofeed/connection_handler.py", line 95, in _handler
+    async for message in connection.read():
+    ...<3 lines>...
+        await handler(message, connection, self.conn.last_message)
+  File "/Users/hongraecho/hershy/code/hershy/backtest/.venv/lib/python3.13/site-packages/cryptofeed/connection.py", line 339, in read
+    async for data in self.conn:
+    ...<2 lines>...
+        yield data
+  File "/Users/hongraecho/hershy/code/hershy/backtest/.venv/lib/python3.13/site-packages/websockets/asyncio/connection.py", line 242, in __aiter__
+    yield await self.recv()
+          ^^^^^^^^^^^^^^^^^
+  File "/Users/hongraecho/hershy/code/hershy/backtest/.venv/lib/python3.13/site-packages/websockets/asyncio/connection.py", line 322, in recv
+    raise self.protocol.close_exc from self.recv_exc
+websockets.exceptions.ConnectionClosedError: sent 1000 (OK); no close frame received
+2026-01-29 16:14:48,616 : WARNING : GATEIO.ws.7: encountered connection issue sent 1000 (OK); no close frame received - reconnecting in 1.0 seconds...
+TimeoutError: timed out while closing connection
+
+The above exception was the direct cause of the following exception:
+
+Traceback (most recent call last):
+  File "/Users/hongraecho/hershy/code/hershy/backtest/.venv/lib/python3.13/site-packages/cryptofeed/connection_handler.py", line 65, in _create_connection
+    await self._handler(connection, self.handler)
+  File "/Users/hongraecho/hershy/code/hershy/backtest/.venv/lib/python3.13/site-packages/cryptofeed/connection_handler.py", line 95, in _handler
+    async for message in connection.read():
+    ...<3 lines>...
+        await handler(message, connection, self.conn.last_message)
+  File "/Users/hongraecho/hershy/code/hershy/backtest/.venv/lib/python3.13/site-packages/cryptofeed/connection.py", line 339, in read
+    async for data in self.conn:
+    ...<2 lines>...
+        yield data
+  File "/Users/hongraecho/hershy/code/hershy/backtest/.venv/lib/python3.13/site-packages/websockets/asyncio/connection.py", line 242, in __aiter__
+    yield await self.recv()
+          ^^^^^^^^^^^^^^^^^
+  File "/Users/hongraecho/hershy/code/hershy/backtest/.venv/lib/python3.13/site-packages/websockets/asyncio/connection.py", line 322, in recv
+    raise self.protocol.close_exc from self.recv_exc
+websockets.exceptions.ConnectionClosedError: sent 1000 (OK); no close frame received
+2026-01-29 16:14:48,616 : WARNING : OKX.ws.6: encountered connection issue sent 1000 (OK); no close frame received - reconnecting in 1.0 seconds...
+TimeoutError: timed out while closing connection
+
+The above exception was the direct cause of the following exception:
+
+Traceback (most recent call last):
+  File "/Users/hongraecho/hershy/code/hershy/backtest/.venv/lib/python3.13/site-packages/cryptofeed/connection_handler.py", line 65, in _create_connection
+    await self._handler(connection, self.handler)
+  File "/Users/hongraecho/hershy/code/hershy/backtest/.venv/lib/python3.13/site-packages/cryptofeed/connection_handler.py", line 95, in _handler
+    async for message in connection.read():
+    ...<3 lines>...
+        await handler(message, connection, self.conn.last_message)
+  File "/Users/hongraecho/hershy/code/hershy/backtest/.venv/lib/python3.13/site-packages/cryptofeed/connection.py", line 339, in read
+    async for data in self.conn:
+    ...<2 lines>...
+        yield data
+  File "/Users/hongraecho/hershy/code/hershy/backtest/.venv/lib/python3.13/site-packages/websockets/asyncio/connection.py", line 242, in __aiter__
+    yield await self.recv()
+          ^^^^^^^^^^^^^^^^^
+  File "/Users/hongraecho/hershy/code/hershy/backtest/.venv/lib/python3.13/site-packages/websockets/asyncio/connection.py", line 322, in recv
+    raise self.protocol.close_exc from self.recv_exc
+websockets.exceptions.ConnectionClosedError: sent 1000 (OK); no close frame received
+2026-01-29 16:14:55,729 : WARNING : GATEIO.ws.7: encountered connection issue [Errno 8] nodename nor servname provided, or not known - reconnecting in 2.0 seconds...
+Traceback (most recent call last):
+  File "/Users/hongraecho/hershy/code/hershy/backtest/.venv/lib/python3.13/site-packages/cryptofeed/connection_handler.py", line 56, in _create_connection
+    async with self.conn.connect() as connection:
+               ~~~~~~~~~~~~~~~~~^^
+  File "/opt/homebrew/Cellar/python@3.13/3.13.2/Frameworks/Python.framework/Versions/3.13/lib/python3.13/contextlib.py", line 214, in __aenter__
+    return await anext(self.gen)
+           ^^^^^^^^^^^^^^^^^^^^^
+  File "/Users/hongraecho/hershy/code/hershy/backtest/.venv/lib/python3.13/site-packages/cryptofeed/connection.py", line 109, in connect
+    await self._open()
+  File "/Users/hongraecho/hershy/code/hershy/backtest/.venv/lib/python3.13/site-packages/cryptofeed/connection.py", line 323, in _open
+    self.conn = await connect(self.address, **self.ws_kwargs)
+                ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/Users/hongraecho/hershy/code/hershy/backtest/.venv/lib/python3.13/site-packages/websockets/asyncio/client.py", line 541, in __await_impl__
+    self.connection = await self.create_connection()
+                      ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/Users/hongraecho/hershy/code/hershy/backtest/.venv/lib/python3.13/site-packages/websockets/asyncio/client.py", line 467, in create_connection
+    _, connection = await loop.create_connection(factory, **kwargs)
+                    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "uvloop/loop.pyx", line 1982, in create_connection
+socket.gaierror: [Errno 8] nodename nor servname provided, or not known
+2026-01-29 16:14:55,742 : WARNING : BINANCE.ws.5: encountered connection issue [Errno 8] nodename nor servname provided, or not known - reconnecting in 2.0 seconds...
+Traceback (most recent call last):
+  File "/Users/hongraecho/hershy/code/hershy/backtest/.venv/lib/python3.13/site-packages/cryptofeed/connection_handler.py", line 56, in _create_connection
+    async with self.conn.connect() as connection:
+               ~~~~~~~~~~~~~~~~~^^
+  File "/opt/homebrew/Cellar/python@3.13/3.13.2/Frameworks/Python.framework/Versions/3.13/lib/python3.13/contextlib.py", line 214, in __aenter__
+    return await anext(self.gen)
+           ^^^^^^^^^^^^^^^^^^^^^
+  File "/Users/hongraecho/hershy/code/hershy/backtest/.venv/lib/python3.13/site-packages/cryptofeed/connection.py", line 109, in connect
+    await self._open()
+  File "/Users/hongraecho/hershy/code/hershy/backtest/.venv/lib/python3.13/site-packages/cryptofeed/connection.py", line 323, in _open
+    self.conn = await connect(self.address, **self.ws_kwargs)
+                ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/Users/hongraecho/hershy/code/hershy/backtest/.venv/lib/python3.13/site-packages/websockets/asyncio/client.py", line 541, in __await_impl__
+    self.connection = await self.create_connection()
+                      ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/Users/hongraecho/hershy/code/hershy/backtest/.venv/lib/python3.13/site-packages/websockets/asyncio/client.py", line 467, in create_connection
+    _, connection = await loop.create_connection(factory, **kwargs)
+                    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "uvloop/loop.pyx", line 1982, in create_connection
+socket.gaierror: [Errno 8] nodename nor servname provided, or not known
+2026-01-29 16:14:55,745 : WARNING : OKX.ws.6: encountered connection issue [Errno 8] nodename nor servname provided, or not known - reconnecting in 2.0 seconds...
+Traceback (most recent call last):
+  File "/Users/hongraecho/hershy/code/hershy/backtest/.venv/lib/python3.13/site-packages/cryptofeed/connection_handler.py", line 56, in _create_connection
+    async with self.conn.connect() as connection:
+               ~~~~~~~~~~~~~~~~~^^
+  File "/opt/homebrew/Cellar/python@3.13/3.13.2/Frameworks/Python.framework/Versions/3.13/lib/python3.13/contextlib.py", line 214, in __aenter__
+    return await anext(self.gen)
+           ^^^^^^^^^^^^^^^^^^^^^
+  File "/Users/hongraecho/hershy/code/hershy/backtest/.venv/lib/python3.13/site-packages/cryptofeed/connection.py", line 109, in connect
+    await self._open()
+  File "/Users/hongraecho/hershy/code/hershy/backtest/.venv/lib/python3.13/site-packages/cryptofeed/connection.py", line 323, in _open
+    self.conn = await connect(self.address, **self.ws_kwargs)
+                ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/Users/hongraecho/hershy/code/hershy/backtest/.venv/lib/python3.13/site-packages/websockets/asyncio/client.py", line 541, in __await_impl__
+    self.connection = await self.create_connection()
+                      ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/Users/hongraecho/hershy/code/hershy/backtest/.venv/lib/python3.13/site-packages/websockets/asyncio/client.py", line 467, in create_connection
+    _, connection = await loop.create_connection(factory, **kwargs)
+                    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "uvloop/loop.pyx", line 1982, in create_connection
+socket.gaierror: [Errno 8] nodename nor servname provided, or not known
+2026-01-29 16:14:57,785 : WARNING : GATEIO.ws.7: encountered connection issue [Errno 8] nodename nor servname provided, or not known - reconnecting in 4.0 seconds...
+Traceback (most recent call last):
+  File "/Users/hongraecho/hershy/code/hershy/backtest/.venv/lib/python3.13/site-packages/cryptofeed/connection_handler.py", line 56, in _create_connection
+    async with self.conn.connect() as connection:
+               ~~~~~~~~~~~~~~~~~^^
+  File "/opt/homebrew/Cellar/python@3.13/3.13.2/Frameworks/Python.framework/Versions/3.13/lib/python3.13/contextlib.py", line 214, in __aenter__
+    return await anext(self.gen)
+           ^^^^^^^^^^^^^^^^^^^^^
+  File "/Users/hongraecho/hershy/code/hershy/backtest/.venv/lib/python3.13/site-packages/cryptofeed/connection.py", line 109, in connect
+    await self._open()
+  File "/Users/hongraecho/hershy/code/hershy/backtest/.venv/lib/python3.13/site-packages/cryptofeed/connection.py", line 323, in _open
+    self.conn = await connect(self.address, **self.ws_kwargs)
+                ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/Users/hongraecho/hershy/code/hershy/backtest/.venv/lib/python3.13/site-packages/websockets/asyncio/client.py", line 541, in __await_impl__
+    self.connection = await self.create_connection()
+                      ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/Users/hongraecho/hershy/code/hershy/backtest/.venv/lib/python3.13/site-packages/websockets/asyncio/client.py", line 467, in create_connection
+    _, connection = await loop.create_connection(factory, **kwargs)
+                    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "uvloop/loop.pyx", line 1982, in create_connection
+socket.gaierror: [Errno 8] nodename nor servname provided, or not known
+2026-01-29 16:14:57,789 : WARNING : BINANCE.ws.5: encountered connection issue [Errno 8] nodename nor servname provided, or not known - reconnecting in 4.0 seconds...
+Traceback (most recent call last):
+  File "/Users/hongraecho/hershy/code/hershy/backtest/.venv/lib/python3.13/site-packages/cryptofeed/connection_handler.py", line 56, in _create_connection
+    async with self.conn.connect() as connection:
+               ~~~~~~~~~~~~~~~~~^^
+  File "/opt/homebrew/Cellar/python@3.13/3.13.2/Frameworks/Python.framework/Versions/3.13/lib/python3.13/contextlib.py", line 214, in __aenter__
+    return await anext(self.gen)
+           ^^^^^^^^^^^^^^^^^^^^^
+  File "/Users/hongraecho/hershy/code/hershy/backtest/.venv/lib/python3.13/site-packages/cryptofeed/connection.py", line 109, in connect
+    await self._open()
+  File "/Users/hongraecho/hershy/code/hershy/backtest/.venv/lib/python3.13/site-packages/cryptofeed/connection.py", line 323, in _open
+    self.conn = await connect(self.address, **self.ws_kwargs)
+                ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/Users/hongraecho/hershy/code/hershy/backtest/.venv/lib/python3.13/site-packages/websockets/asyncio/client.py", line 541, in __await_impl__
+    self.connection = await self.create_connection()
+                      ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/Users/hongraecho/hershy/code/hershy/backtest/.venv/lib/python3.13/site-packages/websockets/asyncio/client.py", line 467, in create_connection
+    _, connection = await loop.create_connection(factory, **kwargs)
+                    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "uvloop/loop.pyx", line 1982, in create_connection
+socket.gaierror: [Errno 8] nodename nor servname provided, or not known
+2026-01-29 16:14:57,790 : WARNING : OKX.ws.6: encountered connection issue [Errno 8] nodename nor servname provided, or not known - reconnecting in 4.0 seconds...
+Traceback (most recent call last):
+  File "/Users/hongraecho/hershy/code/hershy/backtest/.venv/lib/python3.13/site-packages/cryptofeed/connection_handler.py", line 56, in _create_connection
+    async with self.conn.connect() as connection:
+               ~~~~~~~~~~~~~~~~~^^
+  File "/opt/homebrew/Cellar/python@3.13/3.13.2/Frameworks/Python.framework/Versions/3.13/lib/python3.13/contextlib.py", line 214, in __aenter__
+    return await anext(self.gen)
+           ^^^^^^^^^^^^^^^^^^^^^
+  File "/Users/hongraecho/hershy/code/hershy/backtest/.venv/lib/python3.13/site-packages/cryptofeed/connection.py", line 109, in connect
+    await self._open()
+  File "/Users/hongraecho/hershy/code/hershy/backtest/.venv/lib/python3.13/site-packages/cryptofeed/connection.py", line 323, in _open
+    self.conn = await connect(self.address, **self.ws_kwargs)
+                ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/Users/hongraecho/hershy/code/hershy/backtest/.venv/lib/python3.13/site-packages/websockets/asyncio/client.py", line 541, in __await_impl__
+    self.connection = await self.create_connection()
+                      ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/Users/hongraecho/hershy/code/hershy/backtest/.venv/lib/python3.13/site-packages/websockets/asyncio/client.py", line 467, in create_connection
+    _, connection = await loop.create_connection(factory, **kwargs)
+                    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "uvloop/loop.pyx", line 1982, in create_connection
+socket.gaierror: [Errno 8] nodename nor servname provided, or not known
+2026-01-29 16:14:58,616 : WARNING : HUOBI.ws.8: encountered connection issue sent 1000 (OK); no close frame received - reconnecting in 1.0 seconds...
+TimeoutError: timed out while closing connection
+
+The above exception was the direct cause of the following exception:
+
+Traceback (most recent call last):
+  File "/Users/hongraecho/hershy/code/hershy/backtest/.venv/lib/python3.13/site-packages/cryptofeed/connection_handler.py", line 65, in _create_connection
+    await self._handler(connection, self.handler)
+  File "/Users/hongraecho/hershy/code/hershy/backtest/.venv/lib/python3.13/site-packages/cryptofeed/connection_handler.py", line 95, in _handler
+    async for message in connection.read():
+    ...<3 lines>...
+        await handler(message, connection, self.conn.last_message)
+  File "/Users/hongraecho/hershy/code/hershy/backtest/.venv/lib/python3.13/site-packages/cryptofeed/connection.py", line 339, in read
+    async for data in self.conn:
+    ...<2 lines>...
+        yield data
+  File "/Users/hongraecho/hershy/code/hershy/backtest/.venv/lib/python3.13/site-packages/websockets/asyncio/connection.py", line 242, in __aiter__
+    yield await self.recv()
+          ^^^^^^^^^^^^^^^^^
+  File "/Users/hongraecho/hershy/code/hershy/backtest/.venv/lib/python3.13/site-packages/websockets/asyncio/connection.py", line 322, in recv
+    raise self.protocol.close_exc from self.recv_exc
+websockets.exceptions.ConnectionClosedError: sent 1000 (OK); no close frame received
+2026-01-29 16:14:59,629 : WARNING : HUOBI.ws.8: encountered connection issue [Errno 8] nodename nor servname provided, or not known - reconnecting in 2.0 seconds...
+Traceback (most recent call last):
+  File "/Users/hongraecho/hershy/code/hershy/backtest/.venv/lib/python3.13/site-packages/cryptofeed/connection_handler.py", line 56, in _create_connection
+    async with self.conn.connect() as connection:
+               ~~~~~~~~~~~~~~~~~^^
+  File "/opt/homebrew/Cellar/python@3.13/3.13.2/Frameworks/Python.framework/Versions/3.13/lib/python3.13/contextlib.py", line 214, in __aenter__
+    return await anext(self.gen)
+           ^^^^^^^^^^^^^^^^^^^^^
+  File "/Users/hongraecho/hershy/code/hershy/backtest/.venv/lib/python3.13/site-packages/cryptofeed/connection.py", line 109, in connect
+    await self._open()
+  File "/Users/hongraecho/hershy/code/hershy/backtest/.venv/lib/python3.13/site-packages/cryptofeed/connection.py", line 323, in _open
+    self.conn = await connect(self.address, **self.ws_kwargs)
+                ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/Users/hongraecho/hershy/code/hershy/backtest/.venv/lib/python3.13/site-packages/websockets/asyncio/client.py", line 541, in __await_impl__
+    self.connection = await self.create_connection()
+                      ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/Users/hongraecho/hershy/code/hershy/backtest/.venv/lib/python3.13/site-packages/websockets/asyncio/client.py", line 467, in create_connection
+    _, connection = await loop.create_connection(factory, **kwargs)
+                    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "uvloop/loop.pyx", line 1982, in create_connection
+socket.gaierror: [Errno 8] nodename nor servname provided, or not known
+2026-01-29 16:15:01,643 : WARNING : HUOBI.ws.8: encountered connection issue [Errno 8] nodename nor servname provided, or not known - reconnecting in 4.0 seconds...
+Traceback (most recent call last):
+  File "/Users/hongraecho/hershy/code/hershy/backtest/.venv/lib/python3.13/site-packages/cryptofeed/connection_handler.py", line 56, in _create_connection
+    async with self.conn.connect() as connection:
+               ~~~~~~~~~~~~~~~~~^^
+  File "/opt/homebrew/Cellar/python@3.13/3.13.2/Frameworks/Python.framework/Versions/3.13/lib/python3.13/contextlib.py", line 214, in __aenter__
+    return await anext(self.gen)
+           ^^^^^^^^^^^^^^^^^^^^^
+  File "/Users/hongraecho/hershy/code/hershy/backtest/.venv/lib/python3.13/site-packages/cryptofeed/connection.py", line 109, in connect
+    await self._open()
+  File "/Users/hongraecho/hershy/code/hershy/backtest/.venv/lib/python3.13/site-packages/cryptofeed/connection.py", line 323, in _open
+    self.conn = await connect(self.address, **self.ws_kwargs)
+                ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/Users/hongraecho/hershy/code/hershy/backtest/.venv/lib/python3.13/site-packages/websockets/asyncio/client.py", line 541, in __await_impl__
+    self.connection = await self.create_connection()
+                      ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/Users/hongraecho/hershy/code/hershy/backtest/.venv/lib/python3.13/site-packages/websockets/asyncio/client.py", line 467, in create_connection
+    _, connection = await loop.create_connection(factory, **kwargs)
+                    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "uvloop/loop.pyx", line 1982, in create_connection
+socket.gaierror: [Errno 8] nodename nor servname provided, or not known
+2026-01-29 16:15:01,814 : WARNING : GATEIO.ws.7: encountered connection issue [Errno 8] nodename nor servname provided, or not known - reconnecting in 8.0 seconds...
+Traceback (most recent call last):
+  File "/Users/hongraecho/hershy/code/hershy/backtest/.venv/lib/python3.13/site-packages/cryptofeed/connection_handler.py", line 56, in _create_connection
+    async with self.conn.connect() as connection:
+               ~~~~~~~~~~~~~~~~~^^
+  File "/opt/homebrew/Cellar/python@3.13/3.13.2/Frameworks/Python.framework/Versions/3.13/lib/python3.13/contextlib.py", line 214, in __aenter__
+    return await anext(self.gen)
+           ^^^^^^^^^^^^^^^^^^^^^
+  File "/Users/hongraecho/hershy/code/hershy/backtest/.venv/lib/python3.13/site-packages/cryptofeed/connection.py", line 109, in connect
+    await self._open()
+  File "/Users/hongraecho/hershy/code/hershy/backtest/.venv/lib/python3.13/site-packages/cryptofeed/connection.py", line 323, in _open
+    self.conn = await connect(self.address, **self.ws_kwargs)
+                ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/Users/hongraecho/hershy/code/hershy/backtest/.venv/lib/python3.13/site-packages/websockets/asyncio/client.py", line 541, in __await_impl__
+    self.connection = await self.create_connection()
+                      ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/Users/hongraecho/hershy/code/hershy/backtest/.venv/lib/python3.13/site-packages/websockets/asyncio/client.py", line 467, in create_connection
+    _, connection = await loop.create_connection(factory, **kwargs)
+                    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "uvloop/loop.pyx", line 1982, in create_connection
+socket.gaierror: [Errno 8] nodename nor servname provided, or not known
+2026-01-29 16:15:01,817 : WARNING : BINANCE.ws.5: encountered connection issue [Errno 8] nodename nor servname provided, or not known - reconnecting in 8.0 seconds...
+Traceback (most recent call last):
+  File "/Users/hongraecho/hershy/code/hershy/backtest/.venv/lib/python3.13/site-packages/cryptofeed/connection_handler.py", line 56, in _create_connection
+    async with self.conn.connect() as connection:
+               ~~~~~~~~~~~~~~~~~^^
+  File "/opt/homebrew/Cellar/python@3.13/3.13.2/Frameworks/Python.framework/Versions/3.13/lib/python3.13/contextlib.py", line 214, in __aenter__
+    return await anext(self.gen)
+           ^^^^^^^^^^^^^^^^^^^^^
+  File "/Users/hongraecho/hershy/code/hershy/backtest/.venv/lib/python3.13/site-packages/cryptofeed/connection.py", line 109, in connect
+    await self._open()
+  File "/Users/hongraecho/hershy/code/hershy/backtest/.venv/lib/python3.13/site-packages/cryptofeed/connection.py", line 323, in _open
+    self.conn = await connect(self.address, **self.ws_kwargs)
+                ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/Users/hongraecho/hershy/code/hershy/backtest/.venv/lib/python3.13/site-packages/websockets/asyncio/client.py", line 541, in __await_impl__
+    self.connection = await self.create_connection()
+                      ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/Users/hongraecho/hershy/code/hershy/backtest/.venv/lib/python3.13/site-packages/websockets/asyncio/client.py", line 467, in create_connection
+    _, connection = await loop.create_connection(factory, **kwargs)
+                    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "uvloop/loop.pyx", line 1982, in create_connection
+socket.gaierror: [Errno 8] nodename nor servname provided, or not known
+2026-01-29 16:15:01,818 : WARNING : OKX.ws.6: encountered connection issue [Errno 8] nodename nor servname provided, or not known - reconnecting in 8.0 seconds...
+Traceback (most recent call last):
+  File "/Users/hongraecho/hershy/code/hershy/backtest/.venv/lib/python3.13/site-packages/cryptofeed/connection_handler.py", line 56, in _create_connection
+    async with self.conn.connect() as connection:
+               ~~~~~~~~~~~~~~~~~^^
+  File "/opt/homebrew/Cellar/python@3.13/3.13.2/Frameworks/Python.framework/Versions/3.13/lib/python3.13/contextlib.py", line 214, in __aenter__
+    return await anext(self.gen)
+           ^^^^^^^^^^^^^^^^^^^^^
+  File "/Users/hongraecho/hershy/code/hershy/backtest/.venv/lib/python3.13/site-packages/cryptofeed/connection.py", line 109, in connect
+    await self._open()
+  File "/Users/hongraecho/hershy/code/hershy/backtest/.venv/lib/python3.13/site-packages/cryptofeed/connection.py", line 323, in _open
+    self.conn = await connect(self.address, **self.ws_kwargs)
+                ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/Users/hongraecho/hershy/code/hershy/backtest/.venv/lib/python3.13/site-packages/websockets/asyncio/client.py", line 541, in __await_impl__
+    self.connection = await self.create_connection()
+                      ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/Users/hongraecho/hershy/code/hershy/backtest/.venv/lib/python3.13/site-packages/websockets/asyncio/client.py", line 467, in create_connection
+    _, connection = await loop.create_connection(factory, **kwargs)
+                    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "uvloop/loop.pyx", line 1982, in create_connection
+socket.gaierror: [Errno 8] nodename nor servname provided, or not known
+2026-01-29 16:15:05,662 : WARNING : HUOBI.ws.8: encountered connection issue [Errno 8] nodename nor servname provided, or not known - reconnecting in 8.0 seconds...
+Traceback (most recent call last):
+  File "/Users/hongraecho/hershy/code/hershy/backtest/.venv/lib/python3.13/site-packages/cryptofeed/connection_handler.py", line 56, in _create_connection
+    async with self.conn.connect() as connection:
+               ~~~~~~~~~~~~~~~~~^^
+  File "/opt/homebrew/Cellar/python@3.13/3.13.2/Frameworks/Python.framework/Versions/3.13/lib/python3.13/contextlib.py", line 214, in __aenter__
+    return await anext(self.gen)
+           ^^^^^^^^^^^^^^^^^^^^^
+  File "/Users/hongraecho/hershy/code/hershy/backtest/.venv/lib/python3.13/site-packages/cryptofeed/connection.py", line 109, in connect
+    await self._open()
+  File "/Users/hongraecho/hershy/code/hershy/backtest/.venv/lib/python3.13/site-packages/cryptofeed/connection.py", line 323, in _open
+    self.conn = await connect(self.address, **self.ws_kwargs)
+                ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/Users/hongraecho/hershy/code/hershy/backtest/.venv/lib/python3.13/site-packages/websockets/asyncio/client.py", line 541, in __await_impl__
+    self.connection = await self.create_connection()
+                      ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/Users/hongraecho/hershy/code/hershy/backtest/.venv/lib/python3.13/site-packages/websockets/asyncio/client.py", line 467, in create_connection
+    _, connection = await loop.create_connection(factory, **kwargs)
+                    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "uvloop/loop.pyx", line 1982, in create_connection
+socket.gaierror: [Errno 8] nodename nor servname provided, or not known
+2026-01-29 16:23:01,477 : WARNING : GATEIO.ws.7: encountered connection issue [Errno 8] nodename nor servname provided, or not known - reconnecting in 16.0 seconds...
+Traceback (most recent call last):
+  File "/Users/hongraecho/hershy/code/hershy/backtest/.venv/lib/python3.13/site-packages/cryptofeed/connection_handler.py", line 56, in _create_connection
+    async with self.conn.connect() as connection:
+               ~~~~~~~~~~~~~~~~~^^
+  File "/opt/homebrew/Cellar/python@3.13/3.13.2/Frameworks/Python.framework/Versions/3.13/lib/python3.13/contextlib.py", line 214, in __aenter__
+    return await anext(self.gen)
+           ^^^^^^^^^^^^^^^^^^^^^
+  File "/Users/hongraecho/hershy/code/hershy/backtest/.venv/lib/python3.13/site-packages/cryptofeed/connection.py", line 109, in connect
+    await self._open()
+  File "/Users/hongraecho/hershy/code/hershy/backtest/.venv/lib/python3.13/site-packages/cryptofeed/connection.py", line 323, in _open
+    self.conn = await connect(self.address, **self.ws_kwargs)
+                ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/Users/hongraecho/hershy/code/hershy/backtest/.venv/lib/python3.13/site-packages/websockets/asyncio/client.py", line 541, in __await_impl__
+    self.connection = await self.create_connection()
+                      ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/Users/hongraecho/hershy/code/hershy/backtest/.venv/lib/python3.13/site-packages/websockets/asyncio/client.py", line 467, in create_connection
+    _, connection = await loop.create_connection(factory, **kwargs)
+                    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "uvloop/loop.pyx", line 1982, in create_connection
+socket.gaierror: [Errno 8] nodename nor servname provided, or not known
+2026-01-29 16:23:01,480 : WARNING : BINANCE.ws.5: encountered connection issue [Errno 8] nodename nor servname provided, or not known - reconnecting in 16.0 seconds...
+Traceback (most recent call last):
+  File "/Users/hongraecho/hershy/code/hershy/backtest/.venv/lib/python3.13/site-packages/cryptofeed/connection_handler.py", line 56, in _create_connection
+    async with self.conn.connect() as connection:
+               ~~~~~~~~~~~~~~~~~^^
+  File "/opt/homebrew/Cellar/python@3.13/3.13.2/Frameworks/Python.framework/Versions/3.13/lib/python3.13/contextlib.py", line 214, in __aenter__
+    return await anext(self.gen)
+           ^^^^^^^^^^^^^^^^^^^^^
+  File "/Users/hongraecho/hershy/code/hershy/backtest/.venv/lib/python3.13/site-packages/cryptofeed/connection.py", line 109, in connect
+    await self._open()
+  File "/Users/hongraecho/hershy/code/hershy/backtest/.venv/lib/python3.13/site-packages/cryptofeed/connection.py", line 323, in _open
+    self.conn = await connect(self.address, **self.ws_kwargs)
+                ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/Users/hongraecho/hershy/code/hershy/backtest/.venv/lib/python3.13/site-packages/websockets/asyncio/client.py", line 541, in __await_impl__
+    self.connection = await self.create_connection()
+                      ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/Users/hongraecho/hershy/code/hershy/backtest/.venv/lib/python3.13/site-packages/websockets/asyncio/client.py", line 467, in create_connection
+    _, connection = await loop.create_connection(factory, **kwargs)
+                    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "uvloop/loop.pyx", line 1982, in create_connection
+socket.gaierror: [Errno 8] nodename nor servname provided, or not known
+2026-01-29 16:23:01,481 : WARNING : OKX.ws.6: encountered connection issue [Errno 8] nodename nor servname provided, or not known - reconnecting in 16.0 seconds...
+Traceback (most recent call last):
+  File "/Users/hongraecho/hershy/code/hershy/backtest/.venv/lib/python3.13/site-packages/cryptofeed/connection_handler.py", line 56, in _create_connection
+    async with self.conn.connect() as connection:
+               ~~~~~~~~~~~~~~~~~^^
+  File "/opt/homebrew/Cellar/python@3.13/3.13.2/Frameworks/Python.framework/Versions/3.13/lib/python3.13/contextlib.py", line 214, in __aenter__
+    return await anext(self.gen)
+           ^^^^^^^^^^^^^^^^^^^^^
+  File "/Users/hongraecho/hershy/code/hershy/backtest/.venv/lib/python3.13/site-packages/cryptofeed/connection.py", line 109, in connect
+    await self._open()
+  File "/Users/hongraecho/hershy/code/hershy/backtest/.venv/lib/python3.13/site-packages/cryptofeed/connection.py", line 323, in _open
+    self.conn = await connect(self.address, **self.ws_kwargs)
+                ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/Users/hongraecho/hershy/code/hershy/backtest/.venv/lib/python3.13/site-packages/websockets/asyncio/client.py", line 541, in __await_impl__
+    self.connection = await self.create_connection()
+                      ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/Users/hongraecho/hershy/code/hershy/backtest/.venv/lib/python3.13/site-packages/websockets/asyncio/client.py", line 467, in create_connection
+    _, connection = await loop.create_connection(factory, **kwargs)
+                    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "uvloop/loop.pyx", line 1982, in create_connection
+socket.gaierror: [Errno 8] nodename nor servname provided, or not known
+2026-01-29 16:23:01,483 : WARNING : HUOBI.ws.8: encountered connection issue [Errno 8] nodename nor servname provided, or not known - reconnecting in 16.0 seconds...
+Traceback (most recent call last):
+  File "/Users/hongraecho/hershy/code/hershy/backtest/.venv/lib/python3.13/site-packages/cryptofeed/connection_handler.py", line 56, in _create_connection
+    async with self.conn.connect() as connection:
+               ~~~~~~~~~~~~~~~~~^^
+  File "/opt/homebrew/Cellar/python@3.13/3.13.2/Frameworks/Python.framework/Versions/3.13/lib/python3.13/contextlib.py", line 214, in __aenter__
+    return await anext(self.gen)
+           ^^^^^^^^^^^^^^^^^^^^^
+  File "/Users/hongraecho/hershy/code/hershy/backtest/.venv/lib/python3.13/site-packages/cryptofeed/connection.py", line 109, in connect
+    await self._open()
+  File "/Users/hongraecho/hershy/code/hershy/backtest/.venv/lib/python3.13/site-packages/cryptofeed/connection.py", line 323, in _open
+    self.conn = await connect(self.address, **self.ws_kwargs)
+                ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/Users/hongraecho/hershy/code/hershy/backtest/.venv/lib/python3.13/site-packages/websockets/asyncio/client.py", line 541, in __await_impl__
+    self.connection = await self.create_connection()
+                      ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/Users/hongraecho/hershy/code/hershy/backtest/.venv/lib/python3.13/site-packages/websockets/asyncio/client.py", line 467, in create_connection
+    _, connection = await loop.create_connection(factory, **kwargs)
+                    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "uvloop/loop.pyx", line 1982, in create_connection
+socket.gaierror: [Errno 8] nodename nor servname provided, or not known
+2026-01-29 16:23:17,520 : WARNING : GATEIO.ws.7: encountered connection issue [Errno 8] nodename nor servname provided, or not known - reconnecting in 32.0 seconds...
+Traceback (most recent call last):
+  File "/Users/hongraecho/hershy/code/hershy/backtest/.venv/lib/python3.13/site-packages/cryptofeed/connection_handler.py", line 56, in _create_connection
+    async with self.conn.connect() as connection:
+               ~~~~~~~~~~~~~~~~~^^
+  File "/opt/homebrew/Cellar/python@3.13/3.13.2/Frameworks/Python.framework/Versions/3.13/lib/python3.13/contextlib.py", line 214, in __aenter__
+    return await anext(self.gen)
+           ^^^^^^^^^^^^^^^^^^^^^
+  File "/Users/hongraecho/hershy/code/hershy/backtest/.venv/lib/python3.13/site-packages/cryptofeed/connection.py", line 109, in connect
+    await self._open()
+  File "/Users/hongraecho/hershy/code/hershy/backtest/.venv/lib/python3.13/site-packages/cryptofeed/connection.py", line 323, in _open
+    self.conn = await connect(self.address, **self.ws_kwargs)
+                ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/Users/hongraecho/hershy/code/hershy/backtest/.venv/lib/python3.13/site-packages/websockets/asyncio/client.py", line 541, in __await_impl__
+    self.connection = await self.create_connection()
+                      ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/Users/hongraecho/hershy/code/hershy/backtest/.venv/lib/python3.13/site-packages/websockets/asyncio/client.py", line 467, in create_connection
+    _, connection = await loop.create_connection(factory, **kwargs)
+                    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "uvloop/loop.pyx", line 1982, in create_connection
+socket.gaierror: [Errno 8] nodename nor servname provided, or not known
+2026-01-29 16:23:17,524 : WARNING : BINANCE.ws.5: encountered connection issue [Errno 8] nodename nor servname provided, or not known - reconnecting in 32.0 seconds...
+Traceback (most recent call last):
+  File "/Users/hongraecho/hershy/code/hershy/backtest/.venv/lib/python3.13/site-packages/cryptofeed/connection_handler.py", line 56, in _create_connection
+    async with self.conn.connect() as connection:
+               ~~~~~~~~~~~~~~~~~^^
+  File "/opt/homebrew/Cellar/python@3.13/3.13.2/Frameworks/Python.framework/Versions/3.13/lib/python3.13/contextlib.py", line 214, in __aenter__
+    return await anext(self.gen)
+           ^^^^^^^^^^^^^^^^^^^^^
+  File "/Users/hongraecho/hershy/code/hershy/backtest/.venv/lib/python3.13/site-packages/cryptofeed/connection.py", line 109, in connect
+    await self._open()
+  File "/Users/hongraecho/hershy/code/hershy/backtest/.venv/lib/python3.13/site-packages/cryptofeed/connection.py", line 323, in _open
+    self.conn = await connect(self.address, **self.ws_kwargs)
+                ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/Users/hongraecho/hershy/code/hershy/backtest/.venv/lib/python3.13/site-packages/websockets/asyncio/client.py", line 541, in __await_impl__
+    self.connection = await self.create_connection()
+                      ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/Users/hongraecho/hershy/code/hershy/backtest/.venv/lib/python3.13/site-packages/websockets/asyncio/client.py", line 467, in create_connection
+    _, connection = await loop.create_connection(factory, **kwargs)
+                    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "uvloop/loop.pyx", line 1982, in create_connection
+socket.gaierror: [Errno 8] nodename nor servname provided, or not known
+2026-01-29 16:23:17,525 : WARNING : OKX.ws.6: encountered connection issue [Errno 8] nodename nor servname provided, or not known - reconnecting in 32.0 seconds...
+Traceback (most recent call last):
+  File "/Users/hongraecho/hershy/code/hershy/backtest/.venv/lib/python3.13/site-packages/cryptofeed/connection_handler.py", line 56, in _create_connection
+    async with self.conn.connect() as connection:
+               ~~~~~~~~~~~~~~~~~^^
+  File "/opt/homebrew/Cellar/python@3.13/3.13.2/Frameworks/Python.framework/Versions/3.13/lib/python3.13/contextlib.py", line 214, in __aenter__
+    return await anext(self.gen)
+           ^^^^^^^^^^^^^^^^^^^^^
+  File "/Users/hongraecho/hershy/code/hershy/backtest/.venv/lib/python3.13/site-packages/cryptofeed/connection.py", line 109, in connect
+    await self._open()
+  File "/Users/hongraecho/hershy/code/hershy/backtest/.venv/lib/python3.13/site-packages/cryptofeed/connection.py", line 323, in _open
+    self.conn = await connect(self.address, **self.ws_kwargs)
+                ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/Users/hongraecho/hershy/code/hershy/backtest/.venv/lib/python3.13/site-packages/websockets/asyncio/client.py", line 541, in __await_impl__
+    self.connection = await self.create_connection()
+                      ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/Users/hongraecho/hershy/code/hershy/backtest/.venv/lib/python3.13/site-packages/websockets/asyncio/client.py", line 467, in create_connection
+    _, connection = await loop.create_connection(factory, **kwargs)
+                    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "uvloop/loop.pyx", line 1982, in create_connection
+socket.gaierror: [Errno 8] nodename nor servname provided, or not known
+2026-01-29 16:23:17,526 : WARNING : HUOBI.ws.8: encountered connection issue [Errno 8] nodename nor servname provided, or not known - reconnecting in 32.0 seconds...
+Traceback (most recent call last):
+  File "/Users/hongraecho/hershy/code/hershy/backtest/.venv/lib/python3.13/site-packages/cryptofeed/connection_handler.py", line 56, in _create_connection
+    async with self.conn.connect() as connection:
+               ~~~~~~~~~~~~~~~~~^^
+  File "/opt/homebrew/Cellar/python@3.13/3.13.2/Frameworks/Python.framework/Versions/3.13/lib/python3.13/contextlib.py", line 214, in __aenter__
+    return await anext(self.gen)
+           ^^^^^^^^^^^^^^^^^^^^^
+  File "/Users/hongraecho/hershy/code/hershy/backtest/.venv/lib/python3.13/site-packages/cryptofeed/connection.py", line 109, in connect
+    await self._open()
+  File "/Users/hongraecho/hershy/code/hershy/backtest/.venv/lib/python3.13/site-packages/cryptofeed/connection.py", line 323, in _open
+    self.conn = await connect(self.address, **self.ws_kwargs)
+                ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/Users/hongraecho/hershy/code/hershy/backtest/.venv/lib/python3.13/site-packages/websockets/asyncio/client.py", line 541, in __await_impl__
+    self.connection = await self.create_connection()
+                      ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/Users/hongraecho/hershy/code/hershy/backtest/.venv/lib/python3.13/site-packages/websockets/asyncio/client.py", line 467, in create_connection
+    _, connection = await loop.create_connection(factory, **kwargs)
+                    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "uvloop/loop.pyx", line 1982, in create_connection
+socket.gaierror: [Errno 8] nodename nor servname provided, or not known
+2026-01-31 03:21:00,055 : WARNING : OKX.ws.4: encountered connection issue no close frame received or sent - reconnecting in 1.0 seconds...
+Traceback (most recent call last):
+  File "/Users/hongraecho/hershy/code/hershy/backtest/.venv/lib/python3.13/site-packages/cryptofeed/connection_handler.py", line 65, in _create_connection
+    await self._handler(connection, self.handler)
+  File "/Users/hongraecho/hershy/code/hershy/backtest/.venv/lib/python3.13/site-packages/cryptofeed/connection_handler.py", line 95, in _handler
+    async for message in connection.read():
+    ...<3 lines>...
+        await handler(message, connection, self.conn.last_message)
+  File "/Users/hongraecho/hershy/code/hershy/backtest/.venv/lib/python3.13/site-packages/cryptofeed/connection.py", line 339, in read
+    async for data in self.conn:
+    ...<2 lines>...
+        yield data
+  File "/Users/hongraecho/hershy/code/hershy/backtest/.venv/lib/python3.13/site-packages/websockets/asyncio/connection.py", line 242, in __aiter__
+    yield await self.recv()
+          ^^^^^^^^^^^^^^^^^
+  File "/Users/hongraecho/hershy/code/hershy/backtest/.venv/lib/python3.13/site-packages/websockets/asyncio/connection.py", line 322, in recv
+    raise self.protocol.close_exc from self.recv_exc
+websockets.exceptions.ConnectionClosedError: no close frame received or sent
+2026-01-31 15:30:56,260 : WARNING : HUOBI.ws.6: encountered connection issue no close frame received or sent - reconnecting in 1.0 seconds...
+ConnectionResetError: [Errno 54] Connection reset by peer
+
+The above exception was the direct cause of the following exception:
+
+Traceback (most recent call last):
+  File "/Users/hongraecho/hershy/code/hershy/backtest/.venv/lib/python3.13/site-packages/cryptofeed/connection_handler.py", line 65, in _create_connection
+    await self._handler(connection, self.handler)
+  File "/Users/hongraecho/hershy/code/hershy/backtest/.venv/lib/python3.13/site-packages/cryptofeed/connection_handler.py", line 95, in _handler
+    async for message in connection.read():
+    ...<3 lines>...
+        await handler(message, connection, self.conn.last_message)
+  File "/Users/hongraecho/hershy/code/hershy/backtest/.venv/lib/python3.13/site-packages/cryptofeed/connection.py", line 339, in read
+    async for data in self.conn:
+    ...<2 lines>...
+        yield data
+  File "/Users/hongraecho/hershy/code/hershy/backtest/.venv/lib/python3.13/site-packages/websockets/asyncio/connection.py", line 242, in __aiter__
+    yield await self.recv()
+          ^^^^^^^^^^^^^^^^^
+  File "/Users/hongraecho/hershy/code/hershy/backtest/.venv/lib/python3.13/site-packages/websockets/asyncio/connection.py", line 322, in recv
+    raise self.protocol.close_exc from self.recv_exc
+websockets.exceptions.ConnectionClosedError: no close frame received or sent
+2026-01-31 15:30:57,429 : WARNING : HUOBI.ws.6: encountered connection issue [Errno 8] nodename nor servname provided, or not known - reconnecting in 2.0 seconds...
+Traceback (most recent call last):
+  File "/Users/hongraecho/hershy/code/hershy/backtest/.venv/lib/python3.13/site-packages/cryptofeed/connection_handler.py", line 56, in _create_connection
+    async with self.conn.connect() as connection:
+               ~~~~~~~~~~~~~~~~~^^
+  File "/opt/homebrew/Cellar/python@3.13/3.13.2/Frameworks/Python.framework/Versions/3.13/lib/python3.13/contextlib.py", line 214, in __aenter__
+    return await anext(self.gen)
+           ^^^^^^^^^^^^^^^^^^^^^
+  File "/Users/hongraecho/hershy/code/hershy/backtest/.venv/lib/python3.13/site-packages/cryptofeed/connection.py", line 109, in connect
+    await self._open()
+  File "/Users/hongraecho/hershy/code/hershy/backtest/.venv/lib/python3.13/site-packages/cryptofeed/connection.py", line 323, in _open
+    self.conn = await connect(self.address, **self.ws_kwargs)
+                ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/Users/hongraecho/hershy/code/hershy/backtest/.venv/lib/python3.13/site-packages/websockets/asyncio/client.py", line 541, in __await_impl__
+    self.connection = await self.create_connection()
+                      ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/Users/hongraecho/hershy/code/hershy/backtest/.venv/lib/python3.13/site-packages/websockets/asyncio/client.py", line 467, in create_connection
+    _, connection = await loop.create_connection(factory, **kwargs)
+                    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "uvloop/loop.pyx", line 1982, in create_connection
+socket.gaierror: [Errno 8] nodename nor servname provided, or not known
+2026-01-31 15:40:02,596 : ERROR : HUOBI.ws.6: encountered an exception, reconnecting in 1.0 seconds
+Traceback (most recent call last):
+  File "/Users/hongraecho/hershy/code/hershy/backtest/.venv/lib/python3.13/site-packages/cryptofeed/connection_handler.py", line 65, in _create_connection
+    await self._handler(connection, self.handler)
+  File "/Users/hongraecho/hershy/code/hershy/backtest/.venv/lib/python3.13/site-packages/cryptofeed/connection_handler.py", line 99, in _handler
+    await handler(message, connection, self.conn.last_message)
+  File "/Users/hongraecho/hershy/code/hershy/backtest/.venv/lib/python3.13/site-packages/cryptofeed/exchanges/huobi.py", line 183, in message_handler
+    await conn.write(json.dumps({'pong': msg['ping']}))
+  File "/Users/hongraecho/hershy/code/hershy/backtest/.venv/lib/python3.13/site-packages/cryptofeed/connection.py", line 346, in write
+    raise ConnectionClosed
+cryptofeed.exceptions.ConnectionClosed
