@@ -4,7 +4,7 @@ import { memo, useCallback, useEffect, useMemo, useState } from "react";
 import type { ChangeEvent, DragEvent } from "react";
 import { Handle, NodeProps, Position, useEdges, useNodes, useReactFlow } from "@xyflow/react";
 import dynamic from "next/dynamic";
-import type { BlockData, FunctionNodeData, IndicatorCondition } from "./types";
+import type { BlockData, FunctionNodeData, IndicatorCondition, NodeChartPoint } from "./types";
 import {
   MetricChart,
   buildMetricSeries,
@@ -90,14 +90,26 @@ function FunctionNodeComponent({
     () => data.condition ?? getDefaultCondition(primaryOutput.name),
     [data.condition, primaryOutput.name],
   );
+  const runtimeCode = typeof data.runtimeCode === "string" ? data.runtimeCode : "";
+  const displayCode = runtimeCode || data.code || "";
+  const chartSource = typeof data.chartSource === "string" ? data.chartSource : "";
   const chartSeries = useMemo(
-    () =>
-      buildMetricSeries(
+    () => {
+      const integratedSeries = Array.isArray(data.chartSeries)
+        ? (data.chartSeries as NodeChartPoint[])
+          .map((point) => ({ time: point.time as any, value: point.value }))
+          .filter((point) => Number.isFinite(point.time) && Number.isFinite(point.value))
+        : [];
+      if (integratedSeries.length > 0) {
+        return isExpanded ? integratedSeries : integratedSeries.slice(-56);
+      }
+      return buildMetricSeries(
         `${id}:${primaryOutput.id}:${primaryOutput.name}:${data.label}`,
         isExpanded ? 96 : 56,
         100 + ((id.length + primaryOutput.name.length) % 18),
-      ),
-    [data.label, id, isExpanded, primaryOutput.id, primaryOutput.name],
+      );
+    },
+    [data.chartSeries, data.label, id, isExpanded, primaryOutput.id, primaryOutput.name],
   );
   const latestValue = chartSeries[chartSeries.length - 1]?.value ?? 0;
   const conditionMet = evaluateCondition(latestValue, condition);
@@ -246,8 +258,8 @@ function FunctionNodeComponent({
   );
 
   const handleCopyCode = useCallback(() => {
-    navigator.clipboard.writeText(data.code || "");
-  }, [data.code]);
+    navigator.clipboard.writeText(displayCode);
+  }, [displayCode]);
 
   const handleDragStart = (event: DragEvent, blockName: string) => {
     const sourceInfo = `${data.label || data.functionName || id}.${blockName}`;
@@ -327,7 +339,7 @@ function FunctionNodeComponent({
             <MetricChart series={chartSeries} condition={condition} compact height={132} />
           </div>
           <div className="mt-2 flex items-center justify-between text-[10px] text-slate-500">
-            <span className="truncate">{getConditionLabel(condition)}</span>
+            <span className="truncate">{chartSource || getConditionLabel(condition)}</span>
             <span className={conditionMet ? "font-semibold text-emerald-600" : ""}>
               {conditionMet ? "TRIGGER" : "WATCH"}
             </span>
@@ -472,9 +484,9 @@ function FunctionNodeComponent({
             <div className="h-[310px] border-b border-slate-200">
               <MonacoEditor
                 height="100%"
-                language="javascript"
+                language={runtimeCode ? "go" : "javascript"}
                 theme="vs-dark"
-                value={data.code || ""}
+                value={displayCode}
                 onChange={handleCodeChange}
                 options={{
                   minimap: { enabled: false },
@@ -484,6 +496,7 @@ function FunctionNodeComponent({
                   wordWrap: "on",
                   tabSize: 2,
                   automaticLayout: true,
+                  readOnly: Boolean(runtimeCode),
                   padding: { top: 10, bottom: 10 },
                 }}
               />
@@ -493,7 +506,9 @@ function FunctionNodeComponent({
               <div className="mb-2 flex items-center justify-between">
                 <div>
                   <div className="text-xs font-semibold text-slate-900">{primaryOutput.name}</div>
-                  <div className="text-[11px] text-slate-500">조건 충족 구간은 초록색으로 표시됩니다</div>
+                  <div className="text-[11px] text-slate-500">
+                    {chartSource ? `차트 데이터: ${chartSource}` : "조건 충족 구간은 초록색으로 표시됩니다"}
+                  </div>
                 </div>
                 <div className="text-right">
                   <div className="text-lg font-black text-slate-950">{formatValue(latestValue)}</div>

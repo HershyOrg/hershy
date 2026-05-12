@@ -20,8 +20,23 @@ export type IndicatorCondition = Record<string, unknown> & {
   label?: string;
 }
 
+export type NodeChartPoint = {
+  time: number;
+  value: number;
+}
+
+export type RuntimeArtifactData = {
+  runtimeCode?: string;
+  runtimeCodeLabel?: string;
+  chartSeries?: NodeChartPoint[];
+  chartSource?: string;
+  chartUpdatedAt?: string;
+  chartSymbol?: string;
+  chartWarning?: string;
+}
+
 // Indicator Logic Node - function logic is represented as charted data blocks.
-export type FunctionNodeData = Record<string, unknown> & {
+export type FunctionNodeData = Record<string, unknown> & RuntimeArtifactData & {
   label: string;
   description?: string;
   functionName: string;
@@ -38,7 +53,7 @@ export type FunctionNodeData = Record<string, unknown> & {
 }
 
 // TIME Trigger Node
-export type TimeTriggerData = Record<string, unknown> & {
+export type TimeTriggerData = Record<string, unknown> & RuntimeArtifactData & {
   label: string;
   interval: number; // seconds
   isActive: boolean;
@@ -89,7 +104,7 @@ export type BranchNodeData = Record<string, unknown> & {
 }
 
 // Action Node - CEX Trading
-export type CEXActionData = Record<string, unknown> & {
+export type CEXActionData = Record<string, unknown> & RuntimeArtifactData & {
   label: string;
   actionType: "CEX";
   exchange: string; // Binance, Bybit, etc.
@@ -107,7 +122,7 @@ export type CEXActionData = Record<string, unknown> & {
 }
 
 // Action Node - DEX Trading
-export type DEXActionData = Record<string, unknown> & {
+export type DEXActionData = Record<string, unknown> & RuntimeArtifactData & {
   label: string;
   actionType: "DEX";
   contractAddress: string;
@@ -152,7 +167,7 @@ export type TimelineFrameNode = Node<TimelineFrameData, "timelineFrame">;
 export type DelayEdge = Edge<DelayEdgeData>;
 
 // Streaming Node - data polling or WebSocket streaming
-export type StreamingNodeData = Record<string, unknown> & {
+export type StreamingNodeData = Record<string, unknown> & RuntimeArtifactData & {
   label: string;
   method: "POLLING" | "WEBSOCKET";
   url: string;

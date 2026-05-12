@@ -21,6 +21,7 @@ function ActionNodeComponent({ id, data, selected }: NodeProps) {
   const edges = useEdges();
   const [isExpanded, setIsExpanded] = useState(typedData.isExpanded || false);
   const primaryOutputBlock = typedData.outputBlocks[0];
+  const runtimeCode = typeof typedData.runtimeCode === "string" ? typedData.runtimeCode : "";
 
   // Get connected source info for input blocks
   const getConnectedSourceInfo = useCallback(
@@ -748,6 +749,17 @@ function ActionNodeComponent({ id, data, selected }: NodeProps) {
           ))}
         </div>
       </div>
+
+      {runtimeCode ? (
+        <div className={cn("border-t p-3", isCEX ? "border-amber-200 bg-amber-950" : "border-cyan-200 bg-cyan-950")}>
+          <div className={cn("mb-1 text-[10px] font-semibold uppercase", isCEX ? "text-amber-200" : "text-cyan-200")}>
+            generated_strategy.go
+          </div>
+          <pre className="max-h-32 overflow-auto rounded bg-black/30 p-2 text-[10px] leading-4 text-slate-100">
+            {runtimeCode}
+          </pre>
+        </div>
+      ) : null}
     </div>
   );
 }

@@ -88,7 +88,6 @@ function GroupNodeComponent({ id, data, selected }: NodeProps<import("@xyflow/re
       "border-indigo-300 bg-[linear-gradient(160deg,rgba(224,231,255,0.98),rgba(238,242,255,0.92))] hover:border-indigo-400 hover:shadow-[0_24px_42px_rgba(99,102,241,0.18)]": isDashedInit,
       "border-sky-300 bg-[linear-gradient(160deg,rgba(224,242,254,0.98),rgba(240,249,255,0.92))] hover:border-sky-400 hover:shadow-[0_24px_42px_rgba(14,165,233,0.18)]": isDashedTrigger,
       "border-rose-300 bg-[linear-gradient(160deg,rgba(255,228,230,0.98),rgba(255,241,242,0.92))] hover:border-rose-400 hover:shadow-[0_24px_42px_rgba(244,63,94,0.18)]": isDashedEmergency,
-      "ring-4 ring-indigo-500/20": selected,
     },
   );
 
@@ -105,7 +104,7 @@ function GroupNodeComponent({ id, data, selected }: NodeProps<import("@xyflow/re
     <>
       <NodeResizer
         color="#818cf8"
-        isVisible={selected && !isCollapsed}
+        isVisible={selected && !isCollapsed && !isSolid}
         minWidth={200}
         minHeight={100}
       />
@@ -142,7 +141,6 @@ function GroupNodeComponent({ id, data, selected }: NodeProps<import("@xyflow/re
                 "border-dashed border-indigo-400 bg-indigo-50/30": isDashedInit && !isExecuting,
                 "border-dashed border-sky-400 bg-sky-50/30": isDashedTrigger && !isExecuting,
                 "border-dashed border-rose-400 bg-rose-50/30": isDashedEmergency && !isExecuting,
-                "ring-4 ring-indigo-500/20": selected && !isRunning,
                 "border-indigo-400 bg-indigo-100/40 ring-4 ring-indigo-400/50 shadow-[0_0_30px_rgba(129,140,248,0.6)] animate-pulse": isDashedInit && isExecuting,
                 "border-sky-400 bg-sky-100/40 ring-4 ring-sky-400/50 shadow-[0_0_30px_rgba(56,189,248,0.6)] animate-pulse": isDashedTrigger && isExecuting,
                 "border-rose-400 bg-rose-100/40 ring-4 ring-rose-400/50 shadow-[0_0_30px_rgba(251,113,133,0.6)] animate-pulse": isDashedEmergency && isExecuting,

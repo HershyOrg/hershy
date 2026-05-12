@@ -42,6 +42,24 @@ Exit code:
 - `1`: invalid (grammar/reference errors found)
 - `2`: file or JSON parse error
 
+## Generate one-to-one Hershy Go source
+
+```bash
+cd examples/strategy-runner
+go run ./cmd/strategy-codegen --file ./strategy.sample.json --out ./generated_strategy.go
+go test .
+```
+
+The generated Go source keeps every JSON block and connection as explicit Go runner definitions:
+
+- `streaming` -> `runner.StreamDef`, executed through `hersh.WatchCall`
+- `normal` -> `generatedNormalConfigs`, evaluated by the runner
+- `trigger` -> `runner.TriggerDef`
+- `action` -> `runner.ActionDef`, executed by paper/testnet/live adapters
+- `connections` -> `runner.ConnectionDef`
+
+See [CODEGEN_MAPPING.md](./CODEGEN_MAPPING.md) for the full JSON-to-Go mapping.
+
 ## Local run
 
 ```bash
@@ -59,3 +77,5 @@ Watcher API:
 - This runner is intentionally minimal and uses synthetic stream snapshots.
 - It interprets `streaming`, `normal`, `trigger`, `action`, `monitoring` blocks.
 - `trigger-action` connections fire actions in paper mode.
+- Trading mode defaults to paper. Set `HERSHY_TRADING_MODE=testnet` for Binance Spot testnet or `HERSHY_TRADING_MODE=live` plus `HERSHY_LIVE_TRADING_ENABLED=true` for live orders.
+- Binance live/testnet execution requires `BINANCE_API_KEY` and `BINANCE_API_SECRET`. `HERSHY_MAX_ORDER_NOTIONAL` defaults to `50` as a guardrail.

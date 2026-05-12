@@ -3,6 +3,7 @@ package compose
 import (
 	"errors"
 	"fmt"
+	"os"
 	"strings"
 
 	"github.com/HershyOrg/hershy/program"
@@ -101,14 +102,35 @@ func (b *Builder) GenerateSpec(opts BuildOpts) (*ComposeSpec, error) {
 				SecurityOpt:   []string{"no-new-privileges:true"},
 				NetworkMode:   networkMode,
 				ContainerName: containerName,
-				Environment: map[string]string{
-					"HERSH_PROGRAM_ID": string(opts.ProgramID),
-				},
+				Environment:   buildProgramEnvironment(opts.ProgramID),
 			},
 		},
 	}
 
 	return spec, nil
+}
+
+func buildProgramEnvironment(programID program.ProgramID) map[string]string {
+	env := map[string]string{
+		"HERSH_PROGRAM_ID": string(programID),
+	}
+
+	for _, key := range []string{
+		"HERSHY_TRADING_MODE",
+		"HERSHY_LIVE_TRADING_ENABLED",
+		"HERSHY_MAX_ORDER_NOTIONAL",
+		"BINANCE_API_KEY",
+		"BINANCE_API_SECRET",
+		"BINANCE_BASE_URL",
+		"BINANCE_ORDER_TEST",
+		"BINANCE_RECV_WINDOW",
+	} {
+		if value := strings.TrimSpace(os.Getenv(key)); value != "" {
+			env[key] = value
+		}
+	}
+
+	return env
 }
 
 // ValidateSpec validates that a ComposeSpec adheres to security contracts

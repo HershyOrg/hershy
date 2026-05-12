@@ -3,7 +3,8 @@
 import { memo, useCallback } from "react";
 import type { ChangeEvent } from "react";
 import { Handle, Position, NodeProps, useReactFlow } from "@xyflow/react";
-import type { StreamingNodeData, BlockData } from "./types";
+import type { StreamingNodeData, BlockData, NodeChartPoint } from "./types";
+import { MetricChart } from "./MetricChart";
 import { cn } from "@/lib/utils";
 import { Activity, Globe2, Maximize2, Minimize2, Plus, X } from "lucide-react";
 
@@ -15,6 +16,14 @@ function StreamingNodeComponent({
   const { setNodes } = useReactFlow();
   const outputBlocks = data.outputBlocks ?? [];
   const isCompact = data.isExpanded === false;
+  const chartSeries = Array.isArray(data.chartSeries)
+    ? (data.chartSeries as NodeChartPoint[])
+      .map((point) => ({ time: point.time as any, value: point.value }))
+      .filter((point) => Number.isFinite(point.time) && Number.isFinite(point.value))
+    : [];
+  const chartSource = typeof data.chartSource === "string" ? data.chartSource : "";
+  const chartWarning = typeof data.chartWarning === "string" ? data.chartWarning : "";
+  const runtimeCode = typeof data.runtimeCode === "string" ? data.runtimeCode : "";
 
   const updateNodeData = useCallback(
     (nextData: Partial<StreamingNodeData>) => {
@@ -145,6 +154,15 @@ function StreamingNodeComponent({
               {data.url || "endpoint not set"}
             </span>
           </div>
+          {chartSeries.length > 0 ? (
+            <div className="mt-2 h-[76px] overflow-hidden rounded border border-emerald-100 bg-white">
+              <MetricChart series={chartSeries.slice(-48)} compact height={76} baseColor="#059669" activeColor="#10b981" />
+            </div>
+          ) : chartWarning ? (
+            <div className="mt-2 rounded border border-amber-100 bg-amber-50 px-2 py-1 text-[10px] font-semibold text-amber-700">
+              chart fetch failed
+            </div>
+          ) : null}
           <div className="mt-2 text-[10px] font-bold uppercase tracking-wide text-slate-500">
             생성 가능한 데이터 블록
           </div>
@@ -222,6 +240,25 @@ function StreamingNodeComponent({
             />
           </label>
         </div>
+        <div className="mt-2 overflow-hidden rounded-md border border-emerald-100 bg-white">
+          <div className="flex items-center justify-between border-b border-emerald-100 px-2 py-1">
+            <span className="text-[10px] font-bold uppercase tracking-wide text-emerald-700">
+              Live chart
+            </span>
+            <span className="truncate text-[10px] font-semibold text-slate-500">
+              {chartSource || data.chartSymbol || "시장 데이터 대기"}
+            </span>
+          </div>
+          <div className="h-[118px]">
+            {chartSeries.length > 0 ? (
+              <MetricChart series={chartSeries} compact height={118} baseColor="#059669" activeColor="#10b981" />
+            ) : (
+              <div className="flex h-full items-center justify-center px-3 text-center text-[11px] font-semibold text-slate-400">
+                {chartWarning || "심볼을 확인하면 실제 kline 차트를 표시합니다."}
+              </div>
+            )}
+          </div>
+        </div>
       </div>
 
       <div className="flex items-center justify-between border-b border-slate-100 px-3 py-1.5">
@@ -279,6 +316,16 @@ function StreamingNodeComponent({
           ))
         )}
       </div>
+      {runtimeCode ? (
+        <div className="border-t border-slate-100 bg-slate-950 p-2">
+          <div className="mb-1 text-[10px] font-bold uppercase tracking-wide text-emerald-300">
+            generated_strategy.go
+          </div>
+          <pre className="max-h-28 overflow-auto rounded bg-black/30 p-2 text-[10px] leading-4 text-emerald-100">
+            {runtimeCode}
+          </pre>
+        </div>
+      ) : null}
         </>
       )}
     </div>

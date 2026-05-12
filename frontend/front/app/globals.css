@@ -123,3 +123,12 @@
     @apply bg-background text-foreground;
   }
 }
+
+.advanced-node-editor-flow {
+  --xy-selection-background-color: transparent;
+}
+
+.advanced-node-editor-flow .react-flow__nodesselection-rect,
+.advanced-node-editor-flow .react-flow__selection {
+  background: transparent !important;
+}
