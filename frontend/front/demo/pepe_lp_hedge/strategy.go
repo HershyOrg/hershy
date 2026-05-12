@@ -7,7 +7,7 @@ import (
 	"time"
 
 	"github.com/HershyOrg/hersh"
-	"github.com/HershyOrg/hersh/util"
+	"github.com/HershyOrg/hersh/hutil"
 )
 
 const hedgeStateKey = "pepe_lp_hedge_state"
@@ -93,7 +93,7 @@ func preparePepeHedge(capital float64) HedgePlan {
 	}
 }
 
-func getHedgeState(ctx hersh.ManageContext) HedgeState {
+func getHedgeState(ctx hersh.HershContext) HedgeState {
 	val := ctx.GetValue(hedgeStateKey)
 	if val == nil {
 		return HedgeState{Mode: HedgeModeIdle}
@@ -150,7 +150,7 @@ func calculateCollateralRatio(state HedgeState, snapshot MarketSnapshot) float64
 	return equity / requiredMargin
 }
 
-func enterPepeHedge(cfg HedgeConfig, snapshot MarketSnapshot, ctx hersh.ManageContext) HedgeState {
+func enterPepeHedge(cfg HedgeConfig, snapshot MarketSnapshot, ctx hersh.HershContext) HedgeState {
 	plan := preparePepeHedge(cfg.Capital)
 	basePepeQty := (plan.LPSeed * 0.50) / snapshot.PEPEPrice
 	baseETHQty := (plan.LPSeed * 0.50) / snapshot.ETHPrice
@@ -225,7 +225,7 @@ func shouldRebalance(state HedgeState, snapshot MarketSnapshot, cfg HedgeConfig)
 	}
 }
 
-func rebalanceHedge(state HedgeState, snapshot MarketSnapshot, reason string, ctx hersh.ManageContext) HedgeState {
+func rebalanceHedge(state HedgeState, snapshot MarketSnapshot, reason string, ctx hersh.HershContext) HedgeState {
 	targetPepeQty, targetETHQty := estimateLPTargets(state, snapshot)
 	pepeDelta := targetPepeQty - state.PepeShortQty
 	ethDelta := targetETHQty - state.ETHShortQty
@@ -267,7 +267,7 @@ func rebalanceHedge(state HedgeState, snapshot MarketSnapshot, reason string, ct
 	return state
 }
 
-func runMaintenance(state HedgeState, snapshot MarketSnapshot, cfg HedgeConfig, ctx hersh.ManageContext) HedgeState {
+func runMaintenance(state HedgeState, snapshot MarketSnapshot, cfg HedgeConfig, ctx hersh.HershContext) HedgeState {
 	if snapshot.FundingCostBps > cfg.MaxFundingCostBps || snapshot.SlippageBps > cfg.MaxSlippageBps {
 		hersh.PrintWithLog(
 			fmt.Sprintf(
@@ -310,7 +310,7 @@ func runMaintenance(state HedgeState, snapshot MarketSnapshot, cfg HedgeConfig, 
 	return state
 }
 
-func emergencyExit(state HedgeState, snapshot MarketSnapshot, ctx hersh.ManageContext) HedgeState {
+func emergencyExit(state HedgeState, snapshot MarketSnapshot, ctx hersh.HershContext) HedgeState {
 	hersh.PrintWithLog("[EMERGENCY] remove PEPE/WETH LP and close both shorts", ctx)
 	hersh.PrintWithLog("  DEX remove liquidity and swap residual inventory to USDT", ctx)
 	hersh.PrintWithLog("  CEX buy back PEPE short and ETH short", ctx)
@@ -325,7 +325,7 @@ func emergencyExit(state HedgeState, snapshot MarketSnapshot, ctx hersh.ManageCo
 	return state
 }
 
-func printHedgeStatus(state HedgeState, ctx hersh.ManageContext) {
+func printHedgeStatus(state HedgeState, ctx hersh.HershContext) {
 	hersh.PrintWithLog(
 		fmt.Sprintf(
 			"[STATUS] mode=%s collateral=%.2fx maintenance=%d rebalance=%d",
@@ -350,16 +350,19 @@ func printHedgeStatus(state HedgeState, ctx hersh.ManageContext) {
 	}
 }
 
-func runPepeLPHedge(msg *hersh.Message, ctx hersh.ManageContext, feed *SimulatedMarketFeed, cfg HedgeConfig) error {
+func runPepeLPHedge(msg *hersh.Message, ctx hersh.HershContext, feed *SimulatedMarketFeed, cfg HedgeConfig) error {
 	state := getHedgeState(ctx)
 
-	market := hersh.WatchFlow(MarketSnapshot{}, feed.Stream(), "pepe_lp_market", ctx)
-	maintenanceTick := util.WatchTick("pepe_lp_maintenance", cfg.MaintenanceInterval, ctx)
+	market := hersh.WatchFlow(feed.Stream(), "pepe_lp_market", ctx)
+	maintenanceTick := hutil.WatchTick("pepe_lp_maintenance", cfg.MaintenanceInterval, ctx)
+	marketTriggered := market.IsTriggered(ctx)
 
-	if market.IsUpdatedValide() {
-		state.LastSnapshot = market.Value
-		if state.Mode == HedgeModeActive || state.Mode == HedgeModeRebalancing {
-			state.CollateralRatio = calculateCollateralRatio(state, market.Value)
+	if market.IsValid() {
+		if snapshot, ok := market.Value.(MarketSnapshot); ok {
+			state.LastSnapshot = snapshot
+			if state.Mode == HedgeModeActive || state.Mode == HedgeModeRebalancing {
+				state.CollateralRatio = calculateCollateralRatio(state, snapshot)
+			}
 		}
 	}
 
@@ -388,13 +391,13 @@ func runPepeLPHedge(msg *hersh.Message, ctx hersh.ManageContext, feed *Simulated
 		}
 	}
 
-	if state.Mode == HedgeModeActive && market.IsTriggered(ctx) && market.IsUpdated() {
+	if state.Mode == HedgeModeActive && marketTriggered && state.LastSnapshot.PEPEPrice != 0 && state.LastSnapshot.ETHPrice != 0 {
 		if should, reason := shouldRebalance(state, state.LastSnapshot, cfg); should {
 			state = rebalanceHedge(state, state.LastSnapshot, reason, ctx)
 		}
 	}
 
-	if state.Mode == HedgeModeActive && maintenanceTick.IsTriggered(ctx) && maintenanceTick.IsUpdated() {
+	if state.Mode == HedgeModeActive && maintenanceTick.IsTriggered(ctx) && !maintenanceTick.IsZero() {
 		state = runMaintenance(state, state.LastSnapshot, cfg, ctx)
 	}
 

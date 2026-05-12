@@ -48,9 +48,9 @@ func TestCoreETFDCAManagedFlow(t *testing.T) {
 	done := make(chan struct{})
 	var finalState CoreETFDCAState
 
-	watcher.Manage(func(msg *hersh.Message, ctx hersh.ManageContext) error {
+	watcher.Manage(func(msg *hersh.Message, ctx hersh.HershContext) error {
 		return runCoreETFDCA(msg, ctx, cfg)
-	}, "CoreETFDCATest").Cleanup(func(ctx hersh.ManageContext) {
+	}, "CoreETFDCATest").Cleanup(func(ctx hersh.HershContext) {
 		finalState = getCoreDCAState(ctx)
 		close(done)
 	})

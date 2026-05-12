@@ -27,9 +27,9 @@ func main() {
 	}, parentCtx)
 
 	done := make(chan struct{})
-	watcher.Manage(func(msg *hersh.Message, ctx hersh.ManageContext) error {
+	watcher.Manage(func(msg *hersh.Message, ctx hersh.HershContext) error {
 		return runPepeLPHedge(msg, ctx, feed, cfg)
-	}, "PepeLPHedge").Cleanup(func(ctx hersh.ManageContext) {
+	}, "PepeLPHedge").Cleanup(func(ctx hersh.HershContext) {
 		state := getHedgeState(ctx)
 		fmt.Printf(
 			"\n[cleanup] hedge mode=%s maintenance=%d rebalance=%d events=%d\n",

@@ -34,9 +34,9 @@ func DefaultPepeScenario(interval time.Duration, loop bool) *SimulatedMarketFeed
 	})
 }
 
-func (f *SimulatedMarketFeed) Stream() func(context.Context) (<-chan shared.FlowValue[MarketSnapshot], error) {
-	return func(ctx context.Context) (<-chan shared.FlowValue[MarketSnapshot], error) {
-		ch := make(chan shared.FlowValue[MarketSnapshot], 8)
+func (f *SimulatedMarketFeed) Stream() func(context.Context) (<-chan shared.FlowValue, error) {
+	return func(ctx context.Context) (<-chan shared.FlowValue, error) {
+		ch := make(chan shared.FlowValue, 8)
 
 		go func() {
 			defer close(ch)
@@ -54,7 +54,7 @@ func (f *SimulatedMarketFeed) Stream() func(context.Context) (<-chan shared.Flow
 				raw.CapturedAt = time.Now()
 
 				select {
-				case ch <- shared.FlowValue[MarketSnapshot]{V: raw}:
+				case ch <- shared.FlowValue{V: raw}:
 				case <-ctx.Done():
 					return
 				}

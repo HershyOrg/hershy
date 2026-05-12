@@ -25,9 +25,9 @@ func main() {
 	}, parentCtx)
 
 	done := make(chan struct{})
-	watcher.Manage(func(msg *hersh.Message, ctx hersh.ManageContext) error {
+	watcher.Manage(func(msg *hersh.Message, ctx hersh.HershContext) error {
 		return runCoreETFDCA(msg, ctx, cfg)
-	}, "CoreETFDCA").Cleanup(func(ctx hersh.ManageContext) {
+	}, "CoreETFDCA").Cleanup(func(ctx hersh.HershContext) {
 		state := getCoreDCAState(ctx)
 		fmt.Printf("\n[cleanup] core ETF DCA finished after %d execution(s), reserve=$%.2f\n", state.ExecutionCount, state.ReserveBalance)
 		close(done)

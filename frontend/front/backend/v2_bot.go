@@ -6,7 +6,7 @@ import (
 	"time"
 
 	"github.com/HershyOrg/hersh"
-	"github.com/HershyOrg/hersh/util"
+	"github.com/HershyOrg/hersh/hutil"
 )
 
 type FSMState string
@@ -19,7 +19,7 @@ const (
 )
 
 // --- Helper: FSM 상태 로드 및 저장 ---
-func getState(hCtx hersh.ManageContext) FSMState {
+func getState(hCtx hersh.HershContext) FSMState {
 	if val := hCtx.GetValue("state"); val != nil {
 		return val.(FSMState)
 	}
@@ -27,12 +27,12 @@ func getState(hCtx hersh.ManageContext) FSMState {
 	return IDLE
 }
 
-func setState(hCtx hersh.ManageContext, state FSMState) {
+func setState(hCtx hersh.HershContext, state FSMState) {
 	hCtx.SetValue("state", state)
 }
 
 // --- Handler 1: 사용자 개입 및 이벤트 메시지 (Init, Emergency, Rebalance Done) ---
-func handleMessages(msg *hersh.Message, hCtx hersh.ManageContext, state *FSMState) {
+func handleMessages(msg *hersh.Message, hCtx hersh.HershContext, state *FSMState) {
 	if msg == nil {
 		return
 	}
@@ -57,11 +57,11 @@ func handleMessages(msg *hersh.Message, hCtx hersh.ManageContext, state *FSMStat
 }
 
 // --- Handler 2: 상시 모니터링 워처 (Tick) ---
-func handleMonitoring(hCtx hersh.ManageContext, watcher *hersh.Watcher, state *FSMState) {
-	tick := util.WatchTick("monitor_tick", 1*time.Second, hCtx)
+func handleMonitoring(hCtx hersh.HershContext, watcher *hersh.Watcher, state *FSMState) {
+	tick := hutil.WatchTick("monitor_tick", 1*time.Second, hCtx)
 
 	// 운영 중(ACTIVE)일 때만 시장 데이터 검사
-	if tick.IsUpdated() && *state == ACTIVE {
+	if tick.IsTriggered(hCtx) && !tick.IsZero() && *state == ACTIVE {
 		var tc int
 		if countVal := hCtx.GetValue("tickCount"); countVal != nil {
 			tc = countVal.(int)
@@ -87,8 +87,8 @@ func handleMonitoring(hCtx hersh.ManageContext, watcher *hersh.Watcher, state *F
 }
 
 // --- Main Reducer: 모든 핸들러를 통합 관리하는 메인 매니저 함수 ---
-func v2StrategyManager(watcher *hersh.Watcher, cancel context.CancelFunc) func(*hersh.Message, hersh.ManageContext) error {
-	return func(msg *hersh.Message, hCtx hersh.ManageContext) error {
+func v2StrategyManager(watcher *hersh.Watcher, cancel context.CancelFunc) func(*hersh.Message, hersh.HershContext) error {
+	return func(msg *hersh.Message, hCtx hersh.HershContext) error {
 		state := getState(hCtx)
 
 		// 1. 메시지 트리거 처리
@@ -118,7 +118,7 @@ func main() {
 	watcher.Manage(
 		v2StrategyManager(watcher, cancel),
 		"V2LiquidityBot",
-	).Cleanup(func(hCtx hersh.ManageContext) {
+	).Cleanup(func(hCtx hersh.HershContext) {
 		fmt.Println("\n🔒 V2 유동성 봇 매니저가 완전히 정지되었습니다.")
 	})
 

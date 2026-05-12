@@ -6,7 +6,7 @@ import (
 	"time"
 
 	"github.com/HershyOrg/hersh"
-	"github.com/HershyOrg/hersh/util"
+	"github.com/HershyOrg/hersh/hutil"
 )
 
 const coreDCAStateKey = "core_etf_dca_state"
@@ -132,7 +132,7 @@ func buildDCAOrders(plan DCAPlan, exchange string, now time.Time) []DCAOrder {
 	return orders
 }
 
-func getCoreDCAState(ctx hersh.ManageContext) CoreETFDCAState {
+func getCoreDCAState(ctx hersh.HershContext) CoreETFDCAState {
 	val := ctx.GetValue(coreDCAStateKey)
 	if val == nil {
 		return CoreETFDCAState{}
@@ -144,7 +144,7 @@ func getCoreDCAState(ctx hersh.ManageContext) CoreETFDCAState {
 	return state
 }
 
-func executeCoreDCA(state CoreETFDCAState, cfg CoreETFDCAConfig, tickCount int, now time.Time, ctx hersh.ManageContext) CoreETFDCAState {
+func executeCoreDCA(state CoreETFDCAState, cfg CoreETFDCAConfig, tickCount int, now time.Time, ctx hersh.HershContext) CoreETFDCAState {
 	plan := allocateDCA(cfg.MonthlyBudget, cfg.AllocationRules, now)
 	orders := buildDCAOrders(plan, cfg.Exchange, now)
 
@@ -197,7 +197,7 @@ func executeCoreDCA(state CoreETFDCAState, cfg CoreETFDCAConfig, tickCount int, 
 	return state
 }
 
-func printCoreDCAStatus(state CoreETFDCAState, cfg CoreETFDCAConfig, ctx hersh.ManageContext) {
+func printCoreDCAStatus(state CoreETFDCAState, cfg CoreETFDCAConfig, ctx hersh.HershContext) {
 	hersh.PrintWithLog(
 		fmt.Sprintf(
 			"[STATUS] Core ETF DCA budget=$%.2f cadence=%s executions=%d reserve=$%.2f",
@@ -233,7 +233,7 @@ func printCoreDCAStatus(state CoreETFDCAState, cfg CoreETFDCAConfig, ctx hersh.M
 	}
 }
 
-func runCoreETFDCA(msg *hersh.Message, ctx hersh.ManageContext, cfg CoreETFDCAConfig) error {
+func runCoreETFDCA(msg *hersh.Message, ctx hersh.HershContext, cfg CoreETFDCAConfig) error {
 	state := getCoreDCAState(ctx)
 
 	if msg != nil {
@@ -245,8 +245,8 @@ func runCoreETFDCA(msg *hersh.Message, ctx hersh.ManageContext, cfg CoreETFDCACo
 		}
 	}
 
-	tick := util.WatchTick("core_etf_monthly_dca", cfg.SimulatedMonth, ctx)
-	if tick.IsTriggered(ctx) && tick.IsUpdated() {
+	tick := hutil.WatchTick("core_etf_monthly_dca", cfg.SimulatedMonth, ctx)
+	if tick.IsTriggered(ctx) && !tick.IsZero() {
 		state = executeCoreDCA(state, cfg, tick.TickCount, tick.Time, ctx)
 		ctx.SetValue(coreDCAStateKey, state)
 

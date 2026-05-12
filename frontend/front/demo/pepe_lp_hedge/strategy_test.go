@@ -43,9 +43,9 @@ func TestPepeHedgeManagedFlow(t *testing.T) {
 	done := make(chan struct{})
 	var finalState HedgeState
 
-	watcher.Manage(func(msg *hersh.Message, ctx hersh.ManageContext) error {
+	watcher.Manage(func(msg *hersh.Message, ctx hersh.HershContext) error {
 		return runPepeLPHedge(msg, ctx, feed, cfg)
-	}, "PepeLPHedgeTest").Cleanup(func(ctx hersh.ManageContext) {
+	}, "PepeLPHedgeTest").Cleanup(func(ctx hersh.HershContext) {
 		finalState = getHedgeState(ctx)
 		close(done)
 	})
