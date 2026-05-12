@@ -76,6 +76,7 @@ function TimeTriggerNodeComponent({ id, data, selected }: NodeProps<import("@xyf
           type: "output" as const,
         },
       ];
+  const runtimeCode = typeof data.runtimeCode === "string" ? data.runtimeCode : "";
 
   useEffect(() => {
     setDurationParts(splitDuration(data.interval));
@@ -219,6 +220,17 @@ function TimeTriggerNodeComponent({ id, data, selected }: NodeProps<import("@xyf
             Activates on: {data.linkedCondition}
           </div>
         )}
+
+        {runtimeCode ? (
+          <div className="mt-2 rounded-md bg-purple-950 p-2">
+            <div className="mb-1 text-[10px] font-bold uppercase tracking-wide text-purple-200">
+              generated_strategy.go
+            </div>
+            <pre className="max-h-24 overflow-auto text-[10px] leading-4 text-purple-50">
+              {runtimeCode}
+            </pre>
+          </div>
+        ) : null}
       </div>
 
     </div>

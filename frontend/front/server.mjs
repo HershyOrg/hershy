@@ -318,6 +318,20 @@ app.get('/api/market/overview', async (_req, res) => {
   }
 });
 
+app.get('/api/market/chart', async (req, res) => {
+  try {
+    const result = await fetchMarketChartSeries({
+      symbol: normalizeText(req.query.symbol) || 'BTCUSDT',
+      market: normalizeText(req.query.market),
+      interval: normalizeText(req.query.interval) || '1m',
+      limit: req.query.limit,
+    });
+    res.json(result);
+  } catch (error) {
+    sendError(res, 502, `market chart fetch failed: ${error?.message || 'unknown error'}`);
+  }
+});
+
 app.get('/api/exchange-connections', async (_req, res) => {
   try {
     res.json({ connections: serializeExchangeConnections(await loadExchangeConnections()) });
@@ -2092,6 +2106,76 @@ async function fetchMarketOverviewRows() {
     updatedAt: new Date().toISOString(),
     source: 'public-market-ticker',
     rows,
+  };
+}
+
+const MARKET_CHART_INTERVALS = new Set([
+  '1m',
+  '3m',
+  '5m',
+  '15m',
+  '30m',
+  '1h',
+  '2h',
+  '4h',
+  '6h',
+  '8h',
+  '12h',
+  '1d',
+]);
+
+function normalizeMarketChartSymbol(symbol) {
+  const text = normalizeText(symbol).toUpperCase();
+  return text
+    .replace(/\.P$/i, '')
+    .replace(/[^A-Z0-9]/g, '') || 'BTCUSDT';
+}
+
+function resolveMarketChartMarket(symbol, market) {
+  const text = `${normalizeText(symbol)} ${normalizeText(market)}`.toLowerCase();
+  if (/perp|futures|future|swap|\.p\b|선물/.test(text)) return 'futures';
+  return 'spot';
+}
+
+function normalizeMarketChartLimit(limit) {
+  const numeric = Number(limit);
+  if (!Number.isFinite(numeric)) return 96;
+  return Math.max(24, Math.min(500, Math.floor(numeric)));
+}
+
+async function fetchMarketChartSeries({ symbol, market, interval, limit }) {
+  const resolvedMarket = resolveMarketChartMarket(symbol, market);
+  const normalizedSymbol = normalizeMarketChartSymbol(symbol);
+  const normalizedInterval = MARKET_CHART_INTERVALS.has(interval) ? interval : '1m';
+  const normalizedLimit = normalizeMarketChartLimit(limit);
+  const baseUrl = resolvedMarket === 'futures' ? 'https://fapi.binance.com' : 'https://api.binance.com';
+  const path = resolvedMarket === 'futures' ? '/fapi/v1/klines' : '/api/v3/klines';
+  const url = `${baseUrl}${path}?symbol=${encodeURIComponent(normalizedSymbol)}&interval=${encodeURIComponent(normalizedInterval)}&limit=${normalizedLimit}`;
+  const rows = await fetchJSONWithTimeout(url, 8000);
+  if (!Array.isArray(rows)) {
+    throw new Error('unexpected Binance kline response');
+  }
+
+  return {
+    updatedAt: new Date().toISOString(),
+    source: resolvedMarket === 'futures' ? 'Binance Futures kline' : 'Binance Spot kline',
+    symbol: normalizedSymbol,
+    market: resolvedMarket,
+    interval: normalizedInterval,
+    series: rows
+      .map((row) => {
+        if (!Array.isArray(row)) return null;
+        const openTime = Number(row[0]);
+        const close = Number(row[4]);
+        const volume = Number(row[5]);
+        if (!Number.isFinite(openTime) || !Number.isFinite(close)) return null;
+        return {
+          time: Math.floor(openTime / 1000),
+          value: close,
+          volume: Number.isFinite(volume) ? volume : undefined,
+        };
+      })
+      .filter(Boolean),
   };
 }
 

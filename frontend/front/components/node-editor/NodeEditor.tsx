@@ -47,7 +47,7 @@ import { FSMEdge } from "./FSMEdge";
 import { FSMProvider, useFSM } from "./FSMContext";
 import { Toolbar } from "./Toolbar";
 import { ContextMenu } from "./ContextMenu";
-import type { FunctionNodeData, TimeTriggerData, ClickTriggerData, BranchNodeData, CEXActionData, DEXActionData, MergedFunctionNodeData, TimelineFrameData, MonitoringNodeData, StreamingNodeData } from "./types";
+import type { FunctionNodeData, TimeTriggerData, ClickTriggerData, BranchNodeData, CEXActionData, DEXActionData, MergedFunctionNodeData, TimelineFrameData, MonitoringNodeData, StreamingNodeData, NodeChartPoint } from "./types";
 import { cn } from "@/lib/utils";
 import { historyStore } from "@/lib/historyStore";
 import { getEtfDcaStrategyNodes, getPepeHedgeStrategyNodes } from "@/lib/demo-data";
@@ -121,6 +121,186 @@ function getOutputBlockForHandle(sourceNode: Node | undefined, sourceHandle?: st
   const blockId = getHandleBlockId(sourceHandle, "source");
   const outputBlocks = (sourceNode?.data as { outputBlocks?: Array<{ id: string; name: string; description?: string; type: "output" }> })?.outputBlocks ?? [];
   return outputBlocks.find((block) => block.id === blockId) ?? null;
+}
+
+function escapeRegExp(value: string) {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+function getRuntimeSectionName(nodeType?: string) {
+  switch (nodeType) {
+    case "streamingNode":
+      return "generatedStreams";
+    case "timeTrigger":
+      return "generatedTriggers";
+    case "actionNode":
+      return "generatedActions";
+    case "monitoringNode":
+      return "generatedMonitors";
+    case "functionNode":
+      return "generatedNormalConfigs";
+    default:
+      return "";
+  }
+}
+
+function extractGeneratedProgramSnippet(programCode: string, node: Node) {
+  const source = programCode.trim();
+  if (!source || !node.id) return "";
+
+  const lines = source.split(/\r?\n/);
+  const quotedId = escapeRegExp(JSON.stringify(node.id));
+  const blockPattern = new RegExp(`(?:ID\\s*:\\s*${quotedId}|${quotedId}\\s*:)`);
+  const connectionPattern = new RegExp(`(?:FromID\\s*:\\s*${quotedId}|ToID\\s*:\\s*${quotedId})`);
+  const sectionName = getRuntimeSectionName(String(node.type));
+  const blockLines = lines
+    .map((line, index) => ({ line, index }))
+    .filter(({ line }) => blockPattern.test(line));
+  const connectionLines = lines
+    .map((line) => line)
+    .filter((line) => connectionPattern.test(line));
+
+  if (blockLines.length === 0 && connectionLines.length === 0) return "";
+
+  const snippets: string[] = [];
+  snippets.push(
+    sectionName
+      ? `// generated_strategy.go / ${sectionName} / node "${node.id}"`
+      : `// generated_strategy.go / node "${node.id}"`,
+  );
+
+  blockLines.forEach(({ line, index }) => {
+    if (sectionName && !snippets.some((item) => item.includes(`var ${sectionName}`))) {
+      const sectionLine = lines.slice(0, index + 1).reverse().find((item) => item.includes(`var ${sectionName}`));
+      if (sectionLine) snippets.push(sectionLine.trim());
+    }
+    snippets.push(line.trim());
+  });
+
+  if (connectionLines.length > 0) {
+    snippets.push("");
+    snippets.push("// connections touching this node");
+    const connectionSectionLine = lines.find((line) => line.includes("var generatedConnections"));
+    if (connectionSectionLine) snippets.push(connectionSectionLine.trim());
+    connectionLines.slice(0, 8).forEach((line) => snippets.push(line.trim()));
+  }
+
+  return snippets.join("\n");
+}
+
+function enrichGraphWithRuntimeProgram(graph: NodeEditorInitialGraph, programCode = ""): NodeEditorInitialGraph {
+  if (!programCode.trim()) return graph;
+
+  let changed = false;
+  const nodes = graph.nodes.map((node) => {
+    if (node.type === "groupNode") return node;
+    const runtimeCode = extractGeneratedProgramSnippet(programCode, node);
+    if (!runtimeCode || (node.data as { runtimeCode?: string })?.runtimeCode === runtimeCode) return node;
+    changed = true;
+    return {
+      ...node,
+      data: {
+        ...node.data,
+        runtimeCode,
+        runtimeCodeLabel: "generated_strategy.go",
+      },
+    };
+  });
+
+  return changed ? { ...graph, nodes } : graph;
+}
+
+function readNodeText(data: Record<string, unknown>, keys: string[]) {
+  for (const key of keys) {
+    const value = data[key];
+    if (typeof value === "string" && value.trim()) return value.trim();
+  }
+  return "";
+}
+
+function normalizeMarketSymbol(value: string) {
+  const cleaned = value
+    .trim()
+    .toUpperCase()
+    .replace(/\.P$/i, "")
+    .replace(/[^A-Z0-9]/g, "");
+  return /^[A-Z0-9]{5,20}$/.test(cleaned) ? cleaned : "";
+}
+
+function inferNodeChartRequest(node: Node) {
+  const data = node.data && typeof node.data === "object" ? node.data as Record<string, unknown> : {};
+  const explicitSymbol = readNodeText(data, ["chartSymbol", "symbol", "market", "pair", "instrument"]);
+  const endpoint = readNodeText(data, ["url", "sourceUrl", "endpoint", "apiReference"]);
+  const label = readNodeText(data, ["label", "name", "title"]);
+  const rawText = `${explicitSymbol} ${endpoint} ${label}`;
+  const querySymbol = endpoint.match(/[?&]symbol=([A-Za-z0-9._/-]+)/i)?.[1] ?? "";
+  const tickerMatch = rawText.match(/\b([A-Z]{2,12}(?:USDT|USD|BTC|ETH)(?:\.P)?)\b/i)?.[1] ?? "";
+  const symbol = normalizeMarketSymbol(querySymbol || explicitSymbol || tickerMatch);
+  if (!symbol) return null;
+
+  const market = /perp|future|futures|swap|\.p\b|선물/i.test(rawText) ? "futures" : "spot";
+  return { symbol, market };
+}
+
+function chartSeriesEqual(left?: NodeChartPoint[], right?: NodeChartPoint[]) {
+  if (!left || !right || left.length !== right.length) return false;
+  if (left.length === 0) return right.length === 0;
+  const firstLeft = left[0];
+  const firstRight = right[0];
+  const lastLeft = left[left.length - 1];
+  const lastRight = right[right.length - 1];
+  return (
+    firstLeft.time === firstRight.time &&
+    firstLeft.value === firstRight.value &&
+    lastLeft.time === lastRight.time &&
+    lastLeft.value === lastRight.value
+  );
+}
+
+function alignSeries(seriesList: NodeChartPoint[][]) {
+  const minLength = Math.min(...seriesList.map((series) => series.length));
+  if (!Number.isFinite(minLength) || minLength <= 0) return [];
+  return seriesList.map((series) => series.slice(series.length - minLength));
+}
+
+function movingAverageSeries(series: NodeChartPoint[], windowSize = 20) {
+  return series.map((point, index) => {
+    const start = Math.max(0, index - windowSize + 1);
+    const window = series.slice(start, index + 1);
+    const average = window.reduce((sum, item) => sum + item.value, 0) / window.length;
+    return { time: point.time, value: Number(average.toFixed(6)) };
+  });
+}
+
+function deriveFunctionChartSeries(node: Node, incoming: Array<{ node: Node; series: NodeChartPoint[] }>) {
+  if (incoming.length === 0) return null;
+  const data = node.data as Record<string, unknown>;
+  const text = [
+    node.id,
+    readNodeText(data, ["label", "name", "functionName", "description", "logicDescription", "code", "expression", "logic"]),
+  ].join(" ").toLowerCase();
+
+  if (incoming.length >= 2 && /basis|spread|gap|premium|차익|가격차|괴리|현선/.test(text)) {
+    const ordered = [...incoming].sort((a, b) => {
+      const aText = `${a.node.id} ${readNodeText(a.node.data as Record<string, unknown>, ["label", "name", "symbol", "market"])}`.toLowerCase();
+      const bText = `${b.node.id} ${readNodeText(b.node.data as Record<string, unknown>, ["label", "name", "symbol", "market"])}`.toLowerCase();
+      const score = (value: string) => (/perp|future|선물|\.p/.test(value) ? -1 : /spot|현물/.test(value) ? 1 : 0);
+      return score(aText) - score(bText);
+    });
+    const aligned = alignSeries([ordered[0].series, ordered[1].series]);
+    if (aligned.length < 2) return null;
+    const [perp, spot] = aligned;
+    return perp.map((point, index) => ({
+      time: point.time,
+      value: Number((((point.value - spot[index].value) / Math.max(spot[index].value, 0.0000001)) * 100).toFixed(6)),
+    }));
+  }
+
+  if (/ma|moving average|sma|ema|이동평균|평균/.test(text)) {
+    return movingAverageSeries(incoming[0].series);
+  }
+
+  return incoming[0].series;
 }
 
 function isPlaceholderInputBlock(block: { name?: string; connectedFrom?: unknown }) {
@@ -589,9 +769,10 @@ export type NodeEditorInitialGraph = {
 type NodeEditorProps = {
   initialGraph?: NodeEditorInitialGraph | null;
   initialGraphVersion?: number;
+  programCode?: string;
 };
 
-function NodeEditorInner({ initialGraph, initialGraphVersion = 0 }: NodeEditorProps) {
+function NodeEditorInner({ initialGraph, initialGraphVersion = 0, programCode = "" }: NodeEditorProps) {
   const { fitView, getIntersectingNodes, getNodes } = useReactFlow();
   const updateNodeInternals = useUpdateNodeInternals();
   const { showFSMEdges, isAvailable, currentState } = useFSM();
@@ -751,6 +932,159 @@ function NodeEditorInner({ initialGraph, initialGraphVersion = 0 }: NodeEditorPr
     return data;
   }, [nodes]);
 
+  const marketChartRequestPayload = useMemo(() => {
+    const requests = nodes
+      .filter((node) => node.type === "streamingNode")
+      .map((node) => {
+        const request = inferNodeChartRequest(node);
+        return request ? { nodeId: node.id, ...request } : null;
+      })
+      .filter((item): item is { nodeId: string; symbol: string; market: string } => Boolean(item));
+
+    const deduped = new Map<string, { nodeIds: string[]; symbol: string; market: string }>();
+    requests.forEach((request) => {
+      const key = `${request.market}:${request.symbol}`;
+      const item = deduped.get(key);
+      if (item) {
+        item.nodeIds.push(request.nodeId);
+        return;
+      }
+      deduped.set(key, { nodeIds: [request.nodeId], symbol: request.symbol, market: request.market });
+    });
+
+    return JSON.stringify(Array.from(deduped.values()));
+  }, [nodes]);
+
+  useEffect(() => {
+    const requests = JSON.parse(marketChartRequestPayload) as Array<{ nodeIds: string[]; symbol: string; market: string }>;
+    if (requests.length === 0) return;
+
+    let cancelled = false;
+    const loadCharts = async () => {
+      const results = await Promise.all(
+        requests.map(async (request) => {
+          try {
+            const params = new URLSearchParams({
+              symbol: request.symbol,
+              market: request.market,
+              interval: "1m",
+              limit: "96",
+            });
+            const response = await fetch(`/api/market/chart?${params.toString()}`, { cache: "no-store" });
+            const payload = await response.json().catch(() => null);
+            if (!response.ok) throw new Error(String(payload?.message || payload?.error || "chart fetch failed"));
+            const series = Array.isArray(payload?.series)
+              ? payload.series
+                .map((point: { time?: unknown; value?: unknown }) => ({
+                  time: Number(point.time),
+                  value: Number(point.value),
+                }))
+                .filter((point: NodeChartPoint) => Number.isFinite(point.time) && Number.isFinite(point.value))
+              : [];
+            return {
+              ...request,
+              ok: true,
+              series,
+              source: typeof payload?.source === "string" ? payload.source : "market chart",
+              updatedAt: typeof payload?.updatedAt === "string" ? payload.updatedAt : new Date().toISOString(),
+              warning: "",
+            };
+          } catch (error) {
+            return {
+              ...request,
+              ok: false,
+              series: [] as NodeChartPoint[],
+              source: "",
+              updatedAt: new Date().toISOString(),
+              warning: error instanceof Error ? error.message : "chart fetch failed",
+            };
+          }
+        }),
+      );
+
+      if (cancelled) return;
+
+      setNodes((currentNodes) => {
+        const seriesByStreamId = new Map<string, NodeChartPoint[]>();
+        const metaByStreamId = new Map<string, { source: string; updatedAt: string; symbol: string; warning: string }>();
+        results.forEach((result) => {
+          result.nodeIds.forEach((nodeId) => {
+            seriesByStreamId.set(nodeId, result.series);
+            metaByStreamId.set(nodeId, {
+              source: result.source,
+              updatedAt: result.updatedAt,
+              symbol: result.symbol,
+              warning: result.warning,
+            });
+          });
+        });
+
+        let changed = false;
+        const withStreamCharts = currentNodes.map((node) => {
+          if (node.type !== "streamingNode") return node;
+          const series = seriesByStreamId.get(node.id);
+          const meta = metaByStreamId.get(node.id);
+          if (!meta) return node;
+          const currentData = node.data as StreamingNodeData;
+          if (
+            chartSeriesEqual(currentData.chartSeries, series) &&
+            currentData.chartSource === meta.source &&
+            currentData.chartWarning === meta.warning
+          ) {
+            return node;
+          }
+          changed = true;
+          return {
+            ...node,
+            data: {
+              ...node.data,
+              chartSeries: series,
+              chartSource: meta.source,
+              chartUpdatedAt: meta.updatedAt,
+              chartSymbol: meta.symbol,
+              chartWarning: meta.warning,
+            },
+          };
+        });
+
+        const nodeById = new Map(withStreamCharts.map((node) => [node.id, node]));
+        const withFunctionCharts = withStreamCharts.map((node) => {
+          if (node.type !== "functionNode") return node;
+          const incoming = edges
+            .filter((edge) => edge.target === node.id)
+            .map((edge) => nodeById.get(edge.source))
+            .filter((sourceNode): sourceNode is Node => Boolean(sourceNode))
+            .map((sourceNode) => {
+              const series = (sourceNode.data as { chartSeries?: NodeChartPoint[] })?.chartSeries ?? [];
+              return series.length > 0 ? { node: sourceNode, series } : null;
+            })
+            .filter((item): item is { node: Node; series: NodeChartPoint[] } => Boolean(item));
+          const series = deriveFunctionChartSeries(node, incoming);
+          if (!series || series.length === 0) return node;
+          const currentData = node.data as FunctionNodeData;
+          if (chartSeriesEqual(currentData.chartSeries, series)) return node;
+          changed = true;
+          return {
+            ...node,
+            data: {
+              ...node.data,
+              chartSeries: series,
+              chartSource: incoming.map((item) => getNodeDisplayName(item.node)).join(" + "),
+              chartUpdatedAt: new Date().toISOString(),
+            },
+          };
+        });
+
+        return changed ? withFunctionCharts : currentNodes;
+      });
+    };
+
+    void loadCharts();
+    return () => {
+      cancelled = true;
+    };
+  }, [edges, marketChartRequestPayload, setNodes]);
+
   const strategyContentRelayoutSignature = useMemo(
     () => buildStrategyContentRelayoutSignature(nodes),
     [nodes],
@@ -767,16 +1101,26 @@ function NodeEditorInner({ initialGraph, initialGraphVersion = 0 }: NodeEditorPr
       return;
     }
 
+    const runtimeGraph = enrichGraphWithRuntimeProgram(initialGraph, programCode);
+
     loadedInitialGraphVersionRef.current = initialGraphVersion;
     activeSnapshotPersistSignatureRef.current = JSON.stringify({
-      nodes: initialGraph.nodes,
-      edges: initialGraph.edges,
+      nodes: runtimeGraph.nodes,
+      edges: runtimeGraph.edges,
     });
     isUndoRedoRef.current = true;
-    setHistory([{ nodes: initialGraph.nodes, edges: initialGraph.edges }]);
+    setHistory([{ nodes: runtimeGraph.nodes, edges: runtimeGraph.edges }]);
     setHistoryIndex(0);
-    applyMeasuredLayout(initialGraph.nodes, initialGraph.edges, { fitView: true });
-  }, [applyMeasuredLayout, initialGraph, initialGraphVersion]);
+    applyMeasuredLayout(runtimeGraph.nodes, runtimeGraph.edges, { fitView: true });
+  }, [applyMeasuredLayout, initialGraph, initialGraphVersion, programCode]);
+
+  useEffect(() => {
+    if (!programCode.trim()) return;
+    setNodes((currentNodes) => {
+      const enriched = enrichGraphWithRuntimeProgram({ nodes: currentNodes, edges }, programCode);
+      return enriched.nodes;
+    });
+  }, [edges, programCode, setNodes]);
 
   // ─── Resize parent containers so they always wrap their children ────────
   const resizeParentsToFitChildren = useCallback(
@@ -2149,11 +2493,15 @@ function NodeEditorInner({ initialGraph, initialGraphVersion = 0 }: NodeEditorPr
 
     const handleLoadSnapshot = (e: any) => {
       const { nodes: snapshotNodes, edges: snapshotEdges } = e.detail;
+      const runtimeGraph = enrichGraphWithRuntimeProgram(
+        { nodes: snapshotNodes, edges: snapshotEdges },
+        programCode,
+      );
       activeSnapshotPersistSignatureRef.current = JSON.stringify({
-        nodes: snapshotNodes,
-        edges: snapshotEdges,
+        nodes: runtimeGraph.nodes,
+        edges: runtimeGraph.edges,
       });
-      applyMeasuredLayout(snapshotNodes, snapshotEdges);
+      applyMeasuredLayout(runtimeGraph.nodes, runtimeGraph.edges);
     };
     const handleSaveSnapshot = () => {
       historyStore.saveSnapshot(nodes, edges);
@@ -2202,7 +2550,7 @@ function NodeEditorInner({ initialGraph, initialGraphVersion = 0 }: NodeEditorPr
       window.removeEventListener("toggleSequenceCollapse", handleToggleSequenceCollapseEvent);
       window.removeEventListener("ungroupNode", handleUngroupNode);
     };
-  }, [applyMeasuredLayout, nodes, edges, handleToggleSequenceCollapse, setNodes]);
+  }, [applyMeasuredLayout, nodes, edges, handleToggleSequenceCollapse, setNodes, programCode]);
 
   // Process nodes with focus state + FSM locked state styling
   const styledNodes = useMemo(() => {
@@ -2526,11 +2874,11 @@ function NodeEditorInner({ initialGraph, initialGraphVersion = 0 }: NodeEditorPr
   );
 }
 
-export function NodeEditor({ initialGraph, initialGraphVersion }: NodeEditorProps) {
+export function NodeEditor({ initialGraph, initialGraphVersion, programCode }: NodeEditorProps) {
   return (
     <ReactFlowProvider>
       <FSMProvider>
-        <NodeEditorInner initialGraph={initialGraph} initialGraphVersion={initialGraphVersion} />
+        <NodeEditorInner initialGraph={initialGraph} initialGraphVersion={initialGraphVersion} programCode={programCode} />
       </FSMProvider>
     </ReactFlowProvider>
   );

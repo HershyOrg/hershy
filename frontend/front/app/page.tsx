@@ -2001,7 +2001,11 @@ export default function Page() {
 
               {mainView === "advanced" ? (
                 <div className="h-full">
-                  <NodeEditor initialGraph={advancedGraphModel} initialGraphVersion={advancedGraphVersion} />
+                  <NodeEditor
+                    initialGraph={advancedGraphModel}
+                    initialGraphVersion={advancedGraphVersion}
+                    programCode={programCode}
+                  />
                   {openTabs.length === 0 ? (
                     <div className="pointer-events-none absolute inset-x-[180px] top-[210px] z-20 flex justify-center">
                       <div className="pointer-events-auto rounded-lg border border-slate-200 bg-white/95 px-4 py-3 text-center text-sm shadow-lg">
