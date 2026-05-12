@@ -44,7 +44,10 @@ var allowedBlockTypes = map[string]struct{}{
 
 var allowedConnectionKinds = map[string]struct{}{
 	"trigger-action": {},
+	"trigger-input":  {},
 	"action-input":   {},
+	"data-flow":      {},
+	"action-result":  {},
 	"stream-monitor": {},
 }
 
@@ -140,9 +143,13 @@ func Validate(graph StrategyGraph) []string {
 	triggerOut := make(map[string]int)
 	actionInFromTrigger := make(map[string]int)
 	actionInFromInput := make(map[string]int)
-	monitorInFromStream := make(map[string]int)
+	monitorInFromSource := make(map[string]int)
 	streamOut := make(map[string]int)
 	normalOut := make(map[string]int)
+	normalInFromData := make(map[string]int)
+	triggerInFromData := make(map[string]int)
+	triggerInFromTrigger := make(map[string]int)
+	actionOutToResult := make(map[string]int)
 	for i, c := range graph.Connections {
 		prefix := fmt.Sprintf("connections[%d]", i)
 
@@ -185,6 +192,13 @@ func Validate(graph StrategyGraph) []string {
 			}
 			triggerOut[c.FromID]++
 			actionInFromTrigger[c.ToID]++
+		case "trigger-input":
+			if fromType != "trigger" || toType != "trigger" {
+				issues = append(issues, fmt.Sprintf("%s: trigger-input requires trigger -> trigger (got %s -> %s)", prefix, fromType, toType))
+				break
+			}
+			triggerOut[c.FromID]++
+			triggerInFromTrigger[c.ToID]++
 		case "action-input":
 			if toType != "action" {
 				issues = append(issues, fmt.Sprintf("%s: action-input requires * -> action (got %s -> %s)", prefix, fromType, toType))
@@ -201,13 +215,56 @@ func Validate(graph StrategyGraph) []string {
 			if fromType == "normal" {
 				normalOut[c.FromID]++
 			}
+		case "data-flow":
+			if fromType != "streaming" && fromType != "normal" && fromType != "monitoring" {
+				issues = append(issues, fmt.Sprintf("%s: data-flow fromId must be streaming, normal, or monitoring (got %s)", prefix, fromType))
+				break
+			}
+			if toType != "normal" && toType != "trigger" && toType != "monitoring" {
+				issues = append(issues, fmt.Sprintf("%s: data-flow requires target normal, trigger, or monitoring (got %s)", prefix, toType))
+				break
+			}
+			if fromType == "streaming" {
+				streamOut[c.FromID]++
+			}
+			if fromType == "normal" {
+				normalOut[c.FromID]++
+			}
+			if toType == "normal" {
+				normalInFromData[c.ToID]++
+			}
+			if toType == "trigger" {
+				triggerInFromData[c.ToID]++
+			}
+			if toType == "monitoring" {
+				monitorInFromSource[c.ToID]++
+			}
+		case "action-result":
+			if fromType != "action" {
+				issues = append(issues, fmt.Sprintf("%s: action-result fromId must be action (got %s)", prefix, fromType))
+				break
+			}
+			if toType != "normal" && toType != "trigger" && toType != "monitoring" {
+				issues = append(issues, fmt.Sprintf("%s: action-result requires target normal, trigger, or monitoring (got %s)", prefix, toType))
+				break
+			}
+			actionOutToResult[c.FromID]++
+			if toType == "normal" {
+				normalInFromData[c.ToID]++
+			}
+			if toType == "trigger" {
+				triggerInFromData[c.ToID]++
+			}
+			if toType == "monitoring" {
+				monitorInFromSource[c.ToID]++
+			}
 		case "stream-monitor":
 			if fromType != "streaming" || toType != "monitoring" {
 				issues = append(issues, fmt.Sprintf("%s: stream-monitor requires streaming -> monitoring (got %s -> %s)", prefix, fromType, toType))
 				break
 			}
 			streamOut[c.FromID]++
-			monitorInFromStream[c.ToID]++
+			monitorInFromSource[c.ToID]++
 		}
 	}
 
@@ -221,7 +278,7 @@ func Validate(graph StrategyGraph) []string {
 			}
 
 			candidateType := blockTypeByID[candidateID]
-			if candidateType != "streaming" && candidateType != "normal" {
+			if candidateType != "streaming" && candidateType != "normal" && candidateType != "action" {
 				continue
 			}
 
@@ -234,6 +291,9 @@ func Validate(graph StrategyGraph) []string {
 			if candidateType == "normal" {
 				normalOut[candidateID]++
 			}
+			if candidateType == "action" {
+				actionOutToResult[candidateID]++
+			}
 		}
 	}
 
@@ -241,8 +301,10 @@ func Validate(graph StrategyGraph) []string {
 		switch t {
 		case "trigger":
 			if triggerOut[id] == 0 {
-				issues = append(issues, fmt.Sprintf("block %q (trigger) is not connected to any action via trigger-action", id))
+				issues = append(issues, fmt.Sprintf("block %q (trigger) is not connected to any action or downstream trigger", id))
 			}
+			_ = triggerInFromData[id]
+			_ = triggerInFromTrigger[id]
 		case "action":
 			if actionInFromTrigger[id] == 0 {
 				issues = append(issues, fmt.Sprintf("block %q (action) has no incoming trigger-action", id))
@@ -251,8 +313,8 @@ func Validate(graph StrategyGraph) []string {
 				issues = append(issues, fmt.Sprintf("block %q (action) has no incoming action-input (streaming/normal data)", id))
 			}
 		case "monitoring":
-			if monitorInFromStream[id] == 0 {
-				issues = append(issues, fmt.Sprintf("block %q (monitoring) has no incoming stream-monitor", id))
+			if monitorInFromSource[id] == 0 {
+				issues = append(issues, fmt.Sprintf("block %q (monitoring) has no incoming stream-monitor, data-flow, or action-result", id))
 			}
 		case "streaming":
 			if streamOut[id] == 0 {
@@ -260,9 +322,11 @@ func Validate(graph StrategyGraph) []string {
 			}
 		case "normal":
 			if normalOut[id] == 0 {
-				issues = append(issues, fmt.Sprintf("block %q (normal) is not used by any action-input", id))
+				issues = append(issues, fmt.Sprintf("block %q (normal) is not used by any action-input, data-flow, or trigger condition", id))
 			}
+			_ = normalInFromData[id]
 		}
+		_ = actionOutToResult[id]
 
 		if !connected[id] {
 			issues = append(issues, fmt.Sprintf("block %q is isolated (no connections)", id))

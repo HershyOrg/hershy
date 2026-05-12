@@ -21,6 +21,8 @@
 
 # Docker
 **/app
+!frontend/front/app/
+!frontend/front/app/**
 
 # Data
 data/
@@ -40,6 +42,7 @@ cmd/host/verification-logs/
 cmd/logs/
 examples/trading-long/logs/
 examples/watcher-server/logs/
+examples/strategy-runner/generated/
 *.pid
 *.log
 *_data/

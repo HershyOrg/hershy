@@ -1,11 +1,29 @@
 import express from 'express';
+import * as crypto from 'node:crypto';
+import { execFile } from 'node:child_process';
+import fsSync from 'node:fs';
 import fs from 'node:fs/promises';
+import os from 'node:os';
 import path from 'node:path';
+import { promisify } from 'node:util';
 import { fileURLToPath } from 'node:url';
+import next from 'next';
 
+const execFileAsync = promisify(execFile);
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 const REPO_ROOT = path.resolve(__dirname, '..', '..');
+const STRATEGY_RUNNER_DIR = path.resolve(REPO_ROOT, 'examples/strategy-runner');
+const LOCAL_STATE_DIR = path.resolve(__dirname, '.local');
+const EXCHANGE_CONNECTIONS_PATH = path.join(LOCAL_STATE_DIR, 'exchange-connections.json');
+const AI_STRATEGY_LOGIC_ERROR_LOG_PATH = path.join(LOCAL_STATE_DIR, 'ai-strategy-logic-errors.jsonl');
+
+loadServerEnvFiles([
+  path.resolve(__dirname, '.env.local'),
+  path.resolve(__dirname, '.env'),
+  path.resolve(REPO_ROOT, '.env.local'),
+  path.resolve(REPO_ROOT, '.env'),
+]);
 
 const DEFAULT_HERSHY_CONTEXT_FILES = [
   'README.md',
@@ -21,6 +39,11 @@ const FRONT_PORT = resolvePort(process.env.FRONT_PORT || process.env.PORT, 9090)
 const HOST_API_BASE = normalizeBaseURL(process.env.HOST_API_BASE || 'http://localhost:9000');
 const IS_PRODUCTION = process.env.NODE_ENV === 'production';
 
+const nextApp = next({ dev: !IS_PRODUCTION });
+const nextHandler = nextApp.getRequestHandler();
+
+await nextApp.prepare();
+
 const app = express();
 
 const HOP_BY_HOP_HEADERS = new Set([
@@ -35,6 +58,51 @@ const HOP_BY_HOP_HEADERS = new Set([
   'host',
   'content-length',
 ]);
+
+function stripEnvQuotes(value) {
+  const trimmed = String(value || '').trim();
+  if (
+    (trimmed.startsWith('"') && trimmed.endsWith('"')) ||
+    (trimmed.startsWith("'") && trimmed.endsWith("'"))
+  ) {
+    return trimmed.slice(1, -1);
+  }
+  return trimmed;
+}
+
+function loadServerEnvFile(filePath) {
+  if (!fsSync.existsSync(filePath)) {
+    return;
+  }
+  const content = fsSync.readFileSync(filePath, 'utf8');
+  for (const rawLine of content.split(/\r?\n/)) {
+    const line = rawLine.trim();
+    if (!line || line.startsWith('#')) {
+      continue;
+    }
+    const normalized = line.startsWith('export ') ? line.slice(7).trim() : line;
+    const separatorIndex = normalized.indexOf('=');
+    if (separatorIndex <= 0) {
+      continue;
+    }
+    const key = normalized.slice(0, separatorIndex).trim();
+    const value = stripEnvQuotes(normalized.slice(separatorIndex + 1));
+    if (!key || process.env[key] !== undefined) {
+      continue;
+    }
+    process.env[key] = value;
+  }
+}
+
+function loadServerEnvFiles(filePaths) {
+  for (const filePath of filePaths) {
+    try {
+      loadServerEnvFile(filePath);
+    } catch (error) {
+      console.warn(`[front] failed to load env file ${filePath}: ${error?.message || error}`);
+    }
+  }
+}
 
 const EXPLORER_API_ENDPOINTS = {
   'eth-mainnet': 'https://api.etherscan.io/api',
@@ -55,6 +123,28 @@ const EXPLORER_CHAIN_IDS = {
 };
 
 const ETHERSCAN_V2_ENDPOINT = 'https://api.etherscan.io/v2/api';
+
+const DEFAULT_EXCHANGE_CONNECTIONS = [
+  { id: 'binance', name: 'Binance', type: 'CEX', status: '대기', scopes: ['Spot', 'Futures', 'Read'], color: 'amber', marketDataUrl: 'https://api.binance.com', wsUrl: 'wss://stream.binance.com:9443/ws' },
+  { id: 'bybit', name: 'Bybit', type: 'CEX', status: '대기', scopes: ['Spot', 'Perp', 'Read'], color: 'orange' },
+  { id: 'okx', name: 'OKX', type: 'CEX', status: '대기', scopes: ['Spot', 'Swap', 'Read'], color: 'slate' },
+  { id: 'coinbase', name: 'Coinbase', type: 'CEX', status: '대기', scopes: ['Spot', 'Read'], color: 'blue' },
+  { id: 'kraken', name: 'Kraken', type: 'CEX', status: '대기', scopes: ['Spot', 'Trade'], color: 'violet' },
+  { id: 'kucoin', name: 'KuCoin', type: 'CEX', status: '대기', scopes: ['Spot', 'Futures'], color: 'emerald' },
+  { id: 'bitget', name: 'Bitget', type: 'CEX', status: '대기', scopes: ['Perp', 'Copy'], color: 'cyan' },
+  { id: 'gate', name: 'Gate.io', type: 'CEX', status: '대기', scopes: ['Spot', 'Perp'], color: 'rose' },
+  { id: 'hyperliquid', name: 'Hyperliquid', type: 'DEX', status: '대기', scopes: ['Perp', 'Vault'], color: 'emerald' },
+  { id: 'uniswap', name: 'Uniswap', type: 'DEX', status: '대기', scopes: ['Swap', 'LP'], color: 'pink' },
+  { id: 'pancake', name: 'PancakeSwap', type: 'DEX', status: '대기', scopes: ['Swap', 'LP'], color: 'yellow' },
+  { id: 'jupiter', name: 'Jupiter', type: 'DEX', status: '대기', scopes: ['Swap', 'Route'], color: 'green' },
+];
+
+const DEFAULT_MARKET_OVERVIEW_ROWS = [
+  { symbol: 'BTCUSDT', icon: '₿', tone: 'up', price: '0.00', change: '+0.00%', source: 'Binance Spot' },
+  { symbol: 'ETHUSDT', icon: 'Ξ', tone: 'up', price: '0.00', change: '+0.00%', source: 'Binance Spot' },
+  { symbol: 'XRPUSDT', icon: 'X', tone: 'up', price: '0.0000', change: '+0.00%', source: 'Binance Spot' },
+  { symbol: 'XRPUSDT.P', icon: 'P', tone: 'down', price: '0.0000', change: '+0.00%', source: 'Binance Futures' },
+];
 
 const ORCHESTRATION_PLAN_SCHEMA = {
   type: 'object',
@@ -126,6 +216,29 @@ const RESEARCH_BUNDLE_SCHEMA = {
   },
 };
 
+const STRATEGY_OVERVIEW_SCHEMA = {
+  type: 'object',
+  required: ['blocks'],
+  properties: {
+    strategySummary: { type: 'string' },
+    blocks: {
+      type: 'array',
+      items: {
+        type: 'object',
+        required: ['id', 'description', 'roleDescription', 'inputSummary', 'outputSummary'],
+        properties: {
+          id: { type: 'string' },
+          description: { type: 'string' },
+          roleDescription: { type: 'string' },
+          tradingCriterion: { type: 'string' },
+          inputSummary: { type: 'string' },
+          outputSummary: { type: 'string' },
+        },
+      },
+    },
+  },
+};
+
 const STRATEGY_GRAPH_SCHEMA = {
   type: 'object',
   required: ['schemaVersion', 'kind', 'strategy', 'blocks', 'connections'],
@@ -148,6 +261,7 @@ const STRATEGY_GRAPH_SCHEMA = {
         connections: { type: 'number' },
       },
     },
+    metadata: { type: 'object' },
     blocks: {
       type: 'array',
       minItems: 1,
@@ -169,7 +283,7 @@ const STRATEGY_GRAPH_SCHEMA = {
         required: ['id', 'kind', 'fromId', 'toId'],
         properties: {
           id: { type: 'string' },
-          kind: { type: 'string', enum: ['stream-monitor', 'trigger-action', 'action-input'] },
+          kind: { type: 'string', enum: ['stream-monitor', 'trigger-action', 'trigger-input', 'action-input', 'data-flow', 'action-result'] },
           fromId: { type: 'string' },
           toId: { type: 'string' },
         },
@@ -183,6 +297,107 @@ app.get('/api/config', (_req, res) => {
     host_api_base: HOST_API_BASE,
     front_port: FRONT_PORT,
   });
+});
+
+app.get('/api/market/overview', async (_req, res) => {
+  try {
+    res.json(await fetchMarketOverviewRows());
+  } catch (error) {
+    res.json({
+      updatedAt: new Date().toISOString(),
+      source: 'fallback',
+      warning: error?.message || 'market overview fetch failed',
+      rows: DEFAULT_MARKET_OVERVIEW_ROWS,
+    });
+  }
+});
+
+app.get('/api/exchange-connections', async (_req, res) => {
+  try {
+    res.json({ connections: serializeExchangeConnections(await loadExchangeConnections()) });
+  } catch (error) {
+    sendError(res, 500, `exchange connections load failed: ${error?.message || 'unknown error'}`);
+  }
+});
+
+app.post('/api/exchange-connections', express.json({ limit: '512kb' }), async (req, res) => {
+  try {
+    const saved = await upsertExchangeConnection(req.body);
+    res.json({
+      connection: serializeExchangeConnection(saved),
+      connections: serializeExchangeConnections(await loadExchangeConnections()),
+    });
+  } catch (error) {
+    sendError(res, 400, error?.message || 'exchange connection save failed');
+  }
+});
+
+app.post('/api/exchange-connections/:id/binance-auth-test', express.json({ limit: '128kb' }), async (req, res) => {
+  try {
+    const connectionId = normalizeText(req.params.id);
+    const market = normalizeText(req.body?.market).toLowerCase() === 'futures' ? 'futures' : 'spot';
+    const connections = await loadExchangeConnections();
+    const connection = connections.find((item) => item.id === connectionId);
+    if (!connection) {
+      sendError(res, 404, 'exchange connection not found');
+      return;
+    }
+
+    const result = await testBinanceSignedConnection(connection, { market });
+    const updated = await patchExchangeConnection(connection.id, {
+      credentials: {
+        ...(connection.credentials || {}),
+        authStatus: '검증됨',
+        authMarket: market,
+        lastAuthCheckAt: new Date().toISOString(),
+        lastAuthError: '',
+      },
+    });
+
+    res.json({
+      ok: true,
+      connection: serializeExchangeConnection(updated),
+      connections: serializeExchangeConnections(await loadExchangeConnections()),
+      account: summarizeBinanceAccount(result.data, market),
+      message: 'Binance HMAC signed request succeeded.',
+    });
+  } catch (error) {
+    const connectionId = normalizeText(req.params.id);
+    if (connectionId) {
+      try {
+        const connections = await loadExchangeConnections();
+        const connection = connections.find((item) => item.id === connectionId);
+        if (connection) {
+          await patchExchangeConnection(connection.id, {
+            credentials: {
+              ...(connection.credentials || {}),
+              authStatus: '실패',
+              lastAuthCheckAt: new Date().toISOString(),
+              lastAuthError: error?.message || 'unknown error',
+            },
+          });
+        }
+      } catch {
+        // Preserve the original Binance error for the response.
+      }
+    }
+    sendError(res, 502, `binance signed request failed: ${error?.message || 'unknown error'}`);
+  }
+});
+
+app.get('/api/ai/strategy-logic-error-log', async (req, res) => {
+  try {
+    const limit = clampInteger(Number(req.query.limit) || 100, 1, 1000);
+    const runId = normalizeText(req.query.runId);
+    const entries = await readStrategyLogicErrorLog({ limit, runId });
+    res.json({
+      logPath: path.relative(REPO_ROOT, AI_STRATEGY_LOGIC_ERROR_LOG_PATH),
+      runId,
+      entries,
+    });
+  } catch (error) {
+    sendError(res, 500, `strategy logic error log read failed: ${error?.message || 'unknown error'}`);
+  }
 });
 
 app.post('/api/stream/sample', express.json({ limit: '256kb' }), async (req, res) => {
@@ -243,6 +458,7 @@ app.post('/api/ai/research', express.json({ limit: '2mb' }), async (req, res) =>
       source: researched.source,
       provider: researched.provider,
       model: researched.model,
+      reasoning: researched.reasoning,
       message: 'AI research bundle generated'
     });
   } catch (error) {
@@ -260,16 +476,26 @@ app.post('/api/ai/strategy-compose', express.json({ limit: '2mb' }), async (req,
   const currentStrategy = resolveCurrentStrategy(req.body?.current_strategy);
   const researchBundle = normalizeObject(req.body?.research_bundle);
   try {
+    const exchangeConnections = await loadExchangeConnections();
+    if (getConnectedExchangeConnections(exchangeConnections).length === 0) {
+      sendError(res, 400, 'connected exchange is required before generating an executable strategy');
+      return;
+    }
     const composed = await runStrategyLayer({
       prompt,
       currentStrategy,
-      researchBundle
+      researchBundle,
+      exchangeConnections
     });
     res.json({
       strategy: composed.strategy,
       source: composed.source,
       provider: composed.provider,
       model: composed.model,
+      reasoning: composed.reasoning,
+      validation: composed.validation,
+      runtime: composed.runtime,
+      overview: composed.overview,
       message: 'AI strategy composed from research bundle'
     });
   } catch (error) {
@@ -290,10 +516,16 @@ app.post('/api/ai/orchestrate-strategy', express.json({ limit: '2mb' }), async (
     req.body?.explorer_api_key
   );
   try {
+    const exchangeConnections = await loadExchangeConnections();
+    if (getConnectedExchangeConnections(exchangeConnections).length === 0) {
+      sendError(res, 400, 'connected exchange is required before generating an executable strategy');
+      return;
+    }
     const result = await runOrchestrationPipeline({
       prompt,
       currentStrategy,
-      authContext
+      authContext,
+      exchangeConnections
     });
     res.json({
       strategy: result.strategy,
@@ -302,6 +534,10 @@ app.post('/api/ai/orchestrate-strategy', express.json({ limit: '2mb' }), async (
       source: result.source,
       providers: result.providers,
       models: result.models,
+      reasoning: result.reasoning,
+      validation: result.validation,
+      runtime: result.runtime,
+      overview: result.overview,
       message: 'Orchestrated AI strategy draft generated'
     });
   } catch (error) {
@@ -322,22 +558,88 @@ app.post('/api/ai/strategy-draft', express.json({ limit: '2mb' }), async (req, r
     req.body?.explorer_api_key
   );
   try {
+    const exchangeConnections = await loadExchangeConnections();
+    if (getConnectedExchangeConnections(exchangeConnections).length === 0) {
+      sendError(res, 400, 'connected exchange is required before generating an executable strategy');
+      return;
+    }
     const result = await runOrchestrationPipeline({
       prompt,
       currentStrategy,
-      authContext
+      authContext,
+      exchangeConnections
     });
-    res.json({
-      strategy: result.strategy,
-      research: result.research,
-      orchestration: result.orchestration,
-      source: result.source,
-      model: result.models?.strategy || result.models?.orchestrator || '',
-      providers: result.providers,
-      models: result.models,
-      message: 'AI strategy draft generated (orchestrated)'
-    });
+    res.json(makeStrategyDraftResponse(result));
   } catch (error) {
+    sendAIFailure(res, error, 'ai generation failed');
+  }
+});
+
+app.post('/api/ai/strategy-draft-stream', express.json({ limit: '2mb' }), async (req, res) => {
+  const prompt = normalizeText(req.body?.prompt);
+  if (!prompt) {
+    sendError(res, 400, 'prompt is required');
+    return;
+  }
+
+  const currentStrategy = resolveCurrentStrategy(req.body?.current_strategy);
+  const authContext = mergeExplorerKeyIntoAuthContext(
+    req.body?.auth_context,
+    req.body?.explorer_api_key
+  );
+  try {
+    const exchangeConnections = await loadExchangeConnections();
+    if (getConnectedExchangeConnections(exchangeConnections).length === 0) {
+      sendError(res, 400, 'connected exchange is required before generating an executable strategy');
+      return;
+    }
+
+    startAgentEventStream(res);
+    let closed = false;
+    res.on('close', () => {
+      closed = true;
+    });
+    const sendEvent = (eventName, payload) => {
+      if (!closed) {
+        writeAgentEvent(res, eventName, payload);
+      }
+    };
+
+    sendEvent('progress', {
+      status: 'running',
+      stage: 'exchange-context',
+      label: `연결 거래소 ${getConnectedExchangeConnections(exchangeConnections).length}개 확인`,
+      timestamp: new Date().toISOString(),
+    });
+
+    const result = await runOrchestrationPipeline({
+      prompt,
+      currentStrategy,
+      authContext,
+      exchangeConnections,
+      onProgress: (event) => sendEvent('progress', withAgentEventTimestamp(event)),
+    });
+    sendEvent('result', makeStrategyDraftResponse(result));
+    sendEvent('done', withAgentEventTimestamp({
+      status: 'done',
+      stage: 'done',
+      label: '전략 생성 완료',
+    }));
+    res.end();
+  } catch (error) {
+    if (res.headersSent) {
+      const failure = buildAIFailurePayload(error, 'ai generation failed');
+      writeAgentEvent(res, 'error', {
+        status: 'error',
+        stage: 'error',
+        label: '전략 생성 실패',
+        message: failure.payload.message,
+        ...(failure.payload.logicErrorLog ? { logicErrorLog: failure.payload.logicErrorLog } : {}),
+        timestamp: new Date().toISOString(),
+      });
+      res.end();
+      return;
+    }
     sendAIFailure(res, error, 'ai generation failed');
   }
 });
@@ -399,41 +701,12 @@ app.use('/api/host', express.raw({ type: '*/*', limit: '32mb' }), async (req, re
   }
 });
 
-let vite;
-if (!IS_PRODUCTION) {
-  const { createServer } = await import('vite');
-  vite = await createServer({
-    root: __dirname,
-    appType: 'spa',
-    server: {
-      middlewareMode: true,
-    },
-  });
-  app.use(vite.middlewares);
-} else {
-  const distDir = path.resolve(__dirname, 'dist');
-  app.use(express.static(distDir, { index: false }));
-}
-
 app.use('/api', (_req, res) => {
   sendError(res, 404, 'api route not found');
 });
 
-app.use('*', async (req, res, next) => {
-  try {
-    const indexPath = IS_PRODUCTION
-      ? path.resolve(__dirname, 'dist/index.html')
-      : path.resolve(__dirname, 'index.html');
-
-    let html = await fs.readFile(indexPath, 'utf8');
-    if (!IS_PRODUCTION && vite) {
-      html = await vite.transformIndexHtml(req.originalUrl, html);
-    }
-
-    res.status(200).set({ 'Content-Type': 'text/html; charset=utf-8' }).end(html);
-  } catch (error) {
-    next(error);
-  }
+app.all(/.*/, (req, res) => {
+  return nextHandler(req, res);
 });
 
 app.use((error, _req, res, _next) => {
@@ -897,12 +1170,247 @@ async function loadHershyLibraryContext() {
   return hershyContextCachePromise;
 }
 
-function sendError(res, code, message) {
+function sendError(res, code, message, extra = {}) {
   res.status(code).json({
     error: statusText(code),
     code,
     message,
+    ...(normalizeObject(extra) || {}),
   });
+}
+
+function buildAIFailurePayload(error, prefix) {
+  let status = 502;
+  let message = `${prefix}: ${error?.message || 'unknown error'}`;
+
+  if (isTimeoutError(error)) {
+    status = 504;
+    message = `${prefix}: AI provider request timed out. Increase DEEPSEEK_TIMEOUT_SEC or AI_STRATEGY_DEEPSEEK_TIMEOUT_SEC if this strategy needs a longer repair loop.`;
+  } else if (error instanceof UpstreamHTTPError) {
+    if (error.status === 429) {
+      status = 429;
+    } else if (error.status === 401 || error.status === 403) {
+      status = 401;
+    } else if (error.status === 400) {
+      status = 400;
+    }
+    message = `${prefix}: ${error.message}`;
+  }
+
+  return {
+    status,
+    payload: {
+      error: statusText(status),
+      code: status,
+      message,
+      ...(error?.logicErrorLog ? { logicErrorLog: error.logicErrorLog } : {}),
+    },
+  };
+}
+
+function resolveLayerModelForLog(layer, provider) {
+  const prefix = normalizeText(provider).toUpperCase();
+  return layerEnv(layer, `${prefix}_MODEL`)
+    || layerEnv(layer, 'MODEL')
+    || normalizeText(process.env[`${prefix}_MODEL`])
+    || '';
+}
+
+function makeStrategyDraftResponse(result) {
+  return {
+    strategy: result.strategy,
+    research: result.research,
+    orchestration: result.orchestration,
+    source: result.source,
+    model: result.models?.strategy || result.models?.orchestrator || '',
+    providers: result.providers,
+    models: result.models,
+    reasoning: result.reasoning,
+    validation: result.validation,
+    runtime: result.runtime,
+    overview: result.overview,
+    message: 'AI strategy draft generated (orchestrated)',
+  };
+}
+
+function clampInteger(value, min, max) {
+  const number = Number(value);
+  if (!Number.isFinite(number)) return min;
+  return Math.max(min, Math.min(max, Math.trunc(number)));
+}
+
+function makeStrategyLogicErrorRunID() {
+  return `logic-${new Date().toISOString().replace(/[:.]/g, '-')}-${crypto.randomUUID().slice(0, 8)}`;
+}
+
+function summarizeStrategyGraphForLogicLog(strategy) {
+  return {
+    strategy: strategy?.strategy,
+    summary: strategy?.summary,
+    blocks: Array.isArray(strategy?.blocks)
+      ? strategy.blocks.map((block) => ({
+        id: block.id,
+        type: block.type,
+        kind: block.kind,
+        config: normalizeConfigObject(block.config),
+        inputBlocks: block.inputBlocks,
+        outputBlocks: block.outputBlocks,
+      }))
+      : [],
+    connections: Array.isArray(strategy?.connections)
+      ? strategy.connections.map((connection) => ({ ...connection }))
+      : [],
+  };
+}
+
+function summarizeLogicErrorLogEntry(entry) {
+  return {
+    timestamp: entry.timestamp,
+    runId: entry.runId,
+    attempt: entry.attempt,
+    maxAttempts: entry.maxAttempts,
+    stage: entry.stage,
+    provider: entry.provider,
+    model: entry.model,
+    issueCount: entry.issueCount,
+    issues: entry.issues,
+    validation: entry.validation
+      ? {
+        ok: entry.validation.ok,
+        command: entry.validation.command,
+        issues: entry.validation.issues,
+      }
+      : undefined,
+  };
+}
+
+function makeStrategyValidationError(message, logicErrorLog) {
+  const error = new Error(message);
+  error.logicErrorLog = logicErrorLog;
+  return error;
+}
+
+async function appendStrategyLogicErrorLog(entry) {
+  await fs.mkdir(path.dirname(AI_STRATEGY_LOGIC_ERROR_LOG_PATH), { recursive: true });
+  await fs.appendFile(
+    AI_STRATEGY_LOGIC_ERROR_LOG_PATH,
+    `${JSON.stringify(entry)}\n`,
+    'utf8',
+  );
+}
+
+async function recordStrategyLogicError({
+  runId,
+  attempt,
+  maxAttempts,
+  stage,
+  prompt,
+  provider,
+  model,
+  issues = [],
+  logicLintIssues = [],
+  validation = null,
+  strategy = null,
+  intentPlan = null,
+  logicIR = null,
+}) {
+  const entry = {
+    timestamp: new Date().toISOString(),
+    runId,
+    attempt,
+    maxAttempts,
+    stage,
+    provider,
+    model,
+    prompt: trimForLog(prompt, 8000),
+    issueCount: issues.length,
+    issues,
+    logicLintIssues,
+    validation: validation
+      ? {
+        ok: validation.ok,
+        command: validation.command,
+        issues: validation.issues,
+        stdout: validation.stdout,
+        stderr: validation.stderr,
+      }
+      : null,
+    intentPlan,
+    logicIR,
+    strategy: summarizeStrategyGraphForLogicLog(strategy),
+  };
+  await appendStrategyLogicErrorLog(entry);
+  return summarizeLogicErrorLogEntry(entry);
+}
+
+async function readStrategyLogicErrorLog({ limit = 100, runId = '' } = {}) {
+  let raw = '';
+  try {
+    raw = await fs.readFile(AI_STRATEGY_LOGIC_ERROR_LOG_PATH, 'utf8');
+  } catch (error) {
+    if (error?.code === 'ENOENT') return [];
+    throw error;
+  }
+
+  const parsed = raw
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter(Boolean)
+    .map((line) => {
+      try {
+        return JSON.parse(line);
+      } catch {
+        return null;
+      }
+    })
+    .filter(Boolean)
+    .filter((entry) => !runId || entry.runId === runId);
+  return parsed.slice(-limit);
+}
+
+function emitAgentProgress(onProgress, event) {
+  if (typeof onProgress !== 'function') {
+    return;
+  }
+  try {
+    onProgress({
+      status: normalizeText(event.status) || 'running',
+      stage: normalizeText(event.stage) || 'running',
+      label: normalizeText(event.label) || '에이전트 실행 중',
+      ...(event.detail === undefined ? {} : { detail: event.detail }),
+    });
+  } catch {
+    // Progress reporting should never interrupt strategy generation.
+  }
+}
+
+function startAgentEventStream(res) {
+  res.status(200);
+  res.set({
+    'Content-Type': 'text/event-stream; charset=utf-8',
+    'Cache-Control': 'no-cache, no-transform',
+    Connection: 'keep-alive',
+    'X-Accel-Buffering': 'no',
+  });
+  res.flushHeaders?.();
+}
+
+function withAgentEventTimestamp(event = {}) {
+  return {
+    status: normalizeText(event.status) || 'running',
+    stage: normalizeText(event.stage) || 'running',
+    label: normalizeText(event.label) || '에이전트 실행 중',
+    timestamp: new Date().toISOString(),
+    ...(event.detail === undefined ? {} : { detail: event.detail }),
+  };
+}
+
+function writeAgentEvent(res, eventName, payload) {
+  if (res.destroyed || res.writableEnded) {
+    return;
+  }
+  res.write(`event: ${eventName}\n`);
+  res.write(`data: ${stringifyJSON(payload)}\n\n`);
 }
 
 function statusText(code) {
@@ -914,6 +1422,7 @@ function statusText(code) {
     429: 'Too Many Requests',
     500: 'Internal Server Error',
     502: 'Bad Gateway',
+    504: 'Gateway Timeout',
   };
   return table[code] || 'Error';
 }
@@ -950,6 +1459,9 @@ function normalizeAIProviderAlias(rawProvider) {
   if (provider === 'openai') {
     return 'openai';
   }
+  if (provider === 'deepseek' || provider === 'deepseek-api') {
+    return 'deepseek';
+  }
   return provider;
 }
 
@@ -963,6 +1475,9 @@ function resolveAIProvider() {
   }
   if (normalizeText(process.env.GOOGLE_API_KEY) || normalizeText(process.env.GEMINI_API_KEY)) {
     return 'gemini';
+  }
+  if (normalizeText(process.env.DEEPSEEK_API_KEY)) {
+    return 'deepseek';
   }
   if (normalizeText(process.env.OPENAI_API_KEY)) {
     return 'openai';
@@ -1034,6 +1549,10 @@ function resolveOpenAIAPIKey(layer = '') {
   return layerEnv(layer, 'OPENAI_API_KEY') || normalizeText(process.env.OPENAI_API_KEY);
 }
 
+function resolveDeepSeekAPIKey(layer = '') {
+  return layerEnv(layer, 'DEEPSEEK_API_KEY') || normalizeText(process.env.DEEPSEEK_API_KEY);
+}
+
 function resolveOllamaAPIKey(layer = '') {
   return layerEnv(layer, 'OLLAMA_API_KEY') || normalizeText(process.env.OLLAMA_API_KEY);
 }
@@ -1044,6 +1563,530 @@ function resolveCurrentStrategy(raw) {
 
 function normalizeObject(value) {
   return value && typeof value === 'object' && !Array.isArray(value) ? value : null;
+}
+
+function normalizeDelimitedStringArray(value) {
+  if (Array.isArray(value)) {
+    return Array.from(new Set(value.map((item) => normalizeText(item)).filter(Boolean)));
+  }
+  const text = normalizeText(value);
+  if (!text) {
+    return [];
+  }
+  return Array.from(new Set(text.split(/[,\n]/).map((item) => normalizeText(item)).filter(Boolean)));
+}
+
+function normalizeExchangeType(value) {
+  const type = normalizeText(value).toUpperCase();
+  return type === 'DEX' || type === 'RPC' ? type : 'CEX';
+}
+
+function normalizeEndpointURL(value, label, { strict = false } = {}) {
+  const text = normalizeText(value);
+  if (!text) {
+    return '';
+  }
+  try {
+    const parsed = new URL(text);
+    if (!['http:', 'https:', 'ws:', 'wss:'].includes(parsed.protocol)) {
+      throw new Error('unsupported protocol');
+    }
+    return text;
+  } catch {
+    if (strict) {
+      throw new Error(`${label} must be a valid URL starting with http://, https://, ws://, or wss://`);
+    }
+    return '';
+  }
+}
+
+function normalizeCredentialText(value) {
+  return String(value ?? '').trim();
+}
+
+function getExchangeCredentialEncryptionKey() {
+  const configured = normalizeCredentialText(process.env.EXCHANGE_SECRET_KEY);
+  const source = configured || `hershy-local-exchange-key:${os.hostname()}:${os.userInfo().username}:${LOCAL_STATE_DIR}`;
+  return crypto.createHash('sha256').update(source).digest();
+}
+
+function encryptExchangeCredential(value) {
+  const text = normalizeCredentialText(value);
+  if (!text) return '';
+
+  const iv = crypto.randomBytes(12);
+  const cipher = crypto.createCipheriv('aes-256-gcm', getExchangeCredentialEncryptionKey(), iv);
+  const encrypted = Buffer.concat([cipher.update(text, 'utf8'), cipher.final()]);
+  const authTag = cipher.getAuthTag();
+  return [
+    'v1',
+    iv.toString('base64url'),
+    authTag.toString('base64url'),
+    encrypted.toString('base64url'),
+  ].join(':');
+}
+
+function decryptExchangeCredential(value) {
+  const text = normalizeCredentialText(value);
+  if (!text) return '';
+  const [version, ivText, authTagText, encryptedText] = text.split(':');
+  if (version !== 'v1' || !ivText || !authTagText || !encryptedText) {
+    throw new Error('stored exchange credential is not encrypted with the current format');
+  }
+
+  const decipher = crypto.createDecipheriv(
+    'aes-256-gcm',
+    getExchangeCredentialEncryptionKey(),
+    Buffer.from(ivText, 'base64url'),
+  );
+  decipher.setAuthTag(Buffer.from(authTagText, 'base64url'));
+  return Buffer.concat([
+    decipher.update(Buffer.from(encryptedText, 'base64url')),
+    decipher.final(),
+  ]).toString('utf8');
+}
+
+function credentialLast4FromEncrypted(encryptedValue) {
+  try {
+    const raw = decryptExchangeCredential(encryptedValue);
+    return raw ? raw.slice(-4) : '';
+  } catch {
+    return '';
+  }
+}
+
+function buildExchangeCredentialState({
+  rawApiKey,
+  rawApiSecret,
+  apiKeyEncrypted,
+  apiSecretEncrypted,
+  baseCredentials = {},
+}) {
+  const apiKeyLast4 = rawApiKey
+    ? rawApiKey.slice(-4)
+    : normalizeText(baseCredentials.apiKeyLast4) || credentialLast4FromEncrypted(apiKeyEncrypted);
+  return {
+    ...baseCredentials,
+    hasApiKey: Boolean(apiKeyEncrypted),
+    hasApiSecret: Boolean(apiSecretEncrypted),
+    apiKeyLast4,
+    updatedAt: rawApiKey || rawApiSecret ? new Date().toISOString() : normalizeText(baseCredentials.updatedAt),
+    authStatus: normalizeText(baseCredentials.authStatus) || '미검증',
+    authMarket: normalizeText(baseCredentials.authMarket),
+    lastAuthCheckAt: normalizeText(baseCredentials.lastAuthCheckAt),
+    lastAuthError: normalizeText(baseCredentials.lastAuthError),
+  };
+}
+
+function normalizeConnectionStatus(value, hasExecutionEndpoint, { autoConnectOnEndpoint = false } = {}) {
+  const status = normalizeText(value);
+  if (hasExecutionEndpoint && (autoConnectOnEndpoint || status === '연결됨' || status.toLowerCase() === 'connected')) {
+    return '연결됨';
+  }
+  if (status === '대기' || status.toLowerCase() === 'pending') return '대기';
+  return hasExecutionEndpoint && autoConnectOnEndpoint ? '연결됨' : '대기';
+}
+
+function normalizeExchangeConnection(raw, fallback = {}, options = {}) {
+  const body = normalizeObject(raw) || {};
+  const base = normalizeObject(fallback) || {};
+  const name = normalizeText(body.name || base.name);
+  const id = slugifyForPath(body.id || base.id || name, `exchange-${Date.now()}`);
+  const strictURLs = options.strictURLs === true;
+  const rawApiUrl = normalizeText(body.apiUrl || body.api_url || body.restUrl || body.rest_url || base.apiUrl);
+  const apiUrl = normalizeEndpointURL(rawApiUrl, 'REST API URL', { strict: strictURLs && Boolean(rawApiUrl) });
+  const rawRestUrl = normalizeText(body.restUrl || body.rest_url || apiUrl || base.restUrl);
+  const restUrl = normalizeEndpointURL(rawRestUrl, 'REST API URL', { strict: strictURLs && Boolean(rawRestUrl) });
+  const rawWsUrl = normalizeText(body.wsUrl || body.ws_url || body.websocketUrl || body.websocket_url || base.wsUrl);
+  const wsUrl = normalizeEndpointURL(rawWsUrl, 'WebSocket URL', { strict: strictURLs && Boolean(rawWsUrl) });
+  const rawRpcUrl = normalizeText(body.rpcUrl || body.rpc_url || base.rpcUrl);
+  const rpcUrl = normalizeEndpointURL(rawRpcUrl, 'RPC URL', { strict: strictURLs && Boolean(rawRpcUrl) });
+  const rawMarketDataUrl = normalizeText(body.marketDataUrl || body.market_data_url || body.publicUrl || body.public_url || base.marketDataUrl);
+  const marketDataUrl = normalizeEndpointURL(rawMarketDataUrl, 'Market data URL', { strict: strictURLs && Boolean(rawMarketDataUrl) });
+  const rawApiKey = normalizeCredentialText(body.apiKey || body.api_key || body.binanceApiKey || body.binance_api_key);
+  const rawApiSecret = normalizeCredentialText(body.apiSecret || body.api_secret || body.secretKey || body.secret_key || body.binanceApiSecret || body.binance_api_secret);
+  const apiKeyEncrypted = rawApiKey
+    ? encryptExchangeCredential(rawApiKey)
+    : normalizeText(body.apiKeyEncrypted || body.api_key_encrypted || base.apiKeyEncrypted || base.api_key_encrypted);
+  const apiSecretEncrypted = rawApiSecret
+    ? encryptExchangeCredential(rawApiSecret)
+    : normalizeText(body.apiSecretEncrypted || body.api_secret_encrypted || base.apiSecretEncrypted || base.api_secret_encrypted);
+  const hasAnyEndpoint = Boolean(apiUrl || restUrl || wsUrl || rpcUrl || marketDataUrl);
+  const hasExecutionEndpoint = Boolean(apiUrl || restUrl || rpcUrl);
+  const now = new Date().toISOString();
+
+  if (!name) {
+    throw new Error('exchange name is required');
+  }
+  if (!hasAnyEndpoint && !base.id) {
+    throw new Error('apiUrl, wsUrl, rpcUrl, or marketDataUrl is required');
+  }
+  if (strictURLs && !hasExecutionEndpoint) {
+    throw new Error('REST API URL or RPC URL is required for executable AI strategy generation');
+  }
+
+  return {
+    ...base,
+    id,
+    name,
+    type: normalizeExchangeType(body.type || base.type),
+    status: normalizeConnectionStatus(body.status || base.status, hasExecutionEndpoint, {
+      autoConnectOnEndpoint: options.autoConnectOnEndpoint === true,
+    }),
+    scopes: normalizeDelimitedStringArray(body.scopes).length > 0
+      ? normalizeDelimitedStringArray(body.scopes)
+      : normalizeDelimitedStringArray(base.scopes).length > 0
+        ? normalizeDelimitedStringArray(base.scopes)
+        : ['Read'],
+    color: normalizeText(body.color || base.color) || 'slate',
+    apiUrl,
+    restUrl,
+    wsUrl,
+    rpcUrl,
+    marketDataUrl,
+    apiKeyEncrypted,
+    apiSecretEncrypted,
+    credentials: buildExchangeCredentialState({
+      rawApiKey,
+      rawApiSecret,
+      apiKeyEncrypted,
+      apiSecretEncrypted,
+      baseCredentials: normalizeObject(body.credentials) || normalizeObject(base.credentials) || {},
+    }),
+    updatedAt: now,
+    createdAt: normalizeText(base.createdAt) || now,
+  };
+}
+
+function serializeExchangeConnection(connection) {
+  const serialized = {
+    ...connection,
+    credentials: buildExchangeCredentialState({
+      rawApiKey: '',
+      rawApiSecret: '',
+      apiKeyEncrypted: connection.apiKeyEncrypted,
+      apiSecretEncrypted: connection.apiSecretEncrypted,
+      baseCredentials: normalizeObject(connection.credentials) || {},
+    }),
+  };
+  delete serialized.apiKey;
+  delete serialized.apiKeyEncrypted;
+  delete serialized.api_key;
+  delete serialized.api_key_encrypted;
+  delete serialized.apiSecret;
+  delete serialized.apiSecretEncrypted;
+  delete serialized.api_secret;
+  delete serialized.api_secret_encrypted;
+  delete serialized.secretKey;
+  delete serialized.secret_key;
+  delete serialized.binanceApiKey;
+  delete serialized.binance_api_key;
+  delete serialized.binanceApiSecret;
+  delete serialized.binance_api_secret;
+  return serialized;
+}
+
+function serializeExchangeConnections(connections) {
+  return (Array.isArray(connections) ? connections : []).map(serializeExchangeConnection);
+}
+
+function mergeExchangeConnections(savedConnections = []) {
+  const byId = new Map(DEFAULT_EXCHANGE_CONNECTIONS.map((connection) => [
+    connection.id,
+    normalizeExchangeConnection(connection, connection),
+  ]));
+  for (const saved of savedConnections) {
+    const existing = byId.get(normalizeText(saved?.id));
+    const normalized = normalizeExchangeConnection(saved, existing || {}, { autoConnectOnEndpoint: true });
+    byId.set(normalized.id, normalized);
+  }
+  return Array.from(byId.values());
+}
+
+async function readSavedExchangeConnections() {
+  try {
+    const raw = await fs.readFile(EXCHANGE_CONNECTIONS_PATH, 'utf8');
+    const parsed = parseJSON(raw, 'exchange connections');
+    return Array.isArray(parsed?.connections) ? parsed.connections : [];
+  } catch (error) {
+    if (error?.code === 'ENOENT') {
+      return [];
+    }
+    throw error;
+  }
+}
+
+async function writeSavedExchangeConnections(connections) {
+  await fs.mkdir(LOCAL_STATE_DIR, { recursive: true });
+  await fs.writeFile(
+    EXCHANGE_CONNECTIONS_PATH,
+    `${stringifyPrettyJSON({ connections })}\n`,
+    'utf8',
+  );
+}
+
+async function loadExchangeConnections() {
+  return mergeExchangeConnections(await readSavedExchangeConnections());
+}
+
+async function upsertExchangeConnection(raw) {
+  const savedConnections = await readSavedExchangeConnections();
+  const allConnections = mergeExchangeConnections(savedConnections);
+  const rawID = normalizeText(raw?.id);
+  const rawName = normalizeText(raw?.name);
+  const existing = allConnections.find((connection) =>
+    connection.id === rawID ||
+    connection.name.toLowerCase() === rawName.toLowerCase());
+  const normalized = normalizeExchangeConnection(raw, existing || {}, {
+    strictURLs: true,
+    autoConnectOnEndpoint: true,
+  });
+  const nextSaved = [
+    ...savedConnections.filter((connection) => normalizeText(connection?.id) !== normalized.id),
+    normalized,
+  ];
+  await writeSavedExchangeConnections(nextSaved);
+  return normalized;
+}
+
+async function patchExchangeConnection(id, patch) {
+  const normalizedID = normalizeText(id);
+  const savedConnections = await readSavedExchangeConnections();
+  const allConnections = mergeExchangeConnections(savedConnections);
+  const existing = allConnections.find((connection) => connection.id === normalizedID);
+  if (!existing) {
+    throw new Error('exchange connection not found');
+  }
+
+  const normalized = normalizeExchangeConnection(
+    {
+      ...existing,
+      ...(normalizeObject(patch) || {}),
+      credentials: {
+        ...(normalizeObject(existing.credentials) || {}),
+        ...(normalizeObject(patch?.credentials) || {}),
+      },
+    },
+    existing,
+    { autoConnectOnEndpoint: true },
+  );
+  const nextSaved = [
+    ...savedConnections.filter((connection) => normalizeText(connection?.id) !== normalized.id),
+    normalized,
+  ];
+  await writeSavedExchangeConnections(nextSaved);
+  return normalized;
+}
+
+function getConnectedExchangeConnections(connections) {
+  return (Array.isArray(connections) ? connections : [])
+    .filter((connection) => normalizeText(connection.status) === '연결됨');
+}
+
+function resolveExchangeCredentialPair(connection) {
+  const apiKey = decryptExchangeCredential(connection.apiKeyEncrypted);
+  const apiSecret = decryptExchangeCredential(connection.apiSecretEncrypted);
+  if (!apiKey || !apiSecret) {
+    throw new Error('Binance API Key and Secret must be saved before signed requests can be used');
+  }
+  return { apiKey, apiSecret };
+}
+
+function buildSignedBinanceQuery(params, apiSecret) {
+  const searchParams = new URLSearchParams();
+  Object.entries(params)
+    .filter(([, value]) => value !== undefined && value !== null && value !== '')
+    .sort(([left], [right]) => left.localeCompare(right))
+    .forEach(([key, value]) => searchParams.append(key, String(value)));
+  const query = searchParams.toString();
+  const signature = crypto.createHmac('sha256', apiSecret).update(query).digest('hex');
+  searchParams.append('signature', signature);
+  return searchParams.toString();
+}
+
+function getBinanceBaseURL(connection, market) {
+  const configured = normalizeText(connection.apiUrl || connection.restUrl);
+  if (configured) return configured;
+  return market === 'futures' ? 'https://fapi.binance.com' : 'https://api.binance.com';
+}
+
+async function binanceSignedRestRequest(connection, {
+  market = 'spot',
+  method = 'GET',
+  endpoint = '/api/v3/account',
+  params = {},
+} = {}) {
+  const { apiKey, apiSecret } = resolveExchangeCredentialPair(connection);
+  const url = new URL(endpoint, getBinanceBaseURL(connection, market));
+  url.search = buildSignedBinanceQuery(
+    {
+      recvWindow: 5000,
+      timestamp: Date.now(),
+      ...params,
+    },
+    apiSecret,
+  );
+
+  const response = await fetch(url, {
+    method,
+    headers: {
+      'X-MBX-APIKEY': apiKey,
+      'Content-Type': 'application/json',
+    },
+  });
+  const rawText = await response.text();
+  const data = parseJSON(rawText, 'Binance response');
+  if (!response.ok) {
+    const message = normalizeText(data?.msg || data?.message) || `HTTP ${response.status}`;
+    throw new Error(`${message} (${response.status})`);
+  }
+  return { status: response.status, data };
+}
+
+async function testBinanceSignedConnection(connection, { market = 'spot' } = {}) {
+  const name = normalizeText(connection.name || connection.id).toLowerCase();
+  if (!name.includes('binance')) {
+    throw new Error('Binance signed request test is only available for Binance connections');
+  }
+  return binanceSignedRestRequest(connection, {
+    market,
+    endpoint: market === 'futures' ? '/fapi/v2/account' : '/api/v3/account',
+  });
+}
+
+function summarizeBinanceAccount(data, market) {
+  if (!data || typeof data !== 'object') {
+    return { market };
+  }
+  return {
+    market,
+    canTrade: data.canTrade,
+    accountType: data.accountType,
+    permissions: Array.isArray(data.permissions) ? data.permissions : undefined,
+    assets: Array.isArray(data.balances)
+      ? data.balances.length
+      : Array.isArray(data.assets)
+        ? data.assets.length
+        : undefined,
+    updateTime: data.updateTime,
+  };
+}
+
+function redactURLForAI(rawURL) {
+  const text = normalizeText(rawURL);
+  if (!text) return '';
+  try {
+    const parsed = new URL(text);
+    return `${parsed.protocol}//${parsed.host}`;
+  } catch {
+    return 'configured';
+  }
+}
+
+function buildConnectedExchangeContextForAI(connections) {
+  return getConnectedExchangeConnections(connections).map((connection) => ({
+    id: connection.id,
+    name: connection.name,
+    type: connection.type,
+    scopes: connection.scopes,
+    configuredEndpoints: {
+      api: Boolean(connection.apiUrl || connection.restUrl),
+      websocket: Boolean(connection.wsUrl),
+      rpc: Boolean(connection.rpcUrl),
+      marketData: Boolean(connection.marketDataUrl),
+    },
+    endpointHosts: {
+      api: redactURLForAI(connection.apiUrl || connection.restUrl),
+      websocket: redactURLForAI(connection.wsUrl),
+      rpc: redactURLForAI(connection.rpcUrl),
+      marketData: redactURLForAI(connection.marketDataUrl),
+    },
+    credentials: {
+      apiKey: Boolean(connection.apiKeyEncrypted),
+      apiSecret: Boolean(connection.apiSecretEncrypted),
+      authStatus: normalizeText(connection.credentials?.authStatus) || '미검증',
+    },
+  }));
+}
+
+function exchangeNameAliases(connection) {
+  return [
+    connection.id,
+    connection.name,
+    `${connection.name} Futures`,
+    `${connection.name} Perp`,
+  ].map(normalizeToken).filter(Boolean);
+}
+
+function isActionUsingConnectedExchange(action, connections) {
+  const connected = getConnectedExchangeConnections(connections);
+  if (connected.length === 0) return false;
+  const config = normalizeConfigObject(action?.config);
+  const actionExchange = normalizeToken(firstConfigText(config, ['connectionId', 'exchange', 'venue', 'adapter', 'chain', 'network'], ''));
+  if (!actionExchange) return false;
+  return connected.some((connection) => exchangeNameAliases(connection).includes(actionExchange));
+}
+
+function formatMarketPrice(value, symbol) {
+  const numeric = Number(value);
+  if (!Number.isFinite(numeric)) return '0.00';
+  if (/XRP|DOGE|PEPE|SHIB/i.test(symbol)) {
+    return numeric.toLocaleString('en-US', { minimumFractionDigits: 4, maximumFractionDigits: 6 });
+  }
+  return numeric.toLocaleString('en-US', { minimumFractionDigits: 1, maximumFractionDigits: 2 });
+}
+
+function formatMarketChange(value) {
+  const numeric = Number(value);
+  if (!Number.isFinite(numeric)) return '+0.00%';
+  return `${numeric >= 0 ? '+' : ''}${numeric.toFixed(2)}%`;
+}
+
+async function fetchJSONWithTimeout(url, timeoutMs = 6000) {
+  const response = await fetch(url, { signal: AbortSignal.timeout(timeoutMs) });
+  if (!response.ok) {
+    throw new Error(`${url} returned ${response.status}`);
+  }
+  return response.json();
+}
+
+async function fetchMarketOverviewRows() {
+  const [btc, eth, xrp, xrpPerp, gecko] = await Promise.allSettled([
+    fetchJSONWithTimeout('https://api.binance.com/api/v3/ticker/24hr?symbol=BTCUSDT', 8000),
+    fetchJSONWithTimeout('https://api.binance.com/api/v3/ticker/24hr?symbol=ETHUSDT', 8000),
+    fetchJSONWithTimeout('https://api.binance.com/api/v3/ticker/24hr?symbol=XRPUSDT', 8000),
+    fetchJSONWithTimeout('https://fapi.binance.com/fapi/v1/ticker/24hr?symbol=XRPUSDT', 8000),
+    fetchJSONWithTimeout('https://api.coingecko.com/api/v3/simple/price?ids=bitcoin,ethereum,ripple&vs_currencies=usd&include_24hr_change=true', 8000),
+  ]);
+  const geckoValue = gecko.status === 'fulfilled' ? gecko.value : {};
+  const bySymbol = new Map([
+    ['BTCUSDT', btc.status === 'fulfilled' ? btc.value : null],
+    ['ETHUSDT', eth.status === 'fulfilled' ? eth.value : null],
+    ['XRPUSDT', xrp.status === 'fulfilled' ? xrp.value : null],
+    ['XRPUSDT.P', xrpPerp.status === 'fulfilled' ? xrpPerp.value : null],
+  ]);
+  const geckoBySymbol = {
+    BTCUSDT: geckoValue?.bitcoin ? { lastPrice: geckoValue.bitcoin.usd, priceChangePercent: geckoValue.bitcoin.usd_24h_change } : null,
+    ETHUSDT: geckoValue?.ethereum ? { lastPrice: geckoValue.ethereum.usd, priceChangePercent: geckoValue.ethereum.usd_24h_change } : null,
+    XRPUSDT: geckoValue?.ripple ? { lastPrice: geckoValue.ripple.usd, priceChangePercent: geckoValue.ripple.usd_24h_change } : null,
+    'XRPUSDT.P': geckoValue?.ripple ? { lastPrice: geckoValue.ripple.usd, priceChangePercent: geckoValue.ripple.usd_24h_change } : null,
+  };
+  const rows = DEFAULT_MARKET_OVERVIEW_ROWS.map((base) => {
+    const source = bySymbol.get(base.symbol) || geckoBySymbol[base.symbol];
+    const change = Number(source?.priceChangePercent);
+    return {
+      ...base,
+      price: formatMarketPrice(source?.lastPrice, base.symbol),
+      change: formatMarketChange(change),
+      tone: change >= 0 ? 'up' : 'down',
+      source: source === geckoBySymbol[base.symbol] ? 'CoinGecko' : base.source,
+    };
+  });
+  return {
+    updatedAt: new Date().toISOString(),
+    source: 'public-market-ticker',
+    rows,
+  };
 }
 
 function mergeExplorerKeyIntoAuthContext(rawAuthContext, rawExplorerAPIKey) {
@@ -1062,20 +2105,21 @@ function mergeExplorerKeyIntoAuthContext(rawAuthContext, rawExplorerAPIKey) {
   };
 }
 
+function isTimeoutError(error) {
+  const name = normalizeText(error?.name).toLowerCase();
+  const code = normalizeText(error?.code).toLowerCase();
+  const message = normalizeText(error?.message).toLowerCase();
+  return (
+    name === 'timeouterror' ||
+    code === 'abort_err' ||
+    code === 'etimedout' ||
+    /timeout|timed out|aborted due to timeout/.test(message)
+  );
+}
+
 function sendAIFailure(res, error, prefix) {
-  if (error instanceof UpstreamHTTPError) {
-    let status = 502;
-    if (error.status === 429) {
-      status = 429;
-    } else if (error.status === 401 || error.status === 403) {
-      status = 401;
-    } else if (error.status === 400) {
-      status = 400;
-    }
-    sendError(res, status, `${prefix}: ${error.message}`);
-    return;
-  }
-  sendError(res, 502, `${prefix}: ${error?.message || 'unknown error'}`);
+  const { status, payload } = buildAIFailurePayload(error, prefix);
+  res.status(status).json(payload);
 }
 
 function resolveExplorerAPIKeyFromAuthContext(authContext) {
@@ -1259,17 +2303,26 @@ function detectChainHints(text) {
   return Array.from(new Set(hints));
 }
 
+function shouldDefaultResearchPrompt(prompt) {
+  const lower = normalizeText(prompt).toLowerCase();
+  if (extractEVMAddresses(prompt).length > 0) {
+    return true;
+  }
+  return /\b(smart\s*contract|contract|web3|dex|uniswap|aave|curve|compound|lido|pool|router|vault|token\s*address|abi|onchain|온체인|컨트랙트|주소|디파이)\b/.test(lower);
+}
+
 function buildDefaultOrchestrationPlan(prompt) {
+  const needResearch = shouldDefaultResearchPrompt(prompt);
   return {
     mode: 'research_then_strategy',
-    needResearch: true,
-    researchTasks: [
+    needResearch,
+    researchTasks: needResearch ? [
       {
         kind: 'contract_discovery',
         query: normalizeText(prompt),
         priority: 'high'
       }
-    ],
+    ] : [],
     strategyTasks: [
       'Use verified contracts when available',
       'Do not fabricate addresses or URLs',
@@ -1288,7 +2341,7 @@ function normalizeOrchestrationPlan(rawPlan, prompt) {
   }
 
   const needResearchRaw = plan.needResearch;
-  let needResearch = true;
+  let needResearch = fallback.needResearch;
   if (typeof needResearchRaw === 'boolean') {
     needResearch = needResearchRaw;
   } else if (typeof needResearchRaw === 'string') {
@@ -1681,19 +2734,46 @@ async function fetchExplorerABIV2(chain, address, requestExplorerAPIKey = '') {
 
 function buildAIStrategySystemPrompt() {
   return String.raw`
-You generate strategy JSON for Hershy runner.
+You generate semantic strategy packages for Hershy runner.
 Return only valid JSON (no markdown).
 Response MUST be a single JSON object with no prose before/after it.
 
 Required top-level object:
 {
-  "schemaVersion": 1,
-  "kind": "hershy-strategy-graph",
-  "strategy": {"id": "string", "name": "string"},
-  "generatedAt": "ISO8601",
-  "summary": {"blocks": number, "connections": number, "byType": {"streaming": number, "normal": number, "trigger": number, "action": number, "monitoring": number}},
-  "blocks": [...],
-  "connections": [...]
+  "intentPlan": {
+    "intentSummary": "string",
+    "detectedStrategyKinds": ["open string hints only, not source of truth"],
+    "requiredConcepts": ["string"],
+    "requiredComputationNodes": ["string"],
+    "requiredTriggerTypes": ["condition|time"],
+    "forbiddenShortcuts": ["string"]
+  },
+  "logicIR": {
+    "intentSummary": "string",
+    "classification": {"primary": "open string hint", "tags": ["open string"], "confidence": number},
+    "requirements": [
+      {"id": "string", "kind": "requires_data|requires_computation|requires_predicate|requires_trigger|requires_action|requires_action_result|requires_risk_control", "semanticType": "open string", "inputs": ["string"], "reason": "string"}
+    ],
+    "nodes": [
+      {"id": "string", "nodeCategory": "data_feed|compute|predicate|trigger|action|risk_control|monitoring", "semanticType": "open string", "label": "string", "expression": "string", "inputs": ["string"], "outputs": ["string"], "triggerType": "condition|time|event", "actionType": "cex_order|dex_swap|close_position|cancel_order|notify|custom", "config": {}}
+    ],
+    "edges": [
+      {"from": "string", "to": "string", "kind": "data|signal|predicate|trigger|action-input|action-result|state"}
+    ],
+    "invariants": [{"id": "string", "description": "string"}],
+    "assumptions": ["string"],
+    "unresolved": ["string"]
+  },
+  "runtimeGraph": {
+    "schemaVersion": 1,
+    "kind": "hershy-strategy-graph",
+    "strategy": {"id": "string", "name": "string"},
+    "generatedAt": "ISO8601",
+    "metadata": {"strategyKind": "string", "requiredSignals": ["string"], "requiredTriggerTypes": ["string"], "sourcePrompt": "string"},
+    "summary": {"blocks": number, "connections": number, "byType": {"streaming": number, "normal": number, "trigger": number, "action": number, "monitoring": number}},
+    "blocks": [...],
+    "connections": [...]
+  }
 }
 
 Validation constraints:
@@ -1701,11 +2781,33 @@ Validation constraints:
 - at least 1 trigger block
 - at least 1 action block
 - each action should have at least one incoming trigger-action connection
+- each action must also have at least one incoming action-input connection from streaming or normal
+- condition/manual triggers must connect to an action via trigger-action
+- time triggers that only gate condition triggers should connect with trigger-input from the time trigger to the condition trigger; do not create normal "time pulse" formula nodes
+- every monitoring block must have an incoming stream-monitor connection
+- every streaming and normal block must be consumed by action-input, data-flow, trigger condition, or stream-monitor
+- supported connection kinds are only trigger-action, trigger-input, action-input, data-flow, action-result, stream-monitor
+- streaming.config.updateIntervalMs is required
+- trigger.config.triggerType="condition" requires non-empty trigger.config.condition
+- Logic IR is not a strategy-template selector. classification is only a hint; requirements, nodes, edges, and invariants are the source of truth.
+- Logic node categories are fixed: data_feed, compute, predicate, trigger, action, risk_control, monitoring. semanticType is an open string.
+- For non-pure-execution strategies, canonical flow is: Data Feed -> Compute / Formula / Indicator -> Predicate / Trigger -> Action.
+- For strategies that require a formula or indicator, create a normal block with config.expression/formula/code and connect inputs with data-flow. Do not connect raw feeds directly to CEX/DEX when an intermediate formula is required.
+- For spot/perp basis, create a basis formula node first, e.g. normal.config.expression="(perp::lastPrice - spot::lastPrice) / spot::lastPrice"; then connect basis -> trigger and trigger -> action.
+- For basis/spread/indicator strategies, condition triggers must reference computed signal nodes, not raw feed fields directly.
+- Actions are not terminal nodes. If a later action depends on an earlier action, connect action outputs with action-result to normal/trigger/monitoring, then require a confirmation trigger before the next action.
+- Use action-result only from action blocks to normal, trigger, or monitoring blocks. Never connect action directly to action.
+- Every strategy MUST include an explicit kill switch: a condition trigger for manual halt plus strategy-specific fail-safe conditions such as max drawdown, stale data, disconnect, or failed hedge; it must connect via trigger-action to a close/cancel/reduce-only action that can stop the strategy and unwind/cancel open exposure.
+- CEX action outputBlocks should include orderId, status, filledQty, avgFillPrice. DEX action outputBlocks should include txHash, status, amountOut, executionPrice.
+- If execution is driven by time, schedule, interval, cadence, DCA timing, cron, or "every N minutes/hours/days", use a trigger block with config.triggerType="time" and config.intervalMs set to the cadence in milliseconds.
+- If a condition should only be evaluated on that cadence, connect the time trigger to the condition trigger with trigger-input. Do not create a separate normal block for DCA interval/cadence/time-pulse/time period.
+- Easy view will abstract non-adjustable pipeline nodes. Keep CEX/DEX action configs concrete and parameterized; keep branch conditions explicit so easy view can split paths when logic branches.
 - include position {x,y} for each block
-`.trim();
+- runtimeGraph must pass: cd examples/strategy-runner && go run ./cmd/strategy-validate --file <json>
+	`.trim();
 }
 
-async function buildAIStrategyUserPrompt(prompt, currentStrategy, researchBundle, orchestrationPlan) {
+async function buildAIStrategyUserPrompt(prompt, currentStrategy, researchBundle, orchestrationPlan, exchangeConnections = []) {
   let text = `User request:\n${normalizeText(prompt)}`;
   const hershyContext = await loadHershyLibraryContext();
   if (hershyContext) {
@@ -1720,8 +2822,186 @@ async function buildAIStrategyUserPrompt(prompt, currentStrategy, researchBundle
   if (researchBundle && typeof researchBundle === 'object') {
     text += `\n\nResearch bundle:\n${trimForLog(stringifyJSON(researchBundle), 24000)}`;
   }
+  const connectedExchangeContext = buildConnectedExchangeContextForAI(exchangeConnections);
+  text += `\n\nConnected exchange/API context (hard constraint):\n${trimForLog(stringifyJSON(connectedExchangeContext), 10000)}`;
+  text += '\nYou MUST create executable action blocks only for the connected exchanges listed above. Use config.exchange and/or config.connectionId that exactly matches a listed name/id. Do not invent venues. Do not include raw private API/RPC URLs in generated strategy JSON.';
   text += '\n\nRules: use verified contracts from research if available; do not invent contract addresses or URLs.';
-  text += '\nReturn a complete strategy graph JSON object.';
+  text += '\nReturn a complete semantic strategy package object with intentPlan, logicIR, and runtimeGraph.';
+  return text;
+}
+
+function buildStrategyOverviewSystemPrompt() {
+  return String.raw`
+You write block-level UI overview copy for a trading strategy graph.
+Return only valid JSON.
+Every sentence must be specific to the given strategy and block. Do not write generic product explanations.
+Use Korean.
+
+Return shape:
+{
+  "strategySummary": "one short Korean sentence",
+  "blocks": [
+    {
+      "id": "must match an existing runtimeGraph block id",
+      "description": "one short sentence shown in selected block card",
+      "roleDescription": "1-2 sentences explaining exactly what this block does in this strategy",
+      "tradingCriterion": "only for action blocks: the condition/time/risk criterion that causes this trade to execute. Empty string for non-action blocks.",
+      "inputSummary": "one short sentence naming the concrete inputs this block uses",
+      "outputSummary": "one short sentence naming the concrete values/results this block produces"
+    }
+  ]
+}
+
+Rules:
+- Include one entry for every runtimeGraph block.
+- Do not mention "trigger-action", "data-flow", "runtimeGraph", or internal schema terms.
+- For CEX/DEX action blocks, tradingCriterion must explain when that order/swap runs in this strategy.
+- For non-action blocks, tradingCriterion must be "".
+- Easy view abstraction rule: any block that does not expose user-adjustable CEX/DEX parameters may be summarized into a higher-level strategy stage.
+- Write non-action descriptions so they compose well when grouped with neighboring data/feed/formula/trigger blocks.
+- If a trigger/condition branches into multiple paths, describe each branch by its actual outcome so the easy view can split the abstraction into separate paths.
+- Prefer trader language: 시세, 베이시스, 진입, 청산, 리밸런싱, 주문, 체결 결과.
+  `.trim();
+}
+
+function buildStrategyOverviewUserPrompt({ prompt, strategyGraph, logicIR }) {
+  return [
+    `User request:\n${normalizeText(prompt)}`,
+    `Strategy Logic IR:\n${trimForLog(stringifyJSON(logicIR || {}), 10000)}`,
+    `Validated runtimeGraph:\n${trimForLog(stringifyJSON(strategyGraph), 24000)}`,
+  ].join('\n\n');
+}
+
+function enrichStrategyGraphWithOverview(strategyGraph, overviewPayload) {
+  const graph = normalizeObject(strategyGraph) || strategyGraph;
+  const overviewByID = new Map(
+    (Array.isArray(overviewPayload?.blocks) ? overviewPayload.blocks : [])
+      .map((item) => normalizeObject(item))
+      .filter(Boolean)
+      .map((item) => [normalizeText(item.id), item])
+      .filter(([id]) => Boolean(id)),
+  );
+
+  const blocks = Array.isArray(graph.blocks)
+    ? graph.blocks.map((block) => {
+      const overview = overviewByID.get(normalizeText(block?.id));
+      if (!overview) return block;
+      const config = normalizeConfigObject(block.config);
+      const roleDescription = normalizeText(overview.roleDescription);
+      const description = normalizeText(overview.description);
+      const tradingCriterion = normalizeText(overview.tradingCriterion);
+      const inputSummary = normalizeText(overview.inputSummary);
+      const outputSummary = normalizeText(overview.outputSummary);
+      return {
+        ...block,
+        config: {
+          ...config,
+          overviewDescription: description || config.overviewDescription,
+          roleDescription: roleDescription || config.roleDescription,
+          tradingCriterion: normalizeText(block.type) === 'action' ? tradingCriterion : '',
+          inputSummary: inputSummary || config.inputSummary,
+          outputSummary: outputSummary || config.outputSummary,
+        },
+      };
+    })
+    : graph.blocks;
+
+  return {
+    ...graph,
+    metadata: {
+      ...(normalizeObject(graph.metadata) || {}),
+      easyOverviewGenerated: true,
+      easyOverviewSummary: normalizeText(overviewPayload?.strategySummary),
+    },
+    blocks,
+  };
+}
+
+async function runStrategyOverviewLayer({ prompt, strategyGraph, logicIR }) {
+  const response = await callAITextLayer({
+    layer: 'STRATEGY_OVERVIEW',
+    systemPrompt: buildStrategyOverviewSystemPrompt(),
+    userPrompt: buildStrategyOverviewUserPrompt({ prompt, strategyGraph, logicIR }),
+  });
+  const parsed = parseJSONObjectWithSchema(response.text, 'strategy overview', STRATEGY_OVERVIEW_SCHEMA);
+  return {
+    strategy: enrichStrategyGraphWithOverview(strategyGraph, parsed),
+    provider: response.provider,
+    model: response.model,
+    source: response.source,
+    reasoning: buildAIReasoningTrace('strategy-overview', response),
+  };
+}
+
+function buildStrategyRepairSystemPrompt() {
+  return String.raw`
+You repair Hershy strategy JSON so it passes semantic strategy linting and the local strategy-runner validator.
+Return only valid JSON (no markdown, no prose).
+Preserve the user's intent, but change blocks/config/connections as needed.
+Prefer returning the complete semantic package shape {"intentPlan": {...}, "logicIR": {...}, "runtimeGraph": {...}}.
+If you return a bare graph, it must still satisfy every semantic lint issue using the provided intentPlan and logicIR.
+
+Hard validation target:
+- kind must be "hershy-strategy-graph"
+- supported block types: streaming, normal, trigger, action, monitoring
+- supported connection kinds: trigger-action, trigger-input, action-input, data-flow, action-result, stream-monitor
+- every action must have incoming trigger-action and incoming action-input
+- condition/manual triggers must connect to at least one action via trigger-action; time triggers may gate condition triggers via trigger-input
+- every monitoring block must have incoming stream-monitor
+- every streaming/normal block must be consumed
+- no isolated blocks and no disconnected graph components
+- streaming.config.updateIntervalMs is required
+- condition triggers need triggerType="condition" and a non-empty condition, e.g. stream-1::lastPrice > threshold-1
+- Formula/indicator dependencies must be preserved as data-flow connections. Do not bypass required formula nodes by connecting raw market feeds directly to actions.
+- Raw market feeds must flow into formula/indicator nodes first when a derived signal is required. Actions must be downstream of triggers.
+- Use action-input only for data/parameters required by the action. Never use action-input as a substitute for trigger logic.
+- For basis/spread/indicator strategies, condition triggers must reference computed signal nodes, not raw feed fields directly.
+- For action outputs, use action-result from action blocks to normal, trigger, or monitoring blocks.
+- Do not connect action directly to action.
+- If a later action depends on an earlier action result, add a confirmation trigger and any required formula nodes first.
+- Use filledQty, avgFillPrice, status, orderId, txHash, amountOut, executionPrice outputs instead of requested order quantities when chaining fills.
+- Time/schedule/DCA cadence must be represented as one trigger block with triggerType="time" and intervalMs; if it gates a condition, use trigger-input from time trigger to condition trigger. Do not repair it into normal interval/time-pulse + condition trigger.
+- Preserve or add the kill switch. It must remain visible as trigger -> close/cancel action and must be able to halt the strategy for manual stop, drawdown breach, stale data, disconnect, or failed hedge.
+	`.trim();
+}
+
+function buildStrategyRepairUserPrompt({
+  prompt,
+  currentStrategy,
+  researchBundle,
+  orchestrationPlan,
+  intentPlan,
+  logicIR,
+  previousStrategy,
+  logicLintIssues,
+  validation,
+  exchangeConnections = [],
+}) {
+  let text = `Original user request:\n${normalizeText(prompt)}`;
+  if (intentPlan && typeof intentPlan === 'object') {
+    text += `\n\nIntent plan:\n${trimForLog(stringifyPrettyJSON(intentPlan), 12000)}`;
+  }
+  if (logicIR && typeof logicIR === 'object') {
+    text += `\n\nStrategy Logic IR:\n${trimForLog(stringifyPrettyJSON(logicIR), 24000)}`;
+  }
+  text += `\n\nLogic lint issues:\n${formatLogicLintIssues(logicLintIssues || []) || 'none'}`;
+  text += `\n\nValidator command:\n${validation?.command || 'go run ./cmd/strategy-validate --file <strategy.json>'}`;
+  text += `\n\nValidator issues:\n${(validation?.issues || []).map((issue, index) => `${index + 1}. ${issue}`).join('\n') || 'none'}`;
+  text += `\n\nPrevious invalid strategy JSON:\n${trimForLog(stringifyPrettyJSON(previousStrategy), 50000)}`;
+  if (currentStrategy && typeof currentStrategy === 'object') {
+    text += `\n\nCurrent UI strategy context:\n${trimForLog(stringifyJSON(currentStrategy), 8000)}`;
+  }
+  if (orchestrationPlan && typeof orchestrationPlan === 'object') {
+    text += `\n\nOrchestration plan:\n${trimForLog(stringifyJSON(orchestrationPlan), 6000)}`;
+  }
+  if (researchBundle && typeof researchBundle === 'object') {
+    text += `\n\nResearch bundle:\n${trimForLog(stringifyJSON(researchBundle), 12000)}`;
+  }
+  const connectedExchangeContext = buildConnectedExchangeContextForAI(exchangeConnections);
+  text += `\n\nConnected exchange/API context (hard constraint):\n${trimForLog(stringifyJSON(connectedExchangeContext), 10000)}`;
+  text += '\nRepair MUST use only connected exchanges listed above for executable action blocks.';
+  text += '\n\nRepair policy: do not add shortcut edges just to satisfy the validator. If a formula/indicator is required, create it explicitly, connect data feeds into it with data-flow, connect the computed signal into triggers with data-flow, and connect triggers into actions with trigger-action. For action outputs, use action-result from action to normal/trigger/monitoring; never action -> action. A later action that depends on an earlier action result needs a confirmation trigger and any required formula nodes first.';
+  text += '\n\nReturn the corrected complete semantic strategy package object with intentPlan, logicIR, and runtimeGraph.';
   return text;
 }
 
@@ -1802,6 +3082,14 @@ function stringifyJSON(value) {
   }
 }
 
+function stringifyPrettyJSON(value) {
+  try {
+    return JSON.stringify(value, null, 2);
+  } catch {
+    return '{}';
+  }
+}
+
 function parseJSON(rawText, label) {
   try {
     return JSON.parse(rawText);
@@ -1823,17 +3111,33 @@ function extractMessageContent(content) {
     .trim();
 }
 
-function parseChatCompletionContent(rawText) {
+function extractMessageReasoningContent(message) {
+  if (!message || typeof message !== 'object') {
+    return '';
+  }
+  const content = message.reasoning_content ?? message.reasoningContent;
+  return extractMessageContent(content);
+}
+
+function parseChatCompletionMessage(rawText) {
   const parsed = parseJSON(rawText, 'chat completion');
   const firstChoice = Array.isArray(parsed.choices) ? parsed.choices[0] : null;
   if (!firstChoice || typeof firstChoice !== 'object') {
     throw new Error('chat completion returned no choices');
   }
-  const content = extractMessageContent(firstChoice.message?.content);
+  const message = firstChoice.message;
+  const content = extractMessageContent(message?.content);
   if (!content) {
     throw new Error('chat completion content is empty');
   }
-  return content;
+  return {
+    content,
+    reasoningContent: extractMessageReasoningContent(message),
+  };
+}
+
+function parseChatCompletionContent(rawText) {
+  return parseChatCompletionMessage(rawText).content;
 }
 
 function parseOllamaChatContent(rawText) {
@@ -1964,12 +3268,2310 @@ function parseStrategyGraph(rawText) {
   return parseJSONObjectWithSchema(rawText, 'strategy JSON', STRATEGY_GRAPH_SCHEMA);
 }
 
+const STRATEGY_BLOCK_TYPE_ALIASES = {
+  stream: 'streaming',
+  feed: 'streaming',
+  data_feed: 'streaming',
+  source: 'streaming',
+  websocket: 'streaming',
+  wss: 'streaming',
+  api: 'streaming',
+  compute: 'normal',
+  formula: 'normal',
+  indicator: 'normal',
+  predicate: 'normal',
+  signal: 'normal',
+  condition: 'trigger',
+  condition_trigger: 'trigger',
+  time_trigger: 'trigger',
+  timer: 'trigger',
+  schedule: 'trigger',
+  cex: 'action',
+  dex: 'action',
+  order: 'action',
+  swap: 'action',
+  execution: 'action',
+  execute: 'action',
+  monitor: 'monitoring',
+  chart: 'monitoring',
+};
+
+const STRATEGY_CONNECTION_KIND_ALIASES = {
+  stream_monitor: 'stream-monitor',
+  streammonitor: 'stream-monitor',
+  monitor: 'stream-monitor',
+  chart: 'stream-monitor',
+  trigger_action: 'trigger-action',
+  triggeraction: 'trigger-action',
+  trigger_to_action: 'trigger-action',
+  execute: 'trigger-action',
+  execution: 'trigger-action',
+  action: 'trigger-action',
+  condition: 'trigger-action',
+  predicate: 'trigger-action',
+  trigger_input: 'trigger-input',
+  triggerinput: 'trigger-input',
+  time_gate: 'trigger-input',
+  gate: 'trigger-input',
+  action_input: 'action-input',
+  actioninput: 'action-input',
+  input: 'action-input',
+  parameter: 'action-input',
+  param: 'action-input',
+  data_flow: 'data-flow',
+  dataflow: 'data-flow',
+  data: 'data-flow',
+  signal: 'data-flow',
+  predicate_input: 'data-flow',
+  formula_input: 'data-flow',
+  computed_signal: 'data-flow',
+  action_result: 'action-result',
+  actionresult: 'action-result',
+  result: 'action-result',
+  output: 'action-result',
+  order_result: 'action-result',
+  tx_result: 'action-result',
+};
+
+function normalizeSchemaBlockType(rawType, config = {}) {
+  const normalized = normalizeToken(rawType);
+  if (['streaming', 'normal', 'trigger', 'action', 'monitoring'].includes(normalized)) {
+    return normalized;
+  }
+  if (STRATEGY_BLOCK_TYPE_ALIASES[normalized]) {
+    return STRATEGY_BLOCK_TYPE_ALIASES[normalized];
+  }
+  const actionType = normalizeToken(config.actionType || config.venueType || config.adapter);
+  if (/cex|dex|order|swap|contract|onchain/.test(actionType)) {
+    return 'action';
+  }
+  if (config.sourceUrl || config.sourceURL || config.url || config.endpoint || config.apiReference) {
+    return 'streaming';
+  }
+  if (config.triggerType || config.condition || config.schedule || config.cron) {
+    return 'trigger';
+  }
+  return 'normal';
+}
+
+function isSchemaConnectionKindCompatible(kind, fromType, toType) {
+  if (kind === 'trigger-action') return fromType === 'trigger' && toType === 'action';
+  if (kind === 'trigger-input') return fromType === 'trigger' && toType === 'trigger';
+  if (kind === 'action-result') return fromType === 'action' && ['normal', 'trigger', 'monitoring'].includes(toType);
+  if (kind === 'stream-monitor') return fromType === 'streaming' && toType === 'monitoring';
+  if (kind === 'data-flow') return ['streaming', 'normal', 'monitoring'].includes(fromType) && ['normal', 'trigger', 'monitoring'].includes(toType);
+  if (kind === 'action-input') return ['streaming', 'normal'].includes(fromType) && toType === 'action';
+  return false;
+}
+
+function normalizeSchemaConnectionKind(rawKind, fromType, toType) {
+  const normalized = normalizeToken(rawKind);
+  const aliased = STRATEGY_CONNECTION_KIND_ALIASES[normalized] || normalized.replace(/_/g, '-');
+  if (['trigger-action', 'trigger-input', 'action-input', 'stream-monitor', 'data-flow', 'action-result'].includes(aliased)) {
+    if (isSchemaConnectionKindCompatible(aliased, fromType, toType)) {
+      return aliased;
+    }
+    return inferRunnerConnectionKind(fromType, toType, '');
+  }
+  return inferRunnerConnectionKind(fromType, toType, rawKind);
+}
+
+function escapeRegExp(value) {
+  return String(value).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
+function stripGateReferenceFromCondition(condition, gateId) {
+  const source = normalizeText(condition);
+  if (!source || !gateId) {
+    return source;
+  }
+  const reference = `${escapeRegExp(gateId)}(?:(?:::|\\.)[A-Za-z0-9_]+)?`;
+  const comparison = `${reference}\\s*(?:>=|>|==|=|<=|<)\\s*(?:0|1|true|false)`;
+  let next = source
+    .replace(new RegExp(`\\s+(?:AND|&&)\\s+${comparison}`, 'gi'), '')
+    .replace(new RegExp(`${comparison}\\s+(?:AND|&&)\\s+`, 'gi'), '')
+    .replace(new RegExp(`\\(?\\s*${comparison}\\s*\\)?`, 'gi'), 'true')
+    .replace(/\(\s*true\s*\)/gi, 'true')
+    .replace(/\s+/g, ' ')
+    .trim();
+  next = next
+    .replace(/^\s*(?:AND|&&)\s+/i, '')
+    .replace(/\s+(?:AND|&&)\s*$/i, '')
+    .trim();
+  return next || source;
+}
+
+function isTimeTriggerBlock(block) {
+  const config = normalizeConfigObject(block?.config);
+  const text = [
+    normalizeText(block?.id),
+    normalizeText(config.name),
+    normalizeText(config.label),
+    normalizeText(config.triggerType),
+    normalizeText(config.type),
+    normalizeText(config.semanticType),
+  ].join(' ').toLowerCase();
+  return normalizeText(block?.type) === 'trigger' && /time|timer|schedule|interval|cron|주기|시간/.test(text);
+}
+
+function isTimePulseNormalBlock(block, blocks, connections) {
+  if (normalizeText(block?.type) !== 'normal') {
+    return false;
+  }
+  const config = normalizeConfigObject(block?.config);
+  const text = [
+    normalizeText(block?.id),
+    normalizeText(config.name),
+    normalizeText(config.label),
+    normalizeText(config.semanticType),
+    normalizeText(config.expression || config.formula || config.code || config.logic),
+  ].join(' ').toLowerCase();
+  if (!/time[_\s-]*pulse|timer[_\s-]*pulse|trigger[_\s-]*time|주기적\s*평가|시간\s*펄스/.test(text)) {
+    return false;
+  }
+  const blockByID = new Map(blocks.map((candidate) => [normalizeText(candidate.id), candidate]));
+  const incomingTrigger = connections.some((connection) =>
+    normalizeText(connection.toId) === normalizeText(block.id) &&
+    isTimeTriggerBlock(blockByID.get(normalizeText(connection.fromId))));
+  const expression = normalizeText(config.expression || config.formula || config.code || config.logic);
+  const expressionTrigger = blocks.some((candidate) =>
+    isTimeTriggerBlock(candidate) && conditionMentionsBlockId(expression, candidate.id));
+  return incomingTrigger || expressionTrigger;
+}
+
+function normalizeRuntimeGraphTopology(blocks, connections) {
+  let nextBlocks = Array.isArray(blocks) ? blocks.map((block) => ({ ...block, config: { ...(block.config || {}) } })) : [];
+  let nextConnections = Array.isArray(connections) ? connections.map((connection) => ({ ...connection })) : [];
+  const blockByID = () => new Map(nextBlocks.map((block) => [normalizeText(block.id), block]));
+  const makeConnectionId = (prefix, fromId, toId) => `${prefix}-${slugifyForPath(fromId, 'from')}-${slugifyForPath(toId, 'to')}`;
+  const hasConnection = (kind, fromId, toId) => nextConnections.some((connection) =>
+    normalizeText(connection.kind) === kind &&
+    normalizeText(connection.fromId) === normalizeText(fromId) &&
+    normalizeText(connection.toId) === normalizeText(toId));
+
+  const timePulseBlocks = nextBlocks.filter((block) => isTimePulseNormalBlock(block, nextBlocks, nextConnections));
+  if (timePulseBlocks.length > 0) {
+    for (const pulse of timePulseBlocks) {
+      const blocksByID = blockByID();
+      const pulseId = normalizeText(pulse.id);
+      const config = normalizeConfigObject(pulse.config);
+      const expression = normalizeText(config.expression || config.formula || config.code || config.logic);
+      const sourceTriggers = uniqueStrings([
+        ...nextConnections
+          .filter((connection) => normalizeText(connection.toId) === pulseId)
+          .map((connection) => normalizeText(connection.fromId)),
+        ...nextBlocks
+          .filter((candidate) => isTimeTriggerBlock(candidate) && conditionMentionsBlockId(expression, candidate.id))
+          .map((candidate) => normalizeText(candidate.id)),
+      ]).filter((id) => isTimeTriggerBlock(blocksByID.get(id)));
+      const targetTriggers = uniqueStrings([
+        ...nextConnections
+          .filter((connection) => normalizeText(connection.fromId) === pulseId)
+          .map((connection) => normalizeText(connection.toId)),
+        ...nextBlocks
+          .filter((candidate) =>
+            normalizeText(candidate.type) === 'trigger' &&
+            conditionMentionsBlockId(blockConfigText(candidate, ['condition', 'expression', 'logic']), pulseId))
+          .map((candidate) => normalizeText(candidate.id)),
+      ]).filter((id) => normalizeText(blocksByID.get(id)?.type) === 'trigger');
+
+      for (const sourceId of sourceTriggers) {
+        for (const targetId of targetTriggers) {
+          if (sourceId === targetId || hasConnection('trigger-input', sourceId, targetId)) {
+            continue;
+          }
+          nextConnections.push({
+            id: makeConnectionId('auto-trigger-input', sourceId, targetId),
+            kind: 'trigger-input',
+            fromId: sourceId,
+            toId: targetId,
+          });
+        }
+      }
+
+      nextBlocks = nextBlocks.map((block) => {
+        if (normalizeText(block.type) !== 'trigger') {
+          return block;
+        }
+        const triggerConfig = normalizeConfigObject(block.config);
+        const condition = normalizeText(triggerConfig.condition || triggerConfig.expression || triggerConfig.logic);
+        if (!conditionMentionsBlockId(condition, pulseId)) {
+          return block;
+        }
+        return {
+          ...block,
+          config: {
+            ...triggerConfig,
+            condition: stripGateReferenceFromCondition(condition, pulseId),
+          },
+        };
+      });
+    }
+    const removable = new Set(timePulseBlocks.map((block) => normalizeText(block.id)));
+    nextBlocks = nextBlocks.filter((block) => !removable.has(normalizeText(block.id)));
+    nextConnections = nextConnections.filter((connection) =>
+      !removable.has(normalizeText(connection.fromId)) &&
+      !removable.has(normalizeText(connection.toId)));
+  }
+
+  const normalizedBlockByID = blockByID();
+  nextConnections = nextConnections
+    .map((connection) => {
+      const fromType = normalizedBlockByID.get(normalizeText(connection.fromId))?.type || '';
+      const toType = normalizedBlockByID.get(normalizeText(connection.toId))?.type || '';
+      return {
+        ...connection,
+        kind: normalizeSchemaConnectionKind(connection.kind, fromType, toType),
+      };
+    })
+    .filter((connection) => normalizeText(connection.kind));
+
+  return { blocks: nextBlocks, connections: nextConnections };
+}
+
+function coerceStrategyGraphForSchema(rawGraph, prompt = '') {
+  const graph = normalizeObject(rawGraph) || {};
+  const rawBlocks = Array.isArray(graph.blocks) ? graph.blocks : [];
+  const blocks = rawBlocks.map((rawBlock, index) => {
+    const block = normalizeObject(rawBlock) || {};
+    const config = normalizeConfigObject(block.config);
+    const id = normalizeText(block.id || block.blockId || block.nodeId || block.name || block.label)
+      || `block-${index + 1}`;
+    return {
+      ...block,
+      id,
+      type: normalizeSchemaBlockType(block.type || block.kind || block.nodeCategory || block.category, config),
+      config,
+    };
+  });
+
+  const blockByID = new Map(blocks.map((block) => [block.id, block]));
+  const rawConnections = Array.isArray(graph.connections)
+    ? graph.connections
+    : Array.isArray(graph.edges)
+      ? graph.edges
+      : [];
+  const connections = rawConnections.map((rawConnection, index) => {
+    const connection = normalizeObject(rawConnection) || {};
+    const fromId = normalizeText(connection.fromId || connection.from || connection.source || connection.sourceId);
+    const toId = normalizeText(connection.toId || connection.to || connection.target || connection.targetId);
+    const fromType = blockByID.get(fromId)?.type || '';
+    const toType = blockByID.get(toId)?.type || '';
+    const kind = normalizeSchemaConnectionKind(connection.kind || connection.type || connection.label || connection.relation, fromType, toType);
+    return {
+      ...connection,
+      id: normalizeText(connection.id) || `conn-${index + 1}`,
+      kind,
+      fromId,
+      toId,
+    };
+  });
+  const normalizedGraphShape = normalizeRuntimeGraphTopology(blocks, connections);
+
+  const strategy = normalizeObject(graph.strategy) || {};
+  const name = normalizeText(strategy.name || graph.name || graph.title || prompt) || 'AI Generated Strategy';
+  const id = normalizeText(strategy.id) || slugifyForPath(name, 'ai-generated-strategy');
+
+  return {
+    ...graph,
+    schemaVersion: Number(graph.schemaVersion) || 1,
+    kind: 'hershy-strategy-graph',
+    strategy: { ...strategy, id, name },
+    blocks: normalizedGraphShape.blocks,
+    connections: normalizedGraphShape.connections,
+  };
+}
+
+function parseStrategyGenerationPackage(rawText) {
+  const parsed = parseJSONObjectContent(rawText, 'strategy generation package');
+  const rawRuntimeGraph = parsed && typeof parsed.runtimeGraph === 'object' && !Array.isArray(parsed.runtimeGraph)
+    ? parsed.runtimeGraph
+    : parsed;
+  const runtimeGraph = coerceStrategyGraphForSchema(
+    rawRuntimeGraph,
+    normalizeText(parsed?.intentPlan?.sourcePrompt || parsed?.metadata?.sourcePrompt),
+  );
+  const errors = validateSchema(runtimeGraph, STRATEGY_GRAPH_SCHEMA, 'runtimeGraph');
+  if (errors.length > 0) {
+    throw new Error(`runtimeGraph schema validation failed: ${errors.slice(0, 10).join('; ')}`);
+  }
+  return {
+    intentPlan: normalizeObject(parsed.intentPlan),
+    logicIR: normalizeObject(parsed.logicIR),
+    runtimeGraph,
+  };
+}
+
+function resolveIntegerEnv(key, fallback) {
+  const parsed = Number.parseInt(normalizeText(process.env[key]), 10);
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : fallback;
+}
+
+function slugifyForPath(value, fallback = 'strategy') {
+  const slug = normalizeText(value)
+    .toLowerCase()
+    .replace(/[^a-z0-9_-]+/g, '-')
+    .replace(/^-+|-+$/g, '')
+    .slice(0, 64);
+  return slug || fallback;
+}
+
+function normalizeConfigObject(value) {
+  return value && typeof value === 'object' && !Array.isArray(value) ? { ...value } : {};
+}
+
+function numberFromConfig(config, keys, fallback) {
+  for (const key of keys) {
+    const value = config[key];
+    if (value === undefined || value === null || value === '') {
+      continue;
+    }
+    const parsed = Number(value);
+    if (Number.isFinite(parsed)) {
+      return parsed;
+    }
+  }
+  return fallback;
+}
+
+function firstConfigText(config, keys, fallback = '') {
+  for (const key of keys) {
+    const text = normalizeText(config[key]);
+    if (text) {
+      return text;
+    }
+  }
+  return fallback;
+}
+
+function stringArrayFromConfig(config, keys, fallback) {
+  for (const key of keys) {
+    const value = config[key];
+    if (Array.isArray(value)) {
+      const items = value.map((item) => normalizeText(item)).filter(Boolean);
+      if (items.length > 0) {
+        return items;
+      }
+    }
+    if (value && typeof value === 'object') {
+      const items = Object.keys(value).map((item) => normalizeText(item)).filter(Boolean);
+      if (items.length > 0) {
+        return items;
+      }
+    }
+    const text = normalizeText(value);
+    if (text) {
+      const items = text.split(',').map((item) => normalizeText(item)).filter(Boolean);
+      if (items.length > 0) {
+        return items;
+      }
+    }
+  }
+  return fallback;
+}
+
+function countStrategyBlocksByType(blocks) {
+  return blocks.reduce((acc, block) => {
+    const type = normalizeText(block?.type) || 'normal';
+    acc[type] = (acc[type] || 0) + 1;
+    return acc;
+  }, {});
+}
+
+function normalizeRunnerBlock(block, index, fallbackStreamID) {
+  const id = normalizeText(block?.id) || `block-${index + 1}`;
+  const type = normalizeText(block?.type) || 'normal';
+  const config = normalizeConfigObject(block?.config);
+  const name = firstConfigText(config, ['name', 'label', 'title', 'functionName', 'symbol'], id);
+  const normalized = {
+    id,
+    type,
+    config: {
+      ...config,
+      name,
+    },
+  };
+
+  if (type === 'streaming') {
+    normalized.config.sourceUrl = firstConfigText(
+      config,
+      ['sourceUrl', 'sourceURL', 'url', 'endpoint', 'apiReference', 'source'],
+      `synthetic://${id}`,
+    );
+    normalized.config.updateMode = firstConfigText(config, ['updateMode', 'method', 'mode'], 'periodic');
+    normalized.config.updateIntervalMs = numberFromConfig(
+      config,
+      ['updateIntervalMs', 'intervalMs', 'pollMs', 'interval', 'seconds'],
+      1000,
+    );
+    normalized.config.fields = stringArrayFromConfig(
+      config,
+      ['fields', 'outputs', 'outputFields'],
+      ['lastPrice', 'volume', 'eventTime'],
+    );
+  }
+
+  if (type === 'normal') {
+    normalized.config.value = config.value ?? config.threshold ?? config.defaultValue ?? 0;
+  }
+
+  if (type === 'trigger') {
+    const rawTriggerType = firstConfigText(config, ['triggerType', 'type'], '');
+    const hasCondition = Boolean(normalizeText(config.condition || config.expression || config.logic));
+    const looksLikeTimeTrigger =
+      !rawTriggerType &&
+      !hasCondition &&
+      (
+        isNumericValue(config.intervalMs) ||
+        isNumericValue(config.interval) ||
+        isNumericValue(config.seconds) ||
+        Boolean(firstConfigText(config, ['schedule', 'cron'], '')) ||
+        /dca|interval|cadence|schedule|timer|time|cron|주기|시간/.test(name.toLowerCase())
+      );
+    normalized.config.triggerType = rawTriggerType || (looksLikeTimeTrigger ? 'time' : 'condition');
+    const rawIntervalValue = config.intervalMs ?? config.updateIntervalMs ?? config.interval ?? config.seconds;
+    const intervalLabel = config.intervalMs !== undefined || config.updateIntervalMs !== undefined
+      ? 'ms'
+      : config.seconds !== undefined
+        ? 'seconds'
+        : firstConfigText(config, ['intervalUnit', 'unit'], name);
+    normalized.config.intervalMs = normalizeIntervalToMs(rawIntervalValue, intervalLabel) ?? 1000;
+    if (normalized.config.triggerType === 'condition') {
+      normalized.config.condition = normalizeText(config.condition || config.expression || config.logic);
+    }
+  }
+
+  if (type === 'action') {
+    normalized.config.actionType = firstConfigText(config, ['actionType', 'venueType', 'adapter'], 'cex').toLowerCase();
+    normalized.config.exchange = firstConfigText(config, ['exchange', 'venue'], 'Binance');
+    if (!Array.isArray(normalized.config.outputBlocks) && !Array.isArray(normalized.config.outputs)) {
+      const isDex = /dex|swap|contract|onchain/.test(normalized.config.actionType);
+      normalized.config.outputBlocks = isDex
+        ? [
+          { id: 'txHash', name: 'txHash', type: 'output', description: 'submitted transaction hash' },
+          { id: 'status', name: 'status', type: 'output', description: 'transaction status' },
+          { id: 'amountOut', name: 'amountOut', type: 'output', description: 'received amount' },
+          { id: 'executionPrice', name: 'executionPrice', type: 'output', description: 'realized execution price' },
+        ]
+        : [
+          { id: 'orderId', name: 'orderId', type: 'output', description: 'exchange order id' },
+          { id: 'status', name: 'status', type: 'output', description: 'order status' },
+          { id: 'filledQty', name: 'filledQty', type: 'output', description: 'filled quantity' },
+          { id: 'avgFillPrice', name: 'avgFillPrice', type: 'output', description: 'average fill price' },
+        ];
+    }
+  }
+
+  if (type === 'monitoring') {
+    normalized.config.metric = firstConfigText(config, ['metric', 'field'], 'lastPrice');
+    normalized.config.fields = stringArrayFromConfig(config, ['fields', 'selectedVariables'], [normalized.config.metric]);
+    if (!normalizeText(normalized.config.connectedStreamId) && fallbackStreamID) {
+      normalized.config.connectedStreamId = fallbackStreamID;
+    }
+  }
+
+  return normalized;
+}
+
+function inferRunnerConnectionKind(fromType, toType, rawKind) {
+  const kind = normalizeText(rawKind);
+  if (
+    (kind === 'trigger-action' || kind === 'trigger-input' || kind === 'action-input' || kind === 'stream-monitor' || kind === 'data-flow' || kind === 'action-result') &&
+    isSchemaConnectionKindCompatible(kind, fromType, toType)
+  ) {
+    return kind;
+  }
+  if (fromType === 'trigger' && toType === 'action') {
+    return 'trigger-action';
+  }
+  if (fromType === 'trigger' && toType === 'trigger') {
+    return 'trigger-input';
+  }
+  if (fromType === 'action' && (toType === 'normal' || toType === 'trigger' || toType === 'monitoring')) {
+    return 'action-result';
+  }
+  if (fromType === 'streaming' && toType === 'monitoring') {
+    return 'stream-monitor';
+  }
+  if ((fromType === 'streaming' || fromType === 'normal' || fromType === 'monitoring') && (toType === 'normal' || toType === 'trigger' || toType === 'monitoring')) {
+    return 'data-flow';
+  }
+  if ((fromType === 'streaming' || fromType === 'normal') && toType === 'action') {
+    return 'action-input';
+  }
+  return '';
+}
+
+function addRunnerConnection(connections, existing, kind, fromId, toId, idPrefix, extra = {}) {
+  if (!fromId || !toId || fromId === toId) {
+    return;
+  }
+  const key = `${kind}:${fromId}:${toId}`;
+  if (existing.has(key)) {
+    return;
+  }
+  existing.add(key);
+  connections.push({
+    id: `${idPrefix}-${connections.length + 1}`,
+    kind,
+    fromId,
+    toId,
+    ...extra,
+  });
+}
+
+function makeUniqueBlockId(blocks, preferredId) {
+  const used = new Set(blocks.map((block) => normalizeText(block?.id)).filter(Boolean));
+  const base = slugifyForPath(preferredId, 'block');
+  if (!used.has(base)) {
+    return base;
+  }
+  for (let index = 2; index < 1000; index += 1) {
+    const candidate = `${base}-${index}`;
+    if (!used.has(candidate)) {
+      return candidate;
+    }
+  }
+  return `${base}-${Date.now()}`;
+}
+
+function isKillSwitchBlock(block) {
+  const config = normalizeConfigObject(block?.config);
+  if (config.killSwitch === true || config.emergencyStop === true || config.circuitBreaker === true) {
+    return true;
+  }
+  const text = [
+    normalizeText(block?.id),
+    normalizeText(block?.type),
+    collectObjectText(config),
+  ].join(' ').toLowerCase();
+  return /kill\s*switch|killswitch|emergency|panic|circuit\s*breaker|manual\s*(halt|stop)|global\s*(halt|stop)|stop\s*all|halt\s*strategy|킬\s*스위치|긴급|비상|강제\s*중단|전체\s*(중단|정지|청산)/.test(text);
+}
+
+function hasRuntimeKillSwitch(blocks, connections) {
+  const killTriggers = new Set(
+    blocks
+      .filter((block) => normalizeText(block?.type) === 'trigger' && isKillSwitchBlock(block))
+      .map((block) => normalizeText(block.id)),
+  );
+  const killActions = new Set(
+    blocks
+      .filter((block) => normalizeText(block?.type) === 'action' && isKillSwitchBlock(block))
+      .map((block) => normalizeText(block.id)),
+  );
+  if (killTriggers.size === 0 || killActions.size === 0) {
+    return false;
+  }
+  return connections.some((connection) =>
+    normalizeText(connection?.kind) === 'trigger-action' &&
+    killTriggers.has(normalizeText(connection?.fromId)) &&
+    killActions.has(normalizeText(connection?.toId)));
+}
+
+function defaultKillSwitchExchangeName(exchangeConnections = []) {
+  const connected = getConnectedExchangeConnections(exchangeConnections);
+  return normalizeText(connected[0]?.name || connected[0]?.id) || 'Binance';
+}
+
+function inferKillSwitchActionConfig(blocks, exchangeConnections = []) {
+  const connected = getConnectedExchangeConnections(exchangeConnections)[0];
+  const venueName = normalizeText(connected?.name || connected?.id) || 'Binance';
+  const actionText = blocks
+    .filter((block) => normalizeText(block?.type) === 'action')
+    .map((block) => collectObjectText(block))
+    .join(' ')
+    .toLowerCase();
+  const useDex = normalizeText(connected?.type).toUpperCase() !== 'CEX' ||
+    /dex|swap|contract|onchain|flash\s*loan|flashloan|uniswap|jupiter|aave|온체인|스왑|플래시론/.test(actionText);
+
+  if (useDex) {
+    return {
+      actionType: 'dex',
+      exchange: venueName,
+      chain: normalizeText(connected?.name || connected?.id) || 'configured-chain',
+      contractAddress: '0x0000000000000000000000000000000000000000',
+      functionName: 'emergencyExit()',
+      closeAllPositions: true,
+      cancelOpenOrders: true,
+    };
+  }
+
+  return {
+    actionType: 'cex',
+    exchange: venueName,
+    symbol: 'ALL',
+    side: 'SELL',
+    orderType: 'MARKET',
+    reduceOnly: true,
+    cancelOpenOrders: true,
+    closeAllPositions: true,
+  };
+}
+
+function ensureRuntimeKillSwitch(blocks, connections, existing, exchangeConnections = []) {
+  if (hasRuntimeKillSwitch(blocks, connections)) {
+    return;
+  }
+
+  const triggerId = makeUniqueBlockId(blocks, 'kill-switch-trigger');
+  const actionId = makeUniqueBlockId(blocks, 'kill-switch-close-all');
+  const dataSource = blocks.find((block) => block.type === 'streaming') || blocks.find((block) => block.type === 'normal');
+  const actionConfig = inferKillSwitchActionConfig(blocks, exchangeConnections);
+  blocks.push({
+    id: triggerId,
+    type: 'trigger',
+    config: {
+      name: '킬스위치',
+      label: '킬스위치',
+      triggerType: 'condition',
+      condition: 'manual_kill_switch == true || strategy_drawdown_pct <= -5 || data_stale_seconds >= 30 || exchange_disconnect == true',
+      killSwitch: true,
+      emergencyStop: true,
+      overviewDescription: '수동 중단, 손실 한도, 데이터 지연, 거래소 연결 이상이 감지되면 전략을 즉시 멈춥니다.',
+      roleDescription: '이 전략의 최종 안전장치입니다. 정상 매매 조건과 별개로 위험 상태가 발생하면 전체 종료 액션으로 신호를 보냅니다.',
+      inputSummary: '수동 중단 상태, 누적 손실률, 데이터 지연 시간, 거래소 연결 상태',
+      outputSummary: '전체 포지션 정리 신호',
+      outputBlocks: [
+        { id: 'emergencyStop', name: 'emergencyStop', type: 'output', description: 'true when the strategy must stop immediately' },
+      ],
+    },
+  });
+  blocks.push({
+    id: actionId,
+    type: 'action',
+    config: {
+      name: '킬스위치 실행',
+      label: '킬스위치 실행',
+      ...actionConfig,
+      allowRawFeedInputs: true,
+      rawFeedInputReason: 'kill_switch',
+      killSwitch: true,
+      emergencyStop: true,
+      overviewDescription: '열려 있는 주문을 취소하고 전략이 만든 포지션을 가능한 한 시장가/감소 전용으로 정리합니다.',
+      roleDescription: '킬스위치 조건이 켜졌을 때만 실행되는 종료 액션입니다. 새 진입을 막고 기존 노출을 줄이는 역할을 합니다.',
+      inputSummary: '킬스위치 신호와 최신 시장/계정 상태',
+      outputSummary: '취소/청산 요청 상태와 실행 결과',
+      outputBlocks: [
+        { id: 'status', name: 'status', type: 'output', description: 'kill switch execution status' },
+        { id: 'closedPositions', name: 'closedPositions', type: 'output', description: 'positions requested for closure' },
+        { id: 'cancelledOrders', name: 'cancelledOrders', type: 'output', description: 'open orders requested for cancellation' },
+      ],
+    },
+  });
+  addRunnerConnection(connections, existing, 'trigger-action', triggerId, actionId, 'auto-kill-switch');
+  if (dataSource?.id) {
+    addRunnerConnection(connections, existing, 'action-input', dataSource.id, actionId, 'auto-kill-switch-input', {
+      reason: 'kill_switch',
+      label: 'safety context',
+    });
+  }
+}
+
+function connectionKey(connection) {
+  return `${connection.kind}:${connection.fromId}:${connection.toId}`;
+}
+
+function rebuildConnectionSet(connections) {
+  return new Set(connections.map(connectionKey));
+}
+
+function isNumericValue(value) {
+  const parsed = Number(value);
+  return Number.isFinite(parsed) && parsed > 0;
+}
+
+function getNormalFixedValue(block) {
+  const config = normalizeConfigObject(block?.config);
+  for (const key of ['value', 'constant', 'intervalMs', 'interval', 'seconds']) {
+    if (config[key] !== undefined && config[key] !== null && config[key] !== '') {
+      return config[key];
+    }
+  }
+  return undefined;
+}
+
+function isTimeIntervalNormalBlock(block) {
+  if (normalizeText(block?.type) !== 'normal') {
+    return false;
+  }
+  const config = normalizeConfigObject(block?.config);
+  const name = firstConfigText(config, ['name', 'label', 'title'], normalizeText(block?.id));
+  const value = getNormalFixedValue(block);
+  return isNumericValue(value) && /interval|cadence|period|schedule|time|timer|cron|ms|seconds|minutes|hours|days|주기|시간/.test(name.toLowerCase());
+}
+
+function conditionMentionsBlockId(condition, id) {
+  const text = normalizeText(condition);
+  const blockId = normalizeText(id);
+  if (!text || !blockId) {
+    return false;
+  }
+  if (text.includes(`${blockId}::`)) {
+    return true;
+  }
+  return new RegExp(`(^|[^a-zA-Z0-9_-])${blockId.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}([^a-zA-Z0-9_-]|$)`).test(text);
+}
+
+function normalizeIntervalToMs(value, label = '') {
+  const numeric = Number(value);
+  if (!Number.isFinite(numeric) || numeric <= 0) {
+    return undefined;
+  }
+  const normalizedLabel = label.toLowerCase();
+  if (/millisecond|ms/.test(normalizedLabel)) return Math.round(numeric);
+  if (/day|daily|일/.test(normalizedLabel)) return Math.round(numeric * 86_400_000);
+  if (/hour|hr|시간/.test(normalizedLabel)) return Math.round(numeric * 3_600_000);
+  if (/minute|min|분/.test(normalizedLabel)) return Math.round(numeric * 60_000);
+  if (/second|sec|초/.test(normalizedLabel)) return Math.round(numeric * 1000);
+  return numeric >= 10_000 ? Math.round(numeric) : Math.round(numeric * 1000);
+}
+
+function isTimeLikeTriggerConfig(config) {
+  const triggerType = firstConfigText(config, ['triggerType', 'type'], '').toLowerCase();
+  const condition = normalizeText(config.condition || config.expression || config.logic).toLowerCase();
+  const hasTimeTriggerType = ['time', 'timer', 'schedule', 'scheduled', 'interval', 'cron'].includes(triggerType);
+  return (
+    hasTimeTriggerType ||
+    Boolean(firstConfigText(config, ['schedule', 'cron'], '')) ||
+    (!condition && (isNumericValue(config.interval) || isNumericValue(config.seconds))) ||
+    /::pulse\b|eventtime\s*%|timestamp\s*%|datetime\s*%/.test(condition)
+  );
+}
+
+function deriveTimeTriggerIntervalMs(triggerBlock, blockByID) {
+  const config = normalizeConfigObject(triggerBlock?.config);
+  const explicitMs = numberFromConfig(config, ['intervalMs', 'updateIntervalMs'], Number.NaN);
+  if (Number.isFinite(explicitMs) && explicitMs > 0 && firstConfigText(config, ['triggerType', 'type'], '').toLowerCase() === 'time') {
+    return Math.round(explicitMs);
+  }
+
+  const explicitInterval = numberFromConfig(config, ['interval', 'seconds'], Number.NaN);
+  if (Number.isFinite(explicitInterval) && explicitInterval > 0) {
+    return explicitInterval < 10000 ? Math.round(explicitInterval * 1000) : Math.round(explicitInterval);
+  }
+
+  const condition = normalizeText(config.condition || config.expression || config.logic);
+  for (const [id, block] of blockByID.entries()) {
+    if (!conditionMentionsBlockId(condition, id) || !isTimeIntervalNormalBlock(block)) {
+      continue;
+    }
+    const label = firstConfigText(block.config || {}, ['name', 'label', 'title'], id);
+    const intervalMs = normalizeIntervalToMs(getNormalFixedValue(block), label);
+    if (intervalMs) {
+      return intervalMs;
+    }
+  }
+
+  const pulseMatch = condition.match(/([a-zA-Z0-9_-]+)::pulse\b/i);
+  if (pulseMatch) {
+    const streamConfig = normalizeConfigObject(blockByID.get(pulseMatch[1])?.config);
+    const streamInterval = numberFromConfig(streamConfig, ['updateIntervalMs', 'intervalMs', 'pollMs'], Number.NaN);
+    if (Number.isFinite(streamInterval) && streamInterval > 0) {
+      return Math.round(streamInterval);
+    }
+  }
+
+  return Number.isFinite(explicitMs) && explicitMs > 0 ? Math.round(explicitMs) : undefined;
+}
+
+function forceTimeTriggersIntoTriggerBlocks(blocks, connections) {
+  let changed = false;
+  const blockByID = new Map(blocks.map((block) => [block.id, block]));
+  const removableIntervalIDs = new Set();
+  const nextBlocks = blocks.map((block) => {
+    if (block.type !== 'trigger' || !isTimeLikeTriggerConfig(block.config || {})) {
+      return block;
+    }
+
+    const intervalMs = deriveTimeTriggerIntervalMs(block, blockByID);
+    if (!intervalMs) {
+      return block;
+    }
+
+    const condition = normalizeText(block.config?.condition || block.config?.expression || block.config?.logic);
+    for (const [id, candidate] of blockByID.entries()) {
+      if (conditionMentionsBlockId(condition, id) && isTimeIntervalNormalBlock(candidate)) {
+        removableIntervalIDs.add(id);
+      }
+    }
+
+    changed = true;
+    const { condition: _condition, expression: _expression, logic: _logic, ...restConfig } = block.config || {};
+    return {
+      ...block,
+      config: {
+        ...restConfig,
+        triggerType: 'time',
+        intervalMs,
+        name: firstConfigText(block.config || {}, ['name', 'label', 'title'], block.id),
+      },
+    };
+  });
+
+  if (!changed && removableIntervalIDs.size === 0) {
+    return { blocks, connections };
+  }
+
+  const filteredBlocks = nextBlocks.filter((block) => !removableIntervalIDs.has(block.id));
+  const filteredConnections = connections.filter(
+    (connection) => !removableIntervalIDs.has(connection.fromId) && !removableIntervalIDs.has(connection.toId),
+  );
+
+  return { blocks: filteredBlocks, connections: filteredConnections };
+}
+
+const REQUIRED_SIGNAL_BY_STRATEGY_KIND = {
+  spot_perp_basis: ['basis'],
+  spread: ['spread'],
+  moving_average: ['moving_average'],
+  rsi: ['rsi'],
+  funding_rate: ['funding_rate'],
+};
+
+const TIME_STRATEGY_KIND_SET = new Set(['dca', 'rebalance']);
+const ALLOWED_RAW_ACTION_INPUT_REASONS = new Set([
+  'slippage_guard',
+  'quote_preview',
+  'execution_price',
+  'monitoring_context',
+  'risk_control',
+  'kill_switch',
+]);
+const GENERIC_SIGNAL_TOKENS = new Set([
+  'normal',
+  'formula',
+  'indicator',
+  'computed',
+  'computation',
+  'calculation',
+  'signal',
+  'node',
+  'logic',
+  'value',
+  'output',
+]);
+const RAW_FEED_SIGNAL_TOKENS = new Set([
+  'price',
+  'spot_price',
+  'perp_price',
+  'market_price',
+  'mark_price',
+  'index_price',
+  'last_price',
+  'lastprice',
+  'volume',
+  'open',
+  'high',
+  'low',
+  'close',
+  'ohlcv',
+  'ticker',
+  'candle',
+  'candles',
+  'funding_rate',
+  'open_interest',
+]);
+
+function normalizeToken(value) {
+  return normalizeText(value).toLowerCase().replace(/[\s-]+/g, '_');
+}
+
+function normalizeStringList(value) {
+  if (Array.isArray(value)) {
+    return value.map((item) => normalizeText(item)).filter(Boolean);
+  }
+  const text = normalizeText(value);
+  return text ? [text] : [];
+}
+
+function uniqueStrings(items) {
+  return Array.from(new Set(items.map((item) => normalizeText(item)).filter(Boolean)));
+}
+
+function normalizeRequiredSignalName(value) {
+  const rawText = normalizeText(value).toLowerCase();
+  let token = normalizeToken(value)
+    .replace(/_formula$|_signal$|_node$|_calculation$|_computed$/g, '');
+  if (rawText.includes('basis') && /[:=()+*/]|::|formula/.test(rawText)) {
+    token = 'basis';
+  }
+  token = token
+    .replace(/_formula_raw$|_raw_formula$|_raw$/g, '')
+    .replace(/_pass_through$|_passthrough$/g, '');
+  if (token === 'basis_calc') {
+    token = 'basis';
+  }
+  return token;
+}
+
+function isRawFeedSignalToken(token) {
+  const normalized = normalizeToken(token);
+  if (!normalized) {
+    return false;
+  }
+  if (RAW_FEED_SIGNAL_TOKENS.has(normalized)) {
+    return true;
+  }
+  if (/^(spot|perp|future|futures|market|mark|index)?price$/.test(normalized)) {
+    return true;
+  }
+  if (/^(spot|perp|future|futures|market|mark|index)?lastprice$/.test(normalized)) {
+    return true;
+  }
+  if (/^(spot|perp|future|futures|market|mark|index)?(volume|open|high|low|close)$/.test(normalized)) {
+    return true;
+  }
+  if (/^(fundingrate|funding_rate|openinterest|open_interest)$/.test(normalized)) {
+    return true;
+  }
+  if (/(^|_)(price|lastprice|last_price|markprice|mark_price|indexprice|index_price|volume|open|high|low|close|ohlcv|ticker|candle|candles)$/.test(normalized)) {
+    return true;
+  }
+  return /_(spot|perp|future|futures)?_?(price|lastprice|last_price|markprice|mark_price|indexprice|index_price)$/.test(normalized);
+}
+
+function collectObjectText(value, depth = 0) {
+  if (depth > 4 || value === null || value === undefined) {
+    return '';
+  }
+  if (typeof value === 'string' || typeof value === 'number' || typeof value === 'boolean') {
+    return String(value);
+  }
+  if (Array.isArray(value)) {
+    return value.map((item) => collectObjectText(item, depth + 1)).join(' ');
+  }
+  if (typeof value === 'object') {
+    return Object.entries(value)
+      .map(([key, item]) => `${key} ${collectObjectText(item, depth + 1)}`)
+      .join(' ');
+  }
+  return '';
+}
+
+function inferStrategyKindsFromText(text) {
+  const normalized = normalizeText(text).toLowerCase();
+  const kinds = [];
+  if (/(spot|현물).*(perp|future|선물)|현선|basis|베이시스|괴리|가격차|basis/.test(normalized)) {
+    kinds.push('spot_perp_basis');
+  }
+  if (/dca|dollar\s*cost|적립|분할\s*매수|정기\s*매수/.test(normalized)) {
+    kinds.push('dca');
+  }
+  if (/moving\s*average|\bma\b|이동\s*평균|이평|20ma|50ma|200ma/.test(normalized)) {
+    kinds.push('moving_average');
+  }
+  if (/\brsi\b/.test(normalized)) {
+    kinds.push('rsi');
+  }
+  if (/funding|펀딩/.test(normalized)) {
+    kinds.push('funding_rate');
+  }
+  if (/spread|스프레드/.test(normalized)) {
+    kinds.push('spread');
+  }
+  if (/rebalance|리밸런스|재조정/.test(normalized)) {
+    kinds.push('rebalance');
+  }
+  if (/pure\s*execution|단순\s*실행/.test(normalized)) {
+    kinds.push('pure_execution');
+  }
+  return uniqueStrings(kinds);
+}
+
+function inferRequiredTriggerTypesFromText(text, strategyKinds = []) {
+  const normalized = normalizeText(text).toLowerCase();
+  const required = [];
+  if (strategyKinds.some((kind) => TIME_STRATEGY_KIND_SET.has(kind))) {
+    required.push('time');
+  }
+  if (/every\s+\d+|per\s+\d+|schedule|scheduled|interval|cadence|cron|daily|hourly|weekly|마다|주기|정기|매일|매시간|몇\s*시간|몇\s*분|몇\s*초/.test(normalized)) {
+    required.push('time');
+  }
+  if (/if|when|condition|threshold|cross|above|below|greater|less|충족|조건|돌파|상향|하향|이상|이하|초과|미만/.test(normalized)) {
+    required.push('condition');
+  }
+  return uniqueStrings(required);
+}
+
+function strategyKindFromSignals(requiredSignals) {
+  const signals = requiredSignals.map(normalizeToken);
+  if (signals.includes('basis')) return 'spot_perp_basis';
+  if (signals.includes('spread')) return 'spread';
+  if (signals.includes('moving_average')) return 'moving_average';
+  if (signals.includes('rsi')) return 'rsi';
+  if (signals.includes('funding_rate')) return 'funding_rate';
+  return '';
+}
+
+function getLogicIRRequirements(logicIR) {
+  return Array.isArray(logicIR?.requirements) ? logicIR.requirements.filter((item) => item && typeof item === 'object') : [];
+}
+
+function getLogicIRNodes(logicIR) {
+  if (Array.isArray(logicIR?.nodes)) {
+    return logicIR.nodes.filter((item) => item && typeof item === 'object');
+  }
+  const legacyNodes = [];
+  if (Array.isArray(logicIR?.requiredDataFeeds)) {
+    legacyNodes.push(...logicIR.requiredDataFeeds.map((node) => ({ ...node, nodeCategory: 'data_feed' })));
+  }
+  if (Array.isArray(logicIR?.computedSignals)) {
+    legacyNodes.push(...logicIR.computedSignals.map((node) => ({
+      ...node,
+      nodeCategory: 'compute',
+      semanticType: node?.semanticType || node?.kind || node?.id,
+    })));
+  }
+  if (Array.isArray(logicIR?.triggers)) {
+    legacyNodes.push(...logicIR.triggers.map((node) => ({ ...node, nodeCategory: 'trigger', triggerType: node?.triggerType || node?.kind })));
+  }
+  if (Array.isArray(logicIR?.actions)) {
+    legacyNodes.push(...logicIR.actions.map((node) => ({ ...node, nodeCategory: 'action', actionType: node?.actionType || node?.kind })));
+  }
+  return legacyNodes;
+}
+
+function getLogicIREdges(logicIR) {
+  if (Array.isArray(logicIR?.edges)) {
+    return logicIR.edges.filter((item) => item && typeof item === 'object');
+  }
+  return Array.isArray(logicIR?.flow) ? logicIR.flow.filter((item) => item && typeof item === 'object') : [];
+}
+
+function getLogicIRClassificationValues(logicIR) {
+  const classification = normalizeObject(logicIR?.classification);
+  return [
+    normalizeText(classification?.primary),
+    ...normalizeStringList(classification?.tags),
+    normalizeText(logicIR?.strategyKind),
+  ].filter(Boolean);
+}
+
+function deriveStrategySemantics({ strategyGraph, prompt, intentPlan, logicIR }) {
+  const metadata = normalizeObject(strategyGraph?.metadata) || {};
+  const requirements = getLogicIRRequirements(logicIR);
+  const logicNodes = getLogicIRNodes(logicIR);
+  const text = [
+    prompt,
+    collectObjectText(intentPlan),
+    collectObjectText(logicIR),
+    collectObjectText(metadata),
+  ].join(' ');
+
+  const kinds = uniqueStrings([
+    ...normalizeStringList(metadata.strategyKinds),
+    normalizeText(metadata.strategyKind),
+    ...normalizeStringList(intentPlan?.detectedStrategyKinds),
+    ...getLogicIRClassificationValues(logicIR),
+    ...inferStrategyKindsFromText(text),
+  ].map(normalizeToken));
+
+  const requiredSignals = uniqueStrings([
+    ...normalizeStringList(metadata.requiredSignals),
+    ...normalizeStringList(logicIR?.requiredSignals),
+    ...normalizeStringList(intentPlan?.requiredComputationNodes),
+    ...requirements
+      .filter((requirement) => /requires_computation|requires_predicate|requires_indicator|requires_signal/.test(normalizeToken(requirement.kind)))
+      .map((requirement) => requirement.semanticType || requirement.dataKind || requirement.id),
+    ...logicNodes
+      .filter((node) => /compute|predicate/.test(normalizeToken(node.nodeCategory || node.category)))
+      .map((node) => node.semanticType || node.id || node.label),
+    ...kinds.flatMap((kind) => REQUIRED_SIGNAL_BY_STRATEGY_KIND[kind] || []),
+  ]
+    .map(normalizeRequiredSignalName)
+    .filter((item) => item && !GENERIC_SIGNAL_TOKENS.has(item) && !isRawFeedSignalToken(item)));
+
+  const strategyKind = normalizeText(metadata.strategyKind)
+    || normalizeText(logicIR?.strategyKind)
+    || kinds[0]
+    || strategyKindFromSignals(requiredSignals)
+    || 'custom';
+
+  const requiredTriggerTypes = uniqueStrings([
+    ...normalizeStringList(metadata.requiredTriggerTypes),
+    ...normalizeStringList(intentPlan?.requiredTriggerTypes),
+    ...requirements
+      .filter((requirement) => /requires_trigger/.test(normalizeToken(requirement.kind)))
+      .map((requirement) => requirement.triggerType || requirement.type),
+    ...logicNodes
+      .filter((node) => normalizeToken(node.nodeCategory || node.category) === 'trigger')
+      .map((node) => node.triggerType || node.type),
+    ...inferRequiredTriggerTypesFromText(text, [strategyKind, ...kinds]),
+  ].map(normalizeToken));
+
+  return {
+    strategyKind: normalizeToken(strategyKind) || 'custom',
+    strategyKinds: uniqueStrings([strategyKind, ...kinds].map(normalizeToken)),
+    requiredSignals,
+    requiredTriggerTypes,
+    sourcePrompt: normalizeText(metadata.sourcePrompt) || normalizeText(prompt),
+  };
+}
+
+function buildStrategyMetadata(strategyGraph, prompt, intentPlan, logicIR) {
+  const existing = normalizeObject(strategyGraph?.metadata) || {};
+  const semantics = deriveStrategySemantics({ strategyGraph, prompt, intentPlan, logicIR });
+  return {
+    ...existing,
+    strategyKind: semantics.strategyKind,
+    strategyKinds: semantics.strategyKinds,
+    requiredSignals: semantics.requiredSignals,
+    requiredTriggerTypes: semantics.requiredTriggerTypes,
+    sourcePrompt: semantics.sourcePrompt,
+  };
+}
+
+function logicIssue(code, severity, message, evidence, repairHint) {
+  return {
+    code,
+    severity,
+    message,
+    ...(evidence === undefined ? {} : { evidence }),
+    ...(repairHint ? { repairHint } : {}),
+  };
+}
+
+function hasBlockingLogicIssues(issues) {
+  return issues.some((issue) => issue?.severity === 'error');
+}
+
+function formatLogicLintIssues(issues) {
+  return (issues || [])
+    .map((issue, index) => {
+      const evidence = issue.evidence === undefined ? '' : ` evidence=${trimForLog(stringifyJSON(issue.evidence), 1200)}`;
+      const hint = issue.repairHint ? ` repairHint=${issue.repairHint}` : '';
+      return `${index + 1}. [${issue.severity || 'error'}:${issue.code || 'LOGIC_ISSUE'}] ${issue.message || 'logic issue'}${evidence}${hint}`;
+    })
+    .join('\n');
+}
+
+function blockConfigText(block, keys) {
+  return keys.map((key) => normalizeText(block?.config?.[key])).filter(Boolean).join(' ');
+}
+
+function blockSearchText(block) {
+  return [
+    normalizeText(block?.id),
+    blockConfigText(block, ['name', 'label', 'title', 'description', 'expression', 'formula', 'code', 'logic', 'condition']),
+  ].join(' ').toLowerCase();
+}
+
+function isFormulaNormalBlock(block) {
+  if (normalizeText(block?.type) !== 'normal') {
+    return false;
+  }
+  const config = normalizeConfigObject(block?.config);
+  return Boolean(firstConfigText(config, ['expression', 'formula', 'code', 'logic'], ''));
+}
+
+function formulaText(block) {
+  const config = normalizeConfigObject(block?.config);
+  return firstConfigText(config, ['expression', 'formula', 'code', 'logic'], '');
+}
+
+function isFixedNormalBlock(block) {
+  if (normalizeText(block?.type) !== 'normal' || isFormulaNormalBlock(block)) {
+    return false;
+  }
+  return getNormalFixedValue(block) !== undefined;
+}
+
+function normalizeSignalAliases(signal) {
+  const normalized = normalizeToken(signal);
+  if (normalized === 'moving_average') return ['moving_average', 'ma', 'average'];
+  if (normalized === 'funding_rate') return ['funding_rate', 'funding'];
+  return [normalized];
+}
+
+function blockMatchesSignal(block, signal) {
+  const haystack = blockSearchText(block).replace(/[\s-]+/g, '_');
+  if (normalizeSignalAliases(signal).some((alias) => haystack.includes(alias))) {
+    return true;
+  }
+
+  if (!isFormulaNormalBlock(block)) {
+    return false;
+  }
+
+  const normalizedSignal = normalizeToken(signal);
+  const expression = formulaText(block).toLowerCase().replace(/\s+/g, '');
+  const searchText = `${haystack} ${expression}`;
+  if (normalizedSignal === 'basis') {
+    const hasSpotLeg = /spot|현물/.test(searchText);
+    const hasPerpLeg = /perp|future|futures|선물/.test(searchText);
+    const hasRelativeExpression = expression.includes('-') && (expression.includes('/') || /percent|pct|%|ratio/.test(searchText));
+    return hasSpotLeg && hasPerpLeg && hasRelativeExpression;
+  }
+  if (normalizedSignal === 'spread') {
+    const hasTwoLegs = /(bid|ask|spot|perp|future|futures|cex|dex|현물|선물).*(bid|ask|spot|perp|future|futures|cex|dex|현물|선물)/.test(searchText);
+    return hasTwoLegs && expression.includes('-');
+  }
+  return false;
+}
+
+function getIncomingConnections(graph, nodeId, kind = '') {
+  return (Array.isArray(graph?.connections) ? graph.connections : []).filter((connection) =>
+    connection.toId === nodeId && (!kind || connection.kind === kind));
+}
+
+function getOutgoingConnections(graph, nodeId, kind = '') {
+  return (Array.isArray(graph?.connections) ? graph.connections : []).filter((connection) =>
+    connection.fromId === nodeId && (!kind || connection.kind === kind));
+}
+
+function getUpstreamNodeIds(graph, nodeId) {
+  const reverseAdj = new Map();
+  for (const connection of Array.isArray(graph?.connections) ? graph.connections : []) {
+    if (!reverseAdj.has(connection.toId)) {
+      reverseAdj.set(connection.toId, []);
+    }
+    reverseAdj.get(connection.toId).push(connection.fromId);
+  }
+
+  const visited = new Set();
+  const stack = [...(reverseAdj.get(nodeId) || [])];
+  while (stack.length > 0) {
+    const current = stack.pop();
+    if (!current || visited.has(current)) {
+      continue;
+    }
+    visited.add(current);
+    for (const parent of reverseAdj.get(current) || []) {
+      stack.push(parent);
+    }
+  }
+  return Array.from(visited);
+}
+
+function hasActionResultUpstream(graph, nodeId) {
+  const incomingByTarget = new Map();
+  for (const connection of Array.isArray(graph?.connections) ? graph.connections : []) {
+    if (!incomingByTarget.has(connection.toId)) {
+      incomingByTarget.set(connection.toId, []);
+    }
+    incomingByTarget.get(connection.toId).push(connection);
+  }
+  const visited = new Set();
+  const stack = [...(incomingByTarget.get(nodeId) || [])];
+  while (stack.length > 0) {
+    const connection = stack.pop();
+    if (!connection) {
+      continue;
+    }
+    if (connection.kind === 'action-result') {
+      return true;
+    }
+    const source = normalizeText(connection.fromId);
+    if (!source || visited.has(source)) {
+      continue;
+    }
+    visited.add(source);
+    stack.push(...(incomingByTarget.get(source) || []));
+  }
+  return false;
+}
+
+function getDirectIncomingTriggerIds(graph, actionId) {
+  return getIncomingConnections(graph, actionId, 'trigger-action')
+    .map((connection) => normalizeText(connection.fromId))
+    .filter(Boolean);
+}
+
+function conditionReferencesSignal(graph, triggerBlock, requiredSignals) {
+  const rawCondition = blockConfigText(triggerBlock, ['condition', 'expression', 'logic']);
+  const condition = rawCondition.toLowerCase().replace(/[\s-]+/g, '_');
+  const signalBlocks = (graph.blocks || []).filter((block) =>
+    block.type === 'normal' && requiredSignals.some((signal) => blockMatchesSignal(block, signal)));
+
+  if (signalBlocks.some((block) =>
+    conditionMentionsBlockId(rawCondition, block.id) || condition.includes(normalizeToken(block.id)))) {
+    return true;
+  }
+
+  if (requiredSignals.some((signal) => normalizeSignalAliases(signal).some((alias) => condition.includes(alias)))) {
+    return true;
+  }
+
+  const incoming = getIncomingConnections(graph, triggerBlock.id, 'data-flow');
+  return incoming.some((connection) => signalBlocks.some((block) => block.id === connection.fromId));
+}
+
+function conditionReferencesRawFeed(graph, triggerBlock) {
+  const condition = blockConfigText(triggerBlock, ['condition', 'expression', 'logic']);
+  return (graph.blocks || []).some((block) =>
+    block.type === 'streaming' && conditionMentionsBlockId(condition, block.id));
+}
+
+function getReferencedBlockIds(text, blocks, excludeId = '') {
+  const source = normalizeText(text);
+  if (!source) {
+    return [];
+  }
+  return blocks
+    .filter((block) => block.id !== excludeId)
+    .filter((block) => conditionMentionsBlockId(source, block.id))
+    .map((block) => block.id);
+}
+
+function isAllowedRawActionInput(connection, actionBlock) {
+  const actionConfig = normalizeConfigObject(actionBlock?.config);
+  if (actionConfig.allowRawFeedInputs === true) {
+    return true;
+  }
+  const reason = normalizeToken(connection?.reason || connection?.label || actionConfig.rawFeedInputReason);
+  return ALLOWED_RAW_ACTION_INPUT_REASONS.has(reason);
+}
+
+function logicIRHasComputedSignal(logicIR, signal) {
+  return getLogicIRNodes(logicIR).some((node) => {
+    if (!/compute|predicate/.test(normalizeToken(node.nodeCategory || node.category))) {
+      return false;
+    }
+    const text = collectObjectText(node).toLowerCase().replace(/[\s-]+/g, '_');
+    return normalizeSignalAliases(signal).some((alias) => text.includes(alias));
+  });
+}
+
+function makeUniqueLogicIRNodeId(nodes, preferredId) {
+  const used = new Set(nodes.map((node) => normalizeText(node.id)).filter(Boolean));
+  const base = slugifyForPath(preferredId, 'computed-signal');
+  if (!used.has(base)) {
+    return base;
+  }
+  for (let index = 2; index < 1000; index += 1) {
+    const candidate = `${base}-${index}`;
+    if (!used.has(candidate)) {
+      return candidate;
+    }
+  }
+  return `${base}-${Date.now()}`;
+}
+
+function collectRuntimeFormulaTriggerTargets(strategyGraph, formulaBlock, signal) {
+  const blocks = Array.isArray(strategyGraph?.blocks) ? strategyGraph.blocks : [];
+  const blockByID = new Map(blocks.map((block) => [normalizeText(block.id), block]));
+  const directTargets = getOutgoingConnections(strategyGraph, formulaBlock.id, 'data-flow')
+    .map((connection) => normalizeText(connection.toId))
+    .filter((id) => blockByID.get(id)?.type === 'trigger');
+  const referencedTargets = blocks
+    .filter((block) => block.type === 'trigger')
+    .filter((trigger) => {
+      const condition = blockConfigText(trigger, ['condition', 'expression', 'logic']);
+      if (conditionMentionsBlockId(condition, formulaBlock.id)) {
+        return true;
+      }
+      return normalizeSignalAliases(signal).some((alias) =>
+        condition.toLowerCase().replace(/[\s-]+/g, '_').includes(alias));
+    })
+    .map((trigger) => normalizeText(trigger.id));
+  return uniqueStrings([...directTargets, ...referencedTargets]);
+}
+
+function completeLogicIRFromRuntimeGraph(logicIR, strategyGraph, { prompt = '', intentPlan = null } = {}) {
+  const ir = normalizeObject(logicIR);
+  const graph = normalizeObject(strategyGraph);
+  const blocks = Array.isArray(graph?.blocks) ? graph.blocks : [];
+  if (!ir || blocks.length === 0) {
+    return ir;
+  }
+
+  const semantics = deriveStrategySemantics({ strategyGraph: graph, prompt, intentPlan, logicIR: ir });
+  const missingSignals = semantics.requiredSignals.filter((signal) => !logicIRHasComputedSignal(ir, signal));
+  if (missingSignals.length === 0) {
+    return ir;
+  }
+
+  const formulaBlocks = blocks.filter((block) => block.type === 'normal' && isFormulaNormalBlock(block));
+  let nextIR = ir;
+  let nodes = null;
+  let edges = null;
+  let requiredSignals = null;
+
+  for (const signal of missingSignals) {
+    const formulaBlock = formulaBlocks.find((block) => blockMatchesSignal(block, signal));
+    if (!formulaBlock) {
+      continue;
+    }
+
+    if (nextIR === ir) {
+      nodes = Array.isArray(ir.nodes)
+        ? ir.nodes.filter((item) => item && typeof item === 'object').map((item) => ({ ...item }))
+        : getLogicIRNodes(ir).map((item) => ({ ...item }));
+      edges = getLogicIREdges(ir).map((item) => ({ ...item }));
+      requiredSignals = uniqueStrings([...normalizeStringList(ir.requiredSignals), ...semantics.requiredSignals]);
+      nextIR = {
+        ...ir,
+        nodes,
+        edges,
+        requiredSignals,
+      };
+    }
+
+    const nodeId = makeUniqueLogicIRNodeId(nodes, `${formulaBlock.id}-${signal}`);
+    const config = normalizeConfigObject(formulaBlock.config);
+    const incomingInputs = getIncomingConnections(graph, formulaBlock.id)
+      .filter((connection) => connection.kind === 'data-flow' || connection.kind === 'action-result')
+      .map((connection) => normalizeText(connection.fromId))
+      .filter(Boolean);
+    nodes.push({
+      id: nodeId,
+      nodeCategory: 'compute',
+      semanticType: signal,
+      label: firstConfigText(config, ['name', 'label', 'title'], formulaBlock.id),
+      expression: formulaText(formulaBlock),
+      inputs: uniqueStrings([...incomingInputs, ...normalizeStringList(config.inputs)]),
+      outputs: uniqueStrings([signal, ...normalizeStringList(config.outputs)]),
+      config: {
+        runtimeBlockId: formulaBlock.id,
+        autoCompletedFromRuntimeGraph: true,
+      },
+    });
+
+    for (const targetId of collectRuntimeFormulaTriggerTargets(graph, formulaBlock, signal)) {
+      edges.push({
+        from: nodeId,
+        to: targetId,
+        kind: 'signal',
+      });
+    }
+  }
+
+  return nextIR;
+}
+
+function lintStrategyLogicIR(logicIR, { prompt = '', intentPlan = null } = {}) {
+  if (!logicIR || typeof logicIR !== 'object') {
+    return [logicIssue(
+      'MISSING_STRATEGY_LOGIC_IR',
+      'error',
+      'Strategy Logic IR is missing.',
+      {},
+      'Return intentPlan, logicIR, and runtimeGraph before runtime validation.',
+    )];
+  }
+
+  const semantics = deriveStrategySemantics({
+    strategyGraph: { metadata: {} },
+    prompt,
+    intentPlan,
+    logicIR,
+  });
+  const issues = [];
+  const logicNodes = getLogicIRNodes(logicIR);
+  const logicEdges = getLogicIREdges(logicIR);
+  const computedSignals = logicNodes.filter((node) => /compute|predicate/.test(normalizeToken(node.nodeCategory || node.category)));
+  const irTriggers = logicNodes.filter((node) => normalizeToken(node.nodeCategory || node.category) === 'trigger');
+  const logicNodeByID = new Map(logicNodes.map((node) => [normalizeText(node.id), node]).filter(([id]) => Boolean(id)));
+
+  for (const signal of semantics.requiredSignals) {
+    const exists = computedSignals.some((candidate) => {
+      const text = collectObjectText(candidate).toLowerCase().replace(/[\s-]+/g, '_');
+      return normalizeSignalAliases(signal).some((alias) => text.includes(alias));
+    });
+    if (!exists) {
+      issues.push(logicIssue(
+        `IR_MISSING_${normalizeToken(signal).toUpperCase()}_SIGNAL`,
+        'error',
+        `Strategy Logic IR is missing required computed signal "${signal}".`,
+        { strategyKind: semantics.strategyKind, requiredSignals: semantics.requiredSignals },
+        `Add "${signal}" to logicIR.computedSignals before generating runtimeGraph.`,
+      ));
+    }
+  }
+
+  for (const edge of logicEdges) {
+    const source = logicNodeByID.get(normalizeText(edge.from));
+    const target = logicNodeByID.get(normalizeText(edge.to));
+    if (normalizeToken(source?.nodeCategory || source?.category) === 'action' && normalizeToken(target?.nodeCategory || target?.category) === 'action') {
+      issues.push(logicIssue(
+        'IR_ACTION_DIRECTLY_CHAINED',
+        'error',
+        `Logic IR connects action ${edge.from} directly to action ${edge.to}.`,
+        { from: edge.from, to: edge.to, kind: edge.kind },
+        'Route action outputs through action-result to compute/predicate/trigger nodes before a later action.',
+      ));
+    }
+  }
+
+  const needsTimeTrigger = semantics.requiredTriggerTypes.includes('time') || TIME_STRATEGY_KIND_SET.has(semantics.strategyKind);
+  if (needsTimeTrigger) {
+    const hasTimeTrigger = irTriggers.some((trigger) =>
+      /time|timer|schedule|interval|cron/.test(normalizeToken(trigger?.kind || trigger?.triggerType || trigger?.type)));
+    if (!hasTimeTrigger) {
+      issues.push(logicIssue(
+        'IR_DCA_MUST_USE_TIME_TRIGGER',
+        'error',
+        'Strategy Logic IR must model time-based execution as a time trigger.',
+        { strategyKind: semantics.strategyKind, requiredTriggerTypes: semantics.requiredTriggerTypes },
+        'Add a time trigger to logicIR.triggers and use triggerType="time" in runtimeGraph.',
+      ));
+    }
+  }
+
+  for (const signal of semantics.requiredSignals) {
+    const signalNode = computedSignals.find((candidate) => {
+      const text = collectObjectText(candidate).toLowerCase().replace(/[\s-]+/g, '_');
+      return normalizeSignalAliases(signal).some((alias) => text.includes(alias));
+    });
+    if (!signalNode?.id) {
+      continue;
+    }
+    const hasSignalOutputFlow = logicEdges.some((edge) =>
+      normalizeText(edge?.from) === normalizeText(signalNode.id) &&
+      /signal|data|predicate/.test(normalizeToken(edge?.kind)));
+    if (!hasSignalOutputFlow) {
+      issues.push(logicIssue(
+        'IR_SIGNAL_MUST_FEED_TRIGGER',
+        'error',
+        `Computed signal "${signalNode.id}" is not connected to downstream trigger logic in IR.`,
+        { signalId: signalNode.id },
+        'Add flow from computed signal to the relevant condition trigger.',
+      ));
+    }
+  }
+
+  return issues;
+}
+
+function lintRuntimeStrategyGraph(strategyGraph, { prompt = '', intentPlan = null, logicIR = null, exchangeConnections = [] } = {}) {
+  const graph = strategyGraph || {};
+  const blocks = Array.isArray(graph.blocks) ? graph.blocks : [];
+  const connections = Array.isArray(graph.connections) ? graph.connections : [];
+  const blockByID = new Map(blocks.map((block) => [block.id, block]));
+  const semantics = deriveStrategySemantics({ strategyGraph: graph, prompt, intentPlan, logicIR });
+  const issues = [];
+
+  for (const action of blocks.filter((block) => block.type === 'action')) {
+    if (!isActionUsingConnectedExchange(action, exchangeConnections)) {
+      issues.push(logicIssue(
+        'ACTION_EXCHANGE_NOT_CONNECTED',
+        'error',
+        `Action ${action.id} uses an exchange that is not connected.`,
+        {
+          actionId: action.id,
+          exchange: action.config?.exchange || action.config?.connectionId || action.config?.venue || '',
+          connectedExchanges: getConnectedExchangeConnections(exchangeConnections).map((connection) => ({ id: connection.id, name: connection.name })),
+        },
+        'Use only one of the connected exchanges from the backend exchange connection list.',
+      ));
+    }
+    const upstreamIDs = getUpstreamNodeIds(graph, action.id);
+    const directTriggerIds = getDirectIncomingTriggerIds(graph, action.id);
+    const hasTriggerUpstream = directTriggerIds.length > 0 || upstreamIDs.some((id) => blockByID.get(id)?.type === 'trigger');
+    if (!hasTriggerUpstream || directTriggerIds.length === 0) {
+      issues.push(logicIssue(
+        'ACTION_WITHOUT_TRIGGER',
+        'error',
+        `Action ${action.id} has no direct incoming trigger-action edge.`,
+        { actionId: action.id, upstreamIds: upstreamIDs, directTriggerIds },
+        'Connect a condition or time trigger before this action. Do not connect raw feeds directly to actions.',
+      ));
+    }
+    if (hasActionResultUpstream(graph, action.id)) {
+      const hasResultConfirmationTrigger = directTriggerIds.some((triggerId) => hasActionResultUpstream(graph, triggerId));
+      if (!hasResultConfirmationTrigger) {
+        issues.push(logicIssue(
+          'ACTION_RESULT_NEXT_ACTION_NEEDS_CONFIRMATION',
+          'error',
+          `Action ${action.id} depends on a previous action result but is not gated by an action-result confirmation trigger.`,
+          { actionId: action.id, directTriggerIds },
+          'Route the previous action result into a confirmation trigger, then connect that trigger to the later action.',
+        ));
+      }
+    }
+  }
+
+  const requiredSignals = semantics.requiredSignals.filter(Boolean);
+  for (const signal of requiredSignals) {
+    const exists = blocks.some((block) => block.type === 'normal' && isFormulaNormalBlock(block) && blockMatchesSignal(block, signal));
+    if (!exists) {
+      issues.push(logicIssue(
+        `MISSING_${normalizeToken(signal).toUpperCase()}_FORMULA`,
+        'error',
+        `Required computed signal "${signal}" is missing.`,
+        { strategyKind: semantics.strategyKind, requiredSignals },
+        `Create a normal expression node for "${signal}" and connect its data-flow into relevant triggers.`,
+      ));
+    }
+  }
+
+  for (const connection of connections) {
+    const from = blockByID.get(connection.fromId);
+    const to = blockByID.get(connection.toId);
+    if (from?.type === 'action' && to?.type === 'action') {
+      issues.push(logicIssue(
+        'ACTION_DIRECTLY_CHAINED',
+        'error',
+        `Action ${from.id} is directly connected to action ${to.id}.`,
+        { connectionId: connection.id, kind: connection.kind, fromId: from.id, toId: to.id },
+        'Route action outputs into a formula/predicate/confirmation trigger before the next action.',
+      ));
+      continue;
+    }
+    if (connection.kind === 'action-result') {
+      if (from?.type !== 'action' || !['normal', 'trigger', 'monitoring'].includes(to?.type || '')) {
+        issues.push(logicIssue(
+          'ACTION_RESULT_INVALID_TARGET',
+          'error',
+          `action-result must connect action -> normal/trigger/monitoring, got ${from?.type || 'missing'} -> ${to?.type || 'missing'}.`,
+          { connectionId: connection.id, fromId: connection.fromId, toId: connection.toId },
+          'Use action-result only from action blocks to normal, trigger, or monitoring blocks.',
+        ));
+      }
+      continue;
+    }
+    if (connection.kind !== 'action-input' || from?.type !== 'streaming' || to?.type !== 'action') {
+      continue;
+    }
+    if (semantics.strategyKind === 'pure_execution' || isAllowedRawActionInput(connection, to)) {
+      continue;
+    }
+    const severity = requiredSignals.length > 0 ? 'error' : 'warning';
+    issues.push(logicIssue(
+      'RAW_FEED_ACTION_BYPASS',
+      severity,
+      `Raw feed ${from.id} is connected directly to action ${to.id}.`,
+      { connectionId: connection.id, fromId: from.id, toId: to.id, strategyKind: semantics.strategyKind },
+      'Route market feeds into formula/indicator nodes first. Actions must be triggered by condition/time triggers.',
+    ));
+  }
+
+  for (const trigger of blocks.filter((block) => block.type === 'trigger')) {
+    const config = normalizeConfigObject(trigger.config);
+    const triggerType = firstConfigText(config, ['triggerType', 'type'], 'condition').toLowerCase();
+    if (triggerType !== 'condition' || requiredSignals.length === 0) {
+      continue;
+    }
+    if (conditionReferencesRawFeed(graph, trigger) && !conditionReferencesSignal(graph, trigger, requiredSignals)) {
+      issues.push(logicIssue(
+        'TRIGGER_BYPASSES_SIGNAL',
+        'error',
+        `Condition trigger ${trigger.id} references raw feed fields instead of the required computed signal.`,
+        { triggerId: trigger.id, requiredSignals, condition: config.condition || config.expression || config.logic },
+        'Create a formula/indicator normal node and make the trigger depend on that computed signal.',
+      ));
+    }
+  }
+
+  const needsTimeTrigger = semantics.requiredTriggerTypes.includes('time') || TIME_STRATEGY_KIND_SET.has(semantics.strategyKind);
+  if (needsTimeTrigger) {
+    const timeTriggers = blocks.filter((block) =>
+      block.type === 'trigger' && firstConfigText(block.config || {}, ['triggerType', 'type'], '').toLowerCase() === 'time');
+    if (timeTriggers.length === 0) {
+      issues.push(logicIssue(
+        'DCA_MUST_USE_TIME_TRIGGER',
+        'error',
+        'Time-based strategies must use triggerType="time".',
+        { strategyKind: semantics.strategyKind, requiredTriggerTypes: semantics.requiredTriggerTypes },
+        'Replace interval normal + modulo condition with a single time trigger block with intervalMs.',
+      ));
+    }
+  }
+
+  for (const trigger of blocks.filter((block) => block.type === 'trigger')) {
+    const config = normalizeConfigObject(trigger.config);
+    const triggerType = firstConfigText(config, ['triggerType', 'type'], '').toLowerCase();
+    const condition = normalizeText(config.condition || config.expression || config.logic).toLowerCase();
+    if (triggerType === 'condition' && /eventtime\s*%|timestamp\s*%|datetime\s*%|modulo|::pulse\b/.test(condition)) {
+      issues.push(logicIssue(
+        'DCA_MUST_USE_TIME_TRIGGER',
+        'error',
+        `Trigger ${trigger.id} implements time logic as a condition expression.`,
+        { triggerId: trigger.id, condition },
+        'Use one trigger block with triggerType="time" and intervalMs instead.',
+      ));
+    }
+    const referencedActionIDs = getReferencedBlockIds(condition, blocks, trigger.id)
+      .filter((id) => blockByID.get(id)?.type === 'action');
+    const incomingResultFromIDs = new Set(getIncomingConnections(graph, trigger.id, 'action-result').map((connection) => connection.fromId));
+    for (const referencedID of referencedActionIDs) {
+      if (!incomingResultFromIDs.has(referencedID)) {
+        issues.push(logicIssue(
+          'ACTION_RESULT_TRIGGER_MUST_USE_ACTION_RESULT',
+          'error',
+          `Trigger ${trigger.id} references action ${referencedID} without an action-result edge.`,
+          { triggerId: trigger.id, referencedId: referencedID, condition },
+          `Add an action-result connection ${referencedID} -> ${trigger.id}.`,
+        ));
+      }
+    }
+    if (referencedActionIDs.length > 0 && !/status|filled|confirmed|success|executed|txhash|orderid/.test(condition)) {
+      issues.push(logicIssue(
+        'ACTION_RESULT_CONFIRMATION_TRIGGER_REQUIRED',
+        'warning',
+        `Trigger ${trigger.id} depends on an action result but does not check status/fill/confirmation fields.`,
+        { triggerId: trigger.id, condition },
+        'Use status, filledQty, orderId, txHash, or confirmation fields before firing a follow-up action.',
+      ));
+    }
+  }
+
+  for (const formulaBlock of blocks.filter(isFormulaNormalBlock)) {
+    const expression = formulaText(formulaBlock);
+    const referencedIDs = getReferencedBlockIds(expression, blocks, formulaBlock.id)
+      .filter((id) => ['streaming', 'normal'].includes(blockByID.get(id)?.type));
+    const referencedActionIDs = getReferencedBlockIds(expression, blocks, formulaBlock.id)
+      .filter((id) => blockByID.get(id)?.type === 'action');
+    const incomingDataFromIDs = new Set(getIncomingConnections(graph, formulaBlock.id, 'data-flow').map((connection) => connection.fromId));
+    const incomingResultFromIDs = new Set(getIncomingConnections(graph, formulaBlock.id, 'action-result').map((connection) => connection.fromId));
+    if (referencedIDs.length === 0 && referencedActionIDs.length === 0 && incomingDataFromIDs.size === 0 && incomingResultFromIDs.size === 0) {
+      issues.push(logicIssue(
+        'FORMULA_DEPENDENCY_MUST_USE_DATA_FLOW',
+        'error',
+        `Formula node ${formulaBlock.id} has no data-flow or action-result inputs.`,
+        { formulaId: formulaBlock.id, expression },
+        'Connect feed/signal dependencies with data-flow and action output dependencies with action-result.',
+      ));
+      continue;
+    }
+    for (const referencedID of referencedIDs) {
+      if (!incomingDataFromIDs.has(referencedID)) {
+        issues.push(logicIssue(
+          'FORMULA_DEPENDENCY_MUST_USE_DATA_FLOW',
+          'error',
+          `Formula node ${formulaBlock.id} references ${referencedID} without a data-flow edge.`,
+          { formulaId: formulaBlock.id, referencedId: referencedID, expression },
+          `Add a data-flow connection ${referencedID} -> ${formulaBlock.id}.`,
+        ));
+      }
+    }
+    for (const referencedID of referencedActionIDs) {
+      if (!incomingResultFromIDs.has(referencedID)) {
+        issues.push(logicIssue(
+          'ACTION_RESULT_DEPENDENCY_MUST_USE_ACTION_RESULT',
+          'error',
+          `Formula node ${formulaBlock.id} references action ${referencedID} without an action-result edge.`,
+          { formulaId: formulaBlock.id, referencedId: referencedID, expression },
+          `Add an action-result connection ${referencedID} -> ${formulaBlock.id}.`,
+        ));
+      }
+    }
+    if (/requestedqty|requested_qty|orderqty|order_qty|\bqty\b|\bamount\b/i.test(expression) && !/filledqty|filled_qty|filled/i.test(expression)) {
+      issues.push(logicIssue(
+        'PARTIAL_FILL_SIZE_MUST_USE_FILLED_QTY',
+        'warning',
+        `Formula node ${formulaBlock.id} appears to size a follow-up action without using filledQty.`,
+        { formulaId: formulaBlock.id, expression },
+        'For partial-fillable actions, compute follow-up size from filledQty rather than requested quantity.',
+      ));
+    }
+  }
+
+  for (const action of blocks.filter((block) => block.type === 'action')) {
+    const config = normalizeConfigObject(action.config);
+    const retryEnabled = (
+      Number(config.maxRetries ?? config.retries ?? config.retryCount ?? 0) > 0 ||
+      config.retry === true ||
+      /retry|재시도/.test(blockSearchText(action))
+    );
+    if (!retryEnabled) {
+      continue;
+    }
+    const hasRetrySafety = ['maxRetries', 'cooldownMs', 'idempotencyKey', 'timeoutMs'].some((key) =>
+      config[key] !== undefined && config[key] !== null && config[key] !== '');
+    if (!hasRetrySafety) {
+      issues.push(logicIssue(
+        'RETRY_LOOP_REQUIRES_SAFETY',
+        'error',
+        `Action ${action.id} has retry behavior without explicit safety limits.`,
+        { actionId: action.id },
+        'Add maxRetries, cooldownMs, idempotencyKey, and/or timeoutMs to retryable actions.',
+      ));
+    }
+  }
+
+  for (const fixedNormal of blocks.filter(isFixedNormalBlock)) {
+    const outgoing = getOutgoingConnections(graph, fixedNormal.id);
+    const onlyParameterUse = outgoing.length > 0 && outgoing.every((connection) =>
+      connection.kind === 'action-input' || connection.kind === 'data-flow');
+    if (onlyParameterUse) {
+      issues.push(logicIssue(
+        'FIXED_NORMAL_SHOULD_BE_PARAMETER',
+        'warning',
+        `Fixed normal block ${fixedNormal.id} should be absorbed into UI parameters.`,
+        { normalId: fixedNormal.id },
+        'Do not display this as a standalone formula node in advanced UI.',
+      ));
+    }
+  }
+
+  return issues;
+}
+
+function normalizeStrategyGraphForRunner(strategyGraph, prompt = '', semanticContext = {}) {
+  const rawBlocks = Array.isArray(strategyGraph?.blocks) ? strategyGraph.blocks : [];
+  const firstRawStream = rawBlocks.find((block) => normalizeText(block?.type) === 'streaming');
+  const fallbackStreamID = normalizeText(firstRawStream?.id) || 'streaming-1';
+  let blocks = rawBlocks.map((block, index) => normalizeRunnerBlock(block, index, fallbackStreamID));
+  const topology = normalizeRuntimeGraphTopology(
+    blocks,
+    Array.isArray(strategyGraph?.connections) ? strategyGraph.connections : [],
+  );
+  blocks = topology.blocks;
+
+  let blockByID = new Map(blocks.map((block) => [block.id, block]));
+  let connections = [];
+  let existing = new Set();
+  for (const connection of topology.connections) {
+    const fromId = normalizeText(connection?.fromId);
+    const toId = normalizeText(connection?.toId);
+    const fromType = blockByID.get(fromId)?.type;
+    const toType = blockByID.get(toId)?.type;
+    if (!fromType || !toType) {
+      continue;
+    }
+    const kind = inferRunnerConnectionKind(fromType, toType, connection?.kind);
+    if (!['trigger-action', 'trigger-input', 'action-input', 'data-flow', 'action-result', 'stream-monitor'].includes(kind)) {
+      continue;
+    }
+    const extra = {};
+    for (const key of ['reason', 'label', 'field', 'outputField', 'inputField']) {
+      const value = normalizeText(connection?.[key]);
+      if (value) {
+        extra[key] = value;
+      }
+    }
+    addRunnerConnection(connections, existing, kind, fromId, toId, normalizeText(connection?.id) || 'conn', extra);
+  }
+
+  const coerced = forceTimeTriggersIntoTriggerBlocks(blocks, connections);
+  blocks = coerced.blocks;
+  connections = coerced.connections;
+  blockByID = new Map(blocks.map((block) => [block.id, block]));
+  existing = rebuildConnectionSet(connections);
+  ensureRuntimeKillSwitch(blocks, connections, existing, semanticContext.exchangeConnections || []);
+  blockByID = new Map(blocks.map((block) => [block.id, block]));
+  existing = rebuildConnectionSet(connections);
+
+  const streamingIDs = blocks.filter((block) => block.type === 'streaming').map((block) => block.id);
+  const normalIDs = blocks.filter((block) => block.type === 'normal').map((block) => block.id);
+  const triggerIDs = blocks.filter((block) => block.type === 'trigger').map((block) => block.id);
+  const actionIDs = blocks.filter((block) => block.type === 'action').map((block) => block.id);
+  const monitorIDs = blocks.filter((block) => block.type === 'monitoring').map((block) => block.id);
+
+  for (const monitorID of monitorIDs) {
+    const streamID = streamingIDs[0];
+    if (streamID && !connections.some((conn) => conn.kind === 'stream-monitor' && conn.toId === monitorID)) {
+      addRunnerConnection(connections, existing, 'stream-monitor', streamID, monitorID, 'auto-stream-monitor');
+    }
+  }
+
+  const name = normalizeText(strategyGraph?.strategy?.name) || normalizeText(prompt) || 'AI Generated Strategy';
+  const id = normalizeText(strategyGraph?.strategy?.id) || slugifyForPath(name, 'ai-generated-strategy');
+  const normalizedGraph = {
+    schemaVersion: Number(strategyGraph?.schemaVersion) || 1,
+    kind: 'hershy-strategy-graph',
+    strategy: { id, name },
+    generatedAt: normalizeText(strategyGraph?.generatedAt) || new Date().toISOString(),
+    metadata: normalizeObject(strategyGraph?.metadata),
+    blocks,
+    connections,
+  };
+  return {
+    ...normalizedGraph,
+    metadata: buildStrategyMetadata(normalizedGraph, prompt, semanticContext.intentPlan, semanticContext.logicIR),
+    summary: {
+      blocks: blocks.length,
+      connections: connections.length,
+      byType: countStrategyBlocksByType(blocks),
+    },
+    blocks,
+    connections,
+  };
+}
+
+function extractValidationIssues(output) {
+  return String(output || '')
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter((line) => /^\d+\.\s+/.test(line))
+    .map((line) => line.replace(/^\d+\.\s+/, ''));
+}
+
+async function validateStrategyGraphWithRunner(strategyGraph) {
+  const timeoutSeconds = resolveIntegerEnv('AI_STRATEGY_VALIDATE_TIMEOUT_SEC', 60);
+  const tmpDir = await fs.mkdtemp(path.join(os.tmpdir(), 'hershy-strategy-'));
+  const tmpFile = path.join(tmpDir, 'strategy.json');
+  const command = 'go run ./cmd/strategy-validate --file <temp-strategy.json>';
+
+  try {
+    await fs.writeFile(tmpFile, `${stringifyPrettyJSON(strategyGraph)}\n`, 'utf8');
+    const { stdout, stderr } = await execFileAsync(
+      'go',
+      ['run', './cmd/strategy-validate', '--file', tmpFile],
+      {
+        cwd: STRATEGY_RUNNER_DIR,
+        timeout: timeoutSeconds * 1000,
+        maxBuffer: 1024 * 1024,
+      },
+    );
+    return {
+      ok: true,
+      command,
+      issues: [],
+      stdout: normalizeText(stdout),
+      stderr: normalizeText(stderr),
+    };
+  } catch (error) {
+    const stdout = String(error?.stdout || '');
+    const stderr = String(error?.stderr || '');
+    if (error?.code === 1) {
+      return {
+        ok: false,
+        command,
+        issues: extractValidationIssues(stdout),
+        stdout: normalizeText(stdout),
+        stderr: normalizeText(stderr),
+      };
+    }
+    throw new Error(`strategy validator failed: ${error?.message || 'unknown error'} ${trimForLog(stderr || stdout, 1200)}`);
+  } finally {
+    await fs.rm(tmpDir, { recursive: true, force: true }).catch(() => { });
+  }
+}
+
+function buildRuntimeLauncherSource(strategyName) {
+  return `package main
+
+import (
+\t"log"
+\t"os"
+\t"os/exec"
+\t"path/filepath"
+\t"runtime"
+)
+
+func main() {
+\t_, file, _, ok := runtime.Caller(0)
+\tif !ok {
+\t\tlog.Fatal("failed to resolve generated runtime path")
+\t}
+
+\tdir := filepath.Dir(file)
+\trunnerDir := filepath.Clean(filepath.Join(dir, "..", ".."))
+\tstrategyPath := filepath.Join(dir, "strategy.json")
+
+\tcmd := exec.Command("go", "run", runnerDir, "--strategy", strategyPath)
+\tcmd.Stdout = os.Stdout
+\tcmd.Stderr = os.Stderr
+\tcmd.Stdin = os.Stdin
+\tcmd.Env = os.Environ()
+
+\tlog.Printf("[GEN-RUNTIME] launching Hershy strategy runner: ${strategyName.replace(/[`\\$]/g, '')}")
+\tif err := cmd.Run(); err != nil {
+\t\tlog.Fatalf("[GEN-RUNTIME] strategy runner failed: %v", err)
+\t}
+}
+`;
+}
+
+async function writeStrategyRuntimeArtifacts(strategyGraph, validationHistory = []) {
+  if (!getAIBooleanEnv('AI_STRATEGY_WRITE_RUNTIME_ARTIFACTS', true)) {
+    return null;
+  }
+
+  const baseDir = path.resolve(
+    REPO_ROOT,
+    normalizeText(process.env.AI_STRATEGY_ARTIFACT_DIR) || 'examples/strategy-runner/generated',
+  );
+  const strategyName = normalizeText(strategyGraph?.strategy?.name) || 'AI Generated Strategy';
+  const strategyID = slugifyForPath(strategyGraph?.strategy?.id || strategyName, 'strategy');
+  const stamp = new Date().toISOString().replace(/[-:]/g, '').replace(/\.\d+Z$/, 'Z');
+  const dir = path.join(baseDir, `${stamp}-${strategyID}`);
+  const strategyPath = path.join(dir, 'strategy.json');
+  const mainGoPath = path.join(dir, 'main.go');
+  const validationPath = path.join(dir, 'validation.json');
+  const readmePath = path.join(dir, 'README.md');
+
+  await fs.mkdir(dir, { recursive: true });
+  await fs.writeFile(strategyPath, `${stringifyPrettyJSON(strategyGraph)}\n`, 'utf8');
+  await fs.writeFile(mainGoPath, buildRuntimeLauncherSource(strategyName), 'utf8');
+  await fs.writeFile(validationPath, `${stringifyPrettyJSON(validationHistory)}\n`, 'utf8');
+
+  const relDir = path.relative(REPO_ROOT, dir);
+  const relStrategyPath = path.relative(REPO_ROOT, strategyPath);
+  const relMainGoPath = path.relative(REPO_ROOT, mainGoPath);
+  const runnerRelativeStrategyPath = path.relative(STRATEGY_RUNNER_DIR, strategyPath);
+  const readme = `# ${strategyName}
+
+Generated Hershy strategy runtime artifact.
+
+## Validate
+
+\`\`\`bash
+cd examples/strategy-runner
+go run ./cmd/strategy-validate --file ${runnerRelativeStrategyPath}
+\`\`\`
+
+## Run
+
+\`\`\`bash
+cd ${relDir}
+go run .
+\`\`\`
+
+Files:
+- strategy JSON: ${relStrategyPath}
+- Go launcher: ${relMainGoPath}
+`;
+  await fs.writeFile(readmePath, readme, 'utf8');
+
+  return {
+    dir: relDir,
+    strategyPath: relStrategyPath,
+    mainGoPath: relMainGoPath,
+    validationPath: path.relative(REPO_ROOT, validationPath),
+    readmePath: path.relative(REPO_ROOT, readmePath),
+    validateCommand: `cd examples/strategy-runner && go run ./cmd/strategy-validate --file ${runnerRelativeStrategyPath}`,
+    runCommand: `cd ${relDir} && go run .`,
+  };
+}
+
+async function validateRepairAndMaterializeStrategy({
+  prompt,
+  currentStrategy,
+  researchBundle,
+  orchestrationPlan,
+  initialStrategy,
+  initialPackage,
+  exchangeConnections = [],
+  onProgress = null,
+}) {
+  const maxAttempts = resolveIntegerEnv('AI_STRATEGY_VALIDATE_MAX_ATTEMPTS', 50);
+  const history = [];
+  const repairReasoning = [];
+  const logicErrorRunId = makeStrategyLogicErrorRunID();
+  const logicErrorLogPath = path.relative(REPO_ROOT, AI_STRATEGY_LOGIC_ERROR_LOG_PATH);
+  const logicErrorLogEntries = [];
+  const strategyProviderForLog = resolveLayerProvider('STRATEGY');
+  const strategyModelForLog = resolveLayerModelForLog('STRATEGY', strategyProviderForLog);
+  let intentPlan = normalizeObject(initialPackage?.intentPlan);
+  let logicIR = normalizeObject(initialPackage?.logicIR);
+  let strategy = normalizeStrategyGraphForRunner(
+    initialPackage?.runtimeGraph || initialStrategy,
+    prompt,
+    { intentPlan, logicIR, exchangeConnections },
+  );
+
+  for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
+    emitAgentProgress(onProgress, {
+      stage: 'validation',
+      label: `검증 ${attempt}/${maxAttempts}: 전략 논리 검사`,
+      detail: { attempt, maxAttempts },
+    });
+    const completedLogicIR = completeLogicIRFromRuntimeGraph(logicIR, strategy, { prompt, intentPlan });
+    if (completedLogicIR && completedLogicIR !== logicIR) {
+      emitAgentProgress(onProgress, {
+        stage: 'validation',
+        label: `검증 ${attempt}/${maxAttempts}: 누락된 계산 IR 자동 보정`,
+        detail: { attempt },
+      });
+      logicIR = completedLogicIR;
+      strategy = normalizeStrategyGraphForRunner(strategy, prompt, { intentPlan, logicIR, exchangeConnections });
+    }
+
+    const irLintIssues = lintStrategyLogicIR(logicIR, { prompt, intentPlan });
+    const runtimeLogicIssues = lintRuntimeStrategyGraph(strategy, { prompt, intentPlan, logicIR, exchangeConnections });
+    const logicLintIssues = [...irLintIssues, ...runtimeLogicIssues];
+    const blockingLogicIssues = logicLintIssues.filter((issue) => issue.severity === 'error');
+    if (hasBlockingLogicIssues(logicLintIssues)) {
+      const logEntry = await recordStrategyLogicError({
+        runId: logicErrorRunId,
+        attempt,
+        maxAttempts,
+        stage: 'logic-lint',
+        prompt,
+        provider: strategyProviderForLog,
+        model: strategyModelForLog,
+        issues: blockingLogicIssues,
+        logicLintIssues,
+        strategy,
+        intentPlan,
+        logicIR,
+      });
+      logicErrorLogEntries.push(logEntry);
+      history.push({
+        attempt,
+        stage: 'logic-lint',
+        ok: false,
+        logicLintIssues,
+        issues: blockingLogicIssues.map((issue) => `${issue.code}: ${issue.message}`),
+        stdout: '',
+        stderr: '',
+      });
+
+      if (attempt >= maxAttempts) {
+        break;
+      }
+
+      emitAgentProgress(onProgress, {
+        stage: 'repair',
+        label: `수정 ${attempt}/${maxAttempts}: 논리 오류 ${blockingLogicIssues.length}개를 AI에게 전달`,
+        detail: {
+          attempt,
+          issues: blockingLogicIssues.map((issue) => issue.code).slice(0, 8),
+          logicErrorRunId,
+          logicErrorLogPath,
+        },
+      });
+      const repairResponse = await callAITextLayer({
+        layer: 'STRATEGY',
+        systemPrompt: buildStrategyRepairSystemPrompt(),
+        userPrompt: buildStrategyRepairUserPrompt({
+          prompt,
+          currentStrategy,
+          researchBundle,
+          orchestrationPlan,
+          intentPlan,
+          logicIR,
+          previousStrategy: strategy,
+          logicLintIssues,
+          exchangeConnections,
+          validation: {
+            command: 'semantic strategy logic linter',
+            issues: blockingLogicIssues.map((issue) => `${issue.code}: ${issue.message}`),
+          },
+        }),
+      });
+      repairReasoning.push(...buildAIReasoningTrace(`strategy-logic-repair-${attempt}`, repairResponse));
+      const repaired = parseStrategyGenerationPackage(repairResponse.text);
+      intentPlan = normalizeObject(repaired.intentPlan) || intentPlan;
+      logicIR = normalizeObject(repaired.logicIR) || logicIR;
+      strategy = normalizeStrategyGraphForRunner(repaired.runtimeGraph, prompt, { intentPlan, logicIR, exchangeConnections });
+      emitAgentProgress(onProgress, {
+        stage: 'repair',
+        label: `수정 ${attempt}/${maxAttempts}: 수정안 수신, 재검증 준비`,
+        detail: { attempt },
+      });
+      continue;
+    }
+
+    emitAgentProgress(onProgress, {
+      stage: 'validator',
+      label: `검증 ${attempt}/${maxAttempts}: Go runtime validator 실행`,
+      detail: { attempt, maxAttempts },
+    });
+    const validation = await validateStrategyGraphWithRunner(strategy);
+    if (!validation.ok) {
+      const logEntry = await recordStrategyLogicError({
+        runId: logicErrorRunId,
+        attempt,
+        maxAttempts,
+        stage: 'go-validator',
+        prompt,
+        provider: strategyProviderForLog,
+        model: strategyModelForLog,
+        issues: validation.issues,
+        logicLintIssues,
+        validation,
+        strategy,
+        intentPlan,
+        logicIR,
+      });
+      logicErrorLogEntries.push(logEntry);
+    }
+    history.push({
+      attempt,
+      stage: 'go-validator',
+      ok: validation.ok,
+      issues: validation.issues,
+      logicLintIssues,
+      stdout: validation.stdout,
+      stderr: validation.stderr,
+    });
+
+    if (validation.ok) {
+      emitAgentProgress(onProgress, {
+        stage: 'runtime-artifacts',
+        label: `검증 통과: 런타임 파일 생성`,
+        detail: { attempt },
+      });
+      const runtime = await writeStrategyRuntimeArtifacts(strategy, history);
+      return {
+        strategy,
+        intentPlan,
+        logicIR,
+        validation: {
+          ok: true,
+          attempts: attempt,
+          command: validation.command,
+          issues: [],
+          history,
+        },
+        runtime,
+        reasoning: repairReasoning,
+      };
+    }
+
+    if (attempt >= maxAttempts) {
+      break;
+    }
+
+    emitAgentProgress(onProgress, {
+      stage: 'repair',
+      label: `수정 ${attempt}/${maxAttempts}: validator 오류 ${validation.issues.length}개를 AI에게 전달`,
+      detail: {
+        attempt,
+        issues: validation.issues.slice(0, 8),
+        logicErrorRunId,
+        logicErrorLogPath,
+      },
+    });
+    const repairResponse = await callAITextLayer({
+      layer: 'STRATEGY',
+      systemPrompt: buildStrategyRepairSystemPrompt(),
+      userPrompt: buildStrategyRepairUserPrompt({
+        prompt,
+        currentStrategy,
+        researchBundle,
+        orchestrationPlan,
+        intentPlan,
+        logicIR,
+        previousStrategy: strategy,
+        logicLintIssues,
+        validation,
+        exchangeConnections,
+      }),
+    });
+    repairReasoning.push(...buildAIReasoningTrace(`strategy-repair-${attempt}`, repairResponse));
+    const repaired = parseStrategyGenerationPackage(repairResponse.text);
+    intentPlan = normalizeObject(repaired.intentPlan) || intentPlan;
+    logicIR = normalizeObject(repaired.logicIR) || logicIR;
+    strategy = normalizeStrategyGraphForRunner(repaired.runtimeGraph, prompt, { intentPlan, logicIR, exchangeConnections });
+    emitAgentProgress(onProgress, {
+      stage: 'repair',
+      label: `수정 ${attempt}/${maxAttempts}: 수정안 수신, 재검증 준비`,
+      detail: { attempt },
+    });
+  }
+
+  const last = history[history.length - 1] || {};
+  throw makeStrategyValidationError(
+    `strategy validation failed after ${maxAttempts} attempt(s): ${(last.issues || []).slice(0, 8).join('; ') || 'unknown validation error'}`,
+    {
+      runId: logicErrorRunId,
+      logPath: logicErrorLogPath,
+      attempts: maxAttempts,
+      entries: logicErrorLogEntries,
+      readEndpoint: `/api/ai/strategy-logic-error-log?runId=${encodeURIComponent(logicErrorRunId)}`,
+    },
+  );
+}
+
 async function fetchTextOrThrow(provider, endpoint, requestInit, timeoutSeconds) {
   const hasTimeout = Number.isFinite(timeoutSeconds) && timeoutSeconds > 0;
-  const response = await fetch(endpoint, {
-    ...requestInit,
-    signal: hasTimeout ? AbortSignal.timeout(timeoutSeconds * 1000) : undefined,
-  });
+  let response;
+  try {
+    response = await fetch(endpoint, {
+      ...requestInit,
+      signal: hasTimeout ? AbortSignal.timeout(timeoutSeconds * 1000) : undefined,
+    });
+  } catch (error) {
+    if (isTimeoutError(error)) {
+      throw new Error(`${provider} request timed out after ${timeoutSeconds}s (${endpoint})`);
+    }
+    throw new Error(`${provider} request failed: ${error?.message || 'network error'} (${endpoint})`);
+  }
   const text = await response.text();
   if (!response.ok) {
     throw new UpstreamHTTPError(provider, response.status, text);
@@ -2023,12 +5625,13 @@ async function callOllamaLayer(layer, systemPrompt, userPrompt) {
     resolveLayerTimeoutSeconds(layer, 'OLLAMA_TIMEOUT_SEC', 0),
   );
 
-  const content = wireAPI === 'openai'
-    ? parseChatCompletionContent(rawText)
-    : parseOllamaChatContent(rawText);
+  const parsedMessage = wireAPI === 'openai'
+    ? parseChatCompletionMessage(rawText)
+    : { content: parseOllamaChatContent(rawText), reasoningContent: '' };
 
   return {
-    text: content,
+    text: parsedMessage.content,
+    reasoningContent: parsedMessage.reasoningContent,
     provider: 'ollama',
     model,
     source: 'ollama-chat-layer',
@@ -2075,6 +5678,7 @@ async function callGeminiLayer(layer, systemPrompt, userPrompt) {
 
   return {
     text: parseGeminiContent(rawText),
+    reasoningContent: '',
     provider: 'gemini',
     model,
     source: 'google-gemini-generate-content-layer',
@@ -2115,11 +5719,63 @@ async function callOpenAILayer(layer, systemPrompt, userPrompt) {
     resolveLayerTimeoutSeconds(layer, 'OPENAI_TIMEOUT_SEC', 35),
   );
 
+  const parsedMessage = parseChatCompletionMessage(rawText);
   return {
-    text: parseChatCompletionContent(rawText),
+    text: parsedMessage.content,
+    reasoningContent: parsedMessage.reasoningContent,
     provider: 'openai',
     model,
     source: 'openai-chat-completions-layer',
+  };
+}
+
+async function callDeepSeekLayer(layer, systemPrompt, userPrompt) {
+  const apiKey = resolveDeepSeekAPIKey(layer);
+  if (!apiKey) {
+    throw new Error('DEEPSEEK_API_KEY is not set');
+  }
+
+  const baseURL = normalizeBaseURL(layerEnv(layer, 'DEEPSEEK_BASE_URL') || process.env.DEEPSEEK_BASE_URL || 'https://api.deepseek.com');
+  const endpoint = layerEnv(layer, 'DEEPSEEK_CHAT_ENDPOINT') || normalizeText(process.env.DEEPSEEK_CHAT_ENDPOINT) || `${baseURL}/chat/completions`;
+  const model = layerEnv(layer, 'DEEPSEEK_MODEL') || layerEnv(layer, 'MODEL') || normalizeText(process.env.DEEPSEEK_MODEL) || 'deepseek-v4-flash';
+  const thinkingEnabled = resolveLayerBool(layer, 'DEEPSEEK_THINKING');
+
+  const payload = {
+    model,
+    temperature: 0.2,
+    thinking: { type: thinkingEnabled === true ? 'enabled' : 'disabled' },
+    reasoning_effort: layerEnv(layer, 'DEEPSEEK_REASONING_EFFORT')
+      || layerEnv(layer, 'REASONING_EFFORT')
+      || normalizeText(process.env.DEEPSEEK_REASONING_EFFORT)
+      || (thinkingEnabled === true ? 'high' : undefined),
+    messages: [
+      { role: 'system', content: systemPrompt },
+      { role: 'user', content: userPrompt },
+    ],
+    response_format: { type: 'json_object' },
+  };
+
+  const rawText = await fetchTextOrThrow(
+    'deepseek',
+    endpoint,
+    {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${apiKey}`,
+      },
+      body: JSON.stringify(payload),
+    },
+    resolveLayerTimeoutSeconds(layer, 'DEEPSEEK_TIMEOUT_SEC', 180),
+  );
+
+  const parsedMessage = parseChatCompletionMessage(rawText);
+  return {
+    text: parsedMessage.content,
+    reasoningContent: parsedMessage.reasoningContent,
+    provider: 'deepseek',
+    model,
+    source: 'deepseek-chat-completions-layer',
   };
 }
 
@@ -2134,7 +5790,23 @@ async function callAITextLayer({ layer, systemPrompt, userPrompt }) {
   if (provider === 'openai') {
     return callOpenAILayer(layer, systemPrompt, userPrompt);
   }
+  if (provider === 'deepseek') {
+    return callDeepSeekLayer(layer, systemPrompt, userPrompt);
+  }
   throw new Error(`unsupported AI provider for layer ${layer}: ${provider}`);
+}
+
+function buildAIReasoningTrace(layer, response) {
+  const content = normalizeText(response?.reasoningContent);
+  if (!content) {
+    return [];
+  }
+  return [{
+    layer: normalizeText(layer).toLowerCase(),
+    provider: response.provider,
+    model: response.model,
+    content,
+  }];
 }
 
 async function runOrchestratorLayer({ prompt, currentStrategy }) {
@@ -2151,6 +5823,7 @@ async function runOrchestratorLayer({ prompt, currentStrategy }) {
       provider: response.provider,
       model: response.model,
       source: response.source,
+      reasoning: buildAIReasoningTrace('orchestrator', response),
       warnings: []
     };
   } catch (error) {
@@ -2159,6 +5832,7 @@ async function runOrchestratorLayer({ prompt, currentStrategy }) {
       provider: 'fallback',
       model: '',
       source: 'fallback-orchestrator-plan',
+      reasoning: [],
       warnings: [error?.message || 'orchestrator failed']
     };
   }
@@ -2177,6 +5851,7 @@ async function runResearchLayer({
   let model = '';
   let source = 'fallback-research-bundle';
   let warnings = [];
+  let reasoning = [];
 
   try {
     const response = await callAITextLayer({
@@ -2189,6 +5864,7 @@ async function runResearchLayer({
     provider = response.provider;
     model = response.model;
     source = response.source;
+    reasoning = buildAIReasoningTrace('research', response);
   } catch (error) {
     warnings = [error?.message || 'research ai failed'];
   }
@@ -2210,38 +5886,139 @@ async function runResearchLayer({
     provider,
     model,
     source,
+    reasoning,
   };
 }
 
-async function runStrategyLayer({ prompt, currentStrategy, researchBundle, orchestrationPlan }) {
+async function runStrategyLayer({ prompt, currentStrategy, researchBundle, orchestrationPlan, exchangeConnections = [], onProgress = null }) {
+  emitAgentProgress(onProgress, {
+    stage: 'strategy-context',
+    label: '전략 생성 컨텍스트 구성',
+  });
   const userPrompt = await buildAIStrategyUserPrompt(
     prompt,
     currentStrategy,
     researchBundle,
-    orchestrationPlan
+    orchestrationPlan,
+    exchangeConnections
   );
+  emitAgentProgress(onProgress, {
+    stage: 'strategy-generation',
+    label: 'AI 전략 패키지 생성 요청',
+  });
   const response = await callAITextLayer({
     layer: 'STRATEGY',
     systemPrompt: buildAIStrategySystemPrompt(),
     userPrompt
   });
+  emitAgentProgress(onProgress, {
+    stage: 'strategy-generation',
+    label: 'AI 전략 패키지 수신, 스키마 정규화',
+    detail: { provider: response.provider, model: response.model },
+  });
+  const generated = parseStrategyGenerationPackage(response.text);
+  const validated = await validateRepairAndMaterializeStrategy({
+    prompt,
+    currentStrategy,
+    researchBundle,
+    orchestrationPlan,
+    initialPackage: generated,
+    exchangeConnections,
+    onProgress,
+  });
+  let overview = null;
+  let strategy = validated.strategy;
+  let overviewWarning = '';
+  try {
+    emitAgentProgress(onProgress, {
+      stage: 'overview',
+      label: '쉬운 보기 설명 생성',
+    });
+    overview = await runStrategyOverviewLayer({
+      prompt,
+      strategyGraph: validated.strategy,
+      logicIR: validated.logicIR,
+    });
+    strategy = overview.strategy;
+    emitAgentProgress(onProgress, {
+      stage: 'overview',
+      label: '쉬운 보기 설명 생성 완료',
+      detail: { provider: overview.provider, model: overview.model },
+    });
+  } catch (error) {
+    overviewWarning = error?.message || 'strategy overview generation failed';
+    emitAgentProgress(onProgress, {
+      stage: 'overview',
+      label: '쉬운 보기 설명은 로컬 기본값으로 대체',
+      detail: { warning: overviewWarning },
+    });
+  }
   return {
-    strategy: parseStrategyGraph(response.text),
+    strategy,
     provider: response.provider,
     model: response.model,
     source: response.source,
+    validation: validated.validation,
+    runtime: validated.runtime,
+    overview: overview
+      ? {
+        provider: overview.provider,
+        model: overview.model,
+        source: overview.source,
+      }
+      : {
+        provider: 'fallback',
+        model: '',
+        source: 'local-overview-fallback',
+        warning: overviewWarning,
+      },
+    reasoning: [
+      ...buildAIReasoningTrace('strategy', response),
+      ...(validated.reasoning || []),
+      ...(overview?.reasoning || []),
+    ],
   };
 }
 
-async function runOrchestrationPipeline({ prompt, currentStrategy, authContext }) {
+async function runOrchestrationPipeline({ prompt, currentStrategy, authContext, exchangeConnections = [], onProgress = null }) {
+  emitAgentProgress(onProgress, {
+    stage: 'orchestrator',
+    label: '요청 의도 분석 및 작업 계획 수립',
+  });
   const orchestrator = await runOrchestratorLayer({ prompt, currentStrategy });
+  emitAgentProgress(onProgress, {
+    stage: 'orchestrator',
+    label: orchestrator.plan.needResearch ? '오케스트레이션 완료: 리서치 필요' : '오케스트레이션 완료: 리서치 생략',
+    detail: {
+      provider: orchestrator.provider,
+      model: orchestrator.model,
+      needResearch: orchestrator.plan.needResearch,
+    },
+  });
   const research = orchestrator.plan.needResearch
-    ? await runResearchLayer({
-      prompt,
-      currentStrategy,
-      orchestrationPlan: orchestrator.plan,
-      authContext
-    })
+    ? await (async () => {
+      emitAgentProgress(onProgress, {
+        stage: 'research',
+        label: '시장/프로토콜 리서치 실행',
+      });
+      const researched = await runResearchLayer({
+        prompt,
+        currentStrategy,
+        orchestrationPlan: orchestrator.plan,
+        authContext
+      });
+      emitAgentProgress(onProgress, {
+        stage: 'research',
+        label: '리서치 번들 정리 완료',
+        detail: {
+          provider: researched.provider,
+          model: researched.model,
+          findings: researched.research?.summary?.findings || 0,
+          urls: researched.research?.summary?.urls || 0,
+        },
+      });
+      return researched;
+    })()
     : {
       research: {
         ...buildFallbackResearchBundle({ prompt, orchestrationPlan: orchestrator.plan }),
@@ -2256,14 +6033,21 @@ async function runOrchestrationPipeline({ prompt, currentStrategy, authContext }
       },
       provider: 'skipped',
       model: '',
-      source: 'orchestrator-skip-research'
+      source: 'orchestrator-skip-research',
+      reasoning: []
     };
 
+  emitAgentProgress(onProgress, {
+    stage: 'strategy',
+    label: '전략 코드/IR/런타임 그래프 생성 단계 진입',
+  });
   const strategy = await runStrategyLayer({
     prompt,
     currentStrategy,
     researchBundle: research.research,
-    orchestrationPlan: orchestrator.plan
+    orchestrationPlan: orchestrator.plan,
+    exchangeConnections,
+    onProgress,
   });
 
   const orchestrationPayload = {
@@ -2282,12 +6066,22 @@ async function runOrchestrationPipeline({ prompt, currentStrategy, authContext }
     providers: {
       orchestrator: orchestrator.provider,
       research: research.provider,
-      strategy: strategy.provider
+      strategy: strategy.provider,
+      overview: strategy.overview?.provider || ''
     },
     models: {
       orchestrator: orchestrator.model,
       research: research.model,
-      strategy: strategy.model
-    }
+      strategy: strategy.model,
+      overview: strategy.overview?.model || ''
+    },
+    validation: strategy.validation,
+    runtime: strategy.runtime,
+    overview: strategy.overview,
+    reasoning: [
+      ...(orchestrator.reasoning || []),
+      ...(research.reasoning || []),
+      ...(strategy.reasoning || [])
+    ]
   };
 }
