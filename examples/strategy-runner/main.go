@@ -49,14 +49,18 @@ type MonitorDef struct {
 }
 
 type Engine struct {
-	strategyName     string
-	streams          []StreamDef
-	normals          map[string]any
-	triggers         []TriggerDef
-	actions          map[string]ActionDef
-	monitors         []MonitorDef
-	triggerToActions map[string][]string
-	actionInputs     map[string][]string
+	strategyName       string
+	streams            []StreamDef
+	normals            map[string]any
+	normalConfigs      map[string]map[string]any
+	triggers           []TriggerDef
+	actions            map[string]ActionDef
+	monitors           []MonitorDef
+	triggerToActions   map[string][]string
+	triggerInputs      map[string][]string
+	actionInputs       map[string][]string
+	dataInputs         map[string][]string
+	actionResultInputs map[string][]string
 }
 
 func main() {
@@ -120,11 +124,15 @@ func LoadEngine(path string) (*Engine, error) {
 	}
 
 	engine := &Engine{
-		strategyName:     strategyName,
-		normals:          map[string]any{},
-		actions:          map[string]ActionDef{},
-		triggerToActions: map[string][]string{},
-		actionInputs:     map[string][]string{},
+		strategyName:       strategyName,
+		normals:            map[string]any{},
+		normalConfigs:      map[string]map[string]any{},
+		actions:            map[string]ActionDef{},
+		triggerToActions:   map[string][]string{},
+		triggerInputs:      map[string][]string{},
+		actionInputs:       map[string][]string{},
+		dataInputs:         map[string][]string{},
+		actionResultInputs: map[string][]string{},
 	}
 
 	for _, block := range asMapSlice(root["blocks"]) {
@@ -149,7 +157,10 @@ func LoadEngine(path string) (*Engine, error) {
 				SourceURL:  asString(cfg["sourceUrl"]),
 			})
 		case "normal":
-			engine.normals[id] = cfg["value"]
+			engine.normalConfigs[id] = cfg
+			if value, ok := cfg["value"]; ok {
+				engine.normals[id] = value
+			}
 		case "trigger":
 			intervalMs := int64(asFloat(cfg["intervalMs"]))
 			if intervalMs <= 0 {
@@ -187,8 +198,17 @@ func LoadEngine(path string) (*Engine, error) {
 		if kind == "trigger-action" {
 			engine.triggerToActions[fromID] = append(engine.triggerToActions[fromID], toID)
 		}
+		if kind == "trigger-input" {
+			engine.triggerInputs[toID] = append(engine.triggerInputs[toID], fromID)
+		}
 		if kind == "action-input" {
 			engine.actionInputs[toID] = append(engine.actionInputs[toID], fromID)
+		}
+		if kind == "data-flow" {
+			engine.dataInputs[toID] = append(engine.dataInputs[toID], fromID)
+		}
+		if kind == "action-result" {
+			engine.actionResultInputs[toID] = append(engine.actionResultInputs[toID], fromID)
 		}
 		if kind == "stream-monitor" {
 			for i := range engine.monitors {
@@ -215,7 +235,6 @@ func (e *Engine) Run(msg *hersh.Message, ctx hersh.HershContext) error {
 			"actions":  len(e.actions),
 		})
 	}
-	ctx.SetValue("normal_values", e.normals)
 
 	streamValues := map[string]map[string]any{}
 	for _, stream := range e.streams {
@@ -234,6 +253,9 @@ func (e *Engine) Run(msg *hersh.Message, ctx hersh.HershContext) error {
 	}
 
 	ctx.SetValue("stream_values", streamValues)
+	actionResults := asNestedMap(ctx.GetValue("action_results"))
+	normalValues := e.computeNormalValues(streamValues, actionResults)
+	ctx.SetValue("normal_values", normalValues)
 
 	nowMs := time.Now().UnixMilli()
 	prevCond := asBoolMap(ctx.GetValue("trigger_prev_state"))
@@ -260,13 +282,43 @@ func (e *Engine) Run(msg *hersh.Message, ctx hersh.HershContext) error {
 				fired = true
 				lastFire[trigger.ID] = nowMs
 			}
+			if fired && strings.TrimSpace(trigger.Condition) != "" {
+				fired = evalCondition(trigger.Condition, streamValues, normalValues, actionResults)
+			}
 		case "condition":
-			currentCond = evalCondition(trigger.Condition, streamValues, e.normals)
-			fired = currentCond && !prevCond[trigger.ID]
+			continue
 		default:
 			fired = false
 		}
 
+		nextCond[trigger.ID] = currentCond
+		if fired {
+			triggerFire[trigger.ID] = true
+		}
+	}
+
+	for _, trigger := range e.triggers {
+		if trigger.Type != "condition" {
+			continue
+		}
+
+		gateSources := e.triggerInputs[trigger.ID]
+		if len(gateSources) > 0 {
+			gated := false
+			for _, sourceID := range gateSources {
+				if triggerFire[sourceID] {
+					gated = true
+					break
+				}
+			}
+			if !gated {
+				nextCond[trigger.ID] = prevCond[trigger.ID]
+				continue
+			}
+		}
+
+		currentCond := evalCondition(trigger.Condition, streamValues, normalValues, actionResults)
+		fired := currentCond && !prevCond[trigger.ID]
 		nextCond[trigger.ID] = currentCond
 		if fired {
 			triggerFire[trigger.ID] = true
@@ -290,7 +342,7 @@ func (e *Engine) Run(msg *hersh.Message, ctx hersh.HershContext) error {
 					inputs[sourceID] = value
 					continue
 				}
-				if value, exists := e.normals[sourceID]; exists {
+				if value, exists := normalValues[sourceID]; exists {
 					inputs[sourceID] = value
 				}
 			}
@@ -304,6 +356,9 @@ func (e *Engine) Run(msg *hersh.Message, ctx hersh.HershContext) error {
 				"mode":        "paper",
 				"inputs":      inputs,
 			}
+			result := generatePaperActionResult(action, inputs, nowMs)
+			event["result"] = result
+			actionResults[actionID] = result
 			actionEvents = append(actionEvents, event)
 			if len(actionEvents) > 100 {
 				actionEvents = actionEvents[len(actionEvents)-100:]
@@ -313,12 +368,26 @@ func (e *Engine) Run(msg *hersh.Message, ctx hersh.HershContext) error {
 		}
 	}
 	ctx.SetValue("action_events", actionEvents)
+	ctx.SetValue("action_results", actionResults)
 
 	for _, monitor := range e.monitors {
-		if monitor.StreamID == "" {
+		resultSourceIDs := e.actionResultInputs[monitor.ID]
+		if monitor.StreamID == "" && len(resultSourceIDs) == 0 {
 			continue
 		}
 		snapshot, exists := streamValues[monitor.StreamID]
+		if !exists && len(resultSourceIDs) > 0 {
+			snapshot = map[string]any{}
+			for _, actionID := range resultSourceIDs {
+				if result, ok := actionResults[actionID]; ok {
+					for key, value := range result {
+						snapshot[actionID+"::"+key] = value
+						snapshot[key] = value
+					}
+				}
+			}
+			exists = len(snapshot) > 0
+		}
 		if !exists {
 			continue
 		}
@@ -344,7 +413,44 @@ func (e *Engine) Run(msg *hersh.Message, ctx hersh.HershContext) error {
 	return nil
 }
 
-func evalCondition(condition string, streams map[string]map[string]any, normals map[string]any) bool {
+func (e *Engine) computeNormalValues(streamValues map[string]map[string]any, actionResults map[string]map[string]any) map[string]any {
+	values := make(map[string]any, len(e.normalConfigs))
+	for key, value := range e.normals {
+		values[key] = value
+	}
+
+	for pass := 0; pass < len(e.normalConfigs)+1; pass++ {
+		changed := false
+		for id, cfg := range e.normalConfigs {
+			expression := firstNonEmpty(asString(cfg["expression"]), asString(cfg["formula"]), asString(cfg["logic"]), asString(cfg["code"]))
+			if expression == "" {
+				if value, ok := cfg["value"]; ok {
+					if values[id] != value {
+						values[id] = value
+						changed = true
+					}
+				}
+				continue
+			}
+
+			value, ok := evalNumericExpression(expression, streamValues, values, actionResults)
+			if !ok {
+				continue
+			}
+			if previous, sameType := values[id].(float64); !sameType || previous != value {
+				values[id] = value
+				changed = true
+			}
+		}
+		if !changed {
+			break
+		}
+	}
+
+	return values
+}
+
+func evalCondition(condition string, streams map[string]map[string]any, normals map[string]any, actionResults map[string]map[string]any) bool {
 	text := strings.TrimSpace(condition)
 	if text == "" {
 		return false
@@ -357,7 +463,7 @@ func evalCondition(condition string, streams map[string]map[string]any, normals 
 		andParts := splitOnKeyword(orPart, "and")
 		allTrue := true
 		for _, clause := range andParts {
-			if !evalClause(clause, streams, normals) {
+			if !evalClause(clause, streams, normals, actionResults) {
 				allTrue = false
 				break
 			}
@@ -369,7 +475,7 @@ func evalCondition(condition string, streams map[string]map[string]any, normals 
 	return false
 }
 
-func evalClause(clause string, streams map[string]map[string]any, normals map[string]any) bool {
+func evalClause(clause string, streams map[string]map[string]any, normals map[string]any, actionResults map[string]map[string]any) bool {
 	c := strings.TrimSpace(clause)
 	if c == "" {
 		return false
@@ -379,14 +485,14 @@ func evalClause(clause string, streams map[string]map[string]any, normals map[st
 		if idx == -1 {
 			continue
 		}
-		left := resolveValue(strings.TrimSpace(c[:idx]), streams, normals)
-		right := resolveValue(strings.TrimSpace(c[idx+len(op):]), streams, normals)
+		left := resolveValue(strings.TrimSpace(c[:idx]), streams, normals, actionResults)
+		right := resolveValue(strings.TrimSpace(c[idx+len(op):]), streams, normals, actionResults)
 		return compare(left, right, op)
 	}
-	return toBool(resolveValue(c, streams, normals))
+	return toBool(resolveValue(c, streams, normals, actionResults))
 }
 
-func resolveValue(token string, streams map[string]map[string]any, normals map[string]any) any {
+func resolveValue(token string, streams map[string]map[string]any, normals map[string]any, actionResults map[string]map[string]any) any {
 	if token == "" {
 		return nil
 	}
@@ -399,7 +505,13 @@ func resolveValue(token string, streams map[string]map[string]any, normals map[s
 	if strings.HasPrefix(token, "\"") && strings.HasSuffix(token, "\"") {
 		return strings.Trim(token, "\"")
 	}
+	if strings.HasPrefix(token, "'") && strings.HasSuffix(token, "'") {
+		return strings.Trim(token, "'")
+	}
 	if number, err := strconvToFloat(token); err == nil {
+		return number
+	}
+	if number, ok := evalNumericExpression(token, streams, normals, actionResults); ok {
 		return number
 	}
 	if strings.Contains(token, "::") {
@@ -408,12 +520,198 @@ func resolveValue(token string, streams map[string]map[string]any, normals map[s
 			if stream, ok := streams[parts[0]]; ok {
 				return stream[parts[1]]
 			}
+			if val, ok := normals[parts[0]]; ok && (parts[1] == "value" || parts[1] == "result" || parts[1] == "output") {
+				return val
+			}
+			if result, ok := actionResults[parts[0]]; ok {
+				return result[parts[1]]
+			}
 		}
 	}
 	if val, ok := normals[token]; ok {
 		return val
 	}
 	return token
+}
+
+type expressionParser struct {
+	text          string
+	pos           int
+	streams       map[string]map[string]any
+	normals       map[string]any
+	actionResults map[string]map[string]any
+}
+
+func evalNumericExpression(expression string, streams map[string]map[string]any, normals map[string]any, actionResults map[string]map[string]any) (float64, bool) {
+	parser := &expressionParser{
+		text:          strings.TrimSpace(expression),
+		streams:       streams,
+		normals:       normals,
+		actionResults: actionResults,
+	}
+	if parser.text == "" {
+		return 0, false
+	}
+	value, ok := parser.parseExpression()
+	if !ok {
+		return 0, false
+	}
+	parser.skipSpace()
+	if parser.pos != len(parser.text) {
+		return 0, false
+	}
+	return value, true
+}
+
+func (p *expressionParser) parseExpression() (float64, bool) {
+	left, ok := p.parseTerm()
+	if !ok {
+		return 0, false
+	}
+	for {
+		p.skipSpace()
+		if p.pos >= len(p.text) {
+			return left, true
+		}
+		op := p.text[p.pos]
+		if op != '+' && op != '-' {
+			return left, true
+		}
+		p.pos++
+		right, ok := p.parseTerm()
+		if !ok {
+			return 0, false
+		}
+		if op == '+' {
+			left += right
+		} else {
+			left -= right
+		}
+	}
+}
+
+func (p *expressionParser) parseTerm() (float64, bool) {
+	left, ok := p.parseFactor()
+	if !ok {
+		return 0, false
+	}
+	for {
+		p.skipSpace()
+		if p.pos >= len(p.text) {
+			return left, true
+		}
+		op := p.text[p.pos]
+		if op != '*' && op != '/' {
+			return left, true
+		}
+		p.pos++
+		right, ok := p.parseFactor()
+		if !ok {
+			return 0, false
+		}
+		if op == '*' {
+			left *= right
+		} else {
+			if right == 0 {
+				return 0, false
+			}
+			left /= right
+		}
+	}
+}
+
+func (p *expressionParser) parseFactor() (float64, bool) {
+	p.skipSpace()
+	if p.pos >= len(p.text) {
+		return 0, false
+	}
+
+	if p.text[p.pos] == '-' {
+		p.pos++
+		value, ok := p.parseFactor()
+		return -value, ok
+	}
+
+	if p.text[p.pos] == '(' {
+		p.pos++
+		value, ok := p.parseExpression()
+		if !ok {
+			return 0, false
+		}
+		p.skipSpace()
+		if p.pos >= len(p.text) || p.text[p.pos] != ')' {
+			return 0, false
+		}
+		p.pos++
+		return value, true
+	}
+
+	if isNumberStart(p.text[p.pos]) {
+		return p.parseNumber()
+	}
+
+	return p.parseReference()
+}
+
+func (p *expressionParser) parseNumber() (float64, bool) {
+	start := p.pos
+	for p.pos < len(p.text) {
+		ch := p.text[p.pos]
+		if (ch < '0' || ch > '9') && ch != '.' {
+			break
+		}
+		p.pos++
+	}
+	value, err := strconvToFloat(p.text[start:p.pos])
+	return value, err == nil
+}
+
+func (p *expressionParser) parseReference() (float64, bool) {
+	start := p.pos
+	for p.pos < len(p.text) {
+		ch := p.text[p.pos]
+		if ch == ' ' || ch == '\t' || ch == '\n' || ch == '\r' || ch == '+' || ch == '*' || ch == '/' || ch == '(' || ch == ')' {
+			break
+		}
+		p.pos++
+	}
+	if start == p.pos {
+		return 0, false
+	}
+
+	token := strings.TrimSpace(p.text[start:p.pos])
+	if strings.Contains(token, "::") {
+		parts := strings.SplitN(token, "::", 2)
+		if len(parts) == 2 {
+			if stream, ok := p.streams[parts[0]]; ok {
+				return toFloat(stream[parts[1]])
+			}
+			if value, ok := p.normals[parts[0]]; ok && (parts[1] == "value" || parts[1] == "result" || parts[1] == "output") {
+				return toFloat(value)
+			}
+			if result, ok := p.actionResults[parts[0]]; ok {
+				return toFloat(result[parts[1]])
+			}
+		}
+	}
+	if value, ok := p.normals[token]; ok {
+		return toFloat(value)
+	}
+	return 0, false
+}
+
+func (p *expressionParser) skipSpace() {
+	for p.pos < len(p.text) {
+		ch := p.text[p.pos]
+		if ch != ' ' && ch != '\t' && ch != '\n' && ch != '\r' {
+			return
+		}
+		p.pos++
+	}
+}
+
+func isNumberStart(ch byte) bool {
+	return (ch >= '0' && ch <= '9') || ch == '.'
 }
 
 func compare(left any, right any, op string) bool {
@@ -462,6 +760,72 @@ func generateStreamSnapshot(stream StreamDef, prev map[string]any) map[string]an
 		out[field] = nextFieldValue(field, prev[field], now)
 	}
 	return out
+}
+
+func generatePaperActionResult(action ActionDef, inputs map[string]any, nowMs int64) map[string]any {
+	status := firstNonEmpty(asString(action.Config["paperStatus"]), asString(action.Config["status"]), "FILLED")
+	amount := firstPositiveFloat(
+		action.Config["filledQty"],
+		action.Config["quantity"],
+		action.Config["qty"],
+		action.Config["amount"],
+		action.Config["size"],
+		action.Config["quote"],
+		action.Config["notional"],
+	)
+	if amount == 0 {
+		amount = 1
+	}
+	price := firstPositiveFloat(action.Config["avgFillPrice"], action.Config["price"], findFirstInputPrice(inputs))
+	if price == 0 {
+		price = round(100+rand.Float64()*10, 4)
+	}
+
+	result := map[string]any{
+		"status":        status,
+		"filledQty":     amount,
+		"avgFillPrice":  price,
+		"fee":           round(amount*price*0.0004, 8),
+		"timestamp":     nowMs,
+		"error":         "",
+		"executionMode": "paper",
+	}
+
+	if strings.Contains(strings.ToLower(action.Kind), "dex") || strings.Contains(strings.ToLower(action.Kind), "swap") {
+		result["txHash"] = fmt.Sprintf("paper-tx-%s-%d", action.ID, nowMs)
+		result["amountIn"] = amount
+		result["amountOut"] = amount
+		result["executionPrice"] = price
+		result["gasUsed"] = 0
+		result["slippage"] = 0
+	} else {
+		result["orderId"] = fmt.Sprintf("paper-order-%s-%d", action.ID, nowMs)
+	}
+
+	return result
+}
+
+func findFirstInputPrice(inputs map[string]any) any {
+	for _, value := range inputs {
+		if mapped, ok := value.(map[string]any); ok {
+			for _, key := range []string{"lastPrice", "price", "close", "avgFillPrice", "executionPrice"} {
+				if mapped[key] != nil {
+					return mapped[key]
+				}
+			}
+		}
+	}
+	return nil
+}
+
+func firstPositiveFloat(values ...any) float64 {
+	for _, value := range values {
+		number, ok := toFloat(value)
+		if ok && number > 0 {
+			return number
+		}
+	}
+	return 0
 }
 
 func nextFieldValue(field string, prev any, now int64) any {
@@ -583,6 +947,26 @@ func asInt64Map(value any) map[string]int64 {
 	}
 	for key, val := range mapped {
 		out[key] = int64(asFloat(val))
+	}
+	return out
+}
+
+func asNestedMap(value any) map[string]map[string]any {
+	out := map[string]map[string]any{}
+	if typed, ok := value.(map[string]map[string]any); ok {
+		for key, val := range typed {
+			out[key] = val
+		}
+		return out
+	}
+	mapped, ok := value.(map[string]any)
+	if !ok {
+		return out
+	}
+	for key, val := range mapped {
+		if nested, ok := val.(map[string]any); ok {
+			out[key] = nested
+		}
 	}
 	return out
 }

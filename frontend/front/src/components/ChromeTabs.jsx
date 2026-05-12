@@ -1,3 +1,5 @@
+import { Button } from './ui/button';
+
 export default function ChromeTabs({
   tabs,
   activeTabId,
@@ -22,9 +24,8 @@ export default function ChromeTabs({
           }}
         >
           <span className="tab-label">{tab.label}</span>
-          <button
+          <Button
             className="tab-close"
-            type="button"
             onClick={(event) => {
               event.stopPropagation();
               onCloseTab(tab.id);
@@ -32,19 +33,19 @@ export default function ChromeTabs({
             aria-label={`${tab.label} 닫기`}
           >
             <svg width="12" height="12" viewBox="0 0 12 12" fill="none" xmlns="http://www.w3.org/2000/svg">
-              <path d="M9 3L3 9" stroke="white" strokeLinecap="round" strokeLinejoin="round"/>
-              <path d="M3 3L9 9" stroke="white" strokeLinecap="round" strokeLinejoin="round"/>
+              <path d="M9 3L3 9" stroke="white" strokeLinecap="round" strokeLinejoin="round" />
+              <path d="M3 3L9 9" stroke="white" strokeLinecap="round" strokeLinejoin="round" />
             </svg>
-          </button>
+          </Button>
         </div>
       ))}
-      
-      <button className="tab-add" type="button" onClick={onAddTab} aria-label="새 전략 추가">
+
+      <Button className="tab-add" onClick={onAddTab} aria-label="새 전략 추가">
         <svg width="16" height="16" viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg">
-          <path d="M3.33301 8H12.6663" stroke="#94A3B8" strokeWidth="1.33333" strokeLinecap="round" strokeLinejoin="round"/>
-          <path d="M8 3.3335V12.6668" stroke="#94A3B8" strokeWidth="1.33333" strokeLinecap="round" strokeLinejoin="round"/>
+          <path d="M3.33301 8H12.6663" stroke="#94A3B8" strokeWidth="1.33333" strokeLinecap="round" strokeLinejoin="round" />
+          <path d="M8 3.3335V12.6668" stroke="#94A3B8" strokeWidth="1.33333" strokeLinecap="round" strokeLinejoin="round" />
         </svg>
-      </button>
+      </Button>
     </div>
   );
 }

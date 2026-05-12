@@ -21,21 +21,27 @@
 ## 2. 엔드포인트
 
 Front AI draft endpoint (호환 유지, 내부는 오케스트레이션 파이프라인):
+
 - `POST http://localhost:9090/api/ai/strategy-draft`
 
 Front AI orchestration endpoint:
+
 - `POST http://localhost:9090/api/ai/orchestrate-strategy`
 
 Front AI research endpoint:
+
 - `POST http://localhost:9090/api/ai/research`
 
 Front AI strategy compose endpoint:
+
 - `POST http://localhost:9090/api/ai/strategy-compose`
 
 Front Host proxy endpoint:
+
 - `http://localhost:9090/api/host/*` -> `http://localhost:9000/*` (기본)
 
 Front runtime config endpoint:
+
 - `GET http://localhost:9090/api/config`
 
 ## 3. Provider 선택 규칙
@@ -45,13 +51,15 @@ Front runtime config endpoint:
 - `AI_PROVIDER=ollama|local|oss` -> `ollama`
 - `AI_PROVIDER=google|gemini|gemini-api` -> `gemini`
 - `AI_PROVIDER=openai` -> `openai`
+- `AI_PROVIDER=deepseek|deepseek-api` -> `deepseek`
 
 `AI_PROVIDER`가 비어 있으면 자동 선택:
 
 1. `OLLAMA_BASE_URL` 또는 `OLLAMA_MODEL`이 있으면 `ollama`
 2. `GOOGLE_API_KEY` 또는 `GEMINI_API_KEY`가 있으면 `gemini`
-3. `OPENAI_API_KEY`가 있으면 `openai`
-4. 모두 없으면 `ollama`
+3. `DEEPSEEK_API_KEY`가 있으면 `deepseek`
+4. `OPENAI_API_KEY`가 있으면 `openai`
+5. 모두 없으면 `ollama`
 
 레이어별 provider를 분리하려면 다음을 우선 사용합니다.
 
@@ -59,7 +67,7 @@ Front runtime config endpoint:
 - `AI_RESEARCH_PROVIDER`
 - `AI_STRATEGY_PROVIDER`
 
-예: 오케스트레이터는 `openai`, 리서치는 `gemini`, 전략 생성은 `ollama`
+예: 오케스트레이터는 `deepseek`, 리서치는 `gemini`, 전략 생성은 `ollama`
 
 ## 4. 환경 변수
 
@@ -85,12 +93,23 @@ Front runtime config endpoint:
 - `OLLAMA_ENDPOINT` (기본: `${OLLAMA_BASE_URL}/api/chat`)
 - `OLLAMA_MODEL` (기본: `gpt-oss:20b`)
 - `OLLAMA_WIRE_API` (`ollama` 또는 `openai`)
+- `OLLAMA_THINK` (`true|false`, 선택) - 모델의 thinking 모드를 명시적으로 제어
 - `OLLAMA_API_KEY` (선택)
-- `OLLAMA_TIMEOUT_SEC` (기본: `180`)
+- `OLLAMA_TIMEOUT_SEC` (기본: `0`, 무기한 대기)
+- 전략 JSON 강제/컨텍스트 주입 옵션:
+  - `AI_STRATEGY_ENABLE_HERSHY_CONTEXT` (기본: `true`)
+  - `AI_STRATEGY_HERSHY_CONTEXT_FILES` (쉼표 구분 상대 경로 목록)
+    - 예: `README.md,examples/strategy-runner/README.md,examples/strategy-runner/strategy.sample.json`
 - 레이어별 override (선택):
   - `AI_ORCHESTRATOR_OLLAMA_MODEL`, `AI_RESEARCH_OLLAMA_MODEL`, `AI_STRATEGY_OLLAMA_MODEL`
   - `AI_ORCHESTRATOR_OLLAMA_ENDPOINT`, `AI_RESEARCH_OLLAMA_ENDPOINT`, `AI_STRATEGY_OLLAMA_ENDPOINT`
   - `AI_ORCHESTRATOR_OLLAMA_API_KEY` 등
+
+추가로 front server(`frontend/front/server.mjs`)는 AI 응답 전처리에서 JSON object 단일 응답을 강제하고,
+오케스트레이션/리서치/전략 결과를 스키마 검증합니다. 스키마를 통과하지 못하면 실패 처리됩니다.
+
+참고: 서버는 Ollama 호출 시 `stream:false`로 요청하고, 응답 본문 전체를 받은 뒤 파싱합니다.
+즉, "완성 응답 수신 후 API 반환" 방식입니다.
 
 ### Gemini
 
@@ -116,6 +135,23 @@ Front runtime config endpoint:
   - `AI_ORCHESTRATOR_OPENAI_CHAT_ENDPOINT` 등
   - `AI_ORCHESTRATOR_OPENAI_API_KEY` 등
 
+### DeepSeek
+
+DeepSeek API는 OpenAI 호환 Chat Completions 형식을 사용합니다.
+
+- `DEEPSEEK_API_KEY` (필수)
+- `DEEPSEEK_MODEL` (기본: `deepseek-v4-flash`)
+- `DEEPSEEK_BASE_URL` (기본: `https://api.deepseek.com`)
+- `DEEPSEEK_CHAT_ENDPOINT` (기본: `${DEEPSEEK_BASE_URL}/chat/completions`)
+- `DEEPSEEK_TIMEOUT_SEC` (기본: `60`)
+- 레이어별 override (선택):
+  - `AI_ORCHESTRATOR_DEEPSEEK_MODEL`, `AI_RESEARCH_DEEPSEEK_MODEL`, `AI_STRATEGY_DEEPSEEK_MODEL`
+  - `AI_ORCHESTRATOR_DEEPSEEK_CHAT_ENDPOINT` 등
+  - `AI_ORCHESTRATOR_DEEPSEEK_API_KEY` 등
+
+참고: DeepSeek 공식 문서 기준 신규 모델명은 `deepseek-v4-flash`, `deepseek-v4-pro`입니다.
+레거시 `deepseek-chat`, `deepseek-reasoner`는 2026-07-24 폐기 예정입니다.
+
 ## 5. 실행 방법
 
 ### 5.1 Host 서버 실행 (`:9000`)
@@ -131,14 +167,15 @@ go run cmd/main.go
 cd frontend/front
 export HOST_API_BASE=http://localhost:9000
 # Provider 예시
-export AI_PROVIDER=openai
-export OPENAI_API_KEY=your_openai_api_key
+export AI_PROVIDER=deepseek
+export DEEPSEEK_API_KEY=your_deepseek_api_key
 
 npm install
 npm run dev
 ```
 
 접속:
+
 - `http://localhost:9090`
 
 ## 6. API 예시

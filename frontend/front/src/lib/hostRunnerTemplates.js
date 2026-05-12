@@ -32,8 +32,6 @@ import (
 	"fmt"
 	"io"
 	"log"
-	"math"
-	mathrand "math/rand"
 	"math/big"
 	"net/http"
 	"net/url"
@@ -1914,7 +1912,7 @@ func (e *Engine) resolveStreamValue(stream StreamDef, ctx hersh.HershContext) an
 	case isHTTPSourceURL(sourceURL):
 		return e.watchHTTPStream(stream, ctx)
 	default:
-		return e.watchSyntheticStream(stream, ctx)
+		return e.watchUnavailableStream(stream, ctx)
 	}
 }
 
@@ -1926,13 +1924,11 @@ func isEVMRPCStream(stream StreamDef) bool {
 	return strings.TrimSpace(stream.Chain) != ""
 }
 
-func (e *Engine) watchSyntheticStream(stream StreamDef, ctx hersh.HershContext) any {
+func (e *Engine) watchUnavailableStream(stream StreamDef, ctx hersh.HershContext) any {
 	varName := "stream_" + stream.ID
 	return hersh.WatchCall(func() (manager.VarUpdateFunc, error) {
 		return func(prev any) (any, bool, error) {
-			prevMap, _ := prev.(map[string]any)
-			next := generateStreamSnapshot(stream, prevMap)
-			return next, true, nil
+			return buildStreamErrorSnapshot(stream, errors.New("stream source is not configured")), true, nil
 		}, nil
 	}, varName, time.Duration(stream.IntervalMs)*time.Millisecond, ctx)
 }
@@ -1952,9 +1948,7 @@ func (e *Engine) watchEVMRPCStream(stream StreamDef, ctx hersh.HershContext) any
 					stale["fetch_error"] = err.Error()
 					return stale, true, nil
 				}
-				fallback := generateStreamSnapshot(stream, prevMap)
-				fallback["fetch_error"] = err.Error()
-				return fallback, true, nil
+				return buildStreamErrorSnapshot(stream, err), true, nil
 			}
 			return next, true, nil
 		}, nil
@@ -1975,9 +1969,7 @@ func (e *Engine) watchHTTPStream(stream StreamDef, ctx hersh.HershContext) any {
 					stale["fetch_error"] = err.Error()
 					return stale, true, nil
 				}
-				fallback := generateStreamSnapshot(stream, prevMap)
-				fallback["fetch_error"] = err.Error()
-				return fallback, true, nil
+				return buildStreamErrorSnapshot(stream, err), true, nil
 			}
 			return next, true, nil
 		}, nil
@@ -2466,42 +2458,18 @@ func compare(left any, right any, op string) bool {
 	}
 }
 
-func generateStreamSnapshot(stream StreamDef, prev map[string]any) map[string]any {
-	now := time.Now().UnixMilli()
+func buildStreamErrorSnapshot(stream StreamDef, err error) map[string]any {
 	out := map[string]any{
-		"t_ms":      now,
+		"t_ms":      time.Now().UnixMilli(),
 		"stream_id": stream.ID,
 		"source":    stream.SourceURL,
 		"kind":      firstNonEmpty(stream.Kind, "url"),
 		"chain":     stream.Chain,
 	}
-	fields := stream.Fields
-	if len(fields) == 0 {
-		fields = []string{"value"}
-	}
-	for _, field := range fields {
-		out[field] = nextFieldValue(field, prev[field], now)
+	if err != nil {
+		out["fetch_error"] = err.Error()
 	}
 	return out
-}
-
-func nextFieldValue(field string, prev any, now int64) any {
-	name := strings.ToLower(field)
-	if strings.Contains(name, "time") || strings.Contains(name, "date") {
-		return now
-	}
-	if strings.Contains(name, "symbol") {
-		return "BTCUSDT"
-	}
-	if v, ok := toFloat(prev); ok {
-		jitter := (mathrand.Float64() - 0.5) * math.Max(0.1, math.Abs(v)*0.002)
-		return round(v+jitter, 6)
-	}
-	base := 100.0 + math.Sin(float64(now)/10000.0)*5.0 + mathrand.Float64()
-	if strings.Contains(name, "price") || strings.Contains(name, "last") {
-		base = 65000 + math.Sin(float64(now)/60000.0)*100 + mathrand.Float64()*5
-	}
-	return round(base, 6)
 }
 
 func splitOnKeyword(input, keyword string) []string {
@@ -2675,10 +2643,6 @@ func firstNonEmpty(values ...string) string {
 	return ""
 }
 
-func round(value float64, places int) float64 {
-	factor := math.Pow(10, float64(places))
-	return math.Round(value*factor) / factor
-}
 `;
 
 const RUNNER_DOCKERFILE = `FROM golang:1.24-alpine AS builder

@@ -11,6 +11,7 @@ import NormalBlocksPanel from './panels/NormalBlocksPanel';
 import TriggerBlocksPanel from './panels/TriggerBlocksPanel';
 import ActionBlocksPanel from './panels/ActionBlocksPanel';
 import MonitoringBlocksPanel from './panels/MonitoringBlocksPanel';
+import { Button } from './ui/button';
 import {
   buildStrategyDefinition,
   buildStrategyFilename,
@@ -26,52 +27,35 @@ import {
   isProviderAuthorized,
   resolveActionAuthRequirement
 } from '../lib/actionAuth';
+import { sampleStreamDefinition } from '../lib/streamPreview';
 
 const DEFAULT_LIVE_INTERVAL = 1200;
 const MAX_SNAPSHOT_RECORDS = 30;
+const MAX_HISTORY_ENTRIES = 80;
 const FRONT_AI_ENDPOINT = '/api/ai/strategy-draft';
 const FRONT_HOST_PROXY_PREFIX = '/api/host';
 const DEFAULT_HOST_TARGET = 'http://localhost:9000';
 
-const buildSnapshotValue = (field, seq, previousValues = {}) => {
-  const lower = field.toLowerCase();
-  if (lower.includes('time') || lower.includes('date')) {
-    return new Date().toISOString();
+const inferConnectionKind = (fromType, toType) => {
+  if (fromType === 'streaming' && toType === 'monitoring') {
+    return 'stream-monitor';
   }
-  if (lower.includes('symbol')) {
-    return 'BTCUSDT';
+  if (fromType === 'trigger' && toType === 'action') {
+    return 'trigger-action';
   }
-  if (lower.includes('address')) {
-    return `0x${Math.random().toString(16).slice(2, 10)}`;
-  }
-  const prevRaw = previousValues[field];
-  const prevNumber = Number(prevRaw);
-  if (Number.isFinite(prevNumber)) {
-    const jitter = (Math.random() - 0.5) * Math.max(1, Math.abs(prevNumber) * 0.02);
-    return Number((prevNumber + jitter).toFixed(4));
-  }
-  if (
-    lower.includes('price')
-    || lower.includes('amount')
-    || lower.includes('volume')
-    || lower.includes('value')
-    || lower.includes('rate')
-  ) {
-    const nextValue = 100 + seq * 0.7 + Math.random() * 5;
-    return Number(nextValue.toFixed(4));
-  }
-  if (lower.includes('id')) {
-    return `${seq}`;
-  }
-  return `${field}-${seq}`;
+  return 'action-input';
 };
 
-const buildSnapshotValues = (fields, seq, previousValues) => (
-  fields.reduce((acc, field) => {
-    acc[field] = buildSnapshotValue(field, seq, previousValues);
-    return acc;
-  }, {})
-);
+const stripJsonCodeFence = (raw) => {
+  const trimmed = String(raw || '').trim();
+  if (!trimmed.startsWith('```')) {
+    return trimmed;
+  }
+  return trimmed
+    .replace(/^```(?:json)?\s*/i, '')
+    .replace(/\s*```$/, '')
+    .trim();
+};
 
 const buildAIAuthContext = (actionAuthState = {}) => {
   const evmCredentials = getProviderCredentials(actionAuthState, 'evm');
@@ -86,6 +70,21 @@ const buildAIAuthContext = (actionAuthState = {}) => {
   };
 };
 
+const buildStreamPreviewAuthContext = (actionAuthState = {}) => {
+  const evmCredentials = getProviderCredentials(actionAuthState, 'evm');
+  const rpcUrl = String(evmCredentials?.rpcUrl || '').trim();
+  const alchemyApiKey = String(evmCredentials?.alchemyApiKey || '').trim();
+  if (!rpcUrl && !alchemyApiKey) {
+    return null;
+  }
+  return {
+    evm: {
+      rpcUrl,
+      alchemyApiKey
+    }
+  };
+};
+
 export default function BackendTab() {
   const initialTabs = [{ id: 'strategy-1', label: 'Strategy 1' }];
   const nextTabIdRef = useRef(2);
@@ -94,6 +93,8 @@ export default function BackendTab() {
   const clipboardRef = useRef(null);
   const pasteOffsetRef = useRef(24);
   const streamIntervalsRef = useRef(new Map());
+  const historyByTabRef = useRef({});
+  const skipHistoryRecordRef = useRef(false);
   const spawnColumnCount = 3;
   const spawnColumnWidth = 320;
   const spawnRowHeight = 260;
@@ -116,6 +117,8 @@ export default function BackendTab() {
   const [savedTemplates, setSavedTemplates] = useState([]);
   const [strategyNotice, setStrategyNotice] = useState(null);
   const [strategyReport, setStrategyReport] = useState(null);
+  const [strategyImportOpen, setStrategyImportOpen] = useState(false);
+  const [strategyImportText, setStrategyImportText] = useState('');
   const [aiPrompt, setAiPrompt] = useState('BTCUSDT 1시간 마켓 전략으로 만들어줘. 최근 가격 기준 상단/하단 임계값을 자동 추정하고, 1시간 내 단기 돌파는 매수, 이탈은 매도하도록 구성해줘.');
   const [aiNotice, setAiNotice] = useState(null);
   const [aiBusy, setAiBusy] = useState(false);
@@ -123,6 +126,17 @@ export default function BackendTab() {
   const [hostTarget, setHostTarget] = useState(DEFAULT_HOST_TARGET);
   const [hostProgram, setHostProgram] = useState(null);
   const [hostBusy, setHostBusy] = useState(false);
+  const [autoFitRequestId, setAutoFitRequestId] = useState(0);
+  const [centerViewRequestId, setCenterViewRequestId] = useState(0);
+  const [generatedBlockIdsByTab, setGeneratedBlockIdsByTab] = useState(() => ({
+    [initialTabs[0].id]: []
+  }));
+  const [blockDimensionsByTab, setBlockDimensionsByTab] = useState(() => ({
+    [initialTabs[0].id]: {}
+  }));
+  const [canvasViewportByTab, setCanvasViewportByTab] = useState(() => ({
+    [initialTabs[0].id]: null
+  }));
 
   const handleIconClick = (panelType) => {
     setActivePanel(activePanel === panelType ? null : panelType);
@@ -149,6 +163,14 @@ export default function BackendTab() {
     setActionAuthByTab((prevAuth) => ({
       ...prevAuth,
       [nextId]: createEmptyActionAuthState()
+    }));
+    setGeneratedBlockIdsByTab((prevGenerated) => ({
+      ...prevGenerated,
+      [nextId]: []
+    }));
+    setCanvasViewportByTab((prevViewport) => ({
+      ...prevViewport,
+      [nextId]: null
     }));
     setActiveTabId(nextId);
   };
@@ -193,6 +215,20 @@ export default function BackendTab() {
       delete nextAuth[tabId];
       return nextAuth;
     });
+
+    setGeneratedBlockIdsByTab((prevGenerated) => {
+      const nextGenerated = { ...prevGenerated };
+      delete nextGenerated[tabId];
+      return nextGenerated;
+    });
+
+    setCanvasViewportByTab((prevViewport) => {
+      const nextViewport = { ...prevViewport };
+      delete nextViewport[tabId];
+      return nextViewport;
+    });
+
+    delete historyByTabRef.current[tabId];
   };
 
   useEffect(() => {
@@ -249,6 +285,9 @@ export default function BackendTab() {
   const activeBlocks = activeTabId ? blocksByTab[activeTabId] || [] : [];
   const activeConnections = activeTabId ? connectionsByTab[activeTabId] || [] : [];
   const activeSelectedIds = activeTabId ? selectedBlockIdsByTab[activeTabId] || [] : [];
+  const activeGeneratedBlockIds = activeTabId ? generatedBlockIdsByTab[activeTabId] || [] : [];
+  const activeBlockDimensions = activeTabId ? blockDimensionsByTab[activeTabId] || {} : {};
+  const activeCanvasViewport = activeTabId ? canvasViewportByTab[activeTabId] || null : null;
   const activeActionAuth = activeTabId ? actionAuthByTab[activeTabId] || createEmptyActionAuthState() : createEmptyActionAuthState();
   const activeTabLabel = useMemo(
     () => tabs.find((tab) => tab.id === activeTabId)?.label || '',
@@ -282,6 +321,294 @@ export default function BackendTab() {
       at: Date.now()
     });
   };
+
+  const cloneSnapshot = (snapshot) => ({
+    blocks: JSON.parse(JSON.stringify(snapshot.blocks || [])),
+    connections: JSON.parse(JSON.stringify(snapshot.connections || []))
+  });
+
+  const getSnapshotSignature = (snapshot) => JSON.stringify({
+    blocks: snapshot.blocks || [],
+    connections: snapshot.connections || []
+  });
+
+  const ensureHistoryEntry = (tabId, blocks, connections) => {
+    if (!tabId) {
+      return null;
+    }
+
+    if (!historyByTabRef.current[tabId]) {
+      const initial = cloneSnapshot({ blocks, connections });
+      historyByTabRef.current[tabId] = {
+        stack: [initial],
+        index: 0
+      };
+    }
+
+    return historyByTabRef.current[tabId];
+  };
+
+  const applySnapshotToActiveTab = (snapshot) => {
+    if (!activeTabId) {
+      return;
+    }
+
+    const resolved = cloneSnapshot(snapshot);
+    skipHistoryRecordRef.current = true;
+    setBlocksByTab((prevBlocks) => ({
+      ...prevBlocks,
+      [activeTabId]: resolved.blocks
+    }));
+    setConnectionsByTab((prevConnections) => ({
+      ...prevConnections,
+      [activeTabId]: resolved.connections
+    }));
+    setSelectedBlockIdsByTab((prevSelected) => ({
+      ...prevSelected,
+      [activeTabId]: []
+    }));
+  };
+
+  const handleUndoCanvas = () => {
+    const entry = ensureHistoryEntry(activeTabId, activeBlocks, activeConnections);
+    if (!entry || entry.index <= 0) {
+      setNotice('warn', '되돌릴 변경이 없습니다.');
+      return;
+    }
+
+    entry.index -= 1;
+    applySnapshotToActiveTab(entry.stack[entry.index]);
+  };
+
+  const handleRedoCanvas = () => {
+    const entry = ensureHistoryEntry(activeTabId, activeBlocks, activeConnections);
+    if (!entry || entry.index >= entry.stack.length - 1) {
+      setNotice('warn', '다시 적용할 변경이 없습니다.');
+      return;
+    }
+
+    entry.index += 1;
+    applySnapshotToActiveTab(entry.stack[entry.index]);
+  };
+
+  const handleAutoLayoutFlow = () => {
+    if (!activeTabId) {
+      return;
+    }
+
+    setBlocksByTab((prevBlocks) => {
+      const tabBlocks = prevBlocks[activeTabId] || [];
+      if (tabBlocks.length <= 1) {
+        return prevBlocks;
+      }
+
+      const nodeById = new Map(tabBlocks.map((block) => [block.id, block]));
+      const indegree = new Map(tabBlocks.map((block) => [block.id, 0]));
+      const outEdges = new Map(tabBlocks.map((block) => [block.id, []]));
+      const inEdges = new Map(tabBlocks.map((block) => [block.id, []]));
+
+      activeConnections.forEach((connection) => {
+        if (!nodeById.has(connection.fromId) || !nodeById.has(connection.toId) || connection.fromId === connection.toId) {
+          return;
+        }
+
+        outEdges.get(connection.fromId).push(connection.toId);
+        inEdges.get(connection.toId).push(connection.fromId);
+        indegree.set(connection.toId, (indegree.get(connection.toId) || 0) + 1);
+      });
+
+      const queue = tabBlocks
+        .filter((block) => (indegree.get(block.id) || 0) === 0)
+        .map((block) => block.id)
+        .sort((a, b) => {
+          const aPos = nodeById.get(a)?.position || { x: 0, y: 0 };
+          const bPos = nodeById.get(b)?.position || { x: 0, y: 0 };
+          if (aPos.y !== bPos.y) {
+            return aPos.y - bPos.y;
+          }
+          return aPos.x - bPos.x;
+        });
+
+      const layerById = new Map();
+      const visited = new Set();
+
+      while (queue.length > 0) {
+        const nodeId = queue.shift();
+        if (visited.has(nodeId)) {
+          continue;
+        }
+        visited.add(nodeId);
+
+        const currentLayer = layerById.get(nodeId) || 0;
+        const nextNodes = outEdges.get(nodeId) || [];
+
+        nextNodes.forEach((nextId) => {
+          const nextLayer = Math.max(layerById.get(nextId) || 0, currentLayer + 1);
+          layerById.set(nextId, nextLayer);
+          const remain = (indegree.get(nextId) || 0) - 1;
+          indegree.set(nextId, remain);
+          if (remain <= 0) {
+            queue.push(nextId);
+          }
+        });
+      }
+
+      tabBlocks.forEach((block) => {
+        if (layerById.has(block.id)) {
+          return;
+        }
+
+        const parents = inEdges.get(block.id) || [];
+        const parentLayer = parents.reduce((maxLayer, parentId) => (
+          Math.max(maxLayer, (layerById.get(parentId) || 0) + 1)
+        ), 0);
+        layerById.set(block.id, parentLayer);
+      });
+
+      const layers = new Map();
+      tabBlocks.forEach((block) => {
+        const layer = layerById.get(block.id) || 0;
+        if (!layers.has(layer)) {
+          layers.set(layer, []);
+        }
+        layers.get(layer).push(block);
+      });
+
+      const sortedLayerIndexes = Array.from(layers.keys()).sort((a, b) => a - b);
+      const baseX = 120;
+      const baseY = 90;
+      const defaultNodeGap = 100;
+      const compactNodeGap = 10;
+
+      const estimateBlockSize = (block) => {
+        const measured = activeBlockDimensions[block.id];
+        if (measured && Number.isFinite(measured.width) && Number.isFinite(measured.height)) {
+          return {
+            width: Math.max(1, measured.width),
+            height: Math.max(1, measured.height)
+          };
+        }
+
+        switch (block.type) {
+          case 'action':
+            return { width: 400, height: 320 };
+          case 'streaming':
+            return { width: 360, height: 520 };
+          case 'monitoring':
+            return { width: 340, height: 440 };
+          case 'trigger':
+            return { width: 340, height: 240 };
+          case 'normal':
+            return { width: 320, height: 200 };
+          default:
+            return { width: 340, height: 240 };
+        }
+      };
+
+      const buildLayout = (gapX, gapY) => {
+        const layoutMap = new Map();
+        let cursorX = baseX;
+        let maxRight = baseX;
+        let maxBottom = baseY;
+
+        sortedLayerIndexes.forEach((layerIndex) => {
+          const layerBlocks = layers.get(layerIndex) || [];
+          layerBlocks.sort((a, b) => {
+            const aPos = a.position || { x: 0, y: 0 };
+            const bPos = b.position || { x: 0, y: 0 };
+            if (aPos.y !== bPos.y) {
+              return aPos.y - bPos.y;
+            }
+            return aPos.x - bPos.x;
+          });
+
+          let cursorY = baseY;
+          let layerMaxWidth = 0;
+
+          layerBlocks.forEach((block) => {
+            const size = estimateBlockSize(block);
+            layoutMap.set(block.id, {
+              x: cursorX,
+              y: cursorY
+            });
+
+            maxRight = Math.max(maxRight, cursorX + size.width);
+            maxBottom = Math.max(maxBottom, cursorY + size.height);
+            cursorY += size.height + gapY;
+            layerMaxWidth = Math.max(layerMaxWidth, size.width);
+          });
+
+          cursorX += layerMaxWidth + gapX;
+        });
+
+        return {
+          layoutMap,
+          boundsWidth: Math.max(1, maxRight - baseX),
+          boundsHeight: Math.max(1, maxBottom - baseY)
+        };
+      };
+
+      let appliedGapX = defaultNodeGap;
+      let appliedGapY = defaultNodeGap;
+      let layout = buildLayout(appliedGapX, appliedGapY);
+
+      if (activeCanvasViewport) {
+        if (layout.boundsWidth > activeCanvasViewport.width) {
+          appliedGapX = compactNodeGap;
+        }
+        if (layout.boundsHeight > activeCanvasViewport.height) {
+          appliedGapY = compactNodeGap;
+        }
+        layout = buildLayout(appliedGapX, appliedGapY);
+      }
+
+      const nextBlocks = tabBlocks.map((block) => {
+        const nextPosition = layout.layoutMap.get(block.id);
+        return nextPosition ? { ...block, position: nextPosition } : block;
+      });
+
+      return {
+        ...prevBlocks,
+        [activeTabId]: nextBlocks
+      };
+    });
+
+    setAutoFitRequestId((prev) => prev + 1);
+    setNotice('success', '자동 정렬을 적용했습니다. 기본 노드 간격 100pt, 부족한 축은 10pt로 조정합니다.');
+  };
+
+  useEffect(() => {
+    if (!activeTabId) {
+      return;
+    }
+
+    const entry = ensureHistoryEntry(activeTabId, activeBlocks, activeConnections);
+    if (!entry) {
+      return;
+    }
+
+    if (skipHistoryRecordRef.current) {
+      skipHistoryRecordRef.current = false;
+      return;
+    }
+
+    const nextSnapshot = cloneSnapshot({ blocks: activeBlocks, connections: activeConnections });
+    const nextSignature = getSnapshotSignature(nextSnapshot);
+    const currentSignature = getSnapshotSignature(entry.stack[entry.index]);
+    if (nextSignature === currentSignature) {
+      return;
+    }
+
+    if (entry.index < entry.stack.length - 1) {
+      entry.stack = entry.stack.slice(0, entry.index + 1);
+    }
+
+    entry.stack.push(nextSnapshot);
+    if (entry.stack.length > MAX_HISTORY_ENTRIES) {
+      entry.stack.shift();
+    }
+    entry.index = entry.stack.length - 1;
+  }, [activeTabId, activeBlocks, activeConnections]);
 
   const compileActiveStrategy = () => {
     if (!activeTabId) {
@@ -317,7 +644,7 @@ export default function BackendTab() {
 
   const applyStrategyToActiveTab = (strategy) => {
     if (!activeTabId) {
-      return false;
+      return null;
     }
     const canvasState = strategyDefinitionToCanvas(strategy);
     resetNextBlockId(canvasState.blocks);
@@ -334,7 +661,20 @@ export default function BackendTab() {
       ...prevSelected,
       [activeTabId]: []
     }));
-    return true;
+    return canvasState;
+  };
+
+  const handleCenterGeneratedStrategy = () => {
+    if (!activeTabId) {
+      setNotice('error', '활성 전략 탭이 없습니다.');
+      return;
+    }
+    if (!activeGeneratedBlockIds || activeGeneratedBlockIds.length === 0) {
+      setNotice('warn', '중앙 이동할 생성 전략 블록이 없습니다. 먼저 AI 전략을 생성하세요.');
+      return;
+    }
+
+    setCenterViewRequestId((prev) => prev + 1);
   };
 
   const handleGenerateAIStrategy = async () => {
@@ -370,7 +710,17 @@ export default function BackendTab() {
         return;
       }
 
-      applyStrategyToActiveTab(generated.strategy);
+      const appliedCanvasState = applyStrategyToActiveTab(generated.strategy);
+      if (!appliedCanvasState) {
+        setNotice('error', 'AI 전략 적용에 실패했습니다.');
+        return;
+      }
+
+      setGeneratedBlockIdsByTab((prevGenerated) => ({
+        ...prevGenerated,
+        [activeTabId]: appliedCanvasState.blocks.map((block) => block.id)
+      }));
+      setCenterViewRequestId((prev) => prev + 1);
       setAiNotice({
         type: 'success',
         message: generated.message || `AI 전략 적용 완료 (${generated.source})`,
@@ -450,6 +800,105 @@ export default function BackendTab() {
     document.body.removeChild(anchor);
     URL.revokeObjectURL(url);
     setNotice('success', `${filename} 파일로 저장했습니다.`);
+  };
+
+  const buildStrategyFromImportedJson = (payload) => {
+    if (!payload || typeof payload !== 'object') {
+      throw new Error('JSON 객체 형식이 아닙니다.');
+    }
+
+    if (Array.isArray(payload.blocks) && payload.blocks.some((block) => block?.config && typeof block.config === 'object')) {
+      return payload;
+    }
+
+    const sourceBlocks = Array.isArray(payload.blocks) ? payload.blocks : [];
+    if (sourceBlocks.length === 0) {
+      throw new Error('blocks 배열이 비어 있습니다.');
+    }
+
+    const normalizedBlocks = sourceBlocks.map((block, index) => {
+      const raw = block && typeof block === 'object' ? block : {};
+      const type = typeof raw.type === 'string' && raw.type.trim() ? raw.type.trim() : 'normal';
+      const id = typeof raw.id === 'string' && raw.id.trim() ? raw.id.trim() : `${type}-${index + 1}`;
+      return {
+        ...raw,
+        id,
+        type,
+        position: raw.position && typeof raw.position === 'object'
+          ? raw.position
+          : { x: (index % 3) * 320, y: Math.floor(index / 3) * 260 }
+      };
+    });
+
+    const typeById = new Map(normalizedBlocks.map((block) => [block.id, block.type]));
+    const rawConnections = Array.isArray(payload.connections)
+      ? payload.connections
+      : (Array.isArray(payload.edges) ? payload.edges : []);
+
+    const normalizedConnections = rawConnections
+      .map((connection, index) => {
+        const fromId = String(connection?.fromId || connection?.from || '').trim();
+        const toId = String(connection?.toId || connection?.to || '').trim();
+        if (!fromId || !toId) {
+          return null;
+        }
+
+        const fromType = typeById.get(fromId) || null;
+        const toType = typeById.get(toId) || null;
+        const kind = String(connection?.kind || '').trim() || inferConnectionKind(fromType, toType);
+        return {
+          id: String(connection?.id || `${kind}-${index + 1}`),
+          kind,
+          fromId,
+          toId,
+          fromSide: String(connection?.fromSide || 'right'),
+          toSide: String(connection?.toSide || 'left')
+        };
+      })
+      .filter(Boolean);
+
+    return buildStrategyDefinition({
+      tabId: activeTabId,
+      tabLabel: activeTabLabel,
+      blocks: normalizedBlocks,
+      connections: normalizedConnections
+    });
+  };
+
+  const handleImportStrategyJson = () => {
+    if (!activeTabId) {
+      setNotice('error', '활성 전략 탭이 없습니다.');
+      return;
+    }
+
+    const raw = stripJsonCodeFence(strategyImportText);
+    if (!raw) {
+      setNotice('error', '붙여넣은 JSON 내용이 비어 있습니다.');
+      return;
+    }
+
+    try {
+      const parsed = JSON.parse(raw);
+      const strategy = buildStrategyFromImportedJson(parsed);
+      const report = validateStrategyDefinition(strategy);
+      setStrategyReport(report);
+
+      if (!report.valid) {
+        setNotice('error', `JSON 검증 실패 (에러 ${report.errors.length}건).`);
+        return;
+      }
+
+      const appliedCanvasState = applyStrategyToActiveTab(strategy);
+      if (!appliedCanvasState) {
+        setNotice('error', '전략 적용에 실패했습니다.');
+        return;
+      }
+
+      setStrategyImportOpen(false);
+      setNotice('success', `JSON 전략 적용 완료${report.warnings.length > 0 ? ` (경고 ${report.warnings.length}건)` : ''}.`);
+    } catch (error) {
+      setNotice('error', `JSON 파싱 실패: ${error.message}`);
+    }
   };
 
   const handleOpenHostUI = () => {
@@ -935,67 +1384,100 @@ export default function BackendTab() {
       [activeTabId]: (prevBlocks[activeTabId] || []).map((block) => (
         block.id === monitoringId
           ? {
-              ...block,
-              connectedStreamId: null,
-              connectedStream: '',
-              fields: []
-            }
+            ...block,
+            connectedStreamId: null,
+            connectedStream: '',
+            fields: [],
+            previewRecords: [],
+            previewValues: {},
+            previewTimestamp: '',
+            previewError: ''
+          }
           : block
       ))
     }));
   };
 
-  const pushMonitoringSnapshot = (tabId, monitoringId, streamId) => {
+  const refreshMonitoringSnapshot = async (
+    tabId,
+    monitoringId,
+    streamingBlock,
+    monitoringFields,
+    previewAuthContext
+  ) => {
     if (!tabId) {
       return;
     }
 
-    setBlocksByTab((prevBlocks) => {
-      const tabBlocks = prevBlocks[tabId] || [];
-      let changed = false;
+    const fields = Array.isArray(monitoringFields) ? monitoringFields : [];
+    if (fields.length === 0) {
+      return;
+    }
 
-      const nextBlocks = tabBlocks.map((block) => {
-        if (block.id !== monitoringId || block.type !== 'monitoring') {
-          return block;
-        }
-        if (block.connectedStreamId !== streamId) {
-          return block;
-        }
-        const fields = Array.isArray(block.fields) ? block.fields : [];
-        if (fields.length === 0) {
-          return block;
-        }
-
-        const nextSeq = (block.snapshotSeq ?? 0) + 1;
-        const timestamp = new Date().toISOString();
-        const values = buildSnapshotValues(fields, nextSeq, block.previewValues || {});
-        const record = {
-          id: `${block.id}-snapshot-${nextSeq}`,
-          seq: nextSeq,
-          timestamp,
-          values
-        };
-        const existing = Array.isArray(block.previewRecords) ? block.previewRecords : [];
-        const nextRecords = [record, ...existing].slice(0, MAX_SNAPSHOT_RECORDS);
-        changed = true;
-        return {
-          ...block,
-          snapshotSeq: nextSeq,
-          previewRecords: nextRecords,
-          previewValues: values,
-          previewTimestamp: timestamp
-        };
+    try {
+      const sampled = await sampleStreamDefinition({
+        streamKind: streamingBlock.streamKind || (streamingBlock.streamChain ? 'evm-rpc' : 'url'),
+        apiUrl: streamingBlock.apiUrl || '',
+        streamChain: streamingBlock.streamChain || '',
+        streamMethod: streamingBlock.streamMethod || '',
+        streamParamsJson: streamingBlock.streamParamsJson || '[]',
+        responseSchema: streamingBlock.responseSchema || '',
+        fields,
+        authContext: previewAuthContext
       });
 
-      if (!changed) {
-        return prevBlocks;
-      }
+      const timestamp = sampled?.snapshot?.timestamp || new Date().toISOString();
+      const values = sampled?.snapshot?.values && typeof sampled.snapshot.values === 'object'
+        ? sampled.snapshot.values
+        : {};
 
-      return {
+      setBlocksByTab((prevBlocks) => {
+        const nextTabBlocks = (prevBlocks[tabId] || []).map((block) => {
+          if (block.id !== monitoringId || block.type !== 'monitoring') {
+            return block;
+          }
+          if (block.connectedStreamId !== streamingBlock.id) {
+            return block;
+          }
+
+          const nextSeq = (block.snapshotSeq ?? 0) + 1;
+          const record = {
+            id: `${block.id}-snapshot-${nextSeq}`,
+            seq: nextSeq,
+            timestamp,
+            values
+          };
+          const existing = Array.isArray(block.previewRecords) ? block.previewRecords : [];
+          return {
+            ...block,
+            snapshotSeq: nextSeq,
+            previewRecords: [record, ...existing].slice(0, MAX_SNAPSHOT_RECORDS),
+            previewValues: values,
+            previewTimestamp: timestamp,
+            previewError: ''
+          };
+        });
+
+        return {
+          ...prevBlocks,
+          [tabId]: nextTabBlocks
+        };
+      });
+    } catch (error) {
+      setBlocksByTab((prevBlocks) => ({
         ...prevBlocks,
-        [tabId]: nextBlocks
-      };
-    });
+        [tabId]: (prevBlocks[tabId] || []).map((block) => (
+          block.id === monitoringId
+          && block.type === 'monitoring'
+          && block.connectedStreamId === streamingBlock.id
+            ? {
+              ...block,
+              previewError: error?.message || '스트림 샘플링 실패'
+            }
+            : block
+        ))
+      }));
+    }
   };
 
   const handleCreateStreamingFieldBlock = (sourceId, fieldName) => {
@@ -1145,11 +1627,15 @@ export default function BackendTab() {
           [activeTabId]: tabBlocks.map((block) => (
             block.id === monitoringBlock.id
               ? {
-                  ...block,
-                  connectedStreamId: streamingBlock.id,
-                  connectedStream: streamName,
-                  fields: streamingFields
-                }
+                ...block,
+                connectedStreamId: streamingBlock.id,
+                connectedStream: streamName,
+                fields: streamingFields,
+                previewRecords: [],
+                previewValues: {},
+                previewTimestamp: '',
+                previewError: ''
+              }
               : block
           ))
         };
@@ -1235,6 +1721,8 @@ export default function BackendTab() {
     const monitoringBlocks = tabBlocks.filter((block) => (
       block.type === 'monitoring' && block.connectedStreamId
     ));
+    const previewAuthContext = buildStreamPreviewAuthContext(activeActionAuth);
+    const authKey = JSON.stringify(previewAuthContext || {});
 
     const activeKeys = new Set();
 
@@ -1247,6 +1735,15 @@ export default function BackendTab() {
         ? Math.max(300, Number(streaming.updateInterval) || 1000)
         : DEFAULT_LIVE_INTERVAL;
       const fieldsKey = Array.isArray(monitor.fields) ? monitor.fields.join('|') : '';
+      const streamConfigKey = [
+        streaming.streamKind || '',
+        streaming.apiUrl || '',
+        streaming.streamChain || '',
+        streaming.streamMethod || '',
+        streaming.streamParamsJson || '',
+        streaming.responseSchema || '',
+        Array.isArray(streaming.fields) ? streaming.fields.join('|') : ''
+      ].join('::');
       const existing = streamIntervalsRef.current.get(monitor.id);
 
       activeKeys.add(monitor.id);
@@ -1256,19 +1753,48 @@ export default function BackendTab() {
         || existing.intervalMs !== intervalMs
         || existing.streamId !== streaming.id
         || existing.fieldsKey !== fieldsKey
+        || existing.streamConfigKey !== streamConfigKey
+        || existing.authKey !== authKey
       ) {
         if (existing) {
           clearInterval(existing.timerId);
         }
-        const timerId = window.setInterval(() => {
-          pushMonitoringSnapshot(activeTabId, monitor.id, streaming.id);
-        }, intervalMs);
-        streamIntervalsRef.current.set(monitor.id, {
-          timerId,
+        const monitoringFields = Array.isArray(monitor.fields) ? monitor.fields : [];
+        void refreshMonitoringSnapshot(
+          activeTabId,
+          monitor.id,
+          streaming,
+          monitoringFields,
+          previewAuthContext
+        );
+        const entry = {
+          timerId: 0,
           intervalMs,
           streamId: streaming.id,
-          fieldsKey
-        });
+          fieldsKey,
+          streamConfigKey,
+          authKey,
+          pending: false
+        };
+        const timerId = window.setInterval(async () => {
+          if (entry.pending) {
+            return;
+          }
+          entry.pending = true;
+          try {
+            await refreshMonitoringSnapshot(
+              activeTabId,
+              monitor.id,
+              streaming,
+              monitoringFields,
+              previewAuthContext
+            );
+          } finally {
+            entry.pending = false;
+          }
+        }, intervalMs);
+        entry.timerId = timerId;
+        streamIntervalsRef.current.set(monitor.id, entry);
       }
     });
 
@@ -1278,7 +1804,7 @@ export default function BackendTab() {
         streamIntervalsRef.current.delete(key);
       }
     });
-  }, [activeTabId, blocksByTab]);
+  }, [activeActionAuth, activeTabId, blocksByTab]);
 
   useEffect(() => () => {
     streamIntervalsRef.current.forEach((entry) => clearInterval(entry.timerId));
@@ -1291,6 +1817,10 @@ export default function BackendTab() {
     }
 
     if (target.isContentEditable) {
+      return true;
+    }
+
+    if (target.closest?.('.ui-select-wrap')) {
       return true;
     }
 
@@ -1323,12 +1853,28 @@ export default function BackendTab() {
       if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === 'v') {
         event.preventDefault();
         handlePasteSelection();
+        return;
+      }
+
+      if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === 'z') {
+        event.preventDefault();
+        if (event.shiftKey) {
+          handleRedoCanvas();
+        } else {
+          handleUndoCanvas();
+        }
+        return;
+      }
+
+      if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === 'y') {
+        event.preventDefault();
+        handleRedoCanvas();
       }
     };
 
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [activeTabId, activeSelectedIds, activeBlocks]);
+  }, [activeTabId, activeSelectedIds, activeBlocks, activeConnections]);
 
   return (
     <div className="backend-tab">
@@ -1341,46 +1887,61 @@ export default function BackendTab() {
           onSelectTab={setActiveTabId}
         />
         <div className="backend-view-toggle">
-          <button
-            type="button"
+          <Button
             className="strategy-tool-btn"
             onClick={handleValidateStrategy}
             disabled={!activeTabId}
           >
             전략 검증
-          </button>
-          <button
-            type="button"
+          </Button>
+          <Button
             className="strategy-tool-btn"
             onClick={handleCopyStrategyJson}
             disabled={!activeTabId}
           >
             JSON 복사
-          </button>
-          <button
-            type="button"
+          </Button>
+          <Button
             className="strategy-tool-btn"
             onClick={handleDownloadStrategyJson}
             disabled={!activeTabId}
           >
             JSON 저장
-          </button>
-          <button
-            type="button"
+          </Button>
+          <Button
+            className={`strategy-tool-btn${strategyImportOpen ? ' active' : ''}`}
+            onClick={() => setStrategyImportOpen((prev) => !prev)}
+            disabled={!activeTabId}
+          >
+            JSON 붙여넣기
+          </Button>
+          <Button
+            className="strategy-tool-btn"
+            onClick={handleAutoLayoutFlow}
+            disabled={!activeTabId || activeBlocks.length < 2}
+          >
+            자동 정렬
+          </Button>
+          <Button
+            className="strategy-tool-btn"
+            onClick={handleCenterGeneratedStrategy}
+            disabled={!activeTabId || activeGeneratedBlockIds.length === 0}
+          >
+            생성 전략 중앙
+          </Button>
+          <Button
             className="strategy-tool-btn host"
             onClick={handleOpenHostUI}
           >
             Host UI
-          </button>
-          <button
-            type="button"
+          </Button>
+          <Button
             className={`strategy-tool-btn ai${aiPanelOpen ? ' active' : ''}`}
             onClick={() => setAiPanelOpen((prev) => !prev)}
           >
             AI 전략
-          </button>
-          <button
-            type="button"
+          </Button>
+          <Button
             className={`backend-view-btn${viewMode === 'backend' ? ' active' : ''}`}
             onClick={() => {
               setViewMode('backend');
@@ -1388,9 +1949,8 @@ export default function BackendTab() {
             }}
           >
             백엔드
-          </button>
-          <button
-            type="button"
+          </Button>
+          <Button
             className={`backend-view-btn${viewMode === 'front' ? ' active' : ''}`}
             onClick={() => {
               setViewMode('front');
@@ -1398,9 +1958,8 @@ export default function BackendTab() {
             }}
           >
             프론트
-          </button>
-          <button
-            type="button"
+          </Button>
+          <Button
             className={`backend-view-btn${viewMode === 'preauth' ? ' active' : ''}`}
             onClick={() => {
               setViewMode('preauth');
@@ -1408,7 +1967,7 @@ export default function BackendTab() {
             }}
           >
             사전인증
-          </button>
+          </Button>
         </div>
       </div>
       <div className="strategy-feedback-bar">
@@ -1429,50 +1988,78 @@ export default function BackendTab() {
           </div>
         )}
       </div>
-      <div className="host-control-bar">
-        <div className="host-control-target">
-          Host API Target: {hostTarget}
+      {strategyImportOpen && (
+        <div className="strategy-import-panel">
+          <div className="strategy-import-header">
+            <span className="strategy-import-title">전략 JSON 붙여넣기</span>
+            <span className="strategy-import-hint">`blocks`, `connections` 또는 `edges` 형식을 지원합니다.</span>
+          </div>
+          <textarea
+            className="strategy-import-input"
+            value={strategyImportText}
+            onChange={(event) => setStrategyImportText(event.target.value)}
+            placeholder="여기에 전략 JSON을 붙여넣으세요"
+            rows={8}
+          />
+          <div className="strategy-import-actions">
+            <Button
+              className="strategy-tool-btn host"
+              onClick={handleImportStrategyJson}
+              disabled={!activeTabId}
+            >
+              붙여넣기 적용
+            </Button>
+            <Button
+              className="strategy-tool-btn"
+              onClick={() => setStrategyImportText('')}
+            >
+              내용 지우기
+            </Button>
+            <Button
+              className="strategy-tool-btn"
+              onClick={() => setStrategyImportOpen(false)}
+            >
+              닫기
+            </Button>
+          </div>
         </div>
-        <button
-          type="button"
+      )}
+      <div className="host-control-bar">
+        <Button
           className="strategy-tool-btn host"
           onClick={handleDeployHostProgram}
           disabled={!activeTabId || hostBusy}
         >
           {hostBusy ? '처리중...' : 'Host 배포'}
-        </button>
-        <button
-          type="button"
+        </Button>
+        <Button
           className="strategy-tool-btn"
           onClick={handleStartHostProgram}
           disabled={!hostProgram?.programId || hostBusy}
         >
           시작
-        </button>
-        <button
-          type="button"
+        </Button>
+        <Button
           className="strategy-tool-btn"
           onClick={handleRefreshHostProgram}
           disabled={!hostProgram?.programId || hostBusy}
         >
           상태
-        </button>
-        <button
-          type="button"
+        </Button>
+        <Button
           className="strategy-tool-btn"
           onClick={handleStopHostProgram}
           disabled={!hostProgram?.programId || hostBusy}
         >
           중지
-        </button>
-        <button
-          type="button"
+        </Button>
+        <Button
           className="strategy-tool-btn"
           onClick={handleOpenWatcherStatus}
           disabled={!hostProgram?.programId}
         >
           Watcher 상태
-        </button>
+        </Button>
         {hostProgram && (
           <div className="host-program-summary">
             id {hostProgram.programId} · build {hostProgram.buildId} · state {hostProgram.state}
@@ -1493,15 +2080,62 @@ export default function BackendTab() {
           ))}
         </div>
       )}
-      
+
       {viewMode === 'backend' ? (
         <div className="backend-content">
           <Sidebar activePanel={activePanel} onIconClick={handleIconClick} />
-          
+
           <Canvas
             blocks={activeBlocks}
             connections={activeConnections}
             selectedBlockIds={activeSelectedIds}
+            autoFitRequestId={autoFitRequestId}
+            centerViewRequestId={centerViewRequestId}
+            centerViewBlockIds={activeGeneratedBlockIds}
+            onBlockDimensionsChange={(dimensions) => {
+              if (!activeTabId) {
+                return;
+              }
+              setBlockDimensionsByTab((prev) => {
+                const current = prev[activeTabId] || {};
+                const currentKeys = Object.keys(current);
+                const nextKeys = Object.keys(dimensions || {});
+                if (currentKeys.length === nextKeys.length) {
+                  const same = nextKeys.every((key) => {
+                    const a = current[key];
+                    const b = dimensions[key];
+                    return a && b && a.width === b.width && a.height === b.height;
+                  });
+                  if (same) {
+                    return prev;
+                  }
+                }
+
+                return {
+                  ...prev,
+                  [activeTabId]: dimensions || {}
+                };
+              });
+            }}
+            onViewportChange={(viewport) => {
+              if (!activeTabId || !viewport) {
+                return;
+              }
+              setCanvasViewportByTab((prev) => {
+                const current = prev[activeTabId];
+                if (
+                  current
+                  && current.width === viewport.width
+                  && current.height === viewport.height
+                ) {
+                  return prev;
+                }
+                return {
+                  ...prev,
+                  [activeTabId]: viewport
+                };
+              });
+            }}
             onPositionChange={handleUpdateBlockPosition}
             onConnect={handleConnectBlocks}
             onUpdateBlock={handleUpdateBlock}
@@ -1512,7 +2146,7 @@ export default function BackendTab() {
             onClearSelection={handleClearSelection}
             onSaveSelection={handleSaveSelection}
           />
-          
+
           {activePanel === 'block-list' && (
             <BlockListPanel
               onClose={() => setActivePanel(null)}
@@ -1537,6 +2171,7 @@ export default function BackendTab() {
             <StreamingBlocksPanel
               onClose={() => setActivePanel(null)}
               onCreate={handleCreateStreamingBlock}
+              authState={activeActionAuth}
             />
           )}
           {activePanel === 'normal-blocks' && (
@@ -1583,55 +2218,54 @@ export default function BackendTab() {
           onExit={() => setViewMode('backend')}
         />
       )}
-      <div className={`ai-side-panel${aiPanelOpen ? ' open' : ''}`}>
-        <div className="ai-side-header">
-          <div className="ai-side-title">AI 전략</div>
-          <button
-            type="button"
-            className="ai-side-close"
-            onClick={() => setAiPanelOpen(false)}
-          >
-            닫기
-          </button>
-        </div>
-        <div className="ai-side-body">
-          <label htmlFor="ai-strategy-prompt" className="ai-control-label">요청 프롬프트</label>
-          <textarea
-            id="ai-strategy-prompt"
-            className="ai-control-input"
-            value={aiPrompt}
-            onChange={(event) => setAiPrompt(event.target.value)}
-            placeholder="예: BTCUSDT 1시간 마켓 기준으로 돌파 매수/이탈 매도 전략 만들어줘"
-            rows={7}
-          />
-          <div className="ai-control-actions">
-            <button
-              type="button"
-              className="strategy-tool-btn host"
-              onClick={handleGenerateAIStrategy}
-              disabled={!activeTabId || aiBusy}
+      {aiPanelOpen && (
+        <div className="ai-side-panel open">
+          <div className="ai-side-header">
+            <div className="ai-side-title">AI 전략</div>
+            <Button
+              className="ai-side-close"
+              onClick={() => setAiPanelOpen(false)}
             >
-              {aiBusy ? 'AI 생성중...' : 'AI로 전략 생성'}
-            </button>
-            <button
-              type="button"
-              className="strategy-tool-btn"
-              onClick={() => setAiPrompt('BTCUSDT 1시간 마켓 전략으로 만들어줘. 최근 가격 기준 상단/하단 임계값을 자동 추정하고, 1시간 내 단기 돌파는 매수, 이탈은 매도하도록 구성해줘.')}
-              disabled={aiBusy}
-            >
-              예시 입력
-            </button>
+              닫기
+            </Button>
           </div>
-          <div className="ai-control-hint">
-            front 서버의 `/api/ai/strategy-draft`(오케스트레이션 to 리서치 to 전략)를 호출하고, 실패하면 로컬 규칙 생성으로 대체합니다.
-          </div>
-          {aiNotice && (
-            <div className={`ai-control-message ${aiNotice.type}`}>
-              {aiNotice.message}
+          <div className="ai-side-body">
+            <label htmlFor="ai-strategy-prompt" className="ai-control-label">요청 프롬프트</label>
+            <textarea
+              id="ai-strategy-prompt"
+              className="ai-control-input"
+              value={aiPrompt}
+              onChange={(event) => setAiPrompt(event.target.value)}
+              placeholder="예: BTCUSDT 1시간 마켓 기준으로 돌파 매수/이탈 매도 전략 만들어줘"
+              rows={7}
+            />
+            <div className="ai-control-actions">
+              <Button
+                className="strategy-tool-btn host"
+                onClick={handleGenerateAIStrategy}
+                disabled={!activeTabId || aiBusy}
+              >
+                {aiBusy ? 'AI 생성중...' : 'AI로 전략 생성'}
+              </Button>
+              <Button
+                className="strategy-tool-btn"
+                onClick={() => setAiPrompt('BTCUSDT 1시간 마켓 전략으로 만들어줘. 최근 가격 기준 상단/하단 임계값을 자동 추정하고, 1시간 내 단기 돌파는 매수, 이탈은 매도하도록 구성해줘.')}
+                disabled={aiBusy}
+              >
+                예시 입력
+              </Button>
             </div>
-          )}
+            <div className="ai-control-hint">
+              front 서버의 `/api/ai/strategy-draft`(오케스트레이션 to 리서치 to 전략)를 호출하고, 실패하면 로컬 규칙 생성으로 대체합니다.
+            </div>
+            {aiNotice && (
+              <div className={`ai-control-message ${aiNotice.type}`}>
+                {aiNotice.message}
+              </div>
+            )}
+          </div>
         </div>
-      </div>
+      )}
     </div>
   );
 }

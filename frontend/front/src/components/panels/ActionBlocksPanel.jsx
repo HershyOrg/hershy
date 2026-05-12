@@ -12,6 +12,9 @@ import {
   getEVMChainLabel,
   isValidEVMAddress
 } from '../../lib/evmChains';
+import { Button } from '../ui/button';
+import { Input } from '../ui/input';
+import { Select } from '../ui/select';
 
 const normalizeFunctionEntry = (entry, index) => {
   const name = typeof entry?.name === 'string' && entry.name.trim()
@@ -250,7 +253,7 @@ export default function ActionBlocksPanel({
         <div className="panel-form">
           <div className="form-field">
             <label className="field-label">블록 이름</label>
-            <input
+            <Input
               type="text"
               className="field-input"
               placeholder="예: BTC_Buy_Action"
@@ -262,20 +265,20 @@ export default function ActionBlocksPanel({
           <div className="form-field">
             <label className="field-label">액션 타입</label>
             <div className="button-group">
-              <button
+              <Button
                 type="button"
                 className={`btn-option tall ${actionType === 'cex' ? 'active' : ''}`}
                 onClick={() => setActionType('cex')}
               >
                 중앙화 거래소 (CEX)
-              </button>
-              <button
+              </Button>
+              <Button
                 type="button"
                 className={`btn-option tall ${actionType === 'dex' ? 'active' : ''}`}
                 onClick={() => setActionType('dex')}
               >
                 스마트 컨트랙트
-              </button>
+              </Button>
             </div>
           </div>
 
@@ -283,8 +286,8 @@ export default function ActionBlocksPanel({
             <>
               <div className="form-field">
                 <label className="field-label">거래소</label>
-                <select
-                  className="field-input"
+                <Select
+                  className="field-select"
                   value={exchange}
                   onChange={(event) => setExchange(event.target.value)}
                 >
@@ -292,12 +295,12 @@ export default function ActionBlocksPanel({
                   <option value="Coinbase">Coinbase</option>
                   <option value="Kraken">Kraken</option>
                   <option value="Upbit">Upbit</option>
-                </select>
+                </Select>
               </div>
 
               <div className="form-field">
                 <label className="field-label">시장 타입</label>
-                <input
+                <Input
                   type="text"
                   className="field-input"
                   value={marketType}
@@ -307,7 +310,7 @@ export default function ActionBlocksPanel({
 
               <div className="form-field">
                 <label className="field-label">토큰</label>
-                <input
+                <Input
                   type="text"
                   className="field-input"
                   placeholder="예: BTCUSDT"
@@ -322,8 +325,8 @@ export default function ActionBlocksPanel({
             <>
               <div className="form-field">
                 <label className="field-label">DEX 프로토콜</label>
-                <select
-                  className="field-input"
+                <Select
+                  className="field-select"
                   value={dexProtocol}
                   onChange={(event) => {
                     const next = event.target.value;
@@ -339,34 +342,34 @@ export default function ActionBlocksPanel({
                   <option value="generic">일반 DEX/커스텀</option>
                   <option value="evm">EVM Contract (Web3)</option>
                   <option value="polymarket">Polymarket</option>
-                </select>
+                </Select>
               </div>
 
               <div className="form-field">
                 <label className="field-label">실행 방식</label>
                 <div className="button-group">
-                  <button
+                  <Button
                     type="button"
                     className={`btn-option ${executionMode === 'address' ? 'active' : ''}`}
                     onClick={() => setExecutionMode('address')}
                   >
                     컨트랙트 주소
-                  </button>
-                  <button
+                  </Button>
+                  <Button
                     type="button"
                     className={`btn-option ${executionMode === 'api' ? 'active' : ''}`}
                     onClick={() => setExecutionMode('api')}
                     disabled={dexProtocol === 'evm'}
                   >
                     API
-                  </button>
+                  </Button>
                 </div>
               </div>
 
               {dexProtocol === 'polymarket' && (
                 <div className="form-field">
                   <label className="field-label">체인 ID</label>
-                  <input
+                  <Input
                     type="number"
                     className="field-input"
                     value={polymarketChainId}
@@ -380,20 +383,20 @@ export default function ActionBlocksPanel({
                 <>
                   <div className="form-field">
                     <label className="field-label">체인</label>
-                    <select
-                      className="field-input"
+                    <Select
+                      className="field-select"
                       value={evmChain}
                       onChange={(event) => setEvmChain(event.target.value)}
                     >
                       {EVM_CHAINS.map((chain) => (
                         <option key={chain.id} value={chain.id}>{chain.label}</option>
                       ))}
-                    </select>
+                    </Select>
                   </div>
 
                   <div className="form-field">
                     <label className="field-label">컨트랙트 주소</label>
-                    <input
+                    <Input
                       type="text"
                       className="field-input"
                       placeholder="0x..."
@@ -403,14 +406,14 @@ export default function ActionBlocksPanel({
                   </div>
 
                   <div className="form-field">
-                    <button
+                    <Button
                       type="button"
                       className="strategy-tool-btn host"
                       onClick={handleFetchEVMABI}
                       disabled={evmAbiLoading}
                     >
                       {evmAbiLoading ? 'ABI 조회 중...' : '검증된 ABI/함수 불러오기'}
-                    </button>
+                    </Button>
                     {evmAbiNotice && (
                       <div className="strategy-feedback-issue warn">{evmAbiNotice}</div>
                     )}
@@ -418,8 +421,8 @@ export default function ActionBlocksPanel({
 
                   <div className="form-field">
                     <label className="field-label">함수 선택</label>
-                    <select
-                      className="field-input"
+                    <Select
+                      className="field-select"
                       value={selectedEvmFunctionSig}
                       onChange={(event) => setSelectedEvmFunctionSig(event.target.value)}
                     >
@@ -429,7 +432,7 @@ export default function ActionBlocksPanel({
                           {fn.name} ({fn.stateMutability})
                         </option>
                       ))}
-                    </select>
+                    </Select>
                   </div>
 
                   <div className="form-field">
@@ -448,7 +451,7 @@ export default function ActionBlocksPanel({
                 <>
                   <div className="form-field">
                     <label className="field-label">컨트랙트 주소 (선택)</label>
-                    <input
+                    <Input
                       type="text"
                       className="field-input"
                       placeholder="0x..."
@@ -472,7 +475,7 @@ export default function ActionBlocksPanel({
                 <>
                   <div className="form-field">
                     <label className="field-label">API URL</label>
-                    <input
+                    <Input
                       type="text"
                       className="field-input"
                       placeholder="https://api.example.com/tx"
@@ -510,13 +513,13 @@ export default function ActionBlocksPanel({
             <div className="strategy-feedback-issue warn">
               {authRequirement.label} 사전인증이 필요합니다.
               {' '}
-              <button
+              <Button
                 type="button"
                 className="strategy-tool-btn"
                 onClick={onRequestAuth}
               >
                 사전인증 탭 열기
-              </button>
+              </Button>
             </div>
           )}
           {!isEVMReady && isEVMAction && (
@@ -530,14 +533,14 @@ export default function ActionBlocksPanel({
             </div>
           )}
 
-          <button
+          <Button
             type="button"
             className={`btn-create ${canCreate ? '' : 'disabled'}`}
             disabled={!canCreate}
             onClick={handleCreate}
           >
             블록 생성
-          </button>
+          </Button>
         </div>
       </div>
     </div>

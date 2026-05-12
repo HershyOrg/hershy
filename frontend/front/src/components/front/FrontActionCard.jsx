@@ -1,4 +1,6 @@
 import './FrontActionCard.css';
+import { Button } from '../ui/button';
+import { Card, CardContent, CardHeader } from '../ui/card';
 
 const DEFAULT_FIELDS = [
   { label: 'key', value: '', placeholder: 'value' },
@@ -20,13 +22,13 @@ export default function FrontActionCard({
   const cardClassName = ['front-action-card', className].filter(Boolean).join(' ');
 
   return (
-    <div className={cardClassName} style={style}>
-      <div className="front-action-card__header">
+    <Card className={cardClassName} style={style}>
+      <CardHeader className="front-action-card__header">
         <span className="front-action-card__status" style={{ background: statusColor }} />
         <span className="front-action-card__tag">{tag}</span>
-      </div>
+      </CardHeader>
 
-      <div className="front-action-card__body">
+      <CardContent className="front-action-card__body">
         <div className="front-action-card__title">{title}</div>
         <div className="front-action-card__description">{description}</div>
 
@@ -51,10 +53,10 @@ export default function FrontActionCard({
           })}
         </div>
 
-        <button type="button" className="front-action-card__cta">
+        <Button className="front-action-card__cta">
           {resolvedCtaLabel}
-        </button>
-      </div>
-    </div>
+        </Button>
+      </CardContent>
+    </Card>
   );
 }

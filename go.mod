@@ -3,6 +3,7 @@ module github.com/HershyOrg/hershy
 go 1.24.13
 
 require (
+	github.com/HershyOrg/hersh v0.3.1
 	github.com/docker/go-connections v0.6.0
 	github.com/google/uuid v1.6.0
 	github.com/jackc/pgx/v5 v5.8.0
@@ -12,7 +13,6 @@ require (
 )
 
 require (
-	github.com/HershyOrg/hersh v0.2.0 // indirect
 	github.com/Microsoft/go-winio v0.6.2 // indirect
 	github.com/containerd/errdefs v1.0.0 // indirect
 	github.com/containerd/errdefs/pkg v0.3.0 // indirect
