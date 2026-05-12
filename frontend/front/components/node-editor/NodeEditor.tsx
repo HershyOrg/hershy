@@ -2452,7 +2452,7 @@ function NodeEditorInner({ initialGraph, initialGraphVersion = 0 }: NodeEditorPr
           panOnScroll={false}
           selectNodesOnDrag={false}
           multiSelectionKeyCode="Shift"
-          className="bg-gray-100"
+          className="advanced-node-editor-flow bg-gray-100"
         >
           <Panel position="top-left" className="z-30">
             <Toolbar

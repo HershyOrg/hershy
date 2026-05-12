@@ -342,6 +342,10 @@ func (hs *HostServer) createProgramMeta(w http.ResponseWriter, r *http.Request) 
 	srcPath := hs.storage.GetSrcPath(programID)
 	for filename, content := range req.SrcFiles {
 		filePath := filepath.Join(srcPath, filename)
+		if err := os.MkdirAll(filepath.Dir(filePath), 0755); err != nil {
+			hs.sendError(w, http.StatusInternalServerError, fmt.Sprintf("failed to create source directory: %v", err))
+			return
+		}
 		if err := os.WriteFile(filePath, []byte(content), 0644); err != nil {
 			hs.sendError(w, http.StatusInternalServerError, fmt.Sprintf("failed to write file: %v", err))
 			return

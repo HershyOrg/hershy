@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import {
   Activity,
   AlarmClock,
@@ -53,9 +53,11 @@ import { StrategyHistoryModal } from "@/components/node-editor/StrategyHistoryMo
 import { EasyStrategyGraph } from "@/components/strategy-builder/EasyStrategyGraph";
 import {
   DEFAULT_STRATEGY_TEMPLATES as AI_STRATEGY_TEMPLATES,
+  advancedGraphToStrategyGraph,
   buildStrategyCodeFromTemplate,
   createEasyViewFromStrategyCode,
   runEasyViewGraphAgentLoop,
+  strategyGraphToCode,
   type EasyViewModel,
   type EasyViewAgentResult,
   type StrategyTemplate,
@@ -330,6 +332,227 @@ const STRATEGY_CODE = `strategy "XRP 현물-선물 가격차" {
 const INITIAL_TEMPLATE = AI_STRATEGY_TEMPLATES[0];
 const INITIAL_STRATEGY_CODE = buildStrategyCodeFromTemplate(INITIAL_TEMPLATE);
 const INITIAL_EASY_VIEW = createEasyViewFromStrategyCode(INITIAL_STRATEGY_CODE, INITIAL_TEMPLATE);
+const STRATEGY_BUILDER_STORAGE_KEY = "thirdeye.strategy-builder-state.v1";
+
+type AdvancedGraphModel = NonNullable<EasyViewAgentResult["advancedGraph"]>;
+
+type PersistedStrategyBuilderState = {
+  version: 1;
+  savedAt: number;
+  generatedCode: string;
+  programCode: string;
+  easyViewModel: EasyViewModel;
+  advancedGraphModel: AdvancedGraphModel | null;
+  lastSyncedAdvancedGraphSignature: string;
+  aiSummary: string;
+  agentSteps: string[];
+};
+
+function canUseBrowserStorage() {
+  return typeof window !== "undefined" && Boolean(window.localStorage);
+}
+
+function isEasyViewModel(value: unknown): value is EasyViewModel {
+  if (!value || typeof value !== "object") return false;
+  const model = value as Record<string, unknown>;
+  return (
+    typeof model.title === "string" &&
+    typeof model.summary === "string" &&
+    Array.isArray(model.nodes) &&
+    Array.isArray(model.edges)
+  );
+}
+
+function isAdvancedGraphModel(value: unknown): value is AdvancedGraphModel {
+  if (!value || typeof value !== "object") return false;
+  const graph = value as Record<string, unknown>;
+  return Array.isArray(graph.nodes) && Array.isArray(graph.edges);
+}
+
+const EASY_SYNC_ACTION_PARAM_KEYS = [
+  "exchange",
+  "venue",
+  "symbol",
+  "market",
+  "side",
+  "orderSide",
+  "orderType",
+  "amount",
+  "buyAmount",
+  "sellAmount",
+  "amountType",
+  "quote",
+  "size",
+  "notional",
+  "price",
+  "limitPrice",
+  "leverage",
+  "chain",
+  "chainId",
+  "contractAddress",
+  "functionName",
+  "method",
+  "tokenIn",
+  "tokenOut",
+  "slippage",
+] as const;
+
+const EASY_SYNC_ACTION_PARAM_KEY_SET = new Set<string>(EASY_SYNC_ACTION_PARAM_KEYS);
+
+function getAdvancedGraphActionParamValues(graph: AdvancedGraphModel) {
+  const paramsByNodeId = new Map<string, Record<string, string>>();
+
+  graph.nodes.forEach((node) => {
+    if (node.type !== "actionNode" || !node.data || typeof node.data !== "object") return;
+    const data = node.data as Record<string, unknown>;
+    const params: Record<string, string> = {};
+
+    EASY_SYNC_ACTION_PARAM_KEYS.forEach((key) => {
+      const value = data[key];
+      if (value === undefined || value === null || typeof value === "object") return;
+      params[key] = String(value);
+    });
+
+    if (Object.keys(params).length > 0) {
+      paramsByNodeId.set(node.id, params);
+    }
+  });
+
+  return paramsByNodeId;
+}
+
+function syncEasyViewActionParams(model: EasyViewModel, graph: AdvancedGraphModel): EasyViewModel {
+  const paramsByNodeId = getAdvancedGraphActionParamValues(graph);
+  if (paramsByNodeId.size === 0) return model;
+
+  let changed = false;
+  const nodes = model.nodes.map((node) => {
+    const sourceIds = [node.id, ...(node.sourceBlockIds ?? [])];
+    const advancedParams = sourceIds.map((id) => paramsByNodeId.get(id)).find(Boolean);
+    if (!advancedParams) return node;
+
+    let nodeChanged = false;
+    const params = node.params.map((param) => {
+      const nextValue = advancedParams[param.key];
+      if (nextValue === undefined || nextValue === param.value) return param;
+      changed = true;
+      nodeChanged = true;
+      return { ...param, value: nextValue };
+    });
+
+    return nodeChanged ? { ...node, params } : node;
+  });
+
+  return changed
+    ? {
+      ...model,
+      lastModified: new Date().toISOString(),
+      nodes,
+    }
+    : model;
+}
+
+function getNodeDataForAdvancedStructureSignature(node: AdvancedGraphModel["nodes"][number]) {
+  const data = node.data && typeof node.data === "object" ? node.data as Record<string, unknown> : {};
+  if (node.type !== "actionNode") return data;
+
+  return Object.fromEntries(
+    Object.entries(data).filter(([key]) => !EASY_SYNC_ACTION_PARAM_KEY_SET.has(key)),
+  );
+}
+
+function readPersistedStrategyBuilderState(): PersistedStrategyBuilderState | null {
+  if (!canUseBrowserStorage()) return null;
+
+  try {
+    const raw = window.localStorage.getItem(STRATEGY_BUILDER_STORAGE_KEY);
+    if (!raw) return null;
+
+    const parsed = JSON.parse(raw) as Partial<PersistedStrategyBuilderState>;
+    if (parsed.version !== 1 || !isEasyViewModel(parsed.easyViewModel)) return null;
+
+    const advancedGraphModel = isAdvancedGraphModel(parsed.advancedGraphModel) ? parsed.advancedGraphModel : null;
+
+    return {
+      version: 1,
+      savedAt: typeof parsed.savedAt === "number" ? parsed.savedAt : Date.now(),
+      generatedCode: typeof parsed.generatedCode === "string" ? parsed.generatedCode : parsed.easyViewModel.code,
+      programCode: typeof parsed.programCode === "string" ? parsed.programCode : "",
+      easyViewModel: parsed.easyViewModel,
+      advancedGraphModel,
+      lastSyncedAdvancedGraphSignature: advancedGraphModel
+        ? createAdvancedGraphSignature(advancedGraphModel)
+        : typeof parsed.lastSyncedAdvancedGraphSignature === "string"
+          ? parsed.lastSyncedAdvancedGraphSignature
+          : "",
+      aiSummary: typeof parsed.aiSummary === "string" ? parsed.aiSummary : `AI 요약: ${parsed.easyViewModel.summary}`,
+      agentSteps: Array.isArray(parsed.agentSteps)
+        ? parsed.agentSteps.filter((step): step is string => typeof step === "string")
+        : [],
+    };
+  } catch (error) {
+    console.warn("[strategyBuilder] failed to restore persisted easy view", error);
+    return null;
+  }
+}
+
+function writePersistedStrategyBuilderState(state: Omit<PersistedStrategyBuilderState, "version" | "savedAt">) {
+  if (!canUseBrowserStorage()) return;
+
+  try {
+    const payload: PersistedStrategyBuilderState = {
+      version: 1,
+      savedAt: Date.now(),
+      ...state,
+    };
+    window.localStorage.setItem(STRATEGY_BUILDER_STORAGE_KEY, JSON.stringify(payload));
+  } catch (error) {
+    console.warn("[strategyBuilder] failed to persist easy view", error);
+  }
+}
+
+function stableStringify(value: unknown): string {
+  if (Array.isArray(value)) {
+    return `[${value.map((item) => stableStringify(item)).join(",")}]`;
+  }
+
+  if (value && typeof value === "object") {
+    const record = value as Record<string, unknown>;
+    return `{${Object.keys(record)
+      .sort()
+      .map((key) => `${JSON.stringify(key)}:${stableStringify(record[key])}`)
+      .join(",")}}`;
+  }
+
+  return JSON.stringify(value);
+}
+
+function createAdvancedGraphSignature(graph: AdvancedGraphModel | null | undefined) {
+  if (!graph) return "";
+
+  const nodes = graph.nodes
+    .filter((node) => node.type !== "groupNode" && !node.hidden)
+    .map((node) => ({
+      id: node.id,
+      type: node.type,
+      parentId: node.parentId ?? "",
+      data: getNodeDataForAdvancedStructureSignature(node),
+    }))
+    .sort((a, b) => a.id.localeCompare(b.id));
+  const edges = graph.edges
+    .filter((edge) => !edge.hidden)
+    .map((edge) => ({
+      id: edge.id,
+      source: edge.source,
+      target: edge.target,
+      sourceHandle: edge.sourceHandle ?? "",
+      targetHandle: edge.targetHandle ?? "",
+      label: typeof edge.data === "object" && edge.data ? (edge.data as Record<string, unknown>).label ?? "" : "",
+    }))
+    .sort((a, b) => a.id.localeCompare(b.id));
+
+  return stableStringify({ nodes, edges });
+}
 
 function Sparkline({ tone = "up" }: { tone?: "up" | "down" }) {
   const points =
@@ -436,19 +659,41 @@ function formatAIRuntimeResult(validation: unknown, runtime: unknown) {
   const attempts = typeof validationObj?.attempts === "number" ? validationObj.attempts : null;
   const runCommand = typeof runtimeObj?.runCommand === "string" ? runtimeObj.runCommand : "";
   const validateCommand = typeof runtimeObj?.validateCommand === "string" ? runtimeObj.validateCommand : "";
+  const codegenCommand = typeof runtimeObj?.codegenCommand === "string" ? runtimeObj.codegenCommand : "";
+  const compileCommand = typeof runtimeObj?.compileCommand === "string" ? runtimeObj.compileCommand : "";
   const strategyPath = typeof runtimeObj?.strategyPath === "string" ? runtimeObj.strategyPath : "";
   const mainGoPath = typeof runtimeObj?.mainGoPath === "string" ? runtimeObj.mainGoPath : "";
+  const hostProgram = runtimeObj?.hostProgram && typeof runtimeObj.hostProgram === "object"
+    ? runtimeObj.hostProgram as Record<string, unknown>
+    : null;
   const lines = [];
 
   if (validationObj?.ok === true) {
     lines.push(`검증: strategy-validate 통과${attempts ? ` (${attempts}회차)` : ""}`);
   }
   if (strategyPath) lines.push(`전략 JSON: ${strategyPath}`);
-  if (mainGoPath) lines.push(`Go 런처: ${mainGoPath}`);
+  if (mainGoPath) lines.push(`생성 Hershy Go 코드: ${mainGoPath}`);
   if (validateCommand) lines.push(`검증 명령: ${validateCommand}`);
+  if (codegenCommand) lines.push(`코드 생성 명령: ${codegenCommand}`);
+  if (compileCommand) lines.push(`컴파일 확인: ${compileCommand}`);
   if (runCommand) lines.push(`실행 명령: ${runCommand}`);
+  if (hostProgram?.ok === true) {
+    if (typeof hostProgram.programId === "string") lines.push(`Host Program: ${hostProgram.programId}`);
+    if (typeof hostProgram.state === "string") lines.push(`Host 상태: ${hostProgram.state}`);
+    if (typeof hostProgram.hostUI === "string") lines.push(`Program UI: ${hostProgram.hostUI}`);
+    if (typeof hostProgram.watcherStatusUrl === "string") lines.push(`Watcher 상태: ${hostProgram.watcherStatusUrl}`);
+    if (typeof hostProgram.startWarning === "string" && hostProgram.startWarning) lines.push(`Host 시작 경고: ${hostProgram.startWarning}`);
+  } else if (hostProgram && typeof hostProgram.warning === "string") {
+    lines.push(`Host Program 등록 경고: ${hostProgram.warning}`);
+  }
 
   return lines.length > 0 ? `\n\n${lines.join("\n")}` : "";
+}
+
+function extractRuntimeProgramCode(runtime: unknown) {
+  const runtimeObj = runtime && typeof runtime === "object" ? runtime as Record<string, unknown> : null;
+  const programCode = runtimeObj?.programCode || runtimeObj?.generatedGoCode;
+  return typeof programCode === "string" ? programCode : "";
 }
 
 function formatAILogicErrorLog(value: unknown) {
@@ -590,9 +835,13 @@ export default function Page() {
   ]);
   const [agentActivities, setAgentActivities] = useState<AgentActivity[]>([]);
   const [generatedCode, setGeneratedCode] = useState(INITIAL_STRATEGY_CODE);
+  const [programCode, setProgramCode] = useState("");
   const [easyViewModel, setEasyViewModel] = useState<EasyViewModel>(INITIAL_EASY_VIEW);
   const [advancedGraphModel, setAdvancedGraphModel] = useState<NonNullable<EasyViewAgentResult["advancedGraph"]> | null>(null);
   const [advancedGraphVersion, setAdvancedGraphVersion] = useState(0);
+  const [lastSyncedAdvancedGraphSignature, setLastSyncedAdvancedGraphSignature] = useState("");
+  const [isAdvancedSyncPromptOpen, setIsAdvancedSyncPromptOpen] = useState(false);
+  const [isRegeneratingEasyView, setIsRegeneratingEasyView] = useState(false);
   const [agentSteps, setAgentSteps] = useState<string[]>([
     "기본 전략 템플릿 코드 로드",
     "코드에서 쉬운 보기 블록과 간선을 생성",
@@ -608,6 +857,9 @@ export default function Page() {
     return Object.fromEntries(entries);
   });
   const templatePanelCloseTimer = useRef<number | null>(null);
+  const strategyPersistenceReadyRef = useRef(false);
+  const isRestoringStrategyStateRef = useRef(false);
+  const switchToEasyAfterAdvancedSaveRef = useRef(false);
   const connectedExchangeCount = exchangeConnections.filter((item) => item.status === "연결됨").length;
   const selectedExchange = exchangeConnections.find((item) => item.id === exchangeTab) ?? exchangeConnections[0];
   const hasExchangeExecutionUrl = Boolean(exchangeForm.apiUrl.trim() || exchangeForm.rpcUrl.trim());
@@ -754,6 +1006,56 @@ export default function Page() {
   }, []);
 
   useEffect(() => {
+    const persisted = readPersistedStrategyBuilderState();
+
+    if (!persisted) {
+      strategyPersistenceReadyRef.current = true;
+      return;
+    }
+
+    isRestoringStrategyStateRef.current = true;
+    setGeneratedCode(persisted.generatedCode);
+    setProgramCode(persisted.programCode);
+    setEasyViewModel(persisted.easyViewModel);
+    setAiSummary(persisted.aiSummary);
+    if (persisted.agentSteps.length > 0) {
+      setAgentSteps(persisted.agentSteps);
+    }
+    if (persisted.advancedGraphModel) {
+      setAdvancedGraphModel(persisted.advancedGraphModel);
+      setAdvancedGraphVersion((version) => version + 1);
+    }
+    setLastSyncedAdvancedGraphSignature(
+      persisted.lastSyncedAdvancedGraphSignature || createAdvancedGraphSignature(persisted.advancedGraphModel),
+    );
+
+    const timer = window.setTimeout(() => {
+      isRestoringStrategyStateRef.current = false;
+      strategyPersistenceReadyRef.current = true;
+    }, 0);
+
+    return () => {
+      window.clearTimeout(timer);
+      isRestoringStrategyStateRef.current = false;
+      strategyPersistenceReadyRef.current = true;
+    };
+  }, []);
+
+  useEffect(() => {
+    if (!strategyPersistenceReadyRef.current || isRestoringStrategyStateRef.current) return;
+
+    writePersistedStrategyBuilderState({
+      generatedCode,
+      programCode,
+      easyViewModel,
+      advancedGraphModel,
+      lastSyncedAdvancedGraphSignature,
+      aiSummary,
+      agentSteps,
+    });
+  }, [generatedCode, programCode, easyViewModel, advancedGraphModel, lastSyncedAdvancedGraphSignature, aiSummary, agentSteps]);
+
+  useEffect(() => {
     void loadExchangeConnections();
     void loadMarketOverview();
     const timer = window.setInterval(() => {
@@ -765,6 +1067,20 @@ export default function Page() {
   const activeSnapshot = useMemo(
     () => snapshots.find((snapshot) => snapshot.id === activeTabId) ?? null,
     [activeTabId, snapshots],
+  );
+  const activeAdvancedGraph = useMemo<AdvancedGraphModel | null>(
+    () => activeSnapshot && activeSnapshot.nodes.length > 0
+      ? { nodes: activeSnapshot.nodes as AdvancedGraphModel["nodes"], edges: activeSnapshot.edges as AdvancedGraphModel["edges"] }
+      : advancedGraphModel,
+    [activeSnapshot, advancedGraphModel],
+  );
+  const activeAdvancedGraphSignature = useMemo(
+    () => createAdvancedGraphSignature(activeAdvancedGraph),
+    [activeAdvancedGraph],
+  );
+  const hasUnsyncedAdvancedChanges = Boolean(
+    activeAdvancedGraphSignature &&
+    activeAdvancedGraphSignature !== lastSyncedAdvancedGraphSignature,
   );
 
   const selectedBlock = useMemo(
@@ -790,6 +1106,51 @@ export default function Page() {
     window.dispatchEvent(new CustomEvent("saveHistorySnapshot"));
   };
 
+  const handleMainViewChange = (nextView: MainView) => {
+    if (nextView === mainView) return;
+    if (nextView === "easy" && mainView === "advanced") {
+      if (hasUnsyncedAdvancedChanges) {
+        setIsAdvancedSyncPromptOpen(true);
+        return;
+      }
+      if (activeAdvancedGraph) {
+        syncEasyViewParamsFromAdvancedGraph(activeAdvancedGraph, {
+          switchToEasy: true,
+          silent: true,
+        });
+        return;
+      }
+    }
+    setMainView(nextView);
+  };
+
+  const handleConfirmAdvancedSaveForEasyView = () => {
+    setIsAdvancedSyncPromptOpen(false);
+    switchToEasyAfterAdvancedSaveRef.current = true;
+    window.dispatchEvent(new CustomEvent("saveHistorySnapshot"));
+
+    if (!activeSnapshot && activeAdvancedGraph) {
+      const nextSignature = createAdvancedGraphSignature(activeAdvancedGraph);
+      const handled = nextSignature === lastSyncedAdvancedGraphSignature
+        ? syncEasyViewParamsFromAdvancedGraph(activeAdvancedGraph, {
+          strategyName: easyViewModel.title,
+          switchToEasy: true,
+        })
+        : regenerateEasyViewFromAdvancedGraph(activeAdvancedGraph, {
+          strategyName: easyViewModel.title,
+          switchToEasy: true,
+          source: "tab-switch",
+        });
+      if (handled) switchToEasyAfterAdvancedSaveRef.current = false;
+    }
+  };
+
+  const handleSkipAdvancedSaveForEasyView = () => {
+    setIsAdvancedSyncPromptOpen(false);
+    switchToEasyAfterAdvancedSaveRef.current = false;
+    setMainView("easy");
+  };
+
   const handleAutoLayout = () => {
     window.dispatchEvent(new CustomEvent("runAutoLayout"));
   };
@@ -804,6 +1165,184 @@ export default function Page() {
       setIsSummarizing(false);
     }, 650);
   };
+
+  const syncEasyViewParamsFromAdvancedGraph = useCallback(
+    (graph: AdvancedGraphModel, options?: { strategyName?: string; switchToEasy?: boolean; silent?: boolean }) => {
+      if (!graph.nodes.some((node) => node.type !== "groupNode")) return false;
+
+      const strategyName = options?.strategyName || activeSnapshot?.name || easyViewModel.title || "고급 보기 수정 전략";
+      const strategyGraph = advancedGraphToStrategyGraph(graph, strategyName);
+      const signature = createAdvancedGraphSignature(graph);
+
+      setGeneratedCode(strategyGraphToCode(strategyGraph));
+      setProgramCode("");
+      setEasyViewModel((current) => syncEasyViewActionParams(current, graph));
+      setAdvancedGraphModel(graph);
+      setAdvancedGraphVersion((version) => version + 1);
+      setLastSyncedAdvancedGraphSignature(signature);
+
+      if (!options?.silent) {
+        setAgentActivities([
+          {
+            id: "advanced-param-sync",
+            status: "complete",
+            stage: "advanced-param-sync",
+            label: "고급 보기 파라미터 동기화 완료",
+            timestamp: new Date().toISOString(),
+          },
+        ]);
+        setAgentMessages((prev) => [
+          ...prev,
+          {
+            role: "ai",
+            text: "고급 보기의 실행 파라미터 변경만 반영했습니다. 전략 흐름은 바뀌지 않았으므로 쉬운 보기 노드/간선은 다시 만들지 않았습니다.",
+          },
+        ]);
+      }
+
+      if (options?.switchToEasy) {
+        setMainView("easy");
+      }
+
+      return true;
+    },
+    [activeSnapshot?.name, easyViewModel.title],
+  );
+
+  const regenerateEasyViewFromAdvancedGraph = useCallback(
+    (graph: AdvancedGraphModel, options?: { strategyName?: string; switchToEasy?: boolean; source?: "save" | "tab-switch" }) => {
+      if (!graph.nodes.some((node) => node.type !== "groupNode")) return false;
+
+      const strategyName = options?.strategyName || activeSnapshot?.name || easyViewModel.title || "고급 보기 수정 전략";
+      const signature = createAdvancedGraphSignature(graph);
+      setIsRegeneratingEasyView(true);
+      setAgentActivities([
+        {
+          id: "advanced-save",
+          status: "complete",
+          stage: "advanced-save",
+          label: "고급 보기 저장 내용 확인",
+          timestamp: new Date().toISOString(),
+        },
+        {
+          id: "advanced-to-runtime-graph",
+          status: "running",
+          stage: "advanced-to-runtime-graph",
+          label: "고급 보기 그래프를 전략 graph로 역변환",
+          timestamp: new Date().toISOString(),
+        },
+      ]);
+
+      try {
+        const strategyGraph = advancedGraphToStrategyGraph(graph, strategyName);
+        const result = runEasyViewGraphAgentLoop(
+          strategyGraph,
+          `고급 보기에서 저장된 "${strategyName}" 그래프를 기준으로 쉬운 보기를 다시 생성`,
+        );
+
+        setGeneratedCode(result.code);
+        setProgramCode("");
+        setEasyViewModel(result.easyView);
+        setAdvancedGraphModel(graph);
+        setAdvancedGraphVersion((version) => version + 1);
+        setLastSyncedAdvancedGraphSignature(signature);
+        setAgentSteps([
+          "고급 보기 수정본 저장",
+          "고급 보기 노드/간선을 strategy graph로 역변환",
+          ...result.steps,
+        ]);
+        setAiSummary(`AI 요약: ${result.easyView.summary}`);
+        setAgentActivities([
+          {
+            id: "advanced-save",
+            status: "complete",
+            stage: "advanced-save",
+            label: "고급 보기 저장 내용 확인",
+            timestamp: new Date().toISOString(),
+          },
+          {
+            id: "advanced-to-runtime-graph",
+            status: "complete",
+            stage: "advanced-to-runtime-graph",
+            label: "고급 보기 그래프를 전략 graph로 역변환",
+            timestamp: new Date().toISOString(),
+          },
+          {
+            id: "easy-view-regenerated",
+            status: "complete",
+            stage: "easy-view-regenerated",
+            label: "쉬운 보기 재생성 완료",
+            timestamp: new Date().toISOString(),
+          },
+        ]);
+        setAgentMessages((prev) => [
+          ...prev,
+          {
+            role: "ai",
+            text: `고급 보기 저장본을 기준으로 쉬운 보기를 다시 생성했습니다.\n\n${result.easyView.title}\n고급 보기 노드 ${graph.nodes.filter((node) => node.type !== "groupNode").length}개 / 간선 ${graph.edges.length}개를 반영했습니다.`,
+          },
+        ]);
+        if (options?.switchToEasy) {
+          setMainView("easy");
+        }
+        return true;
+      } catch (error) {
+        const message = error instanceof Error ? error.message : "쉬운 보기 재생성 실패";
+        setAgentActivities((prev) => [
+          ...prev,
+          {
+            id: "easy-view-regenerate-failed",
+            status: "error",
+            stage: "easy-view-regenerate-failed",
+            label: message,
+            timestamp: new Date().toISOString(),
+          },
+        ]);
+        setAgentMessages((prev) => [
+          ...prev,
+          {
+            role: "ai",
+            text: `고급 보기 수정본으로 쉬운 보기를 다시 생성하지 못했습니다: ${message}`,
+          },
+        ]);
+        return false;
+      } finally {
+        setIsRegeneratingEasyView(false);
+      }
+    },
+    [activeSnapshot?.name, easyViewModel.title],
+  );
+
+  useEffect(() => {
+    const handleHistorySnapshotSaved = (event: Event) => {
+      const snapshot = (event as CustomEvent<HistorySnapshot>).detail;
+      if (!snapshot || !Array.isArray(snapshot.nodes) || snapshot.nodes.length === 0) return;
+
+      const graph: AdvancedGraphModel = {
+        nodes: snapshot.nodes as AdvancedGraphModel["nodes"],
+        edges: snapshot.edges as AdvancedGraphModel["edges"],
+      };
+      const shouldSwitchToEasy = switchToEasyAfterAdvancedSaveRef.current;
+      switchToEasyAfterAdvancedSaveRef.current = false;
+      const nextSignature = createAdvancedGraphSignature(graph);
+      if (nextSignature === lastSyncedAdvancedGraphSignature) {
+        syncEasyViewParamsFromAdvancedGraph(graph, {
+          strategyName: snapshot.name,
+          switchToEasy: shouldSwitchToEasy,
+        });
+        return;
+      }
+
+      regenerateEasyViewFromAdvancedGraph(graph, {
+        strategyName: snapshot.name,
+        switchToEasy: shouldSwitchToEasy,
+        source: "save",
+      });
+    };
+
+    window.addEventListener("historySnapshotSaved", handleHistorySnapshotSaved);
+    return () => window.removeEventListener("historySnapshotSaved", handleHistorySnapshotSaved);
+  }, [lastSyncedAdvancedGraphSignature, regenerateEasyViewFromAdvancedGraph, syncEasyViewParamsFromAdvancedGraph]);
 
   const clearTemplatePanelCloseTimer = () => {
     if (!templatePanelCloseTimer.current) return;
@@ -958,9 +1497,11 @@ export default function Page() {
         throw new Error("고급 전략 그래프가 완성되지 않았습니다.");
       }
       setGeneratedCode(result.code);
+      setProgramCode(extractRuntimeProgramCode(data.runtime));
       setEasyViewModel(result.easyView);
       setAdvancedGraphModel(advancedGraph);
       setAdvancedGraphVersion((version) => version + 1);
+      setLastSyncedAdvancedGraphSignature(createAdvancedGraphSignature(advancedGraph));
       setAgentSteps(result.steps);
       setAiSummary(`AI 요약: ${result.easyView.summary}`);
       setGuideDone((prev) => new Set([...prev, 1]));
@@ -1140,7 +1681,7 @@ export default function Page() {
                 <button
                   key={tab.id}
                   type="button"
-                  onClick={() => setMainView(tab.id)}
+                  onClick={() => handleMainViewChange(tab.id)}
                   className={cn(
                     "inline-flex h-9 shrink-0 items-center gap-1.5 rounded-md px-3 text-xs font-bold",
                     mainView === tab.id ? "bg-violet-600 text-white shadow-sm" : "text-slate-600 hover:bg-white",
@@ -1607,11 +2148,13 @@ export default function Page() {
 
             <section className="rounded-lg border border-slate-800 bg-slate-950 p-2.5">
               <div className="mb-2 flex items-center justify-between">
-                <div className="text-sm font-black text-slate-100">관리자 Hershy 코드</div>
-                <span className="text-[10px] font-bold text-emerald-300">generated</span>
+                <div className="text-sm font-black text-slate-100">관리자 Hershy Program 코드</div>
+                <span className={cn("text-[10px] font-bold", programCode ? "text-emerald-300" : "text-amber-300")}>
+                  {programCode ? "program" : "not generated"}
+                </span>
               </div>
               <pre className="max-h-44 overflow-auto rounded-md border border-slate-800 bg-black/40 p-2 text-[10px] leading-4 text-emerald-200">
-                {generatedCode}
+                {programCode || "아직 generated_strategy.go program 코드가 없습니다.\nAI 전략 생성이 서버 검증과 코드 생성을 통과하면 이 영역에 실제 Hershy Go program 코드가 표시됩니다."}
               </pre>
             </section>
 
@@ -2136,6 +2679,43 @@ export default function Page() {
           {isAgentRunning ? "전략 생성 중" : "AI 전략 템플릿"}
         </button>
       </div>
+
+      {isAdvancedSyncPromptOpen ? (
+        <div className="fixed inset-0 z-[80] flex items-center justify-center bg-slate-950/35 px-4">
+          <section className="w-full max-w-md rounded-2xl border border-slate-200 bg-white shadow-2xl">
+            <div className="border-b border-slate-200 px-5 py-4">
+              <div className="text-sm font-black text-slate-950">고급 보기 수정본을 저장할까요?</div>
+              <p className="mt-2 text-sm leading-6 text-slate-600">
+                고급 보기의 노드/간선 구조가 쉬운 보기와 달라졌습니다. 저장하면 현재 고급 보기 그래프를 기준으로 쉬운 보기를 다시 생성합니다.
+              </p>
+            </div>
+            <div className="flex items-center justify-end gap-2 px-5 py-4">
+              <button
+                type="button"
+                onClick={() => setIsAdvancedSyncPromptOpen(false)}
+                className="h-9 rounded-lg border border-slate-200 px-3 text-sm font-bold text-slate-600 hover:bg-slate-50"
+              >
+                취소
+              </button>
+              <button
+                type="button"
+                onClick={handleSkipAdvancedSaveForEasyView}
+                className="h-9 rounded-lg border border-slate-200 px-3 text-sm font-bold text-slate-700 hover:bg-slate-50"
+              >
+                저장 없이 보기
+              </button>
+              <button
+                type="button"
+                onClick={handleConfirmAdvancedSaveForEasyView}
+                disabled={isRegeneratingEasyView}
+                className="h-9 rounded-lg bg-violet-600 px-4 text-sm font-black text-white hover:bg-violet-700 disabled:cursor-not-allowed disabled:opacity-60"
+              >
+                {isRegeneratingEasyView ? "재생성 중" : "저장하고 재생성"}
+              </button>
+            </div>
+          </section>
+        </div>
+      ) : null}
 
       <StrategyHistoryModal isOpen={isHistoryOpen} onClose={() => setIsHistoryOpen(false)} />
     </div>

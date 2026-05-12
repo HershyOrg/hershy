@@ -17,6 +17,12 @@ const STRATEGY_RUNNER_DIR = path.resolve(REPO_ROOT, 'examples/strategy-runner');
 const LOCAL_STATE_DIR = path.resolve(__dirname, '.local');
 const EXCHANGE_CONNECTIONS_PATH = path.join(LOCAL_STATE_DIR, 'exchange-connections.json');
 const AI_STRATEGY_LOGIC_ERROR_LOG_PATH = path.join(LOCAL_STATE_DIR, 'ai-strategy-logic-errors.jsonl');
+const STRATEGY_RUNNER_RUNTIME_FILES = [
+  'go.mod',
+  'go.sum',
+  'runner/runner.go',
+  'liveexec/liveexec.go',
+];
 
 loadServerEnvFiles([
   path.resolve(__dirname, '.env.local'),
@@ -5230,41 +5236,6 @@ async function validateStrategyGraphWithRunner(strategyGraph) {
   }
 }
 
-function buildRuntimeLauncherSource(strategyName) {
-  return `package main
-
-import (
-\t"log"
-\t"os"
-\t"os/exec"
-\t"path/filepath"
-\t"runtime"
-)
-
-func main() {
-\t_, file, _, ok := runtime.Caller(0)
-\tif !ok {
-\t\tlog.Fatal("failed to resolve generated runtime path")
-\t}
-
-\tdir := filepath.Dir(file)
-\trunnerDir := filepath.Clean(filepath.Join(dir, "..", ".."))
-\tstrategyPath := filepath.Join(dir, "strategy.json")
-
-\tcmd := exec.Command("go", "run", runnerDir, "--strategy", strategyPath)
-\tcmd.Stdout = os.Stdout
-\tcmd.Stderr = os.Stderr
-\tcmd.Stdin = os.Stdin
-\tcmd.Env = os.Environ()
-
-\tlog.Printf("[GEN-RUNTIME] launching Hershy strategy runner: ${strategyName.replace(/[`\\$]/g, '')}")
-\tif err := cmd.Run(); err != nil {
-\t\tlog.Fatalf("[GEN-RUNTIME] strategy runner failed: %v", err)
-\t}
-}
-`;
-}
-
 async function writeStrategyRuntimeArtifacts(strategyGraph, validationHistory = []) {
   if (!getAIBooleanEnv('AI_STRATEGY_WRITE_RUNTIME_ARTIFACTS', true)) {
     return null;
@@ -5279,14 +5250,35 @@ async function writeStrategyRuntimeArtifacts(strategyGraph, validationHistory = 
   const stamp = new Date().toISOString().replace(/[-:]/g, '').replace(/\.\d+Z$/, 'Z');
   const dir = path.join(baseDir, `${stamp}-${strategyID}`);
   const strategyPath = path.join(dir, 'strategy.json');
-  const mainGoPath = path.join(dir, 'main.go');
+  const mainGoPath = path.join(dir, 'generated_strategy.go');
   const validationPath = path.join(dir, 'validation.json');
   const readmePath = path.join(dir, 'README.md');
 
   await fs.mkdir(dir, { recursive: true });
   await fs.writeFile(strategyPath, `${stringifyPrettyJSON(strategyGraph)}\n`, 'utf8');
-  await fs.writeFile(mainGoPath, buildRuntimeLauncherSource(strategyName), 'utf8');
   await fs.writeFile(validationPath, `${stringifyPrettyJSON(validationHistory)}\n`, 'utf8');
+
+  const codegenTimeoutSeconds = resolveIntegerEnv('AI_STRATEGY_CODEGEN_TIMEOUT_SEC', 60);
+  await execFileAsync(
+    'go',
+    ['run', './cmd/strategy-codegen', '--file', strategyPath, '--out', mainGoPath],
+    {
+      cwd: STRATEGY_RUNNER_DIR,
+      timeout: codegenTimeoutSeconds * 1000,
+      maxBuffer: 1024 * 1024,
+    },
+  );
+
+  await execFileAsync(
+    'go',
+    ['test', '.'],
+    {
+      cwd: dir,
+      timeout: codegenTimeoutSeconds * 1000,
+      maxBuffer: 1024 * 1024,
+    },
+  );
+  const generatedGoCode = await fs.readFile(mainGoPath, 'utf8');
 
   const relDir = path.relative(REPO_ROOT, dir);
   const relStrategyPath = path.relative(REPO_ROOT, strategyPath);
@@ -5296,11 +5288,21 @@ async function writeStrategyRuntimeArtifacts(strategyGraph, validationHistory = 
 
 Generated Hershy strategy runtime artifact.
 
+This folder contains both the validated strategy JSON and a generated Hershy Go source file.
+The generated Go source statically maps each JSON block/connection into runner definitions, then executes them through Hershy.
+
 ## Validate
 
 \`\`\`bash
 cd examples/strategy-runner
 go run ./cmd/strategy-validate --file ${runnerRelativeStrategyPath}
+\`\`\`
+
+## Regenerate Go source
+
+\`\`\`bash
+cd examples/strategy-runner
+go run ./cmd/strategy-codegen --file ${runnerRelativeStrategyPath} --out ${path.relative(STRATEGY_RUNNER_DIR, mainGoPath)}
 \`\`\`
 
 ## Run
@@ -5312,18 +5314,141 @@ go run .
 
 Files:
 - strategy JSON: ${relStrategyPath}
-- Go launcher: ${relMainGoPath}
+- generated Hershy Go source: ${relMainGoPath}
+- validation history: ${path.relative(REPO_ROOT, validationPath)}
 `;
   await fs.writeFile(readmePath, readme, 'utf8');
+
+  let hostProgram = null;
+  try {
+    hostProgram = await registerGeneratedStrategyHostProgram({
+      strategyName,
+      strategyID,
+      strategyPath,
+      generatedGoPath: mainGoPath,
+      validationPath,
+      readmePath,
+    });
+  } catch (error) {
+    hostProgram = {
+      ok: false,
+      warning: error?.message || 'host program registration failed',
+    };
+  }
 
   return {
     dir: relDir,
     strategyPath: relStrategyPath,
     mainGoPath: relMainGoPath,
+    generatedGoPath: relMainGoPath,
+    programCode: generatedGoCode,
+    generatedGoCode,
     validationPath: path.relative(REPO_ROOT, validationPath),
     readmePath: path.relative(REPO_ROOT, readmePath),
+    hostProgram,
     validateCommand: `cd examples/strategy-runner && go run ./cmd/strategy-validate --file ${runnerRelativeStrategyPath}`,
+    codegenCommand: `cd examples/strategy-runner && go run ./cmd/strategy-codegen --file ${runnerRelativeStrategyPath} --out ${path.relative(STRATEGY_RUNNER_DIR, mainGoPath)}`,
+    compileCommand: `cd ${relDir} && go test .`,
     runCommand: `cd ${relDir} && go run .`,
+  };
+}
+
+function buildGeneratedStrategyDockerfile() {
+  return `FROM golang:1.24-alpine
+
+WORKDIR /app
+COPY go.mod go.sum ./
+RUN go mod download
+COPY . .
+RUN CGO_ENABLED=0 go build -o /app/generated-strategy .
+
+EXPOSE 8080
+CMD ["/app/generated-strategy"]
+`;
+}
+
+function hostProgramHeaders() {
+  const headers = { 'Content-Type': 'application/json' };
+  const token = normalizeText(process.env.HERSHY_HOST_API_TOKEN);
+  if (token) {
+    headers.Authorization = `Bearer ${token}`;
+    headers['X-Hershy-Api-Token'] = token;
+  }
+  return headers;
+}
+
+async function readStrategyRunnerRuntimeSourceFiles() {
+  const files = {};
+  await Promise.all(STRATEGY_RUNNER_RUNTIME_FILES.map(async (relativePath) => {
+    files[relativePath] = await fs.readFile(path.join(STRATEGY_RUNNER_DIR, relativePath), 'utf8');
+  }));
+  return files;
+}
+
+async function registerGeneratedStrategyHostProgram({
+  strategyName,
+  strategyID,
+  strategyPath,
+  generatedGoPath,
+  validationPath,
+  readmePath,
+}) {
+  if (!getAIBooleanEnv('AI_STRATEGY_REGISTER_HOST_PROGRAM', true)) {
+    return null;
+  }
+
+  const sourceFiles = await readStrategyRunnerRuntimeSourceFiles();
+  sourceFiles['main.go'] = await fs.readFile(generatedGoPath, 'utf8');
+  sourceFiles['strategy.json'] = await fs.readFile(strategyPath, 'utf8');
+  sourceFiles['validation.json'] = await fs.readFile(validationPath, 'utf8');
+  sourceFiles['README.md'] = await fs.readFile(readmePath, 'utf8');
+
+  const userID = `ai-${slugifyForPath(strategyID || strategyName, 'strategy')}-${Date.now()}`;
+  const createResponse = await fetch(`${HOST_API_BASE}/programs`, {
+    method: 'POST',
+    headers: hostProgramHeaders(),
+    body: JSON.stringify({
+      user_id: userID,
+      dockerfile: buildGeneratedStrategyDockerfile(),
+      src_files: sourceFiles,
+    }),
+    signal: AbortSignal.timeout(resolveIntegerEnv('AI_STRATEGY_HOST_TIMEOUT_SEC', 15000)),
+  });
+
+  const created = await createResponse.json().catch(() => ({}));
+  if (!createResponse.ok) {
+    const message = created?.message || created?.error || `host create failed: HTTP ${createResponse.status}`;
+    throw new Error(message);
+  }
+
+  let started = null;
+  if (getAIBooleanEnv('AI_STRATEGY_HOST_AUTO_START', false)) {
+    const startResponse = await fetch(`${HOST_API_BASE}/programs/${encodeURIComponent(created.program_id)}/start`, {
+      method: 'POST',
+      headers: hostProgramHeaders(),
+      signal: AbortSignal.timeout(resolveIntegerEnv('AI_STRATEGY_HOST_START_TIMEOUT_SEC', 30000)),
+    });
+    started = await startResponse.json().catch(() => ({}));
+    if (!startResponse.ok) {
+      started = {
+        ok: false,
+        warning: started?.message || started?.error || `host start failed: HTTP ${startResponse.status}`,
+      };
+    }
+  }
+
+  return {
+    ok: true,
+    programId: created.program_id,
+    buildId: created.build_id,
+    state: started?.state || created.state,
+    proxyUrl: created.proxy_url,
+    userId,
+    hostUI: `${HOST_API_BASE}/ui/programs`,
+    statusUrl: `${HOST_API_BASE}/programs/${created.program_id}`,
+    watcherStatusUrl: `${HOST_API_BASE}/programs/${created.program_id}/proxy/watcher/status`,
+    autoStarted: Boolean(started && started.ok !== false),
+    startWarning: started?.warning || '',
   };
 }
 

@@ -102,7 +102,7 @@ type StrategyGraphConnection = {
   toId?: unknown;
 };
 
-type StrategyGraphPayload = {
+export type StrategyGraphPayload = {
   schemaVersion?: unknown;
   kind?: unknown;
   strategy?: {
@@ -111,6 +111,7 @@ type StrategyGraphPayload = {
   };
   generatedAt?: unknown;
   summary?: unknown;
+  metadata?: Record<string, unknown>;
   blocks?: StrategyGraphBlock[];
   connections?: StrategyGraphConnection[];
 };
@@ -252,6 +253,140 @@ function withStrategyKillSwitch(strategyGraph: StrategyGraphPayload): StrategyGr
   }
 
   return { ...strategyGraph, blocks, connections };
+}
+
+function advancedNodeToStrategyBlockType(node: Node) {
+  if (node.type === "streamingNode") return "streaming";
+  if (node.type === "actionNode") return "action";
+  if (node.type === "monitoringNode") return "monitoring";
+  if (node.type === "timeTrigger") return "trigger";
+  return "normal";
+}
+
+function sanitizeAdvancedNodeConfig(node: Node) {
+  const rawData = node.data && typeof node.data === "object" ? node.data as Record<string, unknown> : {};
+  const config: Record<string, unknown> = { ...rawData };
+
+  delete config.selected;
+  delete config.dragging;
+
+  if (node.type === "timeTrigger") {
+    const interval = normalizeGraphNumber(config.interval, 60);
+    config.triggerType = "time";
+    config.interval = interval;
+    config.intervalMs = normalizeGraphNumber(config.intervalMs, interval * 1000);
+    config.outputBlocks = config.outputBlocks ?? [
+      {
+        id: "tick",
+        name: "tick",
+        description: `${Math.round(interval)}초마다 true 신호를 내보냅니다.`,
+        type: "output",
+      },
+    ];
+  }
+
+  if (node.type === "functionNode") {
+    if (typeof config.triggerCondition === "string" && !config.condition) {
+      config.condition = config.triggerCondition;
+    }
+    if (typeof config.code === "string" && !config.logic) {
+      config.logic = config.code;
+    }
+  }
+
+  if (node.type === "actionNode" && typeof config.actionType === "string") {
+    config.actionType = config.actionType.toUpperCase();
+  }
+
+  return config;
+}
+
+function normalizeAdvancedEdgeKind(edge: Edge, sourceNode?: Node, targetNode?: Node) {
+  const label = normalizeGraphText((edge.data as { label?: unknown } | undefined)?.label || edge.label).toLowerCase();
+  const compactLabel = label.replace(/[^a-z0-9]/g, "");
+  const aliasMap: Array<[RegExp, string]> = [
+    [/streammonitor|stream-monitor/, "stream-monitor"],
+    [/triggeraction|trigger-action/, "trigger-action"],
+    [/triggerinput|trigger-input|timegate|gate/, "trigger-input"],
+    [/actioninput|action-input/, "action-input"],
+    [/actionresult|action-result/, "action-result"],
+    [/dataflow|data-flow|metric|output/, "data-flow"],
+  ];
+
+  for (const [pattern, kind] of aliasMap) {
+    if (pattern.test(label) || pattern.test(compactLabel)) return kind;
+  }
+
+  if (sourceNode?.type === "actionNode") return "action-result";
+  if (targetNode?.type === "monitoringNode") return "stream-monitor";
+  if (sourceNode?.type === "timeTrigger" && targetNode?.type === "timeTrigger") return "trigger-input";
+  if (targetNode?.type === "actionNode") {
+    return sourceNode?.type === "timeTrigger" ? "trigger-action" : "action-input";
+  }
+  if (targetNode?.type === "timeTrigger") return "trigger-input";
+  return "data-flow";
+}
+
+export function advancedGraphToStrategyGraph(
+  graph: { nodes: Node[]; edges: Edge[] },
+  strategyName = "Edited advanced strategy",
+): StrategyGraphPayload {
+  const strategyId = normalizeGraphText(strategyName, "edited-advanced-strategy")
+    .toLowerCase()
+    .replace(/[^a-z0-9_-]+/g, "-")
+    .replace(/^-|-$/g, "") || "edited-advanced-strategy";
+  const visibleNodes = graph.nodes.filter((node) => node.type !== "groupNode" && !node.hidden);
+  const nodeById = new Map(visibleNodes.map((node) => [node.id, node]));
+  const blocks = visibleNodes.map((node) => ({
+    id: node.id,
+    type: advancedNodeToStrategyBlockType(node),
+    config: sanitizeAdvancedNodeConfig(node),
+  }));
+  const connections = graph.edges
+    .filter((edge) => {
+      if (edge.hidden) return false;
+      if (!nodeById.has(edge.source) || !nodeById.has(edge.target) || edge.source === edge.target) return false;
+      const label = normalizeGraphText((edge.data as { label?: unknown } | undefined)?.label || edge.label).toLowerCase();
+      return !/^interval sample$/.test(label) && !edge.id.startsWith("adv-visual-");
+    })
+    .map((edge, index) => ({
+      id: normalizeGraphText(edge.id, `edited-edge-${index + 1}`),
+      kind: normalizeAdvancedEdgeKind(edge, nodeById.get(edge.source), nodeById.get(edge.target)),
+      fromId: edge.source,
+      toId: edge.target,
+    }));
+
+  if (connections.length === 0 && visibleNodes.length > 1) {
+    visibleNodes.slice(0, -1).forEach((node, index) => {
+      const next = visibleNodes[index + 1];
+      connections.push({
+        id: `edited-auto-edge-${index + 1}`,
+        kind: next.type === "actionNode" ? "action-input" : "data-flow",
+        fromId: node.id,
+        toId: next.id,
+      });
+    });
+  }
+
+  return {
+    schemaVersion: 1,
+    kind: "hershy-strategy-graph",
+    strategy: {
+      id: strategyId,
+      name: strategyName,
+    },
+    generatedAt: new Date().toISOString(),
+    summary: {
+      blocks: blocks.length,
+      connections: connections.length,
+    },
+    metadata: {
+      source: "advanced-view-edit",
+      easyViewRegeneratedFromAdvanced: true,
+    },
+    blocks,
+    connections,
+  };
 }
 
 export const DEFAULT_STRATEGY_TEMPLATES: StrategyTemplate[] = [
