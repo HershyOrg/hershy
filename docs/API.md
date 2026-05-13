@@ -210,7 +210,7 @@ Creates directory structure:
 ├─ meta/       (metadata)
 ├─ state/      (persistent state - RW volume)
 ├─ compose/    (generated compose spec)
-├─ logs/       (runtime logs)
+├─ logs/       (persisted logs such as build.log, runtime.log)
 └─ runtime/    (container metadata)
 ```
 

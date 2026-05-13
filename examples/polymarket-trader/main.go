@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/HershyOrg/hersh"
+	cctxdebug "github.com/HershyOrg/hershy/cctx/debug"
 	"github.com/HershyOrg/hershy/cctx/exchanges"
 )
 
@@ -22,6 +23,7 @@ const (
 )
 
 func main() {
+	configureAppLogging()
 	args := parseArgs()
 
 	tradeCfg := TradeConfig{
@@ -33,15 +35,22 @@ func main() {
 		DryRun:      args.dryRun,
 	}
 	strategy := StrategyConfig{
-		Mode:               args.mode,
-		EntryHigh:          args.entryHigh,
-		EntryLow:           args.entryLow,
-		ExitHigh:           args.exitHigh,
-		ExitLow:            args.exitLow,
-		Theta:              args.theta,
-		WindowSec:          args.windowSec,
-		ExitAtWindowEnd:    args.exitAtWindowEnd,
-		ExitAtWindowEndSec: args.exitAtWindowEndSec,
+		Mode:                            args.mode,
+		EntryHigh:                       args.entryHigh,
+		EntryLow:                        args.entryLow,
+		ExitHigh:                        args.exitHigh,
+		ExitLow:                         args.exitLow,
+		Theta:                           args.theta,
+		MinEntryEdge:                    args.minEntryEdge,
+		MinPositionProbForEntry:         args.minPositionProbForEntry,
+		MaxPositionLossROI:              args.maxPositionLossROI,
+		WindowSec:                       args.windowSec,
+		ExitAtWindowEnd:                 args.exitAtWindowEnd,
+		ExitAtWindowEndSec:              args.exitAtWindowEndSec,
+		WindowEndHoldEnabled:            args.windowEndHoldEnabled,
+		WindowEndHoldRemainingUpsideMax: args.windowEndHoldRemainingUpsideMax,
+		WindowEndHoldMinPositionProb:    args.windowEndHoldMinPositionProb,
+		WindowEndHoldMinEdgeVsExit:      args.windowEndHoldMinEdgeVsExit,
 	}
 
 	var paperCfg *PaperConfig
@@ -94,6 +103,7 @@ func main() {
 		ClobHost:            args.clobHost,
 		ModelPath:           args.modelPath,
 		WSURL:               args.wsURL,
+		DebugEventsPath:     args.debugEventsPath,
 	}
 
 	config := hersh.DefaultWatcherConfig()
@@ -103,6 +113,12 @@ func main() {
 
 	log.Printf("[BOOT] model=%s slug=%s", args.modelPath, args.slug)
 	log.Printf("[BOOT] mode=%s entry=%.2f/%.2f exit=%.2f/%.2f theta=%.2f exit_at_window_end=%t exit_at_window_end_sec=%d", strategy.Mode, strategy.EntryHigh, strategy.EntryLow, strategy.ExitHigh, strategy.ExitLow, strategy.Theta, strategy.ExitAtWindowEnd, strategy.ExitAtWindowEndSec)
+	log.Printf("[BOOT] risk min_entry_edge=%.4f min_position_prob_for_entry=%.4f max_position_loss_roi=%.4f",
+		strategy.MinEntryEdge, strategy.MinPositionProbForEntry, strategy.MaxPositionLossROI)
+	if strategy.WindowEndHoldEnabled {
+		log.Printf("[BOOT] window_end_hold enabled remaining_upside_max=%.4f min_position_prob=%.4f min_edge_vs_exit=%.4f",
+			strategy.WindowEndHoldRemainingUpsideMax, strategy.WindowEndHoldMinPositionProb, strategy.WindowEndHoldMinEdgeVsExit)
+	}
 	if stopAtMs != nil {
 		log.Printf("[BOOT] stop_at_et=%s stop_exit=%t", msToETStr(*stopAtMs, loadETLocation()), args.stopExit)
 	}
@@ -129,6 +145,11 @@ func main() {
 			if fh, ok := value.(*os.File); ok && fh != nil {
 				_ = fh.Sync()
 				_ = fh.Close()
+			}
+		}
+		if value := hersh.Memo(func() any { return nil }, "debug_recorder", ctx); value != nil {
+			if recorder, ok := value.(*cctxdebug.Recorder); ok && recorder != nil {
+				_ = recorder.Close()
 			}
 		}
 	})
@@ -162,57 +183,71 @@ func main() {
 	}
 }
 
+func configureAppLogging() {
+	log.SetFlags(0)
+	log.SetPrefix("")
+	log.SetOutput(os.Stdout)
+}
+
 // command-line parsing
 
 type cliArgs struct {
-	slug                string
-	slugPrefix          string
-	autoSlug            bool
-	autoSlugSet         bool
-	searchHours         int
-	searchStepHours     int
-	autoRefreshSec      int
-	tokenIDUp           string
-	tokenIDDown         string
-	modelPath           string
-	mode                string
-	entryHigh           float64
-	entryLow            float64
-	exitHigh            float64
-	exitLow             float64
-	theta               float64
-	windowSec           int
-	logEverySec         int
-	regimeEps           float64
-	signalLog           string
-	signalLogFlushEvery int
-	logOrderbookGap     bool
-	maxUSDC             *float64
-	minUSDC             float64
-	reserveUSDC         float64
-	minShares           float64
-	orderType           string
-	dryRun              bool
-	allowScaleIn        bool
-	paper               bool
-	paperUSDC           float64
-	paperLedger         string
-	paperHoldToExpiry   bool
-	privateKey          string
-	funder              string
-	envPrefix           string
-	apiKey              string
-	apiSecret           string
-	apiPassphrase       string
-	clobHost            string
-	chainID             int
-	wsURL               string
-	exitAtWindowEnd     bool
-	exitAtWindowEndSec  int
-	stopAtET            string
-	stopExit            bool
-	signalsOnly         bool
-	runForSec           int
+	slug                            string
+	slugPrefix                      string
+	autoSlug                        bool
+	autoSlugSet                     bool
+	searchHours                     int
+	searchStepHours                 int
+	autoRefreshSec                  int
+	tokenIDUp                       string
+	tokenIDDown                     string
+	modelPath                       string
+	mode                            string
+	entryHigh                       float64
+	entryLow                        float64
+	exitHigh                        float64
+	exitLow                         float64
+	theta                           float64
+	minEntryEdge                    float64
+	minPositionProbForEntry         float64
+	maxPositionLossROI              float64
+	windowSec                       int
+	logEverySec                     int
+	regimeEps                       float64
+	signalLog                       string
+	signalLogFlushEvery             int
+	logOrderbookGap                 bool
+	maxUSDC                         *float64
+	minUSDC                         float64
+	reserveUSDC                     float64
+	minShares                       float64
+	orderType                       string
+	dryRun                          bool
+	allowScaleIn                    bool
+	paper                           bool
+	paperUSDC                       float64
+	paperLedger                     string
+	paperHoldToExpiry               bool
+	privateKey                      string
+	funder                          string
+	envPrefix                       string
+	apiKey                          string
+	apiSecret                       string
+	apiPassphrase                   string
+	clobHost                        string
+	chainID                         int
+	wsURL                           string
+	debugEventsPath                 string
+	exitAtWindowEnd                 bool
+	exitAtWindowEndSec              int
+	windowEndHoldEnabled            bool
+	windowEndHoldRemainingUpsideMax float64
+	windowEndHoldMinPositionProb    float64
+	windowEndHoldMinEdgeVsExit      float64
+	stopAtET                        string
+	stopExit                        bool
+	signalsOnly                     bool
+	runForSec                       int
 }
 
 func parseArgs() cliArgs {
@@ -228,20 +263,23 @@ func parseArgs() cliArgs {
 	flag.StringVar(&args.tokenIDDown, "token-id-down", "", "Down/No token ID")
 	flag.StringVar(&args.modelPath, "model-path", defaultModelPath, "Path to prob model JSON")
 	flag.StringVar(&args.mode, "mode", "pbad", "Trading mode: pm or pbad")
-	flag.Float64Var(&args.entryHigh, "entry-high", 0.85, "Entry high threshold")
-	flag.Float64Var(&args.entryLow, "entry-low", 0.15, "Entry low threshold")
-	flag.Float64Var(&args.exitHigh, "exit-high", 0.70, "Exit high threshold")
-	flag.Float64Var(&args.exitLow, "exit-low", 0.30, "Exit low threshold")
-	flag.Float64Var(&args.theta, "theta", 0.45, "Pbad exit threshold")
+	flag.Float64Var(&args.entryHigh, "entry-high", 0.92, "Entry high threshold")
+	flag.Float64Var(&args.entryLow, "entry-low", 0.08, "Entry low threshold")
+	flag.Float64Var(&args.exitHigh, "exit-high", 0.50, "Exit high threshold")
+	flag.Float64Var(&args.exitLow, "exit-low", 0.50, "Exit low threshold")
+	flag.Float64Var(&args.theta, "theta", 0.20, "Pbad exit threshold")
+	flag.Float64Var(&args.minEntryEdge, "min-entry-edge", 0.01, "Minimum model edge over estimated entry price required to enter or scale in")
+	flag.Float64Var(&args.minPositionProbForEntry, "min-position-prob-for-entry", 0.50, "Minimum model probability required for the entered side before entry or scale in")
+	flag.Float64Var(&args.maxPositionLossROI, "max-position-loss-roi", 0.04, "Maximum unrealized loss ROI before forced exit; set negative to disable")
 	flag.IntVar(&args.windowSec, "window-sec", 240, "Trading window seconds")
 	flag.IntVar(&args.logEverySec, "log-every-sec", 5, "Signal log frequency in seconds")
 	flag.Float64Var(&args.regimeEps, "regime-eps", 0.0002, "Regime epsilon")
 	flag.StringVar(&args.signalLog, "signal-log", "", "Signal log path")
 	flag.IntVar(&args.signalLogFlushEvery, "signal-log-flush-every", 10, "Signal log flush interval")
 	flag.BoolVar(&args.logOrderbookGap, "log-orderbook-gap", false, "Log orderbook gap")
-	maxUSDC := flag.Float64("max-usdc", -1, "Max USDC to use per trade")
+	maxUSDC := flag.Float64("max-usdc", 5.0, "Max USDC to use per trade")
 	flag.Float64Var(&args.minUSDC, "min-usdc", 0.5, "Min USDC to trade")
-	flag.Float64Var(&args.reserveUSDC, "reserve-usdc", 0.0, "Reserve USDC to keep")
+	flag.Float64Var(&args.reserveUSDC, "reserve-usdc", 0.5, "Reserve USDC to keep")
 	flag.Float64Var(&args.minShares, "min-shares", 0.01, "Min shares to sell")
 	flag.StringVar(&args.orderType, "order-type", "FAK", "Order type: FOK or FAK")
 	flag.BoolVar(&args.dryRun, "dry-run", false, "Dry-run orders")
@@ -260,9 +298,15 @@ func parseArgs() cliArgs {
 	flag.StringVar(&args.clobHost, "clob-host", defaultClobHost, "CLOB host")
 	flag.IntVar(&args.chainID, "chain-id", 137, "Chain ID")
 	flag.StringVar(&args.wsURL, "ws-url", binanceWSURL, "Binance WS URL (unused)")
+	flag.StringVar(&args.debugEventsPath, "debug-events-path", defaultDebugEventsPath(), "Path to structured debug timeline (.json for state, .jsonl for legacy stream)")
 	exitAtWindowEnd := flag.Bool("exit-at-window-end", true, "Exit at window end")
 	noExitAtWindowEnd := flag.Bool("no-exit-at-window-end", false, "Disable exit at window end")
-	flag.IntVar(&args.exitAtWindowEndSec, "exit-at-window-end-sec", 2, "Exit this many seconds before the window ends")
+	flag.IntVar(&args.exitAtWindowEndSec, "exit-at-window-end-sec", 5, "Exit this many seconds before the window ends")
+	windowEndHoldEnabled := flag.Bool("window-end-hold-enabled", true, "Hold high-conviction low-upside positions through close instead of forcing a window-end exit")
+	noWindowEndHold := flag.Bool("no-window-end-hold", false, "Disable heuristic hold-through-close behavior at window end")
+	flag.Float64Var(&args.windowEndHoldRemainingUpsideMax, "window-end-hold-remaining-upside-max", 0.01, "Maximum remaining upside (1-entry_price) to allow hold-through-close")
+	flag.Float64Var(&args.windowEndHoldMinPositionProb, "window-end-hold-min-position-prob", 0.997, "Minimum model probability for the held side to allow hold-through-close")
+	flag.Float64Var(&args.windowEndHoldMinEdgeVsExit, "window-end-hold-min-edge-vs-exit", 0.0005, "Minimum model edge versus current exit price to allow hold-through-close")
 	flag.StringVar(&args.stopAtET, "stop-at-et", "", "Stop new entries after ET time")
 	flag.BoolVar(&args.stopExit, "stop-exit", false, "Exit open position at stop time")
 	flag.BoolVar(&args.signalsOnly, "signals-only", false, "Log signals only")
@@ -290,6 +334,11 @@ func parseArgs() cliArgs {
 	} else {
 		args.exitAtWindowEnd = *exitAtWindowEnd
 	}
+	if *noWindowEndHold {
+		args.windowEndHoldEnabled = false
+	} else {
+		args.windowEndHoldEnabled = *windowEndHoldEnabled
+	}
 	if args.exitAtWindowEndSec < 1 {
 		args.exitAtWindowEndSec = 1
 	}
@@ -307,6 +356,9 @@ func parseArgs() cliArgs {
 	}
 	if args.mode != "pm" && args.mode != "pbad" {
 		log.Fatalf("mode must be pm or pbad")
+	}
+	if args.minPositionProbForEntry < 0 || args.minPositionProbForEntry > 1 {
+		log.Fatalf("min-position-prob-for-entry must be between 0 and 1")
 	}
 	return args
 }

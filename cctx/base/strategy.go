@@ -6,6 +6,7 @@ import (
 	"strings"
 	"time"
 
+	cctxdebug "github.com/HershyOrg/hershy/cctx/debug"
 	"github.com/HershyOrg/hershy/cctx/models"
 	"github.com/HershyOrg/hershy/cctx/utils"
 )
@@ -39,6 +40,10 @@ type Strategy struct {
 	CheckInterval time.Duration
 	// Logger handles strategy logging.
 	Logger *utils.Logger
+	// DebugRecorder handles structured strategy diagnostics.
+	DebugRecorder *cctxdebug.Recorder
+	// StrategyID identifies the strategy for structured diagnostics.
+	StrategyID string
 
 	// Market is the cached market object.
 	Market *models.Market
@@ -79,13 +84,15 @@ func NewStrategy(exchange Exchange, marketID string) *Strategy {
 		MaxDelta:      20,
 		CheckInterval: 5 * time.Second,
 		Logger:        utils.SetupLogger("strategy", utils.LevelInfo),
+		StrategyID:    "strategy",
 		positions:     map[string]float64{},
 		openOrders:    []models.Order{},
 	}
 }
 
 // Setup initializes market data and token IDs.
-//  SetUp을 통해 마켓을 관리함
+//
+//	SetUp을 통해 마켓을 관리함
 func (s *Strategy) Setup() bool {
 	_ = s.logger()
 	market, err := s.Client.FetchMarket(s.MarketID)

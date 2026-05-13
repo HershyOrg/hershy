@@ -5,6 +5,8 @@ import (
 	"fmt"
 	"strconv"
 	"strings"
+
+	"github.com/HershyOrg/hershy/cctx/secureconfig"
 )
 
 // ExchangeFactory creates an Exchange from a config map.
@@ -31,6 +33,12 @@ func CreateExchange(name string, factory ExchangeFactory, config ExchangeConfig,
 		finalConfig = mergeConfigMaps(finalConfig, config.ToMap())
 	}
 
+	resolvedConfig, err := secureconfig.ResolveMap(finalConfig)
+	if err != nil {
+		return nil, fmt.Errorf("resolve secure config for %s: %w", nameLower, err)
+	}
+	finalConfig = resolvedConfig
+
 	if validate {
 		if err := validateConfig(nameLower, finalConfig); err != nil {
 			return nil, err
@@ -46,6 +54,57 @@ func loadMapConfig(name string, values map[string]string) map[string]any {
 		return map[string]any{}
 	}
 	switch name {
+	case "binance":
+		out := map[string]any{
+			"api_key":    values["api_key"],
+			"api_secret": firstNonEmpty(values["api_secret"], values["hmac_secret"]),
+		}
+		if host := firstNonEmpty(values["base_url"], values["host"]); host != "" {
+			out["base_url"] = host
+		}
+		if recvWindow := values["recv_window"]; recvWindow != "" {
+			if parsed, err := strconv.ParseInt(recvWindow, 10, 64); err == nil {
+				out["recv_window"] = float64(parsed)
+			}
+		}
+		return out
+	case "bybit":
+		out := map[string]any{
+			"api_key":      values["api_key"],
+			"api_secret":   firstNonEmpty(values["api_secret"], values["hmac_secret"]),
+			"account_type": firstNonEmpty(values["account_type"], "UNIFIED"),
+		}
+		if host := firstNonEmpty(values["base_url"], values["host"]); host != "" {
+			out["base_url"] = host
+		}
+		if recvWindow := values["recv_window"]; recvWindow != "" {
+			if parsed, err := strconv.ParseInt(recvWindow, 10, 64); err == nil {
+				out["recv_window"] = float64(parsed)
+			}
+		}
+		return out
+	case "okx":
+		out := map[string]any{
+			"api_key":        values["api_key"],
+			"api_secret":     firstNonEmpty(values["api_secret"], values["hmac_secret"]),
+			"api_passphrase": firstNonEmpty(values["api_passphrase"], values["passphrase"]),
+		}
+		if host := firstNonEmpty(values["base_url"], values["host"]); host != "" {
+			out["base_url"] = host
+		}
+		if simulated := firstNonEmpty(values["simulated"], values["simulated_trading"], values["demo_trading"]); simulated != "" {
+			out["simulated"] = strings.EqualFold(simulated, "1") || strings.EqualFold(simulated, "true") || strings.EqualFold(simulated, "yes") || strings.EqualFold(simulated, "on")
+		}
+		return out
+	case "gateio", "gate":
+		out := map[string]any{
+			"api_key":    values["api_key"],
+			"api_secret": firstNonEmpty(values["api_secret"], values["hmac_secret"]),
+		}
+		if host := firstNonEmpty(values["base_url"], values["host"]); host != "" {
+			out["base_url"] = host
+		}
+		return out
 	case "polymarket":
 		cacheTTL := 2.0
 		if raw := values["cache_ttl"]; raw != "" {
@@ -94,6 +153,32 @@ func loadMapConfig(name string, values map[string]string) map[string]any {
 			}
 		}
 		return out
+	case "evm_dex":
+		out := map[string]any{
+			"private_key":   values["private_key"],
+			"rpc_url":       values["rpc_url"],
+			"cast_binary":   values["cast_binary"],
+			"native_symbol": values["native_symbol"],
+		}
+		if chainID := values["chain_id"]; chainID != "" {
+			if parsed, err := strconv.ParseInt(chainID, 10, 64); err == nil {
+				out["chain_id"] = float64(parsed)
+			}
+		}
+		rpcURLs := map[string]any{}
+		for key, value := range values {
+			if !strings.HasPrefix(strings.ToLower(key), "rpc_url_") || strings.TrimSpace(value) == "" {
+				continue
+			}
+			chain := strings.TrimPrefix(strings.ToLower(key), "rpc_url_")
+			if chain != "" {
+				rpcURLs[chain] = strings.TrimSpace(value)
+			}
+		}
+		if len(rpcURLs) > 0 {
+			out["rpc_urls"] = rpcURLs
+		}
+		return out
 	default:
 		out := map[string]any{}
 		for key, value := range values {
@@ -108,9 +193,15 @@ func loadMapConfig(name string, values map[string]string) map[string]any {
 // validateConfig checks required fields and basic private key format.
 func validateConfig(name string, config map[string]any) error {
 	required := map[string][]string{
+		"binance":    {"api_key", "api_secret"},
+		"bybit":      {"api_key", "api_secret"},
+		"okx":        {"api_key", "api_secret", "api_passphrase"},
+		"gateio":     {"api_key", "api_secret"},
+		"gate":       {"api_key", "api_secret"},
 		"polymarket": {"private_key", "funder"},
 		"opinion":    {"api_key", "private_key", "multi_sig_addr"},
 		"limitless":  {"private_key"},
+		"evm_dex":    {"private_key"},
 	}
 
 	missing := []string{}
@@ -130,10 +221,25 @@ func validateConfig(name string, config map[string]any) error {
 		return fmt.Errorf("missing required config: %v. set env vars: %v", missing, envVars)
 	}
 
+	if name == "evm_dex" {
+		if !hasRPCURL(config) {
+			return fmt.Errorf("missing required config: rpc_url or rpc_urls. set env vars: EVM_DEX_RPC_URL or EVM_DEX_RPC_URL_<CHAIN>")
+		}
+	}
+
 	if key, ok := config["private_key"].(string); ok && key != "" {
 		return validatePrivateKey(key, name)
 	}
 	return nil
+}
+
+func firstNonEmpty(values ...string) string {
+	for _, value := range values {
+		if strings.TrimSpace(value) != "" {
+			return strings.TrimSpace(value)
+		}
+	}
+	return ""
 }
 
 // validatePrivateKey validates a hex private key.
@@ -153,4 +259,25 @@ func validatePrivateKey(key, name string) error {
 		return fmt.Errorf("invalid private key format for %s", name)
 	}
 	return nil
+}
+
+func hasRPCURL(config map[string]any) bool {
+	if rpcURL, ok := config["rpc_url"].(string); ok && strings.TrimSpace(rpcURL) != "" {
+		return true
+	}
+	switch raw := config["rpc_urls"].(type) {
+	case map[string]string:
+		for _, value := range raw {
+			if strings.TrimSpace(value) != "" {
+				return true
+			}
+		}
+	case map[string]any:
+		for _, value := range raw {
+			if text, ok := value.(string); ok && strings.TrimSpace(text) != "" {
+				return true
+			}
+		}
+	}
+	return false
 }

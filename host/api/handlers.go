@@ -9,7 +9,7 @@ import (
 	"net/url"
 	"strings"
 	"time"
-
+    "os"
 	"github.com/HershyOrg/hershy/program"
 )
 
@@ -381,37 +381,68 @@ func (hs *HostServer) getContainerLogs(w http.ResponseWriter, r *http.Request, p
 		return
 	}
 
-	// Get running program to access ContainerID from ProgramState
-	prog, exists := hs.programRegistry.GetProgram(programID)
-	if !exists {
-		hs.sendError(w, http.StatusNotFound, "program not running")
-		return
-	}
-	state := prog.GetState()
+	containerID := ""
+	logSource := "runtime_file"
 
-	// Check if container exists
-	if state.ContainerID == "" {
-		hs.sendError(w, http.StatusNotFound, "container not started yet")
-		return
+	if prog, exists := hs.programRegistry.GetProgram(programID); exists {
+		state := prog.GetState()
+		containerID = state.ContainerID
+		if state.ContainerID != "" {
+			logs, err := hs.runtime.GetContainerLogs(context.Background(), state.ContainerID, 200)
+			if err == nil {
+				response := map[string]interface{}{
+					"program_id":   programID,
+					"container_id": state.ContainerID,
+					"logs":         logs,
+					"source":       "docker",
+					"timestamp":    time.Now().Format(time.RFC3339),
+				}
+
+				w.Header().Set("Content-Type", "application/json")
+				json.NewEncoder(w).Encode(response)
+				return
+			}
+		}
 	}
 
-	// Get logs from Docker runtime
-	logs, err := hs.runtime.GetContainerLogs(context.Background(), state.ContainerID, 200)
+	runtimeLogPath := hs.storage.GetRuntimeLogPath(programID)
+	data, err := os.ReadFile(runtimeLogPath)
 	if err != nil {
-		hs.sendError(w, http.StatusInternalServerError, fmt.Sprintf("failed to get container logs: %v", err))
+		if os.IsNotExist(err) {
+			hs.sendError(w, http.StatusNotFound, "runtime log not found")
+			return
+		}
+		hs.sendError(w, http.StatusInternalServerError, fmt.Sprintf("failed to read runtime log: %v", err))
 		return
 	}
 
-	// Return logs as JSON
 	response := map[string]interface{}{
 		"program_id":   programID,
-		"container_id": state.ContainerID,
-		"logs":         logs,
+		"container_id": containerID,
+		"logs":         tailLines(string(data), 200),
+		"source":       logSource,
 		"timestamp":    time.Now().Format(time.RFC3339),
 	}
 
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(response)
+}
+
+func tailLines(text string, limit int) string {
+	if limit <= 0 || text == "" {
+		return text
+	}
+
+	trimmed := strings.TrimRight(text, "\n")
+	if trimmed == "" {
+		return ""
+	}
+
+	lines := strings.Split(trimmed, "\n")
+	if len(lines) <= limit {
+		return trimmed
+	}
+	return strings.Join(lines[len(lines)-limit:], "\n")
 }
 
 // getSourceCode handles GET /programs/{id}/source

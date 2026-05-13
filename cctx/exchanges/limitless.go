@@ -23,6 +23,7 @@ import (
 
 	"github.com/HershyOrg/hershy/cctx/base"
 	"github.com/HershyOrg/hershy/cctx/models"
+	"github.com/HershyOrg/hershy/cctx/secureconfig"
 	"github.com/HershyOrg/hershy/cctx/utils"
 )
 
@@ -104,6 +105,11 @@ func NewLimitless(config map[string]any) (base.Exchange, error) {
 		utils.DefaultLogger().Debugf("exchanges.NewLimitless: config is nil")
 		return nil, fmt.Errorf("exchanges.NewLimitless: config is nil")
 	}
+	resolvedConfig, err := secureconfig.ResolveMap(config)
+	if err != nil {
+		return nil, fmt.Errorf("exchanges.NewLimitless: resolve secure config: %w", err)
+	}
+	config = resolvedConfig
 	ex := &Limitless{
 		BaseExchange: base.NewBaseExchange(config),
 		privateKey:   stringFromConfig(config, "private_key"),

@@ -1,9 +1,12 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import ChromeTabs from './ChromeTabs';
 import Sidebar from './Sidebar';
 import Canvas from './Canvas';
 import FrontTab from './FrontTab';
 import PreAuthTab from './PreAuthTab';
+import BackendHeader from './backend/BackendHeader';
+import StrategyFeedbackBar from './backend/StrategyFeedbackBar';
+import HostControlBar from './backend/HostControlBar';
+import AISidePanel from './backend/AISidePanel';
 import BlockListPanel from './panels/BlockListPanel';
 import SavedBlocksPanel from './panels/SavedBlocksPanel';
 import StreamingBlocksPanel from './panels/StreamingBlocksPanel';
@@ -19,11 +22,8 @@ import {
   strategyToPrettyJson,
   validateStrategyDefinition
 } from '../lib/strategyCompiler';
-import { buildStrategyRunnerPayload } from '../lib/hostRunnerTemplates';
-import { generateStrategyDraft } from '../lib/strategyAssistant';
 import {
   createEmptyActionAuthState,
-  getProviderCredentials,
   isProviderAuthorized,
   resolveActionAuthRequirement
 } from '../lib/actionAuth';
@@ -111,6 +111,9 @@ export default function BackendTab() {
   const [selectedBlockIdsByTab, setSelectedBlockIdsByTab] = useState(() => ({
     [initialTabs[0].id]: []
   }));
+  const [strategyRuntimeByTab, setStrategyRuntimeByTab] = useState(() => ({
+    [initialTabs[0].id]: null
+  }));
   const [actionAuthByTab, setActionAuthByTab] = useState(() => ({
     [initialTabs[0].id]: createEmptyActionAuthState()
   }));
@@ -159,6 +162,10 @@ export default function BackendTab() {
     setSelectedBlockIdsByTab((prevSelected) => ({
       ...prevSelected,
       [nextId]: []
+    }));
+    setStrategyRuntimeByTab((prevRuntime) => ({
+      ...prevRuntime,
+      [nextId]: null
     }));
     setActionAuthByTab((prevAuth) => ({
       ...prevAuth,
@@ -210,6 +217,12 @@ export default function BackendTab() {
       return nextSelected;
     });
 
+    setStrategyRuntimeByTab((prevRuntime) => {
+      const nextRuntime = { ...prevRuntime };
+      delete nextRuntime[tabId];
+      return nextRuntime;
+    });
+
     setActionAuthByTab((prevAuth) => {
       const nextAuth = { ...prevAuth };
       delete nextAuth[tabId];
@@ -253,24 +266,15 @@ export default function BackendTab() {
   }, [activeTabId]);
 
   useEffect(() => {
-    let mounted = true;
-    fetch('/api/config')
-      .then((response) => response.json())
-      .then((payload) => {
-        if (!mounted) {
-          return;
-        }
-        if (typeof payload?.host_api_base === 'string' && payload.host_api_base.trim()) {
-          setHostTarget(payload.host_api_base.trim());
-        }
-      })
-      .catch(() => {
-        // Keep default when front server config endpoint is unavailable.
-      });
-    return () => {
-      mounted = false;
-    };
-  }, []);
+    if (!activeTabId) {
+      return;
+    }
+    setStrategyRuntimeByTab((prevRuntime) => (
+      Object.prototype.hasOwnProperty.call(prevRuntime, activeTabId)
+        ? prevRuntime
+        : { ...prevRuntime, [activeTabId]: null }
+    ));
+  }, [activeTabId]);
 
   const getDefaultPosition = (blocks) => {
     const index = blocks.length;
@@ -619,7 +623,8 @@ export default function BackendTab() {
       tabId: activeTabId,
       tabLabel: activeTabLabel,
       blocks: activeBlocks,
-      connections: activeConnections
+      connections: activeConnections,
+      runtime: activeStrategyRuntime
     });
     const report = validateStrategyDefinition(strategy);
     setStrategyReport(report);
@@ -656,6 +661,10 @@ export default function BackendTab() {
     setConnectionsByTab((prevConnections) => ({
       ...prevConnections,
       [activeTabId]: canvasState.connections
+    }));
+    setStrategyRuntimeByTab((prevRuntime) => ({
+      ...prevRuntime,
+      [activeTabId]: canvasState.runtime || null
     }));
     setSelectedBlockIdsByTab((prevSelected) => ({
       ...prevSelected,

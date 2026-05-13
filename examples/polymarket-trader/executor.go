@@ -203,12 +203,18 @@ func (e *LiveExecutor) MarketBuyMax(tokenID string) (*FillResult, error) {
 		fmt.Printf("[TRADE] buy failed: %v\n", err)
 		return nil, nil
 	}
-	fill, err = e.observeBuyFill(tokenID, preShares, preUSDC, amount)
+	fill, err = e.observeBuyFill(tokenID, preShares, preUSDC, amount, limitPrice)
 	if err != nil {
 		return nil, err
 	}
 	if fill == nil {
 		cleanup := e.cancelUnfilledOrder(order)
+		fill = inferBuyFillFromOrder(order, amount, limitPrice)
+		if fill != nil {
+			fmt.Printf("[TRADE] buy filled after cleanup token=%s usdc=%.4f shares=%.6f avg_px=%.4f partial=%t cleanup=%s\n",
+				tokenID, fill.USDC, fill.Shares, derefFloat(fill.AvgPrice), fill.Partial, cleanup)
+			return fill, nil
+		}
 		fmt.Printf("[TRADE] buy order placed but no fill observed token=%s limit=%.4f cleanup=%s\n", tokenID, limitPrice, cleanup)
 		return nil, nil
 	}
@@ -240,22 +246,9 @@ func (e *LiveExecutor) MarketSellAll(tokenID string) (*FillResult, error) {
 		fmt.Println("[TRADE] sell skipped (no liquidity)")
 		return nil, nil
 	}
-	bid, ask := bestBidAsk(book)
 	limitPrice := fill.WorstPrice
-
-	// Taker Prevention (Case 3): Ensure SELL price > best_bid
-	if bid != nil && limitPrice <= *bid {
-		tick := book.TickSize
-		newLimit := *bid + tick
-		if ask != nil && newLimit >= *ask {
-			newLimit = *ask
-		}
-		if newLimit >= 1.0 {
-			newLimit = 1.0 - tick
-		}
-		fmt.Printf("[TRADE] adjusting sell price %.4f -> %.4f to prevent taker order (tick=%.4f)\n", limitPrice, newLimit, tick)
-		limitPrice = newLimit
-	}
+	// Exits should prioritize flattening the position over maker-only pricing.
+	// Using the simulated worst bid keeps the order marketable across observed depth.
 
 	if shares < book.MinOrderSize {
 		fmt.Printf("[TRADE] sell skipped (shares=%.6f < min_order_size=%.4f)\n", shares, book.MinOrderSize)
@@ -295,7 +288,9 @@ func (e *LiveExecutor) MarketSellAll(tokenID string) (*FillResult, error) {
 	return fill, nil
 }
 
-func (e *LiveExecutor) observeBuyFill(tokenID string, preShares, preUSDC, requestedUSDC float64) (*FillResult, error) {
+func (e *LiveExecutor) observeBuyFill(tokenID string, preShares, preUSDC, requestedUSDC, fallbackPrice float64) (*FillResult, error) {
+	bestFilledShares := 0.0
+	bestSpentUSDC := 0.0
 	for i := 0; i < liveFillPolls; i++ {
 		if i > 0 {
 			time.Sleep(250 * time.Millisecond)
@@ -321,19 +316,14 @@ func (e *LiveExecutor) observeBuyFill(tokenID string, preShares, preUSDC, reques
 		if spentUSDC < 0 {
 			spentUSDC = 0
 		}
-		var avgPrice *float64
-		if filledShares > 0 && spentUSDC > 0 {
-			v := spentUSDC / filledShares
-			avgPrice = &v
+		if filledShares > bestFilledShares {
+			bestFilledShares = filledShares
 		}
-		return &FillResult{
-			USDC:     spentUSDC,
-			Shares:   filledShares,
-			AvgPrice: avgPrice,
-			Partial:  spentUSDC+1e-9 < requestedUSDC,
-		}, nil
+		if spentUSDC > bestSpentUSDC {
+			bestSpentUSDC = spentUSDC
+		}
 	}
-	return nil, nil
+	return normalizeBuyFill(bestFilledShares, bestSpentUSDC, requestedUSDC, fallbackPrice), nil
 }
 
 func (e *LiveExecutor) observeSellFill(tokenID string, preShares, preUSDC float64) (*FillResult, error) {
@@ -633,6 +623,62 @@ func (e *PaperExecutor) MarketSellAll(tokenID string) (*FillResult, error) {
 
 func safeFloat(value any) float64 {
 	return toFloat(value)
+}
+
+func normalizeBuyFill(filledShares, spentUSDC, requestedUSDC, fallbackPrice float64) *FillResult {
+	if filledShares < 0 {
+		filledShares = 0
+	}
+	if spentUSDC < 0 {
+		spentUSDC = 0
+	}
+	if filledShares <= 1e-9 && spentUSDC <= 1e-9 {
+		return nil
+	}
+	if filledShares <= 1e-9 && spentUSDC > 1e-9 && fallbackPrice > 1e-9 {
+		filledShares = spentUSDC / fallbackPrice
+	}
+	if spentUSDC <= 1e-9 && filledShares > 1e-9 && fallbackPrice > 1e-9 {
+		spentUSDC = filledShares * fallbackPrice
+	}
+	var avgPrice *float64
+	if filledShares > 1e-9 && spentUSDC > 1e-9 {
+		v := spentUSDC / filledShares
+		avgPrice = &v
+	} else if fallbackPrice > 1e-9 {
+		v := fallbackPrice
+		avgPrice = &v
+	}
+	partial := requestedUSDC > 1e-9 && spentUSDC+1e-9 < requestedUSDC
+	return &FillResult{
+		USDC:     spentUSDC,
+		Shares:   filledShares,
+		AvgPrice: avgPrice,
+		Partial:  partial,
+	}
+}
+
+func inferBuyFillFromOrder(order models.Order, requestedUSDC, fallbackPrice float64) *FillResult {
+	filledShares := order.Filled
+	if filledShares <= 1e-9 && order.IsFilled() {
+		if order.Size > 1e-9 {
+			filledShares = order.Size
+		} else if requestedUSDC > 1e-9 && fallbackPrice > 1e-9 {
+			filledShares = requestedUSDC / fallbackPrice
+		}
+	}
+	if filledShares <= 1e-9 {
+		return nil
+	}
+	avgPx := order.Price
+	if avgPx <= 0 {
+		avgPx = fallbackPrice
+	}
+	spentUSDC := 0.0
+	if avgPx > 0 {
+		spentUSDC = filledShares * avgPx
+	}
+	return normalizeBuyFill(filledShares, spentUSDC, requestedUSDC, avgPx)
 }
 
 func inferSellFillFromOrder(order models.Order, requestedShares, fallbackPrice float64) *FillResult {

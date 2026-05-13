@@ -30,8 +30,12 @@ func applyFillToPosition(pos *Position, fill *FillResult) {
 		return
 	}
 	prevShares := pos.Shares
+	appliedUSDC := fill.USDC
+	if appliedUSDC <= 1e-9 && fill.AvgPrice != nil && fill.Shares > 1e-9 {
+		appliedUSDC = *fill.AvgPrice * fill.Shares
+	}
 	pos.Shares += fill.Shares
-	pos.CostUSDC += fill.USDC
+	pos.CostUSDC += appliedUSDC
 	if fill.AvgPrice == nil || fill.Shares <= 0 {
 		return
 	}

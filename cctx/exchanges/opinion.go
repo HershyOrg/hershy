@@ -20,6 +20,7 @@ import (
 
 	"github.com/HershyOrg/hershy/cctx/base"
 	"github.com/HershyOrg/hershy/cctx/models"
+	"github.com/HershyOrg/hershy/cctx/secureconfig"
 	"github.com/HershyOrg/hershy/cctx/utils"
 )
 
@@ -99,6 +100,11 @@ func NewOpinion(config map[string]any) (base.Exchange, error) {
 		utils.DefaultLogger().Debugf("exchanges.NewOpinion: config is nil")
 		return nil, fmt.Errorf("exchanges.NewOpinion: config is nil")
 	}
+	resolvedConfig, err := secureconfig.ResolveMap(config)
+	if err != nil {
+		return nil, fmt.Errorf("exchanges.NewOpinion: resolve secure config: %w", err)
+	}
+	config = resolvedConfig
 	ex := &Opinion{
 		BaseExchange: base.NewBaseExchange(config),
 		apiKey:       stringFromConfig(config, "api_key"),

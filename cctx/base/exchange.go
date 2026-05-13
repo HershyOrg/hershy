@@ -63,6 +63,11 @@ type UserWebsocketProvider interface {
 	GetUserWebsocket() UserWebSocket
 }
 
+type OrderHistoryFetcher interface {
+	// FetchOrderHistory returns historical orders for a market or, when supported, across markets.
+	FetchOrderHistory(marketID *string, params map[string]any) ([]models.Order, error)
+}
+
 // BaseExchange provides shared helpers for exchanges.
 type BaseExchange struct {
 	// Config stores raw exchange configuration.
