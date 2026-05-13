@@ -349,6 +349,7 @@ export const validateStrategyDefinition = (strategy) => {
     const streamChain = normalizeString(config.streamChain);
     const streamMethod = normalizeString(config.streamMethod);
     const streamParamsJson = normalizeString(config.streamParamsJson);
+    const sourceURL = normalizeString(config.sourceUrl);
 
     if (streamKind === 'evm-rpc') {
       if (!streamChain) {
@@ -367,6 +368,16 @@ export const validateStrategyDefinition = (strategy) => {
           errors.push({ code: 'STREAM_PARAMS_INVALID', message: `evm stream params is invalid JSON: ${block.id}` });
         }
       }
+      return;
+    }
+
+    if (!sourceURL) {
+      errors.push({ code: 'STREAM_SOURCE_REQUIRED', message: `url/websocket stream requires sourceUrl: ${block.id}` });
+      return;
+    }
+
+    if (!/^https?:\/\//i.test(sourceURL) && !/^wss?:\/\//i.test(sourceURL)) {
+      errors.push({ code: 'STREAM_SOURCE_INVALID', message: `stream source must start with http(s):// or ws(s)://: ${block.id}` });
     }
   });
 

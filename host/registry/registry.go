@@ -44,9 +44,11 @@ func NewPortAllocator(minPort, maxPort int) *PortAllocator {
 	}
 }
 
-// isPortAvailable checks if a port is actually available at the OS level
+// isPortAvailable checks if a port is available for localhost publishing.
+// Host publishes containers to 127.0.0.1:port, so availability must be
+// verified against that exact bind target.
 func isPortAvailable(port int) bool {
-	ln, err := net.Listen("tcp", fmt.Sprintf(":%d", port))
+	ln, err := net.Listen("tcp4", fmt.Sprintf("127.0.0.1:%d", port))
 	if err != nil {
 		return false
 	}

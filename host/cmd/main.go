@@ -7,6 +7,7 @@ import (
 	"os"
 	"os/signal"
 	"path/filepath"
+	"strings"
 	"syscall"
 	"time"
 
@@ -23,32 +24,33 @@ import (
 )
 
 func main() {
-	// Flags
 	port := flag.Int("port", 9000, "Host API server port")
+	bindAddr := flag.String("bind", "127.0.0.1", "Host API bind address (e.g. 127.0.0.1 or 100.x.x.x)")
 	storageRoot := flag.String("storage", "./host-storage", "Storage root directory")
 	runtimeType := flag.String("runtime", "runc", "Container runtime (runc or runsc)")
 	vectorCompose := flag.String("vector", "./host/vector/docker-compose.yml", "Path to vector docker-compose.yml")
+	apiTokenFlag := flag.String("api-token", "", "API token for /programs* endpoints (optional)")
+	proxyAllowlistFlag := flag.String("proxy-allowlist", "", "Comma-separated allowlist for /programs/{id}/proxy/* paths (supports '*' suffix wildcard)")
 	flag.Parse()
 
-	// Logging setup
 	logDir := filepath.Join(*storageRoot, "logs")
-	os.MkdirAll(logDir, 0755)
+	_ = os.MkdirAll(logDir, 0o755)
 	hostLogPath := filepath.Join(logDir, "host.log")
 	log := logger.New("HostServer", io.Discard, hostLogPath)
-  defer log.Close()
+	defer log.Close()
 	log.SetDefaultLogType("HOST")
 
 	log.Emit(logger.LogEntry{
-  	Level:   "INFO",
-    Msg:     "Starting Hershy Host Server",
-    Vars: map[string]interface{}{
-      "port":    *port,
-      "storage": *storageRoot,
-      "runtime": *runtimeType,
-    },
-  })
+		Level: "INFO",
+		Msg:   "Starting Hershy Host Server",
+		Vars: map[string]interface{}{
+			"port":    *port,
+			"bind":    *bindAddr,
+			"storage": *storageRoot,
+			"runtime": *runtimeType,
+		},
+	})
 
-	// Initialize components
 	reg := registry.NewRegistry()
 	pm := proxy.NewProxyManager()
 	stor := storage.NewManager(*storageRoot)
@@ -57,53 +59,77 @@ func main() {
 
 	dockerMgr, err := runtime.NewDockerManager()
 	if err != nil {
-		errMsg := err.Error()
 		log.Emit(logger.LogEntry{
-			Level:   "ERROR",
-			Msg:     "Docker manager failed",
-			Vars: map[string]interface{}{"error": errMsg},
-  	})
+			Level: "ERROR",
+			Msg:   "Docker manager failed",
+			Vars: map[string]interface{}{"error": err.Error()},
+		})
+		return
 	}
 	defer dockerMgr.Close()
 
-	// Create Host server
 	server := api.NewHostServer(reg, pm, stor, comp, dockerMgr)
 	server.SetDefaultRuntime(*runtimeType)
+	server.SetListenAddr(*bindAddr)
 
-	// Set effect handler factory (enforces contracts)
+	apiToken := strings.TrimSpace(*apiTokenFlag)
+	if apiToken == "" {
+		apiToken = strings.TrimSpace(os.Getenv("HERSHY_HOST_API_TOKEN"))
+	}
+	server.SetAPIToken(apiToken)
+
+	proxyAllowlistRaw := strings.TrimSpace(*proxyAllowlistFlag)
+	if proxyAllowlistRaw == "" {
+		proxyAllowlistRaw = strings.TrimSpace(os.Getenv("HERSHY_PROXY_ALLOWLIST"))
+	}
+	if proxyAllowlistRaw != "" {
+		parts := strings.Split(proxyAllowlistRaw, ",")
+		allowlist := make([]string, 0, len(parts))
+		for _, part := range parts {
+			path := strings.TrimSpace(part)
+			if path == "" {
+				continue
+			}
+			allowlist = append(allowlist, path)
+		}
+		server.SetProxyPathAllowlist(allowlist)
+	}
+
 	server.SetEffectHandlerFactory(func() program.EffectHandler {
 		effectHandler := host.NewRealEffectHandler(stor, comp, dockerMgr)
 		effectHandler.SetDefaultRuntime(*runtimeType)
 		return effectHandler
 	})
 
-
 	log.Emit(logger.LogEntry{
-  	Level:   "INFO",
-    Msg:     "initialized : Contracts: Port 8080 blocked, /state:rw, read-only rootfs",
-  })
-	// Start HTTP server
+		Level: "INFO",
+		Msg:   "Host initialized",
+		Vars: map[string]interface{}{
+			"contracts_enforced": true,
+			"api_token_enabled":  apiToken != "",
+			"proxy_allowlisted":  proxyAllowlistRaw != "",
+		},
+	})
+
 	go func() {
-			log.Emit(logger.LogEntry{
-			Level:   "INFO",
-			Msg:     "HTTP API Start",
+		log.Emit(logger.LogEntry{
+			Level: "INFO",
+			Msg:   "HTTP API Start",
 			Vars: map[string]interface{}{
-				"address" : "http://localhost:",
-				"port":    *port,
-    	},
+				"bind": *bindAddr,
+				"port": *port,
+			},
 		})
 		if err := server.Start(*port); err != nil {
-			errMsg := err.Error()
 			log.Emit(logger.LogEntry{
-				Level:   "ERROR",
-				Msg:     "Server error",
-				Vars: map[string]interface{}{"error": errMsg},
+				Level: "ERROR",
+				Msg:   "Server error",
+				Vars: map[string]interface{}{"error": err.Error()},
 			})
 		}
 	}()
 	vec.Start()
 
-	// Wait for interrupt
 	sigChan := make(chan os.Signal, 1)
 	signal.Notify(sigChan, os.Interrupt, syscall.SIGTERM)
 	<-sigChan
@@ -114,7 +140,7 @@ func main() {
 	server.Stop(ctx)
 
 	log.Emit(logger.LogEntry{
-  	Level:   "INFO",
-    Msg:     "Host server stopped",
-  })
+		Level: "INFO",
+		Msg:   "Host server stopped",
+	})
 }

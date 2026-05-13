@@ -1,0 +1,22 @@
+{
+  "resources": [
+    {
+      "name": "hershy_health",
+      "path": "/resources/health",
+      "method": "GET",
+      "description": "ACP seller runtime health and counters"
+    },
+    {
+      "name": "hershy_catalog",
+      "path": "/resources/catalog",
+      "method": "GET",
+      "description": "Supported templates and JSON schemas"
+    },
+    {
+      "name": "hershy_sample",
+      "path": "/resources/sample",
+      "method": "GET",
+      "description": "Sample requirement/deliverable payloads"
+    }
+  ]
+}

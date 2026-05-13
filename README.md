@@ -85,6 +85,16 @@ hershy/
     └── watcher-server/         # Minimal WatcherAPI server
 ```
 
+## ACP Integration
+
+ACP seller integration is available at `acp-agent/`.
+
+- Uses `@virtuals-protocol/acp-node` to run a Seller agent
+- Provisions Hershy program instances via Host API (`/programs`, `/start`, `/status`)
+- Includes offering schemas and buyer smoke script
+
+See `acp-agent/README.md` for setup and execution.
+
 **Note**: Hersh framework is now a separate library at [github.com/HershyOrg/hersh](https://github.com/HershyOrg/hersh)
 
 ## 🚀 Quick Start
@@ -121,6 +131,10 @@ cd host && go test -tags=integration ./... -v
 ```bash
 # Start Host server (default: port 9000, runc runtime)
 cd host && go run cmd/main.go
+
+# Secure Host API (bind + token)
+HERSHY_HOST_API_TOKEN='<long-random-token>' \
+cd host && go run cmd/main.go -bind 127.0.0.1 -port 9000 -api-token '<long-random-token>'
 
 # Deploy example programs (requires Host running on :9000)
 cd examples/simple-counter && ./deploy-to-host.sh

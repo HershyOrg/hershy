@@ -17,3 +17,4 @@ require (
 )
 
 replace github.com/HershyOrg/hershy/cctx => ../../cctx
+require github.com/HershyOrg/hersh v0.3.1
