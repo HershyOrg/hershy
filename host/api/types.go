@@ -3,23 +3,40 @@ package api
 import (
 	"time"
 
+	"github.com/HershyOrg/hershy/host/registry"
 	"github.com/HershyOrg/hershy/program"
 )
 
+// SCWRelayerConfigRequest registers a program-specific SCW policy with the
+// shared host relayer.
+type SCWRelayerConfigRequest struct {
+	SmartWalletAddress       string   `json:"smart_wallet_address"`
+	SessionKeyAddress        string   `json:"session_key_address"`
+	PolicyID                 string   `json:"policy_id"`
+	AllowedChainIDs          []int64  `json:"allowed_chain_ids,omitempty"`
+	AllowedContractAddresses []string `json:"allowed_contract_addresses,omitempty"`
+	AllowedFunctionSelectors []string `json:"allowed_function_selectors,omitempty"`
+	MaxValueWei              string   `json:"max_value_wei,omitempty"`
+	MaxGasLimit              uint64   `json:"max_gas_limit,omitempty"`
+	DeadlineGraceSeconds     int64    `json:"deadline_grace_seconds,omitempty"`
+}
+
 // CreateProgramRequest represents the request body for creating a program
 type CreateProgramRequest struct {
-	UserID     string            `json:"user_id"`
-	Dockerfile string            `json:"dockerfile"`
-	SrcFiles   map[string]string `json:"src_files"` // filename -> content
+	UserID     string                   `json:"user_id"`
+	Dockerfile string                   `json:"dockerfile"`
+	SrcFiles   map[string]string        `json:"src_files"` // filename -> content
+	SCWRelayer *SCWRelayerConfigRequest `json:"scw_relayer,omitempty"`
 }
 
 // CreateProgramResponse represents the response after creating a program
 type CreateProgramResponse struct {
-	ProgramID program.ProgramID `json:"program_id"`
-	BuildID   program.BuildID   `json:"build_id"`
-	State     string            `json:"state"`
-	ProxyURL  string            `json:"proxy_url"`
-	CreatedAt time.Time         `json:"created_at"`
+	ProgramID  program.ProgramID `json:"program_id"`
+	BuildID    program.BuildID   `json:"build_id"`
+	State      string            `json:"state"`
+	ProxyURL   string            `json:"proxy_url"`
+	RelayerURL string            `json:"relayer_url,omitempty"`
+	CreatedAt  time.Time         `json:"created_at"`
 }
 
 // GetProgramResponse represents the response for getting program details
@@ -31,6 +48,7 @@ type GetProgramResponse struct {
 	ImageID     string            `json:"image_id,omitempty"`
 	ContainerID string            `json:"container_id,omitempty"`
 	ProxyURL    string            `json:"proxy_url"`
+	RelayerURL  string            `json:"relayer_url,omitempty"`
 	ErrorMsg    string            `json:"error_msg,omitempty"`
 	CreatedAt   time.Time         `json:"created_at"`
 	UpdatedAt   time.Time         `json:"updated_at"`
@@ -119,4 +137,18 @@ type ErrorResponse struct {
 	Error   string `json:"error"`
 	Code    int    `json:"code"`
 	Message string `json:"message,omitempty"`
+}
+
+func (request SCWRelayerConfigRequest) toRegistryConfig() registry.SCWRelayerConfig {
+	return registry.SCWRelayerConfig{
+		SmartWalletAddress:       request.SmartWalletAddress,
+		SessionKeyAddress:        request.SessionKeyAddress,
+		PolicyID:                 request.PolicyID,
+		AllowedChainIDs:          append([]int64(nil), request.AllowedChainIDs...),
+		AllowedContractAddresses: append([]string(nil), request.AllowedContractAddresses...),
+		AllowedFunctionSelectors: append([]string(nil), request.AllowedFunctionSelectors...),
+		MaxValueWei:              request.MaxValueWei,
+		MaxGasLimit:              request.MaxGasLimit,
+		DeadlineGraceSeconds:     request.DeadlineGraceSeconds,
+	}
 }

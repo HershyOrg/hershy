@@ -155,28 +155,58 @@ func loadMapConfig(name string, values map[string]string) map[string]any {
 		return out
 	case "evm_dex":
 		out := map[string]any{
-			"private_key":   values["private_key"],
-			"rpc_url":       values["rpc_url"],
-			"cast_binary":   values["cast_binary"],
-			"native_symbol": values["native_symbol"],
+			"signer_type":              values["signer_type"],
+			"private_key":              values["private_key"],
+			"smart_wallet_address":     values["smart_wallet_address"],
+			"session_private_key":      values["session_private_key"],
+			"session_key_id":           values["session_key_id"],
+			"policy_id":                values["policy_id"],
+			"relayer_url":              values["relayer_url"],
+			"relayer_auth_token":       values["relayer_auth_token"],
+			"rpc_url":                  values["rpc_url"],
+			"cast_binary":              values["cast_binary"],
+			"native_symbol":            values["native_symbol"],
+			"session_deadline_seconds": values["session_deadline_seconds"],
 		}
 		if chainID := values["chain_id"]; chainID != "" {
 			if parsed, err := strconv.ParseInt(chainID, 10, 64); err == nil {
 				out["chain_id"] = float64(parsed)
 			}
 		}
+		if deadline := values["session_deadline_seconds"]; deadline != "" {
+			if parsed, err := strconv.ParseInt(deadline, 10, 64); err == nil {
+				out["session_deadline_seconds"] = float64(parsed)
+			}
+		}
 		rpcURLs := map[string]any{}
+		chainIDs := map[string]any{}
 		for key, value := range values {
-			if !strings.HasPrefix(strings.ToLower(key), "rpc_url_") || strings.TrimSpace(value) == "" {
+			keyLower := strings.ToLower(key)
+			value = strings.TrimSpace(value)
+			if value == "" {
 				continue
 			}
-			chain := strings.TrimPrefix(strings.ToLower(key), "rpc_url_")
-			if chain != "" {
-				rpcURLs[chain] = strings.TrimSpace(value)
+			if strings.HasPrefix(keyLower, "rpc_url_") {
+				chain := strings.TrimPrefix(keyLower, "rpc_url_")
+				if chain != "" {
+					rpcURLs[chain] = value
+				}
+				continue
+			}
+			if strings.HasPrefix(keyLower, "chain_id_") {
+				chain := strings.TrimPrefix(keyLower, "chain_id_")
+				if chain != "" {
+					if parsed, err := strconv.ParseInt(value, 10, 64); err == nil && parsed > 0 {
+						chainIDs[chain] = float64(parsed)
+					}
+				}
 			}
 		}
 		if len(rpcURLs) > 0 {
 			out["rpc_urls"] = rpcURLs
+		}
+		if len(chainIDs) > 0 {
+			out["chain_ids"] = chainIDs
 		}
 		return out
 	default:
@@ -201,7 +231,7 @@ func validateConfig(name string, config map[string]any) error {
 		"polymarket": {"private_key", "funder"},
 		"opinion":    {"api_key", "private_key", "multi_sig_addr"},
 		"limitless":  {"private_key"},
-		"evm_dex":    {"private_key"},
+		"evm_dex":    {},
 	}
 
 	missing := []string{}
@@ -222,15 +252,52 @@ func validateConfig(name string, config map[string]any) error {
 	}
 
 	if name == "evm_dex" {
+		signerType := strings.ToLower(strings.TrimSpace(anyStringFromMap(config, "signer_type")))
+		if signerType == "" || signerType == "eoa" {
+			if strings.TrimSpace(anyStringFromMap(config, "private_key")) == "" {
+				return fmt.Errorf("missing required config: private_key. set env var: EVM_DEX_PRIVATE_KEY")
+			}
+		} else if signerType == "session_key" || signerType == "scw_session" || signerType == "scw" {
+			missingSCW := []string{}
+			for _, key := range []string{"smart_wallet_address", "session_private_key", "relayer_url"} {
+				if strings.TrimSpace(anyStringFromMap(config, key)) == "" {
+					missingSCW = append(missingSCW, key)
+				}
+			}
+			if len(missingSCW) > 0 {
+				return fmt.Errorf("missing required config for %s signer_type=%s: %v", name, signerType, missingSCW)
+			}
+		} else {
+			return fmt.Errorf("unsupported evm_dex signer_type: %s", signerType)
+		}
 		if !hasRPCURL(config) {
 			return fmt.Errorf("missing required config: rpc_url or rpc_urls. set env vars: EVM_DEX_RPC_URL or EVM_DEX_RPC_URL_<CHAIN>")
 		}
 	}
 
+	if name == "evm_dex" {
+		signerType := strings.ToLower(strings.TrimSpace(anyStringFromMap(config, "signer_type")))
+		if signerType == "session_key" || signerType == "scw_session" || signerType == "scw" {
+			if key := strings.TrimSpace(anyStringFromMap(config, "session_private_key")); key != "" {
+				return validatePrivateKey(key, name)
+			}
+			return nil
+		}
+	}
 	if key, ok := config["private_key"].(string); ok && key != "" {
 		return validatePrivateKey(key, name)
 	}
 	return nil
+}
+
+func anyStringFromMap(config map[string]any, key string) string {
+	if config == nil {
+		return ""
+	}
+	if value, ok := config[key].(string); ok {
+		return value
+	}
+	return ""
 }
 
 func firstNonEmpty(values ...string) string {

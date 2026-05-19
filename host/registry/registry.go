@@ -19,10 +19,32 @@ type ProgramMetadata struct {
 	CreatedAt   time.Time         `json:"created_at"`
 }
 
+// SCWRelayerConfig stores per-program SCW execution policy metadata used by
+// the shared host relayer.
+type SCWRelayerConfig struct {
+	SmartWalletAddress       string   `json:"smart_wallet_address"`
+	SessionKeyAddress        string   `json:"session_key_address"`
+	PolicyID                 string   `json:"policy_id"`
+	AllowedChainIDs          []int64  `json:"allowed_chain_ids,omitempty"`
+	AllowedContractAddresses []string `json:"allowed_contract_addresses,omitempty"`
+	AllowedFunctionSelectors []string `json:"allowed_function_selectors,omitempty"`
+	MaxValueWei              string   `json:"max_value_wei,omitempty"`
+	MaxGasLimit              uint64   `json:"max_gas_limit,omitempty"`
+	DeadlineGraceSeconds     int64    `json:"deadline_grace_seconds,omitempty"`
+}
+
+// SCWRelayerRegistration is the registry-level view of a program's relayer policy.
+type SCWRelayerRegistration struct {
+	ProgramID program.ProgramID `json:"program_id"`
+	UserID    string            `json:"user_id"`
+	Config    SCWRelayerConfig  `json:"config"`
+}
+
 // RegistryEntry holds both metadata and runtime Program instance
 type RegistryEntry struct {
 	Metadata ProgramMetadata
 	Program  *program.Program // nil if not running
+	Relayer  *SCWRelayerConfig
 }
 
 // PortAllocator manages port allocation for proxy servers
@@ -269,6 +291,74 @@ func (r *Registry) SetProgramOnce(id program.ProgramID, prog *program.Program) e
 
 	entry.Program = prog
 	return nil
+}
+
+// SetSCWRelayerConfig attaches per-program SCW relayer metadata.
+func (r *Registry) SetSCWRelayerConfig(id program.ProgramID, config SCWRelayerConfig) error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
+	entry, exists := r.programs[id]
+	if !exists {
+		return fmt.Errorf("program %s not found in registry", id)
+	}
+	copied := cloneSCWRelayerConfig(config)
+	entry.Relayer = &copied
+	return nil
+}
+
+// GetSCWRelayerRegistration returns the relayer registration for a program, if present.
+func (r *Registry) GetSCWRelayerRegistration(id program.ProgramID) (*SCWRelayerRegistration, error) {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+
+	entry, exists := r.programs[id]
+	if !exists {
+		return nil, fmt.Errorf("program %s not found", id)
+	}
+	if entry.Relayer == nil {
+		return nil, fmt.Errorf("program %s has no scw relayer registration", id)
+	}
+
+	registration := &SCWRelayerRegistration{
+		ProgramID: entry.Metadata.ProgramID,
+		UserID:    entry.Metadata.UserID,
+		Config:    cloneSCWRelayerConfig(*entry.Relayer),
+	}
+	return registration, nil
+}
+
+// ListSCWRelayerRegistrations returns all registered program-level SCW relayer policies.
+func (r *Registry) ListSCWRelayerRegistrations() []SCWRelayerRegistration {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+
+	result := make([]SCWRelayerRegistration, 0, len(r.programs))
+	for _, entry := range r.programs {
+		if entry.Relayer == nil {
+			continue
+		}
+		result = append(result, SCWRelayerRegistration{
+			ProgramID: entry.Metadata.ProgramID,
+			UserID:    entry.Metadata.UserID,
+			Config:    cloneSCWRelayerConfig(*entry.Relayer),
+		})
+	}
+	return result
+}
+
+func cloneSCWRelayerConfig(config SCWRelayerConfig) SCWRelayerConfig {
+	return SCWRelayerConfig{
+		SmartWalletAddress:       config.SmartWalletAddress,
+		SessionKeyAddress:        config.SessionKeyAddress,
+		PolicyID:                 config.PolicyID,
+		AllowedChainIDs:          append([]int64(nil), config.AllowedChainIDs...),
+		AllowedContractAddresses: append([]string(nil), config.AllowedContractAddresses...),
+		AllowedFunctionSelectors: append([]string(nil), config.AllowedFunctionSelectors...),
+		MaxValueWei:              config.MaxValueWei,
+		MaxGasLimit:              config.MaxGasLimit,
+		DeadlineGraceSeconds:     config.DeadlineGraceSeconds,
+	}
 }
 
 // GetProgram retrieves the Program instance for a specific program

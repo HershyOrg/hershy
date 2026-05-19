@@ -18,6 +18,7 @@ import (
 	"github.com/HershyOrg/hershy/host/proxy"
 	"github.com/HershyOrg/hershy/host/registry"
 	"github.com/HershyOrg/hershy/host/runtime"
+	"github.com/HershyOrg/hershy/host/scwrelay"
 	"github.com/HershyOrg/hershy/host/storage"
 	"github.com/HershyOrg/hershy/host/vector"
 	"github.com/HershyOrg/hershy/program"
@@ -44,10 +45,11 @@ func main() {
 		Level: "INFO",
 		Msg:   "Starting Hershy Host Server",
 		Vars: map[string]interface{}{
-			"port":    *port,
-			"bind":    *bindAddr,
-			"storage": *storageRoot,
-			"runtime": *runtimeType,
+			"port":         *port,
+			"bind":         *bindAddr,
+			"storage":      *storageRoot,
+			"runtime":      *runtimeType,
+			"relayer_path": scwrelay.DefaultRoutePath,
 		},
 	})
 
@@ -62,7 +64,7 @@ func main() {
 		log.Emit(logger.LogEntry{
 			Level: "ERROR",
 			Msg:   "Docker manager failed",
-			Vars: map[string]interface{}{"error": err.Error()},
+			Vars:  map[string]interface{}{"error": err.Error()},
 		})
 		return
 	}
@@ -101,6 +103,20 @@ func main() {
 		return effectHandler
 	})
 
+	relayerConfigPath := scwrelay.DefaultChainConfigPath(*storageRoot)
+	relayerHandler, err := scwrelay.NewHandler(reg, relayerConfigPath)
+	if err != nil {
+		log.Emit(logger.LogEntry{
+			Level: "ERROR",
+			Msg:   "Relayer service initialization failed",
+			Vars: map[string]interface{}{
+				"error": err.Error(),
+			},
+		})
+		os.Exit(1)
+	}
+	server.SetRelayerHandler(scwrelay.DefaultRoutePath, relayerHandler)
+
 	log.Emit(logger.LogEntry{
 		Level: "INFO",
 		Msg:   "Host initialized",
@@ -108,6 +124,8 @@ func main() {
 			"contracts_enforced": true,
 			"api_token_enabled":  apiToken != "",
 			"proxy_allowlisted":  proxyAllowlistRaw != "",
+			"relayer_path":       scwrelay.DefaultRoutePath,
+			"chain_config_path":  relayerConfigPath,
 		},
 	})
 
@@ -124,10 +142,18 @@ func main() {
 			log.Emit(logger.LogEntry{
 				Level: "ERROR",
 				Msg:   "Server error",
-				Vars: map[string]interface{}{"error": err.Error()},
+				Vars:  map[string]interface{}{"error": err.Error()},
 			})
 		}
 	}()
+	log.Emit(logger.LogEntry{
+		Level: "INFO",
+		Msg:   "SCW relayer start",
+		Vars: map[string]interface{}{
+			"path":              scwrelay.DefaultRoutePath,
+			"chain_config_path": relayerConfigPath,
+		},
+	})
 	vec.Start()
 
 	sigChan := make(chan os.Signal, 1)

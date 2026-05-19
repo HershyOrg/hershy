@@ -38,6 +38,9 @@ type HostServer struct {
 	listenAddr      string                       // Bind address (e.g. 127.0.0.1, 100.x.x.x)
 	apiToken        string                       // Optional bearer/API token for /programs* endpoints
 	proxyAllowlist  []string                     // Optional allowlist for /programs/{id}/proxy/* paths
+	relayerPath     string                       // Optional shared SCW relayer route
+	relayerHandler  http.Handler                 // Optional shared SCW relayer handler
+	listenPort      int                          // Last started listen port
 
 	// Health check loop control
 	healthCtx    context.Context
@@ -132,6 +135,21 @@ func (hs *HostServer) isProxyPathAllowed(proxyPath string) bool {
 	return false
 }
 
+// SetRelayerHandler mounts a shared SCW relayer handler on the host server.
+func (hs *HostServer) SetRelayerHandler(path string, handler http.Handler) {
+	normalizedPath := strings.TrimSpace(path)
+	if normalizedPath == "" || handler == nil {
+		hs.relayerPath = ""
+		hs.relayerHandler = nil
+		return
+	}
+	if !strings.HasPrefix(normalizedPath, "/") {
+		normalizedPath = "/" + normalizedPath
+	}
+	hs.relayerPath = normalizedPath
+	hs.relayerHandler = handler
+}
+
 // createEffectHandler creates a new effect handler using the factory function
 func (hs *HostServer) createEffectHandler() program.EffectHandler {
 	if hs.effectHandlerFn != nil {
@@ -144,6 +162,7 @@ func (hs *HostServer) createEffectHandler() program.EffectHandler {
 // Start starts the HTTP API server
 func (hs *HostServer) Start(port int) error {
 	mux := http.NewServeMux()
+	hs.listenPort = port
 
 	// Web UI endpoints (/ui/programs/*)
 	if err := setupWebUI(mux); err != nil {
@@ -155,6 +174,9 @@ func (hs *HostServer) Start(port int) error {
 	mux.HandleFunc("/programs/", hs.withProgramAuth(hs.handleProgramByID))
 	mux.HandleFunc("/watcher/endpoints", hs.withProgramAuth(hs.handleWatcherEndpoints))
 	mux.HandleFunc("/watcher/endpoints/", hs.withProgramAuth(hs.handleWatcherEndpoints))
+	if hs.relayerHandler != nil && hs.relayerPath != "" {
+		mux.Handle(hs.relayerPath, hs.relayerHandler)
+	}
 
 	addr := fmt.Sprintf(":%d", port)
 	if hs.listenAddr != "" {
@@ -358,14 +380,21 @@ func (hs *HostServer) createProgramMeta(w http.ResponseWriter, r *http.Request) 
 		hs.sendError(w, http.StatusInternalServerError, fmt.Sprintf("failed to write Dockerfile: %v", err))
 		return
 	}
+	if req.SCWRelayer != nil {
+		if err := hs.programRegistry.SetSCWRelayerConfig(programID, req.SCWRelayer.toRegistryConfig()); err != nil {
+			hs.sendError(w, http.StatusInternalServerError, fmt.Sprintf("failed to register scw relayer config: %v", err))
+			return
+		}
+	}
 
 	// Send response
 	response := CreateProgramResponse{
-		ProgramID: programID,
-		BuildID:   buildID,
-		State:     program.StateCreated.String(),
-		ProxyURL:  proxyURL,
-		CreatedAt: registered.CreatedAt,
+		ProgramID:  programID,
+		BuildID:    buildID,
+		State:      program.StateCreated.String(),
+		ProxyURL:   proxyURL,
+		RelayerURL: hs.getRelayerURL(),
+		CreatedAt:  registered.CreatedAt,
 	}
 
 	w.Header().Set("Content-Type", "application/json")
@@ -403,6 +432,7 @@ func (hs *HostServer) getProgram(w http.ResponseWriter, r *http.Request, program
 		ContainerID: state.ContainerID,
 		ErrorMsg:    state.ErrorMsg,
 		ProxyURL:    proxyURL,
+		RelayerURL:  hs.getRelayerURL(),
 		CreatedAt:   meta.CreatedAt,
 		UpdatedAt:   time.Now(), // Real-time query
 	}
@@ -438,6 +468,7 @@ func (hs *HostServer) listPrograms(w http.ResponseWriter, r *http.Request) {
 			ContainerID: state.ContainerID,
 			ErrorMsg:    state.ErrorMsg,
 			ProxyURL:    proxyURL,
+			RelayerURL:  hs.getRelayerURL(),
 			CreatedAt:   meta.CreatedAt,
 			UpdatedAt:   time.Now(),
 		})
@@ -483,6 +514,13 @@ func (hs *HostServer) deleteProgram(w http.ResponseWriter, r *http.Request, prog
 
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(response)
+}
+
+func (hs *HostServer) getRelayerURL() string {
+	if hs.relayerHandler == nil || hs.relayerPath == "" || hs.listenPort == 0 {
+		return ""
+	}
+	return fmt.Sprintf("http://localhost:%d%s", hs.listenPort, hs.relayerPath)
 }
 
 // generateBuildID generates a build ID from Dockerfile and source files

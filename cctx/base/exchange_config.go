@@ -234,14 +234,32 @@ func (c LimitlessConfig) ToMap() map[string]any {
 type EVMDEXConfig struct {
 	// BaseExchangeConfig embeds shared configuration.
 	BaseExchangeConfig
+	// SignerType selects how transactions are authorized. Defaults to "eoa".
+	SignerType string
 	// PrivateKey is the EOA signer private key.
 	PrivateKey string
+	// SmartWalletAddress is the SCW address used for delegated execution.
+	SmartWalletAddress string
+	// SessionPrivateKey is the delegated session-key private key.
+	SessionPrivateKey string
+	// SessionKeyID is an optional relayer/session identifier.
+	SessionKeyID string
+	// PolicyID is an optional policy identifier attached to relay requests.
+	PolicyID string
+	// RelayerURL is the HTTP endpoint that accepts SCW relay requests.
+	RelayerURL string
+	// RelayerAuthToken is an optional bearer token for the relayer.
+	RelayerAuthToken string
+	// SessionDeadlineSeconds is the default relay-request deadline window in seconds.
+	SessionDeadlineSeconds int64
 	// RPCURL is the default chain RPC URL.
 	RPCURL string
 	// RPCURLs stores chain-specific RPC URLs keyed by chain slug.
 	RPCURLs map[string]string
 	// ChainID is the configured chain ID.
 	ChainID int64
+	// ChainIDs stores chain-specific chain IDs keyed by chain slug.
+	ChainIDs map[string]int64
 	// CastBinary overrides the Foundry cast binary path.
 	CastBinary string
 	// NativeSymbol labels the native balance returned by FetchBalance.
@@ -251,8 +269,32 @@ type EVMDEXConfig struct {
 // ToMap converts config to a map, omitting zero values.
 func (c EVMDEXConfig) ToMap() map[string]any {
 	out := c.BaseExchangeConfig.ToMap()
+	if c.SignerType != "" {
+		out["signer_type"] = c.SignerType
+	}
 	if c.PrivateKey != "" {
 		out["private_key"] = c.PrivateKey
+	}
+	if c.SmartWalletAddress != "" {
+		out["smart_wallet_address"] = c.SmartWalletAddress
+	}
+	if c.SessionPrivateKey != "" {
+		out["session_private_key"] = c.SessionPrivateKey
+	}
+	if c.SessionKeyID != "" {
+		out["session_key_id"] = c.SessionKeyID
+	}
+	if c.PolicyID != "" {
+		out["policy_id"] = c.PolicyID
+	}
+	if c.RelayerURL != "" {
+		out["relayer_url"] = c.RelayerURL
+	}
+	if c.RelayerAuthToken != "" {
+		out["relayer_auth_token"] = c.RelayerAuthToken
+	}
+	if c.SessionDeadlineSeconds > 0 {
+		out["session_deadline_seconds"] = c.SessionDeadlineSeconds
 	}
 	if c.RPCURL != "" {
 		out["rpc_url"] = c.RPCURL
@@ -270,6 +312,17 @@ func (c EVMDEXConfig) ToMap() map[string]any {
 	}
 	if c.ChainID > 0 {
 		out["chain_id"] = c.ChainID
+	}
+	if len(c.ChainIDs) > 0 {
+		chainIDs := make(map[string]any, len(c.ChainIDs))
+		for key, value := range c.ChainIDs {
+			if value > 0 {
+				chainIDs[key] = value
+			}
+		}
+		if len(chainIDs) > 0 {
+			out["chain_ids"] = chainIDs
+		}
 	}
 	if c.CastBinary != "" {
 		out["cast_binary"] = c.CastBinary
