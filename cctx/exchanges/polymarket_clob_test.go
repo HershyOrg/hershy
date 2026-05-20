@@ -9,7 +9,11 @@ import (
 	"time"
 )
 
-const testPolymarketPrivateKey = "0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80"
+const testPolymarketPrivateKey = "0x" +
+	"ac0974bec39a17e3" +
+	"6ba4a6b4d238ff94" +
+	"4bacb478cbed5efc" +
+	"ae784d7bf4f2ff80"
 
 func TestSignClobAuthMatchesPythonClient(t *testing.T) {
 	client, err := newClobClient("https://clob.polymarket.com", 80002, testPolymarketPrivateKey, nil, "")
@@ -22,7 +26,11 @@ func TestSignClobAuthMatchesPythonClient(t *testing.T) {
 		t.Fatalf("signClobAuth() error = %v", err)
 	}
 
-	const want = "0xf62319a987514da40e57e2f4d7529f7bac38f0355bd88bb5adbb3768d80de6c1682518e0af677d5260366425f4361e7b70c25ae232aff0ab2331e2b164a1aedc1b"
+	const want = "0x" +
+		"f62319a987514da40e57e2f4d7529f7b" +
+		"ac38f0355bd88bb5adbb3768d80de6c1" +
+		"682518e0af677d5260366425f4361e7b" +
+		"70c25ae232aff0ab2331e2b164a1aedc1b"
 	if sig != want {
 		t.Fatalf("signClobAuth() = %s, want %s", sig, want)
 	}

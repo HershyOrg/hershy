@@ -4,6 +4,7 @@ import { memo } from "react";
 import {
   BaseEdge,
   EdgeProps,
+  Position,
   getSmoothStepPath,
 } from "@xyflow/react";
 
@@ -25,8 +26,6 @@ function CustomEdgeComponent({
   sourceY,
   targetX,
   targetY,
-  sourcePosition,
-  targetPosition,
   style = {},
   selected,
   sourceHandleId,
@@ -37,10 +36,10 @@ function CustomEdgeComponent({
   const [edgePath] = getSmoothStepPath({
     sourceX,
     sourceY,
-    sourcePosition,
+    sourcePosition: Position.Right,
     targetX,
     targetY,
-    targetPosition,
+    targetPosition: Position.Left,
     borderRadius: 14,
     offset: routeOffset,
   });

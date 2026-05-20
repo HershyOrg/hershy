@@ -1262,6 +1262,8 @@ export default function Canvas({
             actionType={block.actionType}
             exchange={block.exchange}
             dexProtocol={block.dexProtocol}
+            polymarketMarketTitle={block.polymarketMarketTitle}
+            polymarketOutcomeLabel={block.polymarketOutcomeLabel}
             contractAddress={block.contractAddress}
             contractAbi={block.contractAbi}
             evmChain={block.evmChain}
@@ -1307,6 +1309,10 @@ export default function Canvas({
             fields={block.fields}
             apiUrl={block.apiUrl}
             streamKind={block.streamKind}
+            exchange={block.exchange}
+            symbol={block.symbol}
+            marketId={block.marketId}
+            tokenId={block.tokenId}
             streamChain={block.streamChain}
             streamMethod={block.streamMethod}
             streamParamsJson={block.streamParamsJson}

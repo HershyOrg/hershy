@@ -1,12 +1,36 @@
 "use client";
 
-import { memo, useCallback } from "react";
+import { memo, useCallback, useMemo } from "react";
 import type { ChangeEvent } from "react";
 import { Handle, Position, NodeProps, useReactFlow } from "@xyflow/react";
 import type { StreamingNodeData, BlockData, NodeChartPoint } from "./types";
 import { MetricChart } from "./MetricChart";
 import { cn } from "@/lib/utils";
+import { EVM_CHAINS } from "@/src/lib/evmChains";
 import { Activity, Globe2, Maximize2, Minimize2, Plus, X } from "lucide-react";
+
+type StreamKind = NonNullable<StreamingNodeData["streamKind"]>;
+
+const EVM_RPC_OUTPUT_BLOCKS: BlockData[] = [
+  {
+    id: "result-dec",
+    name: "result_dec",
+    description: "hex 결과를 숫자로 변환한 값",
+    type: "output",
+  },
+  {
+    id: "result",
+    name: "result",
+    description: "RPC 응답 원본 result",
+    type: "output",
+  },
+];
+
+const isDefaultMarketOutput = (blocks: BlockData[]) => {
+  if (blocks.length === 0) return true;
+  if (blocks.length !== 1) return false;
+  return ["data", "price", "lastprice", "value"].includes(String(blocks[0].name || "").toLowerCase());
+};
 
 function StreamingNodeComponent({
   id,
@@ -14,7 +38,7 @@ function StreamingNodeComponent({
   selected,
 }: NodeProps<import("@xyflow/react").Node<StreamingNodeData>>) {
   const { setNodes } = useReactFlow();
-  const outputBlocks = data.outputBlocks ?? [];
+  const outputBlocks = useMemo(() => data.outputBlocks ?? [], [data.outputBlocks]);
   const isCompact = data.isExpanded === false;
   const chartSeries = Array.isArray(data.chartSeries)
     ? (data.chartSeries as NodeChartPoint[])
@@ -24,6 +48,8 @@ function StreamingNodeComponent({
   const chartSource = typeof data.chartSource === "string" ? data.chartSource : "";
   const chartWarning = typeof data.chartWarning === "string" ? data.chartWarning : "";
   const runtimeCode = typeof data.runtimeCode === "string" ? data.runtimeCode : "";
+  const streamKind: StreamKind = data.streamKind ?? "url";
+  const isEVMRPC = streamKind === "evm-rpc";
 
   const updateNodeData = useCallback(
     (nextData: Partial<StreamingNodeData>) => {
@@ -49,6 +75,24 @@ function StreamingNodeComponent({
       updateNodeData({ label: event.target.value });
     },
     [updateNodeData]
+  );
+
+  const handleStreamKindChange = useCallback(
+    (nextKind: StreamKind) => {
+      updateNodeData({
+        streamKind: nextKind,
+        method: nextKind === "url" ? data.method : "POLLING",
+        outputBlocks: nextKind === "evm-rpc" && isDefaultMarketOutput(outputBlocks)
+          ? EVM_RPC_OUTPUT_BLOCKS
+          : outputBlocks,
+        streamChain: nextKind === "evm-rpc" ? data.streamChain || "eth-mainnet" : data.streamChain,
+        streamMethod: nextKind === "evm-rpc" ? data.streamMethod || "eth_call" : data.streamMethod,
+        streamParamsJson: nextKind === "evm-rpc"
+          ? data.streamParamsJson || '[{"to":"0x...","data":"0x..."}, "latest"]'
+          : data.streamParamsJson,
+      });
+    },
+    [data.method, data.streamChain, data.streamMethod, data.streamParamsJson, outputBlocks, updateNodeData],
   );
 
   const handleAddOutputBlock = useCallback(() => {
@@ -85,7 +129,8 @@ function StreamingNodeComponent({
     [outputBlocks, updateNodeData]
   );
 
-  const endpointLabel = data.method === "WEBSOCKET" ? "WSS" : "API";
+  const endpointLabel = isEVMRPC ? "RPC" : data.method === "WEBSOCKET" ? "WSS" : "API";
+  const sourceLabel = isEVMRPC ? "EVM RPC" : data.method === "WEBSOCKET" ? "WebSocket" : "Polling";
   const visibleBlocks = outputBlocks.slice(0, isCompact ? 4 : outputBlocks.length);
 
   return (
@@ -102,6 +147,13 @@ function StreamingNodeComponent({
         id={`${id}-func-in`}
         className="!h-2.5 !w-2.5 !border-emerald-600 !bg-emerald-500"
         style={{ left: -5, top: 24 }}
+      />
+      <Handle
+        type="source"
+        position={Position.Right}
+        id={`${id}-trigger-out`}
+        className="!h-2.5 !w-2.5 !border-emerald-700 !bg-emerald-600"
+        style={{ right: -5, top: 24 }}
       />
 
       <div className="flex items-center gap-2 border-b border-emerald-100 bg-emerald-50 px-3 py-2">
@@ -139,9 +191,9 @@ function StreamingNodeComponent({
         <div className="relative px-3 py-2 text-[11px] text-emerald-700">
           <div className="flex items-center justify-between gap-2">
             <div className="font-semibold uppercase tracking-wide">
-              {data.method === "WEBSOCKET" ? "WebSocket" : "Polling"}
+              {sourceLabel}
             </div>
-            {data.method === "POLLING" && data.intervalMs ? (
+            {(data.method === "POLLING" || isEVMRPC) && data.intervalMs ? (
               <div className="rounded bg-white px-1.5 py-0.5 text-[10px] font-semibold text-emerald-700">
                 {data.intervalMs}ms
               </div>
@@ -150,8 +202,11 @@ function StreamingNodeComponent({
           <div className="mt-1 flex items-center gap-1 rounded border border-emerald-100 bg-white px-1.5 py-1">
             <Globe2 className="h-3 w-3 shrink-0 text-emerald-600" />
             <span className="shrink-0 font-bold text-emerald-700">{endpointLabel}</span>
-            <span className="truncate font-mono text-[10px] text-slate-600" title={data.url}>
-              {data.url || "endpoint not set"}
+            <span
+              className="truncate font-mono text-[10px] text-slate-600"
+              title={isEVMRPC ? `${data.streamChain || "chain"} ${data.streamMethod || "eth_call"}` : data.url}
+            >
+              {isEVMRPC ? `${data.streamChain || "chain"} / ${data.streamMethod || "eth_call"}` : data.url || "endpoint not set"}
             </span>
           </div>
           {chartSeries.length > 0 ? (
@@ -198,28 +253,110 @@ function StreamingNodeComponent({
       ) : (
         <>
       <div className="border-b border-slate-100 px-3 py-2">
+        <div className="mb-2 grid grid-cols-[minmax(0,1fr)_112px] gap-2">
+          <label className="block">
+            <div className="mb-1 text-[10px] font-semibold uppercase tracking-wide text-emerald-700">
+              스트림 소스
+            </div>
+            <select
+              value={streamKind}
+              onChange={(event) => handleStreamKindChange(event.target.value as StreamKind)}
+              className="h-7 w-full rounded border border-emerald-200 bg-white px-1.5 text-[10px] font-bold text-emerald-700 outline-none"
+            >
+              <option value="url">URL / WebSocket</option>
+              <option value="evm-rpc">EVM RPC view</option>
+            </select>
+          </label>
+          <label className="block">
+            <div className="mb-1 text-[10px] font-semibold uppercase tracking-wide text-emerald-700">
+              방식
+            </div>
+            <select
+              value={data.method}
+              onChange={(event) => updateNodeData({ method: event.target.value as StreamingNodeData["method"] })}
+              disabled={isEVMRPC}
+              className="h-7 w-full rounded border border-emerald-200 bg-white px-1.5 text-[10px] font-bold text-emerald-700 outline-none disabled:bg-slate-50 disabled:text-slate-400"
+            >
+              <option value="WEBSOCKET">WebSocket</option>
+              <option value="POLLING">Polling API</option>
+            </select>
+          </label>
+        </div>
         <div className="mb-2 flex items-center justify-between">
           <span className="text-[10px] font-semibold uppercase tracking-wide text-emerald-700">
             데이터 소스
           </span>
-          <select
-            value={data.method}
-            onChange={(event) => updateNodeData({ method: event.target.value as StreamingNodeData["method"] })}
-            className="rounded border border-emerald-200 bg-white px-1.5 py-0.5 text-[10px] font-bold text-emerald-700 outline-none"
-          >
-            <option value="WEBSOCKET">WebSocket</option>
-            <option value="POLLING">Polling API</option>
-          </select>
+          <span className="rounded-full bg-emerald-50 px-2 py-0.5 text-[10px] font-bold text-emerald-700">
+            {sourceLabel}
+          </span>
         </div>
         <label className="block">
-          <div className="mb-1 text-[10px] font-bold text-slate-500">{endpointLabel} endpoint</div>
+          <div className="mb-1 text-[10px] font-bold text-slate-500">
+            {isEVMRPC ? "RPC URL override" : `${endpointLabel} endpoint`}
+          </div>
           <input
             value={data.url}
             onChange={(event) => updateNodeData({ url: event.target.value })}
             className="w-full rounded-md border border-slate-200 bg-white px-2 py-1 font-mono text-[11px] text-slate-700 outline-none focus:border-emerald-300"
-            placeholder={data.method === "WEBSOCKET" ? "wss://..." : "https://..."}
+            placeholder={isEVMRPC ? "비워두면 저장된 RPC/환경변수 RPC를 사용합니다" : data.method === "WEBSOCKET" ? "wss://..." : "https://..."}
           />
         </label>
+        {isEVMRPC ? (
+          <div className="mt-2 rounded-md border border-emerald-100 bg-emerald-50/60 p-2">
+            <div className="grid grid-cols-[minmax(0,1fr)_minmax(0,1fr)] gap-2">
+              <label className="block">
+                <div className="mb-1 text-[10px] font-bold text-slate-500">chain</div>
+                <select
+                  value={data.streamChain || "eth-mainnet"}
+                  onChange={(event) => updateNodeData({ streamChain: event.target.value })}
+                  className="w-full rounded-md border border-emerald-200 bg-white px-2 py-1 text-[11px] font-semibold text-slate-700 outline-none focus:border-emerald-300"
+                >
+                  {EVM_CHAINS.map((chain: { id: string; label: string }) => (
+                    <option key={chain.id} value={chain.id}>
+                      {chain.label}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <label className="block">
+                <div className="mb-1 text-[10px] font-bold text-slate-500">RPC method</div>
+                <input
+                  value={data.streamMethod || "eth_call"}
+                  onChange={(event) => updateNodeData({ streamMethod: event.target.value })}
+                  className="w-full rounded-md border border-emerald-200 bg-white px-2 py-1 font-mono text-[11px] text-slate-700 outline-none focus:border-emerald-300"
+                  placeholder="eth_call"
+                />
+              </label>
+            </div>
+            <label className="mt-2 block">
+              <div className="mb-1 flex items-center justify-between gap-2 text-[10px] font-bold text-slate-500">
+                <span>view call params JSON</span>
+                <button
+                  type="button"
+                  onClick={() =>
+                    updateNodeData({
+                      streamMethod: "eth_call",
+                      streamParamsJson: '[{"to":"0x...","data":"0x..."}, "latest"]',
+                    })
+                  }
+                  className="rounded-full border border-emerald-200 bg-white px-2 py-0.5 font-black text-emerald-700"
+                >
+                  eth_call 템플릿
+                </button>
+              </div>
+              <textarea
+                value={data.streamParamsJson || '[{"to":"0x...","data":"0x..."}, "latest"]'}
+                onChange={(event) => updateNodeData({ streamParamsJson: event.target.value })}
+                rows={3}
+                className="w-full resize-none rounded-md border border-emerald-200 bg-white px-2 py-1 font-mono text-[10px] leading-4 text-slate-700 outline-none focus:border-emerald-300"
+                placeholder='[{"to":"0xContract","data":"0xCalldata"}, "latest"]'
+              />
+            </label>
+            <p className="mt-1 text-[10px] leading-4 text-emerald-700">
+              DEX 컨트랙트의 view/pure 함수는 ABI로 만든 calldata를 `data`에 넣으면 RPC `eth_call`로 읽습니다.
+            </p>
+          </div>
+        ) : null}
         <div className="mt-2 grid grid-cols-[96px_minmax(0,1fr)] gap-2">
           <label className="block">
             <div className="mb-1 text-[10px] font-bold text-slate-500">interval</div>
@@ -254,7 +391,7 @@ function StreamingNodeComponent({
               <MetricChart series={chartSeries} compact height={118} baseColor="#059669" activeColor="#10b981" />
             ) : (
               <div className="flex h-full items-center justify-center px-3 text-center text-[11px] font-semibold text-slate-400">
-                {chartWarning || "심볼을 확인하면 실제 kline 차트를 표시합니다."}
+                {chartWarning || "URL/WS 반환값에서 숫자 필드를 찾으면 차트를 표시합니다."}
               </div>
             )}
           </div>

@@ -1,3 +1,5 @@
+import { buildPolymarketParams } from '../lib/polymarketTrade';
+
 const ACTION_PARAM_PRESETS = {
   cex: [
     { name: 'symbol', placeholder: 'BTCUSDT' },
@@ -12,14 +14,6 @@ const ACTION_PARAM_PRESETS = {
     { name: 'tokenOut', placeholder: '0x...' },
     { name: 'amountIn', placeholder: '0.0' },
     { name: 'amountOutMin', placeholder: '0.0' }
-  ],
-  dexPolymarket: [
-    { name: 'tokenId', placeholder: 'Polymarket token_id' },
-    { name: 'side', placeholder: 'buy/sell' },
-    { name: 'price', placeholder: '0.52' },
-    { name: 'size', placeholder: '10' },
-    { name: 'orderType', placeholder: 'GTC/FAK/FOK' },
-    { name: 'postOnly', placeholder: 'true/false (선택)' }
   ],
   apiDefault: [
     { name: 'to', placeholder: '0x...' },
@@ -38,11 +32,11 @@ export function getActionParams(actionType, executionMode, dexProtocol = 'generi
     }));
   }
 
-  let selected = executionMode === 'api'
+  const selected = executionMode === 'api'
     ? ACTION_PARAM_PRESETS.apiDefault
     : ACTION_PARAM_PRESETS.dexDefault;
   if (dexProtocol === 'polymarket') {
-    selected = ACTION_PARAM_PRESETS.dexPolymarket;
+    return buildPolymarketParams();
   }
   return selected.map((param) => ({
     ...param,

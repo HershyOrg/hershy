@@ -3,7 +3,7 @@ module strategy-runner
 go 1.24.13
 
 require (
-	github.com/HershyOrg/hersh v0.2.0
+	github.com/HershyOrg/hersh v0.3.1
 	github.com/HershyOrg/hershy/cctx v0.0.0
 	github.com/ethereum/go-ethereum v1.16.8
 )
@@ -17,4 +17,3 @@ require (
 )
 
 replace github.com/HershyOrg/hershy/cctx => ../../cctx
-require github.com/HershyOrg/hersh v0.3.1

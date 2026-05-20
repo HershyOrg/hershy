@@ -33,7 +33,7 @@ export default function PreAuthTab({ authState = {}, onUpdateProvider, onExit })
           </Button>
         </div>
         <p className="preauth-description">
-          거래소/프로토콜별 인증 정보(API Key/HMAC Secret, Polymarket L1/L2, EVM Web3)를 전략 탭 단위로 등록합니다.
+          거래소/프로토콜별 인증 정보(Binance/Bybit/OKX/Gate.io, Polymarket L1/L2, EVM Web3)를 전략 탭 단위로 등록합니다.
         </p>
       </div>
 
@@ -145,7 +145,7 @@ export default function PreAuthTab({ authState = {}, onUpdateProvider, onExit })
       </div>
 
       <p className="preauth-note">
-        배포 시 인증정보는 런너 전략 파일에 포함되며, 지원되는 액션(Binance Spot, Polymarket CLOB, EVM Contract)은 실호출/실주문을 시도합니다.
+        배포 시 인증정보는 런너 전략 파일에 포함되며, 지원되는 액션(Binance/Bybit/OKX/Gate.io Spot, Polymarket CLOB, EVM Contract)은 실호출/실주문을 시도합니다.
       </p>
     </div>
   );

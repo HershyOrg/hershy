@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useState, useRef, useEffect, useMemo, useSyncExternalStore } from "react";
+import { useCallback, useState, useRef, useEffect, useMemo } from "react";
 import {
   ReactFlow,
   Controls,
@@ -47,7 +47,7 @@ import { FSMEdge } from "./FSMEdge";
 import { FSMProvider, useFSM } from "./FSMContext";
 import { Toolbar } from "./Toolbar";
 import { ContextMenu } from "./ContextMenu";
-import type { FunctionNodeData, TimeTriggerData, ClickTriggerData, BranchNodeData, CEXActionData, DEXActionData, MergedFunctionNodeData, TimelineFrameData, MonitoringNodeData, StreamingNodeData, NodeChartPoint } from "./types";
+import type { FunctionNodeData, TimeTriggerData, ClickTriggerData, BranchNodeData, CEXActionData, DEXActionData, ActionNodeData, MergedFunctionNodeData, TimelineFrameData, MonitoringNodeData, StreamingNodeData, NodeChartPoint, BlockData } from "./types";
 import { cn } from "@/lib/utils";
 import { historyStore } from "@/lib/historyStore";
 import { getEtfDcaStrategyNodes, getPepeHedgeStrategyNodes } from "@/lib/demo-data";
@@ -86,14 +86,70 @@ const defaultEdgeOptions = {
 
 function isBlockToInputConnection(params: Pick<Connection, "sourceHandle" | "targetHandle">) {
   return Boolean(
-    isOutputBlockSourceHandle(params.sourceHandle) &&
-    (params.targetHandle?.includes("-input-") ||
-      (params.targetHandle?.includes("-block-") && params.targetHandle.endsWith("-in")))
+    isConnectableSourceHandle(params.sourceHandle) &&
+    isInputBlockTargetHandle(params.targetHandle)
   );
 }
 
 function isOutputBlockSourceHandle(sourceHandle?: string | null) {
   return Boolean(sourceHandle?.includes("-block-") && sourceHandle.endsWith("-out"));
+}
+
+function isControlSourceHandle(sourceHandle?: string | null) {
+  return Boolean(
+    sourceHandle?.endsWith("-trigger-out") ||
+    sourceHandle?.includes("-branch-") && sourceHandle.endsWith("-out") ||
+    sourceHandle?.endsWith("-success-out")
+  );
+}
+
+function isConnectableSourceHandle(sourceHandle?: string | null) {
+  return isOutputBlockSourceHandle(sourceHandle) || isControlSourceHandle(sourceHandle);
+}
+
+function isInputBlockTargetHandle(targetHandle?: string | null) {
+  return Boolean(
+    (targetHandle?.includes("-input-") || targetHandle?.includes("-block-")) &&
+    targetHandle.endsWith("-in")
+  );
+}
+
+function isExecutionTargetHandle(targetHandle?: string | null) {
+  return Boolean(
+    targetHandle?.endsWith("-func-in") ||
+    targetHandle?.endsWith("-branch-in") ||
+    targetHandle?.endsWith("-trigger-in") ||
+    targetHandle?.endsWith("-monitor-in")
+  );
+}
+
+function isConnectableTargetHandle(targetHandle?: string | null) {
+  return isInputBlockTargetHandle(targetHandle) || isExecutionTargetHandle(targetHandle);
+}
+
+function canPromoteExecutionTargetToInput(targetNode: Node | undefined, targetHandle?: string | null) {
+  return Boolean(
+    targetNode &&
+    isExecutionTargetHandle(targetHandle) &&
+    ["functionNode", "actionNode", "branchNode", "mergedFunction"].includes(targetNode.type ?? ""),
+  );
+}
+
+function normalizeConnectionDirection(params: Connection) {
+  if (isConnectableSourceHandle(params.sourceHandle) && isConnectableTargetHandle(params.targetHandle)) {
+    return params;
+  }
+  return null;
+}
+
+function isAllowedEditorConnection(params: Pick<Connection, "source" | "target" | "sourceHandle" | "targetHandle">) {
+  return Boolean(
+    params.source &&
+    params.target &&
+    params.source !== params.target &&
+    isConnectableSourceHandle(params.sourceHandle) &&
+    isConnectableTargetHandle(params.targetHandle)
+  );
 }
 
 function isOutputBlockEdge(edge: Pick<Edge, "sourceHandle">) {
@@ -102,7 +158,7 @@ function isOutputBlockEdge(edge: Pick<Edge, "sourceHandle">) {
 
 function getHandleBlockId(handle?: string | null, direction: "source" | "target" = "source") {
   const suffix = direction === "source" ? "-out" : "-in";
-  const pattern = direction === "source" ? /-block-(.+)-out$/ : /-input-(.+)-in$/;
+  const pattern = direction === "source" ? /-block-(.+)-out$/ : /-(?:input|block)-(.+)-in$/;
   if (!handle?.endsWith(suffix)) return "";
   return handle.match(pattern)?.[1] ?? "";
 }
@@ -117,10 +173,162 @@ function getNodeDisplayName(node?: Node) {
   return data.label || data.functionName || data.title || data.name || node.id;
 }
 
+function getSourceSignalName(sourceNode: Node | undefined, sourceHandle?: string | null) {
+  if (!sourceNode) return "signal";
+
+  if (isOutputBlockSourceHandle(sourceHandle)) {
+    return getHandleBlockId(sourceHandle, "source") || "output";
+  }
+
+  if (sourceHandle?.endsWith("-success-out")) {
+    return "success";
+  }
+
+  if (sourceHandle?.endsWith("-trigger-out")) {
+    if (sourceNode.type === "clickTrigger") return "click";
+    if (sourceNode.type === "timeTrigger") return "tick";
+    if (sourceNode.type === "streamingNode") return "stream";
+    return "trigger";
+  }
+
+  const branchId = sourceHandle?.match(/-branch-(.+)-out$/)?.[1];
+  if (branchId) {
+    const branches = (sourceNode.data as { branches?: Array<{ id: string; name: string }> })?.branches ?? [];
+    return branches.find((branch) => branch.id === branchId)?.name || branchId;
+  }
+
+  return "signal";
+}
+
 function getOutputBlockForHandle(sourceNode: Node | undefined, sourceHandle?: string | null) {
   const blockId = getHandleBlockId(sourceHandle, "source");
   const outputBlocks = (sourceNode?.data as { outputBlocks?: Array<{ id: string; name: string; description?: string; type: "output" }> })?.outputBlocks ?? [];
   return outputBlocks.find((block) => block.id === blockId) ?? null;
+}
+
+function getInputBlockForHandle(targetNode: Node | undefined, targetHandle?: string | null) {
+  const blockId = getHandleBlockId(targetHandle, "target");
+  const inputBlocks = (targetNode?.data as { inputBlocks?: Array<{ id: string; name: string; description?: string; type: "input" }> })?.inputBlocks ?? [];
+  return inputBlocks.find((block) => block.id === blockId) ?? null;
+}
+
+function getFallbackInputBlocksForNode(node: Node, sourceBlockName: string): BlockData[] {
+  if (node.type === "functionNode") {
+    return [{ id: "source", name: "source", description: "차트 계산에 들어오는 스트림 또는 지표 블록", type: "input" }];
+  }
+
+  if (node.type === "branchNode") {
+    return [{ id: "signal", name: "signal", description: "분기 판단에 들어오는 신호", type: "input" }];
+  }
+
+  if (node.type === "actionNode") {
+    return [{ id: "signal", name: sourceBlockName || "signal", description: "실행에 사용할 입력 신호", type: "input" }];
+  }
+
+  if (node.type === "mergedFunction") {
+    return [{ id: "source", name: "source", description: "병합 로직에 들어오는 입력", type: "input" }];
+  }
+
+  return [];
+}
+
+function getInputBlocksForNode(node: Node, sourceBlockName: string) {
+  const data = node.data as { inputBlocks?: BlockData[] };
+  return Array.isArray(data.inputBlocks) && data.inputBlocks.length > 0
+    ? data.inputBlocks
+    : getFallbackInputBlocksForNode(node, sourceBlockName);
+}
+
+function getTargetInputHandlePrefix(targetNode: Node, targetHandle?: string | null) {
+  if (targetHandle?.includes("-block-") || targetNode.type === "mergedFunction") return "block";
+  return "input";
+}
+
+function resolveActionInputFieldName(blockName: string, node: Node) {
+  if (node.type !== "actionNode") return "";
+  const normalized = blockName.toLowerCase().replace(/[^a-z0-9]/g, "");
+  const data = node.data as Partial<ActionNodeData>;
+  const isPolymarket = String(data.exchange || "").toLowerCase().replace(/[\s._-]+/g, "") === "polymarket";
+
+  if (/tokenid|outcometoken/.test(normalized)) return "tokenId";
+  if (/price|limit/.test(normalized)) return "price";
+  if (/symbol|market|pair|instrument/.test(normalized)) return "symbol";
+  if (/side|direction/.test(normalized)) return "side";
+  if (/size|qty|quantity|shares/.test(normalized)) return isPolymarket ? "size" : "amount";
+  if (/amount|notional|quote|budget|value|usd|usdt/.test(normalized)) return "amount";
+  if (/contract|address/.test(normalized)) return "contractAddress";
+
+  return "";
+}
+
+function buildActionInputFieldPatch(targetNode: Node, inputBlock: BlockData, connectedFrom: string) {
+  const fieldName = resolveActionInputFieldName(inputBlock.name, targetNode);
+  if (!fieldName) return {};
+
+  const currentValue = (targetNode.data as Record<string, unknown>)[fieldName];
+  const nextValue = `{{${connectedFrom}}}`;
+  if (currentValue === nextValue) return {};
+
+  return { [fieldName]: nextValue };
+}
+
+function buildInputConnectionUpdate({
+  sourceNode,
+  targetNode,
+  sourceHandle,
+  targetHandle,
+}: {
+  sourceNode: Node;
+  targetNode: Node;
+  sourceHandle?: string | null;
+  targetHandle?: string | null;
+}) {
+  const sourceBlock = getOutputBlockForHandle(sourceNode, sourceHandle);
+  const sourceNodeName = getNodeDisplayName(sourceNode);
+  const sourceBlockName = sourceBlock?.name || getSourceSignalName(sourceNode, sourceHandle);
+  const connectedFrom = `${sourceNodeName}.${sourceBlockName}`;
+  const sourceDescription = sourceBlock?.description || `Connected from ${connectedFrom}`;
+  const currentBlocks = getInputBlocksForNode(targetNode, sourceBlockName);
+  if (currentBlocks.length === 0) return null;
+
+  const targetNodeInputBlocks = (targetNode.data as { inputBlocks?: BlockData[] }).inputBlocks;
+  const isUsingFallbackInputBlock = !Array.isArray(targetNodeInputBlocks) || targetNodeInputBlocks.length === 0;
+  const requestedBlockId = getHandleBlockId(targetHandle, "target");
+  const requestedBlock =
+    currentBlocks.find((block) => block.id === requestedBlockId) ??
+    (isUsingFallbackInputBlock && isExecutionTargetHandle(targetHandle) ? currentBlocks[0] : undefined);
+  const existingBlock = currentBlocks.find((block) => block.connectedFrom === connectedFrom);
+  const shouldAppend =
+    targetHandle?.includes("append") ||
+    !requestedBlock ||
+    Boolean(requestedBlock.connectedFrom && requestedBlock.connectedFrom !== connectedFrom && !existingBlock);
+  const targetBlockId = existingBlock?.id || (!shouldAppend && requestedBlock ? requestedBlock.id : `ib-${sanitizeHandlePart(sourceBlockName)}-${Date.now()}`);
+  const nextInputBlock: BlockData = {
+    ...(requestedBlock ?? {}),
+    id: targetBlockId,
+    name: requestedBlock && !isPlaceholderInputBlock(requestedBlock) ? requestedBlock.name : sourceBlockName,
+    description: requestedBlock?.description || sourceDescription,
+    type: "input",
+    connectedFrom,
+    connectedSourceNodeId: sourceNode.id,
+    connectedSourceHandle: sourceHandle || "",
+  };
+  const hasTargetBlock = currentBlocks.some((block) => block.id === targetBlockId);
+  const inputBlocks = hasTargetBlock
+    ? currentBlocks.map((block) =>
+      block.id === targetBlockId && (isPlaceholderInputBlock(block) || block.connectedFrom === connectedFrom || block.id === requestedBlockId)
+        ? { ...block, ...nextInputBlock }
+        : block,
+    )
+    : [...currentBlocks, nextInputBlock];
+  const targetInputPrefix = getTargetInputHandlePrefix(targetNode, targetHandle);
+
+  return {
+    targetHandle: `${targetNode.id}-${targetInputPrefix}-${targetBlockId}-in`,
+    inputBlocks,
+    connectedFrom,
+    nextInputBlock,
+  };
 }
 
 function escapeRegExp(value: string) {
@@ -242,6 +450,96 @@ function inferNodeChartRequest(node: Node) {
   return { symbol, market };
 }
 
+function isWebSocketSource(value?: string) {
+  return /^wss?:\/\//i.test(String(value || "").trim());
+}
+
+function isHTTPSource(value?: string) {
+  return /^https?:\/\//i.test(String(value || "").trim());
+}
+
+function isSampleableStreamSource(value?: string) {
+  return isWebSocketSource(value) || isHTTPSource(value);
+}
+
+function toChartNumber(value: unknown) {
+  if (typeof value === "number") return Number.isFinite(value) ? value : null;
+  if (typeof value === "string") {
+    const parsed = Number(value.replace(/,/g, "").trim());
+    return Number.isFinite(parsed) ? parsed : null;
+  }
+  return null;
+}
+
+const STREAM_SAMPLE_PRICE_KEYS = [
+  "result_dec",
+  "result",
+  "outputs::value",
+  "outputs::amount",
+  "outputs::price",
+  "lastPrice",
+  "price",
+  "close",
+  "markPrice",
+  "indexPrice",
+  "midPrice",
+  "bidPrice",
+  "askPrice",
+  "value",
+  "p",
+  "c",
+  "k::c",
+];
+
+function pickStreamSampleChartValue(values: Record<string, unknown>) {
+  const entries = Object.entries(values);
+  const findByKey = (target: string) => {
+    const normalizedTarget = target.toLowerCase();
+    return entries.find(([key]) => {
+      const normalizedKey = key.toLowerCase();
+      return normalizedKey === normalizedTarget || normalizedKey.endsWith(`::${normalizedTarget}`);
+    });
+  };
+
+  for (const key of STREAM_SAMPLE_PRICE_KEYS) {
+    const entry = findByKey(key);
+    if (!entry) continue;
+    const parsed = toChartNumber(entry[1]);
+    if (parsed !== null) return { field: entry[0], value: parsed };
+  }
+
+  for (const [key, value] of entries) {
+    const normalizedKey = key.toLowerCase();
+    if (/time|timestamp|volume|qty|quantity|size|id|symbol|event|type/.test(normalizedKey)) {
+      continue;
+    }
+    const parsed = toChartNumber(value);
+    if (parsed !== null) return { field: key, value: parsed };
+  }
+
+  return null;
+}
+
+function buildStreamSampleChartPoint(payload: unknown): { point: NodeChartPoint; field: string } | null {
+  const snapshot = payload && typeof payload === "object"
+    ? (payload as { snapshot?: { timestamp?: unknown; values?: unknown } }).snapshot
+    : null;
+  const values = snapshot?.values && typeof snapshot.values === "object"
+    ? snapshot.values as Record<string, unknown>
+    : {};
+  const selected = pickStreamSampleChartValue(values);
+  if (!selected) return null;
+
+  const parsedTimestamp = typeof snapshot?.timestamp === "string" ? Date.parse(snapshot.timestamp) : NaN;
+  return {
+    point: {
+      time: Math.floor((Number.isFinite(parsedTimestamp) ? parsedTimestamp : Date.now()) / 1000),
+      value: selected.value,
+    },
+    field: selected.field,
+  };
+}
+
 function chartSeriesEqual(left?: NodeChartPoint[], right?: NodeChartPoint[]) {
   if (!left || !right || left.length !== right.length) return false;
   if (left.length === 0) return right.length === 0;
@@ -272,8 +570,194 @@ function movingAverageSeries(series: NodeChartPoint[], windowSize = 20) {
   });
 }
 
-function deriveFunctionChartSeries(node: Node, incoming: Array<{ node: Node; series: NodeChartPoint[] }>) {
+type ReactiveIncomingSeries = {
+  node: Node;
+  series: NodeChartPoint[];
+  sourceBlockName?: string;
+  targetInputName?: string;
+};
+
+type ReactiveFormulaResult = {
+  series: NodeChartPoint[];
+  source: string;
+  warning?: string;
+};
+
+function sanitizeFormulaIdentifier(value: string) {
+  const cleaned = value
+    .trim()
+    .replace(/[^a-zA-Z0-9_$]+/g, "_")
+    .replace(/^([^a-zA-Z_$])/, "_$1")
+    .replace(/_+/g, "_")
+    .replace(/^_|_$/g, "");
+  return cleaned || "";
+}
+
+function uniquePushIdentifier(list: string[], value: string) {
+  const cleaned = sanitizeFormulaIdentifier(value);
+  if (cleaned && !list.includes(cleaned)) {
+    list.push(cleaned);
+  }
+}
+
+function getFunctionFormulaText(data: Record<string, unknown>, primaryOutputName = "") {
+  const code = readNodeText(data, ["code", "formula", "expression", "logic"]);
+  const candidates = [primaryOutputName, "result", "value", "signal", "basis", "spread", "metric"]
+    .map((value) => sanitizeFormulaIdentifier(value))
+    .filter(Boolean);
+
+  if (code) {
+    const returnMatch = code.match(/return\s+([^;{}\n]+)\s*;?/m);
+    if (returnMatch?.[1]) return returnMatch[1].trim();
+
+    for (const candidate of candidates) {
+      const assignment = new RegExp(`(?:const|let|var)?\\s*${escapeRegExp(candidate)}\\s*=\\s*([^;\\n]+)`, "m").exec(code);
+      if (assignment?.[1]) return assignment[1].trim();
+    }
+
+    const assignmentMatches = [...code.matchAll(/(?:const|let|var)?\s*[a-zA-Z_$][\w$]*\s*=\s*([^;\n]+)/g)];
+    const lastAssignment = assignmentMatches[assignmentMatches.length - 1]?.[1]?.trim();
+    if (lastAssignment) return lastAssignment;
+
+    if (!/[{};]/.test(code) && /[+\-*/%()]/.test(code)) return code;
+  }
+
+  const description = readNodeText(data, ["logicDescription", "description"]);
+  if (!/[{};]/.test(description) && /[+\-*/%()]/.test(description)) {
+    return description;
+  }
+
+  return "";
+}
+
+const BLOCKED_FORMULA_TOKENS = /\b(?:window|document|globalThis|Function|eval|fetch|XMLHttpRequest|WebSocket|localStorage|sessionStorage|import|process|require|constructor|prototype|__proto__|this|new)\b|=>/;
+
+function normalizeFormulaExpression(expression: string) {
+  const trimmed = expression.trim();
+  if (!trimmed || trimmed.length > 800) return "";
+  if (BLOCKED_FORMULA_TOKENS.test(trimmed)) return "";
+  return trimmed.replace(/\b([a-zA-Z_$][\w$]*)\.([a-zA-Z_$][\w$]*)\b/g, "$1_$2");
+}
+
+function buildReactiveInputAliases(input: ReactiveIncomingSeries, index: number) {
+  const data = input.node.data as Record<string, unknown>;
+  const aliases: string[] = [];
+  uniquePushIdentifier(aliases, input.targetInputName || "");
+  uniquePushIdentifier(aliases, input.sourceBlockName || "");
+  uniquePushIdentifier(aliases, readNodeText(data, ["symbol", "market", "pair", "instrument", "chartSymbol"]));
+  uniquePushIdentifier(aliases, readNodeText(data, ["label", "name", "title", "functionName"]));
+  uniquePushIdentifier(aliases, input.node.id);
+  uniquePushIdentifier(aliases, `input${index + 1}`);
+  uniquePushIdentifier(aliases, `source${index + 1}`);
+  if (index === 0) {
+    uniquePushIdentifier(aliases, "source");
+    uniquePushIdentifier(aliases, "x");
+    uniquePushIdentifier(aliases, "a");
+  }
+  if (index === 1) {
+    uniquePushIdentifier(aliases, "y");
+    uniquePushIdentifier(aliases, "b");
+  }
+  return aliases;
+}
+
+function buildFormulaContext(inputs: ReactiveIncomingSeries[], values: number[]) {
+  const context: Record<string, number> = {};
+  inputs.forEach((input, index) => {
+    const value = values[index] ?? 0;
+    const aliases = buildReactiveInputAliases(input, index);
+    aliases.forEach((alias) => {
+      context[alias] = value;
+      ["value", "price", "close", "lastPrice", "midPrice", "bidPrice", "askPrice"].forEach((field) => {
+        context[`${alias}_${field}`] = value;
+      });
+    });
+  });
+  return context;
+}
+
+function compileFormulaEvaluator(expression: string) {
+  const normalized = normalizeFormulaExpression(expression);
+  if (!normalized) return null;
+
+  return (context: Record<string, number>) => {
+    const names = Object.keys(context).sort();
+    const values = names.map((name) => context[name]);
+    const evaluator = new Function(
+      ...names,
+      "abs",
+      "min",
+      "max",
+      "sqrt",
+      "pow",
+      "log",
+      "exp",
+      "round",
+      "floor",
+      "ceil",
+      `"use strict"; return (${normalized});`,
+    ) as (...args: unknown[]) => unknown;
+    return evaluator(
+      ...values,
+      Math.abs,
+      Math.min,
+      Math.max,
+      Math.sqrt,
+      Math.pow,
+      Math.log,
+      Math.exp,
+      Math.round,
+      Math.floor,
+      Math.ceil,
+    );
+  };
+}
+
+function deriveFormulaChartSeries(node: Node, incoming: ReactiveIncomingSeries[]): ReactiveFormulaResult | null {
+  const data = node.data as Record<string, unknown>;
+  const outputBlocks = Array.isArray(data.outputBlocks) ? data.outputBlocks as BlockData[] : [];
+  const primaryOutputName = outputBlocks[0]?.name || "value";
+  const expression = getFunctionFormulaText(data, primaryOutputName);
+  if (!expression) return null;
+
+  const evaluator = compileFormulaEvaluator(expression);
+  if (!evaluator) {
+    return { series: [], source: "formula", warning: "chart formula is empty or blocked" };
+  }
+
+  const aligned = alignSeries(incoming.map((item) => item.series));
+  if (aligned.length === 0) return null;
+
+  const series: NodeChartPoint[] = [];
+  let firstError = "";
+  aligned[0].forEach((point, index) => {
+    try {
+      const values = aligned.map((item) => item[index]?.value ?? 0);
+      const context = buildFormulaContext(incoming, values);
+      const evaluated = evaluator(context);
+      const value = toChartNumber(evaluated);
+      if (value !== null) {
+        series.push({ time: point.time, value: Number(value.toFixed(8)) });
+      }
+    } catch (error) {
+      if (!firstError) {
+        firstError = error instanceof Error ? error.message : "formula evaluation failed";
+      }
+    }
+  });
+
+  return {
+    series,
+    source: `formula: ${expression}`,
+    warning: series.length > 0 ? "" : firstError || "formula did not return numeric values",
+  };
+}
+
+function deriveFunctionChartSeries(node: Node, incoming: ReactiveIncomingSeries[]): ReactiveFormulaResult | null {
   if (incoming.length === 0) return null;
+  const formulaResult = deriveFormulaChartSeries(node, incoming);
+  if (formulaResult && formulaResult.series.length > 0) return formulaResult;
+
   const data = node.data as Record<string, unknown>;
   const text = [
     node.id,
@@ -290,17 +774,29 @@ function deriveFunctionChartSeries(node: Node, incoming: Array<{ node: Node; ser
     const aligned = alignSeries([ordered[0].series, ordered[1].series]);
     if (aligned.length < 2) return null;
     const [perp, spot] = aligned;
-    return perp.map((point, index) => ({
-      time: point.time,
-      value: Number((((point.value - spot[index].value) / Math.max(spot[index].value, 0.0000001)) * 100).toFixed(6)),
-    }));
+    return {
+      series: perp.map((point, index) => ({
+        time: point.time,
+        value: Number((((point.value - spot[index].value) / Math.max(spot[index].value, 0.0000001)) * 100).toFixed(6)),
+      })),
+      source: "heuristic: basis spread",
+      warning: formulaResult?.warning,
+    };
   }
 
   if (/ma|moving average|sma|ema|이동평균|평균/.test(text)) {
-    return movingAverageSeries(incoming[0].series);
+    return {
+      series: movingAverageSeries(incoming[0].series),
+      source: "heuristic: moving average",
+      warning: formulaResult?.warning,
+    };
   }
 
-  return incoming[0].series;
+  return {
+    series: incoming[0].series,
+    source: formulaResult?.warning ? "source passthrough" : "source",
+    warning: formulaResult?.warning,
+  };
 }
 
 function isPlaceholderInputBlock(block: { name?: string; connectedFrom?: unknown }) {
@@ -770,9 +1266,10 @@ type NodeEditorProps = {
   initialGraph?: NodeEditorInitialGraph | null;
   initialGraphVersion?: number;
   programCode?: string;
+  previewMode?: boolean;
 };
 
-function NodeEditorInner({ initialGraph, initialGraphVersion = 0, programCode = "" }: NodeEditorProps) {
+function NodeEditorInner({ initialGraph, initialGraphVersion = 0, programCode = "", previewMode = false }: NodeEditorProps) {
   const { fitView, getIntersectingNodes, getNodes } = useReactFlow();
   const updateNodeInternals = useUpdateNodeInternals();
   const { showFSMEdges, isAvailable, currentState } = useFSM();
@@ -781,9 +1278,10 @@ function NodeEditorInner({ initialGraph, initialGraphVersion = 0, programCode = 
     if (initialGraph && initialGraph.nodes.length > 0) {
       return initialGraph;
     }
+    if (previewMode) return null;
     const activeId = historyStore.getActiveId();
     return historyStore.getSnapshotById(activeId);
-  }, [initialGraph]);
+  }, [initialGraph, previewMode]);
   const [nodes, setNodes, onNodesChange] = useNodesState<Node>(
     initialSnapshot && initialSnapshot.nodes.length > 0 ? initialSnapshot.nodes : [],
   );
@@ -796,6 +1294,7 @@ function NodeEditorInner({ initialGraph, initialGraphVersion = 0, programCode = 
     { nodes: [], edges: [] },
   ]);
   const [historyIndex, setHistoryIndex] = useState(0);
+  const historyIndexRef = useRef(0);
   const isUndoRedoRef = useRef(false);
   const initLayoutRunRef = useRef(false);
   const [isSequenceLayoutAnimating, setIsSequenceLayoutAnimating] = useState(false);
@@ -817,7 +1316,6 @@ function NodeEditorInner({ initialGraph, initialGraphVersion = 0, programCode = 
   const nodeIdRef = useRef(10);
 
   const [isTerminalOpen, setTerminalOpen] = useState(false);
-  const [clipboard, setClipboard] = useState<{ nodes: Node[]; edges: Edge[] } | null>(null);
 
   const clearPendingSequenceRelayout = useCallback(() => {
     if (sequenceRelayoutFrameRef.current !== null) {
@@ -936,6 +1434,9 @@ function NodeEditorInner({ initialGraph, initialGraphVersion = 0, programCode = 
     const requests = nodes
       .filter((node) => node.type === "streamingNode")
       .map((node) => {
+        const data = node.data as StreamingNodeData;
+        if (data.streamKind && data.streamKind !== "url") return null;
+        if (isSampleableStreamSource(data.url)) return null;
         const request = inferNodeChartRequest(node);
         return request ? { nodeId: node.id, ...request } : null;
       })
@@ -953,6 +1454,59 @@ function NodeEditorInner({ initialGraph, initialGraphVersion = 0, programCode = 
     });
 
     return JSON.stringify(Array.from(deduped.values()));
+  }, [nodes]);
+
+  const streamSampleRequestPayload = useMemo(() => {
+    const requests = nodes
+      .filter((node) => node.type === "streamingNode")
+      .map((node) => {
+        const data = node.data as StreamingNodeData;
+        const streamKind = data.streamKind ?? "url";
+        if (streamKind === "evm-rpc") {
+          if (!data.streamChain || !data.streamMethod) return null;
+          return {
+            nodeId: node.id,
+            url: data.url,
+            method: data.method,
+            streamKind,
+            streamChain: data.streamChain,
+            streamMethod: data.streamMethod,
+            streamParamsJson: data.streamParamsJson || "[]",
+            responseSchema: data.responseSchema || "",
+            fields: (data.outputBlocks ?? []).map((block) => block.name).filter(Boolean),
+            intervalMs: data.intervalMs ?? 5000,
+          };
+        }
+        if (!isSampleableStreamSource(data.url)) {
+          return null;
+        }
+        return {
+          nodeId: node.id,
+          url: data.url,
+          method: data.method,
+          streamKind,
+          streamChain: "",
+          streamMethod: "",
+          streamParamsJson: "",
+          responseSchema: data.responseSchema || "",
+          fields: (data.outputBlocks ?? []).map((block) => block.name).filter(Boolean),
+          intervalMs: data.intervalMs ?? 5000,
+        };
+      })
+      .filter((item): item is {
+        nodeId: string;
+        url: string;
+        method: StreamingNodeData["method"];
+        streamKind: NonNullable<StreamingNodeData["streamKind"]>;
+        streamChain: string;
+        streamMethod: string;
+        streamParamsJson: string;
+        responseSchema: string;
+        fields: string[];
+        intervalMs: number;
+      } => Boolean(item));
+
+    return JSON.stringify(requests);
   }, [nodes]);
 
   useEffect(() => {
@@ -1047,35 +1601,7 @@ function NodeEditorInner({ initialGraph, initialGraphVersion = 0, programCode = 
           };
         });
 
-        const nodeById = new Map(withStreamCharts.map((node) => [node.id, node]));
-        const withFunctionCharts = withStreamCharts.map((node) => {
-          if (node.type !== "functionNode") return node;
-          const incoming = edges
-            .filter((edge) => edge.target === node.id)
-            .map((edge) => nodeById.get(edge.source))
-            .filter((sourceNode): sourceNode is Node => Boolean(sourceNode))
-            .map((sourceNode) => {
-              const series = (sourceNode.data as { chartSeries?: NodeChartPoint[] })?.chartSeries ?? [];
-              return series.length > 0 ? { node: sourceNode, series } : null;
-            })
-            .filter((item): item is { node: Node; series: NodeChartPoint[] } => Boolean(item));
-          const series = deriveFunctionChartSeries(node, incoming);
-          if (!series || series.length === 0) return node;
-          const currentData = node.data as FunctionNodeData;
-          if (chartSeriesEqual(currentData.chartSeries, series)) return node;
-          changed = true;
-          return {
-            ...node,
-            data: {
-              ...node.data,
-              chartSeries: series,
-              chartSource: incoming.map((item) => getNodeDisplayName(item.node)).join(" + "),
-              chartUpdatedAt: new Date().toISOString(),
-            },
-          };
-        });
-
-        return changed ? withFunctionCharts : currentNodes;
+        return changed ? withStreamCharts : currentNodes;
       });
     };
 
@@ -1084,6 +1610,207 @@ function NodeEditorInner({ initialGraph, initialGraphVersion = 0, programCode = 
       cancelled = true;
     };
   }, [edges, marketChartRequestPayload, setNodes]);
+
+  useEffect(() => {
+    const requests = JSON.parse(streamSampleRequestPayload) as Array<{
+      nodeId: string;
+      url: string;
+      method: StreamingNodeData["method"];
+      streamKind: NonNullable<StreamingNodeData["streamKind"]>;
+      streamChain: string;
+      streamMethod: string;
+      streamParamsJson: string;
+      responseSchema: string;
+      fields: string[];
+      intervalMs: number;
+    }>;
+    if (requests.length === 0) return;
+
+    let cancelled = false;
+    let inFlight = false;
+    const intervalMs = Math.max(
+      3000,
+      Math.min(...requests.map((request) => Math.max(3000, Number(request.intervalMs) || 5000))),
+    );
+
+    const loadSamples = async () => {
+      if (inFlight) return;
+      inFlight = true;
+      const results = await Promise.all(
+        requests.map(async (request) => {
+          try {
+            const response = await fetch("/api/stream/sample", {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({
+                stream_kind: request.streamKind === "evm-rpc"
+                  ? "evm-rpc"
+                  : request.method === "WEBSOCKET" ? "websocket" : "url",
+                source_url: request.url,
+                stream_chain: request.streamChain,
+                stream_method: request.streamMethod,
+                stream_params_json: request.streamParamsJson,
+                response_schema: request.responseSchema,
+                fields: request.fields,
+                timeout_ms: Math.min(8000, Math.max(3000, intervalMs - 250)),
+              }),
+            });
+            const payload = await response.json().catch(() => null);
+            if (!response.ok) throw new Error(String(payload?.message || payload?.error || "websocket sample failed"));
+            const sample = buildStreamSampleChartPoint(payload);
+            if (!sample) throw new Error("numeric price/value field not found in stream payload");
+            return {
+              ...request,
+              ok: true,
+              point: sample.point,
+              field: sample.field,
+              warning: "",
+              updatedAt: typeof payload?.snapshot?.timestamp === "string" ? payload.snapshot.timestamp : new Date().toISOString(),
+            };
+          } catch (error) {
+            return {
+              ...request,
+              ok: false,
+              point: null as NodeChartPoint | null,
+              field: "",
+              warning: error instanceof Error ? error.message : "stream sample failed",
+              updatedAt: new Date().toISOString(),
+            };
+          }
+        }),
+      ).finally(() => {
+        inFlight = false;
+      });
+
+      if (cancelled) return;
+
+      setNodes((currentNodes) => {
+        const resultByNodeId = new Map(results.map((result) => [result.nodeId, result]));
+        let changed = false;
+
+        const nextNodes = currentNodes.map((node) => {
+          if (node.type !== "streamingNode") return node;
+          const result = resultByNodeId.get(node.id);
+          if (!result) return node;
+          const currentData = node.data as StreamingNodeData;
+
+          if (!result.ok || !result.point) {
+            if (currentData.chartWarning === result.warning) return node;
+            changed = true;
+            return {
+              ...node,
+              data: {
+                ...node.data,
+                chartWarning: result.warning,
+                chartUpdatedAt: result.updatedAt,
+              },
+            };
+          }
+
+          const existing = Array.isArray(currentData.chartSeries) ? currentData.chartSeries : [];
+          const last = existing[existing.length - 1];
+          const point = { ...result.point };
+          if (last && point.time <= last.time) {
+            point.time = last.time + 1;
+          }
+          const series = existing.length === 0
+            ? [{ time: point.time - 1, value: point.value }, point]
+            : [...existing, point].slice(-96);
+
+          changed = true;
+          return {
+            ...node,
+            data: {
+              ...node.data,
+              chartSeries: series,
+              chartSource: `${result.streamKind === "evm-rpc" ? "evm rpc" : result.method === "WEBSOCKET" ? "websocket" : "url"} sample: ${result.field}`,
+              chartUpdatedAt: result.updatedAt,
+              chartWarning: "",
+            },
+          };
+        });
+
+        return changed ? nextNodes : currentNodes;
+      });
+    };
+
+    void loadSamples();
+    const timer = window.setInterval(() => void loadSamples(), intervalMs);
+    return () => {
+      cancelled = true;
+      window.clearInterval(timer);
+    };
+  }, [streamSampleRequestPayload, setNodes]);
+
+  useEffect(() => {
+    const functionNodes = nodes.filter((node) => node.type === "functionNode");
+    if (functionNodes.length === 0) return;
+
+    setNodes((currentNodes) => {
+      const nodeById = new Map(currentNodes.map((node) => [node.id, node]));
+      const nextById = new Map(nodeById);
+      let changed = false;
+
+      for (let pass = 0; pass < Math.max(1, functionNodes.length); pass += 1) {
+        let passChanged = false;
+
+        for (const functionNode of functionNodes) {
+          const currentFunctionNode = nextById.get(functionNode.id);
+          if (!currentFunctionNode || currentFunctionNode.type !== "functionNode") continue;
+
+          const incoming = edges
+            .filter((edge) => edge.target === currentFunctionNode.id)
+            .map((edge): ReactiveIncomingSeries | null => {
+              const sourceNode = nextById.get(edge.source);
+              if (!sourceNode) return null;
+              const series = (sourceNode.data as { chartSeries?: NodeChartPoint[] })?.chartSeries ?? [];
+              if (!Array.isArray(series) || series.length === 0) return null;
+              return {
+                node: sourceNode,
+                series,
+                sourceBlockName: getOutputBlockForHandle(sourceNode, edge.sourceHandle)?.name,
+                targetInputName: getInputBlockForHandle(currentFunctionNode, edge.targetHandle)?.name,
+              };
+            })
+            .filter((item): item is ReactiveIncomingSeries => Boolean(item));
+
+          const result = deriveFunctionChartSeries(currentFunctionNode, incoming);
+          if (!result) continue;
+
+          const currentData = currentFunctionNode.data as FunctionNodeData;
+          const nextSeries = result.series.length > 0 ? result.series : currentData.chartSeries;
+          const seriesSame = result.series.length > 0
+            ? chartSeriesEqual(currentData.chartSeries, nextSeries)
+            : true;
+          if (
+            seriesSame &&
+            currentData.chartSource === result.source &&
+            (currentData.chartWarning || "") === (result.warning || "")
+          ) {
+            continue;
+          }
+
+          const updatedNode = {
+            ...currentFunctionNode,
+            data: {
+              ...currentFunctionNode.data,
+              chartSeries: nextSeries,
+              chartSource: result.source,
+              chartUpdatedAt: new Date().toISOString(),
+              chartWarning: result.warning || "",
+            },
+          };
+          nextById.set(currentFunctionNode.id, updatedNode);
+          changed = true;
+          passChanged = true;
+        }
+
+        if (!passChanged) break;
+      }
+
+      return changed ? currentNodes.map((node) => nextById.get(node.id) ?? node) : currentNodes;
+    });
+  }, [edges, nodes, setNodes]);
 
   const strategyContentRelayoutSignature = useMemo(
     () => buildStrategyContentRelayoutSignature(nodes),
@@ -1110,6 +1837,7 @@ function NodeEditorInner({ initialGraph, initialGraphVersion = 0, programCode = 
     });
     isUndoRedoRef.current = true;
     setHistory([{ nodes: runtimeGraph.nodes, edges: runtimeGraph.edges }]);
+    historyIndexRef.current = 0;
     setHistoryIndex(0);
     applyMeasuredLayout(runtimeGraph.nodes, runtimeGraph.edges, { fitView: true });
   }, [applyMeasuredLayout, initialGraph, initialGraphVersion, programCode]);
@@ -1256,13 +1984,15 @@ function NodeEditorInner({ initialGraph, initialGraphVersion = 0, programCode = 
       return;
     }
 
+    const nextHistoryIndex = historyIndexRef.current + 1;
     setHistory((prev) => {
       // Remove any future history if we're not at the end
-      const newHistory = prev.slice(0, historyIndex + 1);
+      const newHistory = prev.slice(0, historyIndexRef.current + 1);
       // Add new state
       return [...newHistory, { nodes, edges }];
     });
-    setHistoryIndex((prev) => prev + 1);
+    historyIndexRef.current = nextHistoryIndex;
+    setHistoryIndex(nextHistoryIndex);
   }, [nodes, edges]);
 
   // Undo handler
@@ -1273,6 +2003,7 @@ function NodeEditorInner({ initialGraph, initialGraphVersion = 0, programCode = 
     const { nodes: historyNodes, edges: historyEdges } = history[newIndex];
 
     isUndoRedoRef.current = true;
+    historyIndexRef.current = newIndex;
     setHistoryIndex(newIndex);
     setNodes(historyNodes);
     setEdges(historyEdges);
@@ -1286,6 +2017,7 @@ function NodeEditorInner({ initialGraph, initialGraphVersion = 0, programCode = 
     const { nodes: historyNodes, edges: historyEdges } = history[newIndex];
 
     isUndoRedoRef.current = true;
+    historyIndexRef.current = newIndex;
     setHistoryIndex(newIndex);
     setNodes(historyNodes);
     setEdges(historyEdges);
@@ -1520,7 +2252,6 @@ function NodeEditorInner({ initialGraph, initialGraphVersion = 0, programCode = 
       const nodeIds = new Set(functionNodes.map((n) => n.id));
 
       for (const node of functionNodes) {
-        const nodeData = node.data as FunctionNodeData;
         const outgoingEdges = edges.filter(
           (e) =>
             e.source === node.id &&
@@ -1951,90 +2682,64 @@ function NodeEditorInner({ initialGraph, initialGraphVersion = 0, programCode = 
     [nodes]
   );
 
-  const handleCloseFocus = useCallback(() => {
-    setFocusState({
-      isActive: false,
-      focusedNodeId: null,
-      connectedNodeIds: [],
-      connectedEdgeIds: [],
-    });
-    // Collapse any expanded nodes
-    setNodes((nds) =>
-      nds.map((node) => ({
-        ...node,
-        data: { ...node.data, isExpanded: false },
-      }))
-    );
-  }, [setNodes]);
-
   const onConnect = useCallback(
     (params: Connection) => {
-      if (!isOutputBlockSourceHandle(params.sourceHandle)) {
+      const normalizedParams = normalizeConnectionDirection(params);
+      if (!normalizedParams || !isAllowedEditorConnection(normalizedParams)) {
         return;
       }
 
-      const targetNode = nodes.find((n) => n.id === params.target);
-      const sourceNode = nodes.find((n) => n.id === params.source);
-      let nextParams: Connection = { ...params };
+      const targetNode = nodes.find((n) => n.id === normalizedParams.target);
+      const sourceNode = nodes.find((n) => n.id === normalizedParams.source);
+      let nextParams: Connection = { ...normalizedParams };
 
-      if (targetNode?.type === "functionNode" && sourceNode) {
-        const sourceBlock = getOutputBlockForHandle(sourceNode, params.sourceHandle);
-        const sourceNodeName = getNodeDisplayName(sourceNode);
-        const sourceBlockName = sourceBlock?.name || getHandleBlockId(params.sourceHandle, "source") || "output";
-        const connectedFrom = `${sourceNodeName}.${sourceBlockName}`;
-        const sourceDescription = sourceBlock?.description || `Connected from ${connectedFrom}`;
-        const targetData = targetNode.data as FunctionNodeData;
-        const currentBlocks = Array.isArray(targetData.inputBlocks) && targetData.inputBlocks.length > 0
-          ? targetData.inputBlocks
-          : [{ id: "source", name: "source", description: "차트 계산에 들어오는 스트림 또는 지표 블록", type: "input" as const }];
-        const requestedBlockId = getHandleBlockId(params.targetHandle, "target");
-        const requestedBlock = currentBlocks.find((block) => block.id === requestedBlockId);
-        const existingBlock = currentBlocks.find((block) => block.connectedFrom === connectedFrom);
-        const shouldAppend =
-          params.targetHandle?.includes("append") ||
-          !requestedBlock ||
-          Boolean(requestedBlock.connectedFrom && requestedBlock.connectedFrom !== connectedFrom && !existingBlock);
-        const targetBlockId = existingBlock?.id || (!shouldAppend && requestedBlock ? requestedBlock.id : `ib-${sanitizeHandlePart(sourceBlockName)}-${Date.now()}`);
-        nextParams = {
-          ...nextParams,
-          targetHandle: `${targetNode.id}-input-${targetBlockId}-in`,
-        };
+      const shouldUseAsInput = Boolean(
+        sourceNode &&
+        targetNode &&
+        isConnectableSourceHandle(nextParams.sourceHandle) &&
+        (isInputBlockTargetHandle(nextParams.targetHandle) ||
+          canPromoteExecutionTargetToInput(targetNode, nextParams.targetHandle)),
+      );
 
-        setNodes((nds) =>
-          nds.map((node) => {
-            if (node.id !== targetNode.id) return node;
-            const nodeData = node.data as FunctionNodeData;
-            const blocks = Array.isArray(nodeData.inputBlocks) && nodeData.inputBlocks.length > 0
-              ? nodeData.inputBlocks
-              : currentBlocks;
-            const nextInputBlock = {
-              id: targetBlockId,
-              name: sourceBlockName,
-              description: sourceDescription,
-              type: "input" as const,
-              connectedFrom,
-            };
-            const hasTargetBlock = blocks.some((block) => block.id === targetBlockId);
-            const updatedBlocks = hasTargetBlock
-              ? blocks.map((block) =>
-                block.id === targetBlockId && (isPlaceholderInputBlock(block) || block.connectedFrom === connectedFrom || block.id === requestedBlockId)
-                  ? { ...block, ...nextInputBlock }
-                  : block,
-              )
-              : [...blocks, nextInputBlock];
+      if (sourceNode && targetNode && shouldUseAsInput) {
+        const inputUpdate = buildInputConnectionUpdate({
+          sourceNode,
+          targetNode,
+          sourceHandle: nextParams.sourceHandle,
+          targetHandle: nextParams.targetHandle,
+        });
 
-            return {
-              ...node,
-              data: {
-                ...node.data,
-                inputBlocks: updatedBlocks,
-                inputDescription: nodeData.inputDescription || `입력 데이터: ${connectedFrom}`,
-              },
-            };
-          }),
-        );
+        if (inputUpdate) {
+          nextParams = {
+            ...nextParams,
+            targetHandle: inputUpdate.targetHandle,
+          };
 
-        window.setTimeout(() => updateNodeInternals(targetNode.id), 0);
+          const actionFieldPatch = buildActionInputFieldPatch(
+            targetNode,
+            inputUpdate.nextInputBlock,
+            inputUpdate.connectedFrom,
+          );
+
+          setNodes((nds) =>
+            nds.map((node) => {
+              if (node.id !== targetNode.id) return node;
+              const nodeData = node.data as Record<string, unknown>;
+              return {
+                ...node,
+                data: {
+                  ...node.data,
+                  ...actionFieldPatch,
+                  ...(node.type === "actionNode" ? { isExpanded: true } : {}),
+                  inputBlocks: inputUpdate.inputBlocks,
+                  inputDescription: nodeData.inputDescription || `입력 데이터: ${inputUpdate.connectedFrom}`,
+                },
+              };
+            }),
+          );
+
+          window.setTimeout(() => updateNodeInternals(targetNode.id), 0);
+        }
       }
 
       const isActionTarget = targetNode?.type === "actionNode" || targetNode?.type === "timelineFrame";
@@ -2101,7 +2806,7 @@ function NodeEditorInner({ initialGraph, initialGraphVersion = 0, programCode = 
       // Auto-focus on the source node after connection
       if (sourceNode) {
         const connInfo = getConnectedInfo(sourceNode.id);
-        const newConnectedNodeIds = [...connInfo.connectedNodeIds, params.target].filter(Boolean) as string[];
+        const newConnectedNodeIds = [...connInfo.connectedNodeIds, normalizedParams.target].filter(Boolean) as string[];
         const newConnectedEdgeIds = [...connInfo.connectedEdgeIds, newEdgeId];
         setFocusState({
           isActive: true,
@@ -2121,13 +2826,20 @@ function NodeEditorInner({ initialGraph, initialGraphVersion = 0, programCode = 
   );
 
   const isValidConnection = useCallback(
-    (connection: Connection | Edge) => isOutputBlockSourceHandle(connection.sourceHandle),
+    (connection: Connection | Edge) => {
+      const normalizedConnection =
+        "source" in connection && "target" in connection
+          ? normalizeConnectionDirection(connection as Connection)
+          : null;
+
+      return Boolean(normalizedConnection && isAllowedEditorConnection(normalizedConnection));
+    },
     []
   );
 
   const onConnectStart = useCallback(
     (_event: MouseEvent | TouchEvent, params: OnConnectStartParams) => {
-      if (params.handleType === "source" && !isOutputBlockSourceHandle(params.handleId)) {
+      if (params.handleType !== "source" || !isConnectableSourceHandle(params.handleId)) {
         connectionStartRef.current = null;
         return;
       }
@@ -2149,7 +2861,7 @@ function NodeEditorInner({ initialGraph, initialGraphVersion = 0, programCode = 
       if (!start?.nodeId || !start.handleId || start.handleType !== "source") {
         return;
       }
-      if (!isOutputBlockSourceHandle(start.handleId)) {
+      if (!isConnectableSourceHandle(start.handleId)) {
         return;
       }
 
@@ -2163,7 +2875,7 @@ function NodeEditorInner({ initialGraph, initialGraphVersion = 0, programCode = 
           ? `${target}-input-append-in`
           : undefined);
 
-      if (!target || !targetHandle || target === start.nodeId) {
+      if (!target || !targetHandle || target === start.nodeId || !isConnectableTargetHandle(targetHandle)) {
         return;
       }
 
@@ -2235,6 +2947,14 @@ function NodeEditorInner({ initialGraph, initialGraphVersion = 0, programCode = 
               label: "Time Trigger",
               interval: 5,
               isActive: false,
+              outputBlocks: [
+                {
+                  id: "tick",
+                  name: "tick",
+                  description: "5초마다 true 신호를 내보냅니다.",
+                  type: "output",
+                },
+              ],
             } satisfies TimeTriggerData,
           };
           break;
@@ -2247,6 +2967,14 @@ function NodeEditorInner({ initialGraph, initialGraphVersion = 0, programCode = 
               label: "Click Trigger",
               shortcut: null,
               isRecording: false,
+              outputBlocks: [
+                {
+                  id: "click",
+                  name: "click",
+                  description: "클릭되면 true 신호를 내보냅니다.",
+                  type: "output",
+                },
+              ],
             } satisfies ClickTriggerData,
           };
           break;
@@ -2397,6 +3125,7 @@ function NodeEditorInner({ initialGraph, initialGraphVersion = 0, programCode = 
 
   // Demo AI Generation Event Listener
   useEffect(() => {
+    if (previewMode) return;
     const handleGenerateV2 = () => {
       applyMeasuredLayout(initialNodes, initialEdges);
       // Reset initialization ref so layout runs again once nodes measure
@@ -2405,10 +3134,11 @@ function NodeEditorInner({ initialGraph, initialGraphVersion = 0, programCode = 
 
     window.addEventListener("generateV2Strategy", handleGenerateV2);
     return () => window.removeEventListener("generateV2Strategy", handleGenerateV2);
-  }, [applyMeasuredLayout]);
+  }, [applyMeasuredLayout, previewMode]);
 
   // Run initial layout when component mounts and all nodes have been measured
   useEffect(() => {
+    if (previewMode) return;
     if (nodesInitialized && !initLayoutRunRef.current && nodes.length > 0) {
       initLayoutRunRef.current = true;
       // Initialize strategy history store
@@ -2425,7 +3155,7 @@ function NodeEditorInner({ initialGraph, initialGraphVersion = 0, programCode = 
         handleLayout();
       }, 50);
     }
-  }, [nodesInitialized, nodes.length, handleLayout]);
+  }, [edges, handleLayout, nodes, nodes.length, nodesInitialized, previewMode]);
 
   useEffect(() => {
     if (!nodesInitialized || nodes.length === 0 || strategyContentRelayoutSignature.length === 0) {
@@ -2450,6 +3180,7 @@ function NodeEditorInner({ initialGraph, initialGraphVersion = 0, programCode = 
   ]);
 
   useEffect(() => {
+    if (previewMode) return;
     if (!nodesInitialized || nodes.length === 0 || !historyStore.getActiveId()) return;
 
     const nextSignature = JSON.stringify({ nodes, edges });
@@ -2459,9 +3190,10 @@ function NodeEditorInner({ initialGraph, initialGraphVersion = 0, programCode = 
 
     activeSnapshotPersistSignatureRef.current = nextSignature;
     historyStore.updateActiveSnapshot(nodes, edges);
-  }, [nodesInitialized, nodes, edges]);
+  }, [nodesInitialized, nodes, edges, previewMode]);
 
   useEffect(() => {
+    if (previewMode) return;
     const handleInjectDemoNodes = (e: any) => {
       const { strategy } = e.detail;
       if (strategy === "etfDca") {
@@ -2475,9 +3207,10 @@ function NodeEditorInner({ initialGraph, initialGraphVersion = 0, programCode = 
 
     window.addEventListener("injectDemoNodes", handleInjectDemoNodes);
     return () => window.removeEventListener("injectDemoNodes", handleInjectDemoNodes);
-  }, [applyMeasuredLayout]);
+  }, [applyMeasuredLayout, previewMode]);
 
   useEffect(() => {
+    if (previewMode) return;
     const persistActiveSnapshot = () => {
       if (!historyStore.getActiveId()) return;
       historyStore.updateActiveSnapshot(nodes, edges);
@@ -2550,7 +3283,7 @@ function NodeEditorInner({ initialGraph, initialGraphVersion = 0, programCode = 
       window.removeEventListener("toggleSequenceCollapse", handleToggleSequenceCollapseEvent);
       window.removeEventListener("ungroupNode", handleUngroupNode);
     };
-  }, [applyMeasuredLayout, nodes, edges, handleToggleSequenceCollapse, setNodes, programCode]);
+  }, [applyMeasuredLayout, nodes, edges, handleToggleSequenceCollapse, setNodes, programCode, previewMode]);
 
   // Process nodes with focus state + FSM locked state styling
   const styledNodes = useMemo(() => {
@@ -2602,7 +3335,7 @@ function NodeEditorInner({ initialGraph, initialGraphVersion = 0, programCode = 
       });
     }
 
-    let result = nodes.map((node) => {
+    const result = nodes.map((node) => {
       // Keep child nodes fully visible even when the parent sequence is state-locked
       if (node.parentId && lockedGroupIds.has(node.parentId)) {
         return applyFocusStyle({
@@ -2648,7 +3381,7 @@ function NodeEditorInner({ initialGraph, initialGraphVersion = 0, programCode = 
   const styledEdges = useMemo(() => {
     const outputBlockEdges = edges.filter(isOutputBlockEdge);
     const focusedEdgeIds = new Set(focusState.connectedEdgeIds);
-    let executingEdgeIds = new Set<string>();
+    const executingEdgeIds = new Set<string>();
     let hasFsmActive = false;
 
     if (showFSMEdges) {
@@ -2790,28 +3523,34 @@ function NodeEditorInner({ initialGraph, initialGraphVersion = 0, programCode = 
           nodeTypes={nodeTypes}
           edgeTypes={edgeTypes}
           defaultEdgeOptions={defaultEdgeOptions}
-          connectionMode={ConnectionMode.Loose}
-          connectionRadius={96}
-          connectOnClick
-          connectionLineStyle={{ strokeWidth: 3, stroke: "#64748b" }}
-          fitView
-          selectionMode={SelectionMode.Partial}
-          selectionOnDrag
-          panOnScroll={false}
+	          connectionMode={ConnectionMode.Strict}
+	          connectionRadius={96}
+	          connectOnClick={!previewMode}
+	          connectionLineStyle={{ strokeWidth: 3, stroke: "#64748b" }}
+	          fitView
+	          nodesDraggable={!previewMode}
+	          nodesConnectable={!previewMode}
+	          edgesReconnectable={!previewMode}
+	          elementsSelectable={!previewMode}
+	          selectionMode={SelectionMode.Partial}
+	          selectionOnDrag={!previewMode}
+	          panOnScroll={false}
           selectNodesOnDrag={false}
           multiSelectionKeyCode="Shift"
           className="advanced-node-editor-flow bg-gray-100"
         >
-          <Panel position="top-left" className="z-30">
-            <Toolbar
-              onAddNode={handleAddNode}
-              onDeleteSelected={handleDeleteSelected}
-              onUndo={handleUndo}
-              onRedo={handleRedo}
-              onToggleTerminal={() => setTerminalOpen((prev) => !prev)}
-              onLayout={handleLayout}
-            />
-          </Panel>
+	          {!previewMode ? (
+	            <Panel position="top-left" className="z-30">
+	              <Toolbar
+	                onAddNode={handleAddNode}
+	                onDeleteSelected={handleDeleteSelected}
+	                onUndo={handleUndo}
+	                onRedo={handleRedo}
+	                onToggleTerminal={() => setTerminalOpen((prev) => !prev)}
+	                onLayout={handleLayout}
+	              />
+	            </Panel>
+	          ) : null}
           <Controls style={{ bottom: 90 }} position="bottom-right" className="bg-white/90 backdrop-blur-sm rounded-lg shadow-md z-30" />
           <MiniMap
             position="bottom-left"
@@ -2847,14 +3586,16 @@ function NodeEditorInner({ initialGraph, initialGraphVersion = 0, programCode = 
           />
         </ReactFlow>
 
-        <TerminalPanel
-          isOpen={isTerminalOpen}
-          onClose={() => setTerminalOpen(false)}
-          monitoringNodesData={monitoringNodesData}
-        />
+	        {!previewMode ? (
+	          <TerminalPanel
+	            isOpen={isTerminalOpen}
+	            onClose={() => setTerminalOpen(false)}
+	            monitoringNodesData={monitoringNodesData}
+	          />
+	        ) : null}
 
-        {/* Context Menu for group/merge/unmerge */}
-        {contextMenu && (
+	        {/* Context Menu for group/merge/unmerge */}
+	        {!previewMode && contextMenu && (
           <ContextMenu
             x={contextMenu.x}
             y={contextMenu.y}
@@ -2874,11 +3615,16 @@ function NodeEditorInner({ initialGraph, initialGraphVersion = 0, programCode = 
   );
 }
 
-export function NodeEditor({ initialGraph, initialGraphVersion, programCode }: NodeEditorProps) {
+export function NodeEditor({ initialGraph, initialGraphVersion, programCode, previewMode }: NodeEditorProps) {
   return (
     <ReactFlowProvider>
       <FSMProvider>
-        <NodeEditorInner initialGraph={initialGraph} initialGraphVersion={initialGraphVersion} programCode={programCode} />
+        <NodeEditorInner
+          initialGraph={initialGraph}
+          initialGraphVersion={initialGraphVersion}
+          programCode={programCode}
+          previewMode={previewMode}
+        />
       </FSMProvider>
     </ReactFlowProvider>
   );

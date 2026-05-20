@@ -1,4 +1,5 @@
 import { STRATEGY_SCHEMA_VERSION, validateStrategyDefinition } from './strategyCompiler';
+import { withUserContextHeaders, withUserContextPayload } from './userContextClient';
 
 const DEFAULT_STREAM_FIELDS = ['lastPrice', 'volume', 'eventTime'];
 
@@ -689,9 +690,10 @@ const requestRemoteDraft = async ({ endpoint, prompt, currentStrategy, authConte
     const response = await fetch(endpoint, {
       method: 'POST',
       headers: {
+        ...withUserContextHeaders(),
         'Content-Type': 'application/json'
       },
-      body: JSON.stringify(requestPayload),
+      body: JSON.stringify(withUserContextPayload(requestPayload)),
       signal: controller.signal
     });
     const payload = await response.json().catch(() => ({}));

@@ -1,6 +1,22 @@
 import { useEffect, useMemo, useState } from 'react';
 import './ActionBlock.css';
+import { getActionParams } from '../../data/blockFixtures';
 import { EVM_CHAINS } from '../../lib/evmChains';
+import {
+  DEFAULT_CEX_TRADE_EXCHANGE,
+  SUPPORTED_CEX_TRADE_EXCHANGES,
+  isPolymarketExchangeName,
+  isSupportedCEXTradeExchangeName
+} from '../../lib/exchangeCatalog.mjs';
+import {
+  buildPolymarketParams,
+  DEFAULT_POLYMARKET_CHAIN_ID,
+  getActionParam,
+  getActionParamValue,
+  POLYMARKET_ORDER_TYPE_OPTIONS,
+  POLYMARKET_SIDE_OPTIONS,
+  updateNamedActionParam
+} from '../../lib/polymarketTrade';
 import { Button } from '../ui/button';
 import { Input } from '../ui/input';
 import { Select } from '../ui/select';
@@ -89,8 +105,10 @@ const ActionBlock = ({
   blockId,
   name = 'Long_ETH',
   actionType = 'dex', // "dex" or "cex"
-  exchange = 'Binance',
+  exchange = DEFAULT_CEX_TRADE_EXCHANGE,
   dexProtocol = 'generic',
+  polymarketMarketTitle = '',
+  polymarketOutcomeLabel = '',
   contractAddress = '',
   contractAbi = '',
   evmChain = '',
@@ -112,6 +130,8 @@ const ActionBlock = ({
   const [type, setType] = useState(actionType);
   const [selectedExchange, setSelectedExchange] = useState(exchange);
   const [protocol, setProtocol] = useState(dexProtocol);
+  const [polyMarketTitle, setPolyMarketTitle] = useState(polymarketMarketTitle);
+  const [polyOutcomeLabel, setPolyOutcomeLabel] = useState(polymarketOutcomeLabel);
   const [address, setAddress] = useState(contractAddress);
   const [mode, setMode] = useState(executionMode);
   const [apiEndpoint, setApiEndpoint] = useState(apiUrl);
@@ -123,7 +143,7 @@ const ActionBlock = ({
   const [evmMethodName, setEvmMethodName] = useState(evmFunctionName);
   const [evmMethodSignature, setEvmMethodSignature] = useState(evmFunctionSignature);
   const [evmMethodState, setEvmMethodState] = useState(evmFunctionStateMutability);
-  const [polyChainId, setPolyChainId] = useState(chainId);
+  const [polyChainId, setPolyChainId] = useState(chainId || DEFAULT_POLYMARKET_CHAIN_ID);
   const [addressSource, setAddressSource] = useState(contractAddressSource);
   const [addressSources, setAddressSources] = useState(() => (
     mergeSourceList(
@@ -145,12 +165,27 @@ const ActionBlock = ({
   }, [dexProtocol]);
 
   useEffect(() => {
+    setPolyMarketTitle(polymarketMarketTitle);
+  }, [polymarketMarketTitle]);
+
+  useEffect(() => {
+    setPolyOutcomeLabel(polymarketOutcomeLabel);
+  }, [polymarketOutcomeLabel]);
+
+  useEffect(() => {
     setAddress(contractAddress);
   }, [contractAddress]);
 
   useEffect(() => {
     setMode(executionMode);
   }, [executionMode]);
+
+  useEffect(() => {
+    if (protocol === 'polymarket' && mode !== 'api') {
+      setMode('api');
+      onUpdateBlock?.(blockId, { executionMode: 'api', apiUrl: apiEndpoint || 'https://clob.polymarket.com' });
+    }
+  }, [apiEndpoint, blockId, mode, onUpdateBlock, protocol]);
 
   useEffect(() => {
     setApiEndpoint(apiUrl);
@@ -185,7 +220,7 @@ const ActionBlock = ({
   }, [evmFunctionStateMutability]);
 
   useEffect(() => {
-    setPolyChainId(chainId);
+    setPolyChainId(chainId || DEFAULT_POLYMARKET_CHAIN_ID);
   }, [chainId]);
 
   useEffect(() => {
@@ -210,11 +245,87 @@ const ActionBlock = ({
     ));
   }, [normalizedAddress]);
   const showEtherscanWireframe = normalizedAddress && matchedContracts.length === 0;
+  const cexExchangeOptions = useMemo(() => {
+    if (!selectedExchange || isSupportedCEXTradeExchangeName(selectedExchange)) {
+      return SUPPORTED_CEX_TRADE_EXCHANGES;
+    }
+    return [
+      { id: `legacy-${selectedExchange}`, name: `${selectedExchange} (미지원)` },
+      ...SUPPORTED_CEX_TRADE_EXCHANGES
+    ];
+  }, [selectedExchange]);
 
   const payloadPreview = useMemo(
     () => buildPayloadPreview(payloadTemplate, params),
     [payloadTemplate, params]
   );
+  const isPolymarketTrade = (type === 'cex' && isPolymarketExchangeName(selectedExchange))
+    || (type === 'dex' && protocol === 'polymarket');
+
+  const buildCurrentPolymarketParams = () => buildPolymarketParams({
+    tokenId: getActionParamValue(params, 'tokenId', ''),
+    side: getActionParamValue(params, 'side', 'BUY'),
+    price: getActionParamValue(params, 'price', ''),
+    size: getActionParamValue(params, 'size', ''),
+    orderType: getActionParamValue(params, 'orderType', 'GTC'),
+    postOnly: getActionParamValue(params, 'postOnly', 'false'),
+  });
+
+  const selectCEXMode = () => {
+    setType('cex');
+    onUpdateBlock?.(blockId, { actionType: 'cex' });
+  };
+
+  const selectContractMode = () => {
+    const updates = { actionType: 'dex' };
+    setType('dex');
+    if (protocol === 'polymarket') {
+      setProtocol('generic');
+      setMode('address');
+      updates.dexProtocol = 'generic';
+      updates.executionMode = 'address';
+    }
+    onUpdateBlock?.(blockId, updates);
+  };
+
+  const selectExchange = (nextExchange) => {
+    setSelectedExchange(nextExchange);
+    if (isPolymarketExchangeName(nextExchange)) {
+      const nextParams = buildCurrentPolymarketParams();
+      setProtocol('polymarket');
+      setMode('api');
+      setApiEndpoint('https://clob.polymarket.com');
+      setParams(nextParams);
+      onUpdateBlock?.(blockId, {
+        actionType: 'cex',
+        exchange: nextExchange,
+        dexProtocol: 'polymarket',
+        executionMode: 'api',
+        apiUrl: 'https://clob.polymarket.com',
+        apiPayloadTemplate: '',
+        chainId: polyChainId || DEFAULT_POLYMARKET_CHAIN_ID,
+        parameters: nextParams
+      });
+      return;
+    }
+
+    const wasPolymarket = isPolymarketExchangeName(selectedExchange) || protocol === 'polymarket';
+    const updates = { exchange: nextExchange };
+    if (wasPolymarket) {
+      const nextParams = getActionParams('cex', 'address', 'generic');
+      setProtocol('generic');
+      setMode('address');
+      setApiEndpoint('');
+      setParams(nextParams);
+      updates.dexProtocol = 'generic';
+      updates.executionMode = 'address';
+      updates.apiUrl = '';
+      updates.apiPayloadTemplate = '';
+      updates.chainId = '';
+      updates.parameters = nextParams;
+    }
+    onUpdateBlock?.(blockId, updates);
+  };
 
   const updateParam = (index, updates) => {
     const newParams = [...params];
@@ -240,6 +351,20 @@ const ActionBlock = ({
     }
   };
 
+  const updateParamByName = (name, updates) => {
+    const nextParams = updateNamedActionParam(params, name, updates);
+    setParams(nextParams);
+    onUpdateBlock?.(blockId, { parameters: nextParams });
+  };
+
+  const getParamValueByName = (name, fallback = '') => (
+    getActionParamValue(params, name, fallback)
+  );
+
+  const getParamSourceByName = (name) => (
+    getActionParam(params, name)?.source || null
+  );
+
   const getSourceLabel = (source) => {
     if (!source) {
       return '';
@@ -250,6 +375,25 @@ const ActionBlock = ({
     }
     const name = source.blockName || source.blockId || '';
     return source.mode === 'snapshot' ? `${name} (스냅샷)` : name;
+  };
+
+  const renderPolymarketSource = (paramName) => {
+    const source = getParamSourceByName(paramName);
+    if (!source) {
+      return null;
+    }
+    return (
+      <div className="action-polymarket-source">
+        <span>{getSourceLabel(source)}</span>
+        <Button
+          type="button"
+          className="action-param-source-clear"
+          onClick={() => updateParamByName(paramName, { source: null, value: '', valueOrigin: null })}
+        >
+          ×
+        </Button>
+      </div>
+    );
   };
 
   const handleParamDrop = (event, index) => {
@@ -321,7 +465,7 @@ const ActionBlock = ({
   };
 
   return (
-    <div className="action-block">
+    <div className={`action-block${isPolymarketTrade ? ' action-block--polymarket' : ''}`}>
       <div className="action-block-header">
         <div className="action-block-header-content">
           <div className="action-block-title-row">
@@ -333,17 +477,14 @@ const ActionBlock = ({
               placeholder="블록 이름"
             />
           </div>
-          <p className="action-block-subtitle">액션 블록</p>
+          <p className="action-block-subtitle">{isPolymarketTrade ? '폴리마켓 트레이드 블록' : '액션 블록'}</p>
         </div>
       </div>
 
       <div className="action-block-type-toggle">
         <Button
           className={`action-type-btn ${type === 'cex' ? 'active' : ''}`}
-          onClick={() => {
-            setType('cex');
-            onUpdateBlock?.(blockId, { actionType: 'cex' });
-          }}
+          onClick={selectCEXMode}
           type="button"
         >
           <svg width="12" height="12" viewBox="0 0 12 12" fill="none">
@@ -354,10 +495,7 @@ const ActionBlock = ({
         </Button>
         <Button
           className={`action-type-btn ${type === 'dex' ? 'active' : ''}`}
-          onClick={() => {
-            setType('dex');
-            onUpdateBlock?.(blockId, { actionType: 'dex' });
-          }}
+          onClick={selectContractMode}
           type="button"
         >
           <svg width="12" height="12" viewBox="0 0 12 12" fill="none">
@@ -377,20 +515,158 @@ const ActionBlock = ({
             className="action-block-select"
             value={selectedExchange}
             onChange={(event) => {
-              setSelectedExchange(event.target.value);
-              onUpdateBlock?.(blockId, { exchange: event.target.value });
+              selectExchange(event.target.value);
             }}
           >
-            <option value="Binance">Binance</option>
-            <option value="Coinbase">Coinbase</option>
-            <option value="Kraken">Kraken</option>
-            <option value="Upbit">Upbit</option>
+            {cexExchangeOptions.map((connection) => (
+              <option key={connection.id} value={connection.name}>{connection.name}</option>
+            ))}
           </Select>
+        </div>
+      )}
+
+      {type === 'cex' && isPolymarketTrade && (
+        <div className="action-polymarket-ticket">
+          <div className="action-polymarket-ticket-head">
+            <div>
+              <div className="action-polymarket-badge">Polymarket CLOB</div>
+              <p className="action-polymarket-copy">Outcome token 기반 지정가 주문 티켓</p>
+            </div>
+            <span className="action-polymarket-chain">Chain {polyChainId || DEFAULT_POLYMARKET_CHAIN_ID}</span>
+          </div>
+
+          <div className="action-polymarket-grid">
+            <div className="action-polymarket-field">
+              <label className="action-block-label">마켓 라벨</label>
+              <Input
+                type="text"
+                className="action-block-input"
+                value={polyMarketTitle}
+                onChange={(event) => {
+                  setPolyMarketTitle(event.target.value);
+                  onUpdateBlock?.(blockId, { polymarketMarketTitle: event.target.value });
+                }}
+                placeholder="예: Fed 25bp Cut in June"
+              />
+            </div>
+            <div className="action-polymarket-field">
+              <label className="action-block-label">아웃컴 라벨</label>
+              <Input
+                type="text"
+                className="action-block-input"
+                value={polyOutcomeLabel}
+                onChange={(event) => {
+                  setPolyOutcomeLabel(event.target.value);
+                  onUpdateBlock?.(blockId, { polymarketOutcomeLabel: event.target.value });
+                }}
+                placeholder="예: YES"
+              />
+            </div>
+            <div className="action-polymarket-field action-polymarket-field--wide">
+              <label className="action-block-label">Outcome Token ID</label>
+              {renderPolymarketSource('tokenId')}
+              {!getParamSourceByName('tokenId') && (
+                <Input
+                  type="text"
+                  className="action-block-input"
+                  value={getParamValueByName('tokenId')}
+                  onChange={(event) => updateParamByName('tokenId', { value: event.target.value, source: null, valueOrigin: 'backend' })}
+                  placeholder="Polymarket token_id"
+                />
+              )}
+            </div>
+            <div className="action-polymarket-field">
+              <label className="action-block-label">Side</label>
+              <div className="action-polymarket-pill-row">
+                {POLYMARKET_SIDE_OPTIONS.map((option) => (
+                  <Button
+                    key={option.value}
+                    type="button"
+                    className={`action-polymarket-pill${getParamValueByName('side', 'BUY') === option.value ? ' is-active' : ''}`}
+                    onClick={() => updateParamByName('side', { value: option.value, source: null, valueOrigin: 'backend' })}
+                  >
+                    {option.label}
+                  </Button>
+                ))}
+              </div>
+            </div>
+            <div className="action-polymarket-field">
+              <label className="action-block-label">Order Type</label>
+              <Select
+                className="action-block-select"
+                value={getParamValueByName('orderType', 'GTC') || 'GTC'}
+                onChange={(event) => updateParamByName('orderType', { value: event.target.value, source: null, valueOrigin: 'backend' })}
+              >
+                {POLYMARKET_ORDER_TYPE_OPTIONS.map((option) => (
+                  <option key={option.value} value={option.value}>{option.label}</option>
+                ))}
+              </Select>
+            </div>
+            <div className="action-polymarket-field">
+              <label className="action-block-label">Price</label>
+              {renderPolymarketSource('price')}
+              {!getParamSourceByName('price') && (
+                <Input
+                  type="number"
+                  className="action-block-input"
+                  value={getParamValueByName('price')}
+                  onChange={(event) => updateParamByName('price', { value: event.target.value, source: null, valueOrigin: 'backend' })}
+                  placeholder="0.52"
+                />
+              )}
+            </div>
+            <div className="action-polymarket-field">
+              <label className="action-block-label">Size (shares)</label>
+              {renderPolymarketSource('size')}
+              {!getParamSourceByName('size') && (
+                <Input
+                  type="number"
+                  className="action-block-input"
+                  value={getParamValueByName('size')}
+                  onChange={(event) => updateParamByName('size', { value: event.target.value, source: null, valueOrigin: 'backend' })}
+                  placeholder="10"
+                />
+              )}
+            </div>
+            <div className="action-polymarket-field">
+              <label className="action-block-label">Post Only</label>
+              <div className="action-polymarket-pill-row">
+                <Button
+                  type="button"
+                  className={`action-polymarket-pill${getParamValueByName('postOnly', 'false') !== 'true' ? ' is-active' : ''}`}
+                  onClick={() => updateParamByName('postOnly', { value: 'false', source: null, valueOrigin: 'backend' })}
+                >
+                  Off
+                </Button>
+                <Button
+                  type="button"
+                  className={`action-polymarket-pill${getParamValueByName('postOnly', 'false') === 'true' ? ' is-active' : ''}`}
+                  onClick={() => updateParamByName('postOnly', { value: 'true', source: null, valueOrigin: 'backend' })}
+                >
+                  On
+                </Button>
+              </div>
+            </div>
+            <div className="action-polymarket-field">
+              <label className="action-block-label">Chain ID</label>
+              <Input
+                type="number"
+                className="action-block-input"
+                value={polyChainId}
+                onChange={(event) => {
+                  setPolyChainId(event.target.value);
+                  onUpdateBlock?.(blockId, { chainId: event.target.value });
+                }}
+                placeholder="137"
+              />
+            </div>
+          </div>
         </div>
       )}
 
       {type === 'dex' && (
         <>
+          {!isPolymarketTrade && (
           <div className="action-block-exchange">
             <label className="action-block-label">프로토콜</label>
             <Select
@@ -404,59 +680,190 @@ const ActionBlock = ({
                   setMode('address');
                   updates.executionMode = 'address';
                 }
+                if (next === 'polymarket') {
+                  setMode('api');
+                  setApiEndpoint('https://clob.polymarket.com');
+                  updates.executionMode = 'api';
+                  updates.apiUrl = 'https://clob.polymarket.com';
+                }
                 onUpdateBlock?.(blockId, updates);
               }}
             >
               <option value="generic">Generic</option>
               <option value="evm">EVM Contract</option>
-              <option value="polymarket">Polymarket</option>
             </Select>
           </div>
+          )}
 
-          <div className="action-block-mode-toggle">
-            <Button
-              type="button"
-              className={`action-mode-btn ${mode === 'address' ? 'active' : ''}`}
-              onClick={() => {
-                setMode('address');
-                onUpdateBlock?.(blockId, { executionMode: 'address' });
-              }}
-            >
-              주소
-            </Button>
-            <Button
-              type="button"
-              className={`action-mode-btn ${mode === 'api' ? 'active' : ''}`}
-              onClick={() => {
-                if (protocol === 'evm') {
-                  return;
-                }
-                setMode('api');
-                onUpdateBlock?.(blockId, { executionMode: 'api' });
-              }}
-              disabled={protocol === 'evm'}
-            >
-              API
-            </Button>
-          </div>
-
-          {protocol === 'polymarket' && (
-            <div className="action-block-exchange">
-              <label className="action-block-label">체인 ID</label>
-              <Input
-                type="number"
-                className="action-block-input"
-                value={polyChainId}
-                onChange={(event) => {
-                  setPolyChainId(event.target.value);
-                  onUpdateBlock?.(blockId, { chainId: event.target.value });
+          {!isPolymarketTrade && (
+            <div className="action-block-mode-toggle">
+              <Button
+                type="button"
+                className={`action-mode-btn ${mode === 'address' ? 'active' : ''}`}
+                onClick={() => {
+                  setMode('address');
+                  onUpdateBlock?.(blockId, { executionMode: 'address' });
                 }}
-                placeholder="137"
-              />
+              >
+                주소
+              </Button>
+              <Button
+                type="button"
+                className={`action-mode-btn ${mode === 'api' ? 'active' : ''}`}
+                onClick={() => {
+                  if (protocol === 'evm') {
+                    return;
+                  }
+                  setMode('api');
+                  onUpdateBlock?.(blockId, { executionMode: 'api' });
+                }}
+                disabled={protocol === 'evm'}
+              >
+                API
+              </Button>
             </div>
           )}
 
-          {mode === 'address' && (
+          {protocol === 'polymarket' && (
+            <div className="action-polymarket-ticket">
+              <div className="action-polymarket-ticket-head">
+                <div>
+                  <div className="action-polymarket-badge">Polymarket CLOB</div>
+                  <p className="action-polymarket-copy">Outcome token 기반 지정가 주문 티켓</p>
+                </div>
+                <span className="action-polymarket-chain">Chain {polyChainId || DEFAULT_POLYMARKET_CHAIN_ID}</span>
+              </div>
+
+              <div className="action-polymarket-grid">
+                <div className="action-polymarket-field">
+                  <label className="action-block-label">마켓 라벨</label>
+                  <Input
+                    type="text"
+                    className="action-block-input"
+                    value={polyMarketTitle}
+                    onChange={(event) => {
+                      setPolyMarketTitle(event.target.value);
+                      onUpdateBlock?.(blockId, { polymarketMarketTitle: event.target.value });
+                    }}
+                    placeholder="예: Fed 25bp Cut in June"
+                  />
+                </div>
+                <div className="action-polymarket-field">
+                  <label className="action-block-label">아웃컴 라벨</label>
+                  <Input
+                    type="text"
+                    className="action-block-input"
+                    value={polyOutcomeLabel}
+                    onChange={(event) => {
+                      setPolyOutcomeLabel(event.target.value);
+                      onUpdateBlock?.(blockId, { polymarketOutcomeLabel: event.target.value });
+                    }}
+                    placeholder="예: YES"
+                  />
+                </div>
+                <div className="action-polymarket-field action-polymarket-field--wide">
+                  <label className="action-block-label">Outcome Token ID</label>
+                  {renderPolymarketSource('tokenId')}
+                  {!getParamSourceByName('tokenId') && (
+                    <Input
+                      type="text"
+                      className="action-block-input"
+                      value={getParamValueByName('tokenId')}
+                      onChange={(event) => updateParamByName('tokenId', { value: event.target.value, source: null, valueOrigin: 'backend' })}
+                      placeholder="Polymarket token_id"
+                    />
+                  )}
+                </div>
+                <div className="action-polymarket-field">
+                  <label className="action-block-label">Side</label>
+                  <div className="action-polymarket-pill-row">
+                    {POLYMARKET_SIDE_OPTIONS.map((option) => (
+                      <Button
+                        key={option.value}
+                        type="button"
+                        className={`action-polymarket-pill${getParamValueByName('side', 'BUY') === option.value ? ' is-active' : ''}`}
+                        onClick={() => updateParamByName('side', { value: option.value, source: null, valueOrigin: 'backend' })}
+                      >
+                        {option.label}
+                      </Button>
+                    ))}
+                  </div>
+                </div>
+                <div className="action-polymarket-field">
+                  <label className="action-block-label">Order Type</label>
+                  <Select
+                    className="action-block-select"
+                    value={getParamValueByName('orderType', 'GTC') || 'GTC'}
+                    onChange={(event) => updateParamByName('orderType', { value: event.target.value, source: null, valueOrigin: 'backend' })}
+                  >
+                    {POLYMARKET_ORDER_TYPE_OPTIONS.map((option) => (
+                      <option key={option.value} value={option.value}>{option.label}</option>
+                    ))}
+                  </Select>
+                </div>
+                <div className="action-polymarket-field">
+                  <label className="action-block-label">Price</label>
+                  {renderPolymarketSource('price')}
+                  {!getParamSourceByName('price') && (
+                    <Input
+                      type="number"
+                      className="action-block-input"
+                      value={getParamValueByName('price')}
+                      onChange={(event) => updateParamByName('price', { value: event.target.value, source: null, valueOrigin: 'backend' })}
+                      placeholder="0.52"
+                    />
+                  )}
+                </div>
+                <div className="action-polymarket-field">
+                  <label className="action-block-label">Size (shares)</label>
+                  {renderPolymarketSource('size')}
+                  {!getParamSourceByName('size') && (
+                    <Input
+                      type="number"
+                      className="action-block-input"
+                      value={getParamValueByName('size')}
+                      onChange={(event) => updateParamByName('size', { value: event.target.value, source: null, valueOrigin: 'backend' })}
+                      placeholder="10"
+                    />
+                  )}
+                </div>
+                <div className="action-polymarket-field">
+                  <label className="action-block-label">Post Only</label>
+                  <div className="action-polymarket-pill-row">
+                    <Button
+                      type="button"
+                      className={`action-polymarket-pill${getParamValueByName('postOnly', 'false') !== 'true' ? ' is-active' : ''}`}
+                      onClick={() => updateParamByName('postOnly', { value: 'false', source: null, valueOrigin: 'backend' })}
+                    >
+                      Off
+                    </Button>
+                    <Button
+                      type="button"
+                      className={`action-polymarket-pill${getParamValueByName('postOnly', 'false') === 'true' ? ' is-active' : ''}`}
+                      onClick={() => updateParamByName('postOnly', { value: 'true', source: null, valueOrigin: 'backend' })}
+                    >
+                      On
+                    </Button>
+                  </div>
+                </div>
+                <div className="action-polymarket-field">
+                  <label className="action-block-label">Chain ID</label>
+                  <Input
+                    type="number"
+                    className="action-block-input"
+                    value={polyChainId}
+                    onChange={(event) => {
+                      setPolyChainId(event.target.value);
+                      onUpdateBlock?.(blockId, { chainId: event.target.value });
+                    }}
+                    placeholder="137"
+                  />
+                </div>
+              </div>
+            </div>
+          )}
+
+          {mode === 'address' && protocol !== 'polymarket' && (
             <div className="action-block-contract">
               <label className="action-block-label">컨트랙트 주소</label>
               {!addressSource && (
@@ -631,7 +1038,7 @@ const ActionBlock = ({
             </div>
           )}
 
-          {mode === 'api' && (
+          {mode === 'api' && protocol !== 'polymarket' && (
             <div className="action-block-api">
               <label className="action-block-label">API URL</label>
               <Input

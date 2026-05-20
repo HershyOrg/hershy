@@ -47,6 +47,10 @@ const normalizeFields = (fields) => (
 export async function sampleStreamDefinition({
   streamKind = 'url',
   apiUrl = '',
+  exchange = '',
+  symbol = '',
+  marketId = '',
+  tokenId = '',
   streamChain = '',
   streamMethod = '',
   streamParamsJson = '[]',
@@ -60,6 +64,10 @@ export async function sampleStreamDefinition({
     body: JSON.stringify({
       stream_kind: streamKind,
       source_url: apiUrl,
+      exchange,
+      symbol,
+      market_id: marketId,
+      token_id: tokenId,
       stream_chain: streamChain,
       stream_method: streamMethod,
       stream_params_json: streamParamsJson,

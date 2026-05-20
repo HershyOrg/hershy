@@ -302,7 +302,14 @@ function BranchNodeComponent({ id, data, selected }: NodeProps<import("@xyflow/r
                   className="!w-2 !h-2 !bg-blue-400 !border-blue-500"
                   style={{ left: -8, top: `${72 + idx * 28}px` }}
                 />
-                <span className="text-xs font-mono text-gray-300">{block.name}</span>
+                <div className="min-w-0">
+                  <span className="block text-xs font-mono text-gray-300">{block.name}</span>
+                  {block.connectedFrom ? (
+                    <span className="block truncate text-[10px] font-semibold text-blue-300">
+                      {String(block.connectedFrom)}
+                    </span>
+                  ) : null}
+                </div>
                 <button
                   onClick={() => handleRemoveInputBlock(block.id)}
                   className="opacity-0 group-hover:opacity-100 p-0.5 hover:bg-red-900/50 rounded"
@@ -443,7 +450,14 @@ function BranchNodeComponent({ id, data, selected }: NodeProps<import("@xyflow/r
                 className="!w-2 !h-2 !bg-blue-400 !border-blue-500"
                 style={{ left: -8 }}
               />
-              <span className="text-[10px] font-mono text-orange-700">{block.name}</span>
+              <span className="min-w-0">
+                <span className="block text-[10px] font-mono text-orange-700">{block.name}</span>
+                {block.connectedFrom ? (
+                  <span className="block max-w-[120px] truncate text-[9px] font-semibold text-blue-600">
+                    {String(block.connectedFrom)}
+                  </span>
+                ) : null}
+              </span>
               <button
                 onClick={() => handleRemoveInputBlock(block.id)}
                 className="opacity-0 group-hover:opacity-100 p-0.5"

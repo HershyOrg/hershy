@@ -8,6 +8,7 @@ const config = [
     ignores: [
       ".next/**",
       "build/**",
+      "dist/**",
       "out/**",
       "node_modules/**",
       ".local/**",

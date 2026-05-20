@@ -1,5 +1,6 @@
 import React, { useState, useRef, useEffect } from "react";
 import { Send, Bot, Sparkles, Loader2, Maximize2, Minimize2 } from "lucide-react";
+import { withUserContextHeaders, withUserContextPayload } from "@/src/lib/userContextClient";
 
 type ChatMessage = {
   role: "user" | "ai";
@@ -46,9 +47,10 @@ export const AIPanel = () => {
       const response = await fetch('/api/ai/strategy-draft', {
         method: 'POST',
         headers: {
+          ...withUserContextHeaders(),
           'Content-Type': 'application/json'
         },
-        body: JSON.stringify({ prompt: submittedPrompt })
+        body: JSON.stringify(withUserContextPayload({ prompt: submittedPrompt }))
       });
 
       const data = await response.json().catch(() => null);
@@ -56,7 +58,7 @@ export const AIPanel = () => {
         throw new Error(String(data?.message || data?.error || `서버 요청 실패 (상태 코드: ${response.status})`));
       }
       
-      const { strategy, message, research } = data;
+      const { strategy, message } = data;
       
       if (!strategy || !strategy.blocks) {
          throw new Error("올바르지 않은 전략 데이터입니다.");

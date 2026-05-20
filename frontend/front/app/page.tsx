@@ -1,340 +1,112 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type FormEvent } from "react";
 import {
-  Activity,
-  AlarmClock,
   BarChart3,
-  Bell,
-  Bot,
-  Box,
-  Boxes,
-  BriefcaseBusiness,
-  CheckCircle2,
   ChevronRight,
   Clock3,
-  Code2,
   Coins,
-  Crosshair,
-  ExternalLink,
   FileCode2,
-  Folder,
-  Globe2,
-  Home as HomeIcon,
-  KeyRound,
-  LayoutDashboard,
-  Maximize,
-  MoreHorizontal,
-  MousePointer2,
   Network,
   PlayCircle,
-  Plus,
-  Redo2,
   Rocket,
   RotateCcw,
   Save,
-  Search,
-  Settings,
-  ShieldAlert,
   SlidersHorizontal,
   Sparkles,
-  Trash2,
-  TrendingDown,
-  TrendingUp,
-  Undo2,
   WalletCards,
   X,
   Zap,
-  ZoomIn,
-  ZoomOut,
 } from "lucide-react";
+import { ExchangeLibraryModal } from "@/components/home/ExchangeLibraryModal";
+import { PageRightRail } from "@/components/home/PageRightRail";
+import { PortfolioWorkspace } from "@/components/home/PortfolioWorkspace";
+import { StrategyLibraryWorkspace } from "@/components/home/StrategyLibraryWorkspace";
+import {
+  AI_STRATEGY_TEMPLATES,
+  DEFAULT_CEX_TRADE_EXCHANGE,
+  EMPTY_EASY_VIEW,
+  EXCHANGE_CONNECTIONS,
+  EXCHANGE_CONNECTION_NAMES,
+  GUIDE_ITEMS,
+  INITIAL_EASY_VIEW,
+  INITIAL_STRATEGY_CODE,
+  MAIN_VIEW_TABS,
+  MARKET_ROWS,
+  NAV_ITEMS,
+  STRATEGY_BLOCKS,
+  STRATEGY_BUILDER_STORAGE_KEY,
+  STRATEGY_CODE,
+  buildExchangeFormFromConnection,
+  createEmptyExchangeForm,
+} from "@/components/home/config";
+import { StatusBadge } from "@/components/home/shared";
+import type {
+  AgentActivity,
+  ExchangeConnection,
+  ExchangeFormState,
+  MarketRow,
+} from "@/components/home/types";
 import { NodeEditor } from "@/components/node-editor/NodeEditor";
 import { StrategyHistoryModal } from "@/components/node-editor/StrategyHistoryModal";
 import { EasyStrategyGraph } from "@/components/strategy-builder/EasyStrategyGraph";
 import {
-  DEFAULT_STRATEGY_TEMPLATES as AI_STRATEGY_TEMPLATES,
   advancedGraphToStrategyGraph,
-  buildStrategyCodeFromTemplate,
-  createEasyViewFromStrategyCode,
   runEasyViewGraphAgentLoop,
   strategyGraphToCode,
   type EasyViewModel,
+  type EasyViewNode,
   type EasyViewAgentResult,
   type StrategyTemplate,
+  type StrategyGraphPayload,
 } from "@/lib/easyViewAgent";
 import { historyStore, type HistorySnapshot } from "@/lib/historyStore";
 import { cn } from "@/lib/utils";
+import {
+  getClientUserProfile,
+  loginClientUser,
+  logoutClientUser,
+  withUserContextHeaders,
+  withUserContextPayload,
+} from "@/src/lib/userContextClient";
 
 type MainView = "easy" | "advanced" | "code";
 type DetailTab = "overview" | "params" | "risk" | "code";
 type ExchangeTab = string;
 type PlanTier = "free" | "pro" | "team";
-
-type MarketRow = {
-  symbol: string;
-  price: string;
-  change: string;
-  tone: "up" | "down";
-  icon: string;
-  source?: string;
-};
-
-type ExchangeConnection = {
-  id: string;
-  name: string;
-  type: "CEX" | "DEX" | "RPC";
-  status: string;
-  scopes: string[];
-  color?: string;
-  apiUrl?: string;
-  restUrl?: string;
-  wsUrl?: string;
-  rpcUrl?: string;
-  marketDataUrl?: string;
-  credentials?: {
-    hasApiKey?: boolean;
-    hasApiSecret?: boolean;
-    apiKeyLast4?: string;
-    authStatus?: string;
-    authMarket?: string;
-    lastAuthCheckAt?: string;
-    lastAuthError?: string;
-  };
-};
-
-type AgentActivity = {
-  id: string;
-  timestamp?: string;
-  status: string;
-  stage: string;
-  label: string;
-  detail?: Record<string, unknown>;
-};
-
-type StrategyBlock = {
-  id: string;
-  index: number;
-  title: string;
-  subtitle: string;
-  description: string;
-  status: "ready" | "watching" | "running" | "complete" | "blocked";
-  kind: "start" | "condition" | "trade" | "hedge" | "rebalance" | "risk" | "exit";
-  x: number;
-  y: number;
-  w: number;
-  icon: typeof Rocket;
-  color: string;
-  params: Array<{
-    key: string;
-    label: string;
-    value: string;
-    unit?: string;
-    helper: string;
-    options?: string[];
-  }>;
-};
-
-const NAV_ITEMS = [
-  { id: "home", label: "홈", icon: HomeIcon },
-  { id: "create", label: "전략 만들기", icon: Plus, active: true },
-  { id: "library", label: "전략 라이브러리", icon: Boxes },
-  { id: "workspace", label: "워크스페이스", icon: BriefcaseBusiness },
-  { id: "tuning", label: "튜닝 / 백테스트", icon: Network },
-  { id: "deploy", label: "실행 / 봇", icon: Bot },
-  { id: "portfolio", label: "포트폴리오", icon: Folder },
-  { id: "risk", label: "리스크 알림", icon: Bell },
-  { id: "settings", label: "설정", icon: Settings },
-];
-
-const STRATEGY_BLOCKS: StrategyBlock[] = [
-  {
-    id: "init",
-    index: 1,
-    title: "전략 시작",
-    subtitle: "Init",
-    description: "거래소 연결과 기본 잔고를 확인하고 전략 실행 컨텍스트를 만듭니다.",
-    status: "complete",
-    kind: "start",
-    x: 22,
-    y: 86,
-    w: 124,
-    icon: Rocket,
-    color: "violet",
-    params: [
-      { key: "capital", label: "초기 자본(USDT)", value: "10,000", helper: "전략이 사용할 기준 자본" },
-      { key: "mode", label: "실행 모드", value: "드라이런", helper: "실전 실행 전 모의 주문으로 검증", options: ["드라이런", "실전"] },
-    ],
-  },
-  {
-    id: "condition",
-    index: 2,
-    title: "가격차 진입 조건 충족",
-    subtitle: "Basis check",
-    description: "현물과 선물 가격차가 설정한 기준 이상 벌어졌는지 감시합니다.",
-    status: "running",
-    kind: "condition",
-    x: 176,
-    y: 90,
-    w: 104,
-    icon: Crosshair,
-    color: "emerald",
-    params: [
-      { key: "entryGap", label: "진입 가격차(%)", value: "0.50", unit: "%", helper: "이상 벌어지면 진입" },
-      { key: "exitGap", label: "종료 가격차(%)", value: "0.10", unit: "%", helper: "이하로 줄어들면 종료" },
-      { key: "confirm", label: "확인 캔들", value: "2", helper: "조건 유지 확인 개수" },
-    ],
-  },
-  {
-    id: "spot-buy",
-    index: 3,
-    title: "XRP 현물 매수",
-    subtitle: "가격차 진입 조건 충족",
-    description: "현물 XRP를 매수해 차익거래의 롱 포지션을 만듭니다.",
-    status: "watching",
-    kind: "trade",
-    x: 320,
-    y: 62,
-    w: 154,
-    icon: TrendingUp,
-    color: "blue",
-    params: [
-      { key: "spotSize", label: "투입금(USDT)", value: "1,000", helper: "현물 매수 주문 금액" },
-      { key: "spotSlippage", label: "슬리피지 허용", value: "0.08", unit: "%", helper: "시장가 체결 허용 범위" },
-      { key: "orderType", label: "주문 방식", value: "Market", helper: "현물 주문 방식", options: ["Market", "Limit"] },
-    ],
-  },
-  {
-    id: "future-short",
-    index: 4,
-    title: "XRP 선물 숏",
-    subtitle: "헤지 포지션 실행",
-    description: "동일 규모의 선물 숏을 열어 가격 방향 리스크를 상쇄합니다.",
-    status: "watching",
-    kind: "hedge",
-    x: 516,
-    y: 62,
-    w: 154,
-    icon: TrendingDown,
-    color: "sky",
-    params: [
-      { key: "leverage", label: "레버리지", value: "1x", helper: "선물 포지션 레버리지", options: ["1x", "2x", "3x"] },
-      { key: "hedgeRatio", label: "헤지 비율", value: "100", unit: "%", helper: "현물 대비 선물 노출 비율" },
-    ],
-  },
-  {
-    id: "rebalance",
-    index: 5,
-    title: "포지션 유지",
-    subtitle: "리밸런싱 및 유지",
-    description: "가격차와 포지션 비중을 계속 감시하며 필요 시 재조정합니다.",
-    status: "ready",
-    kind: "rebalance",
-    x: 382,
-    y: 162,
-    w: 166,
-    icon: RotateCcw,
-    color: "blue",
-    params: [
-      { key: "rebalanceGap", label: "리밸런싱 기준", value: "0.20", unit: "%", helper: "비중 차이가 커지면 조정" },
-      { key: "checkInterval", label: "확인 주기", value: "1분", helper: "포지션 상태 점검 주기", options: ["10초", "1분", "5분"] },
-    ],
-  },
-  {
-    id: "risk",
-    index: 6,
-    title: "손실 제한 시 종료",
-    subtitle: "Risk stop",
-    description: "허용 손실을 넘으면 즉시 종료 단계로 넘깁니다.",
-    status: "blocked",
-    kind: "risk",
-    x: 446,
-    y: 232,
-    w: 104,
-    icon: ShieldAlert,
-    color: "rose",
-    params: [
-      { key: "lossLimit", label: "손실 제한(%)", value: "1.00", unit: "%", helper: "총 손실 허용 한도" },
-      { key: "maxLatency", label: "응답 지연 제한", value: "800", unit: "ms", helper: "거래소 응답 지연 제한" },
-    ],
-  },
-  {
-    id: "exit",
-    index: 7,
-    title: "종료",
-    subtitle: "포지션 청산 및 종료",
-    description: "현물과 선물 포지션을 동시에 닫고 손익을 기록합니다.",
-    status: "ready",
-    kind: "exit",
-    x: 516,
-    y: 268,
-    w: 154,
-    icon: CheckCircle2,
-    color: "rose",
-    params: [
-      { key: "closeType", label: "청산 방식", value: "동시 청산", helper: "현물과 선물 종료 방식", options: ["동시 청산", "선물 우선", "현물 우선"] },
-      { key: "report", label: "리포트 생성", value: "켜짐", helper: "실행 종료 후 요약 저장", options: ["켜짐", "꺼짐"] },
-    ],
-  },
-];
-
-const MARKET_ROWS: MarketRow[] = [
-  { symbol: "BTCUSDT", price: "67,245.8", change: "+1.24%", tone: "up", icon: "₿" },
-  { symbol: "ETHUSDT", price: "3,285.6", change: "+0.82%", tone: "up", icon: "Ξ" },
-  { symbol: "XRPUSDT", price: "0.5321", change: "+0.45%", tone: "up", icon: "X" },
-  { symbol: "XRPUSDT.P", price: "0.5303", change: "-0.05%", tone: "down", icon: "P" },
-];
-
-const EXCHANGE_CONNECTIONS: ExchangeConnection[] = [
-  { id: "binance", name: "Binance", type: "CEX", status: "대기", scopes: ["Spot", "Futures", "Read"], color: "amber" },
-  { id: "bybit", name: "Bybit", type: "CEX", status: "대기", scopes: ["Spot", "Perp", "Read"], color: "orange" },
-  { id: "okx", name: "OKX", type: "CEX", status: "대기", scopes: ["Spot", "Swap", "Read"], color: "slate" },
-  { id: "coinbase", name: "Coinbase", type: "CEX", status: "대기", scopes: ["Spot", "Read"], color: "blue" },
-  { id: "kraken", name: "Kraken", type: "CEX", status: "대기", scopes: ["Spot", "Trade"], color: "violet" },
-  { id: "kucoin", name: "KuCoin", type: "CEX", status: "대기", scopes: ["Spot", "Futures"], color: "emerald" },
-  { id: "bitget", name: "Bitget", type: "CEX", status: "대기", scopes: ["Perp", "Copy"], color: "cyan" },
-  { id: "gate", name: "Gate.io", type: "CEX", status: "대기", scopes: ["Spot", "Perp"], color: "rose" },
-  { id: "hyperliquid", name: "Hyperliquid", type: "DEX", status: "대기", scopes: ["Perp", "Vault"], color: "emerald" },
-  { id: "uniswap", name: "Uniswap", type: "DEX", status: "대기", scopes: ["Swap", "LP"], color: "pink" },
-  { id: "pancake", name: "PancakeSwap", type: "DEX", status: "대기", scopes: ["Swap", "LP"], color: "yellow" },
-  { id: "jupiter", name: "Jupiter", type: "DEX", status: "대기", scopes: ["Swap", "Route"], color: "green" },
-];
-
-const GUIDE_ITEMS = [
-  "거래소 연결하기",
-  "전략 생성하기",
-  "백테스트 실행하기",
-  "소액으로 드라이런 시작하기",
-];
-
-const MAIN_VIEW_TABS = [
-  { id: "easy" as const, label: "쉬운 보기", icon: Boxes },
-  { id: "advanced" as const, label: "고급 보기", icon: Network },
-  { id: "code" as const, label: "코드 보기", icon: Code2 },
-];
-
-const STRATEGY_CODE = `strategy "XRP 현물-선물 가격차" {
-  stream spot = binance.spot("XRPUSDT")
-  stream perp = binance.perp("XRPUSDT.P")
-
-  basis = (perp.price - spot.price) / spot.price * 100
-
-  when basis > 0.50 {
-    buy spot with 1000 USDT
-    short perp with 1x hedge
-  }
-
-  while position.open {
-    rebalance if exposure_gap > 0.20
-    close if basis < 0.10 or pnl < -1.00
-  }
-}`;
-
-const INITIAL_TEMPLATE = AI_STRATEGY_TEMPLATES[0];
-const INITIAL_STRATEGY_CODE = buildStrategyCodeFromTemplate(INITIAL_TEMPLATE);
-const INITIAL_EASY_VIEW = createEasyViewFromStrategyCode(INITIAL_STRATEGY_CODE, INITIAL_TEMPLATE);
-const STRATEGY_BUILDER_STORAGE_KEY = "thirdeye.strategy-builder-state.v1";
+type WorkspaceView = "create" | "library" | "portfolio";
 
 type AdvancedGraphModel = NonNullable<EasyViewAgentResult["advancedGraph"]>;
+type AdvancedToEasySafetyIssue = {
+  id: "missing-init" | "missing-kill-switch";
+  title: string;
+  description: string;
+};
+
+type PendingAdvancedToEasyRegeneration = {
+  graph: AdvancedGraphModel;
+  options: {
+    strategyName?: string;
+    switchToEasy?: boolean;
+    source?: "save" | "tab-switch";
+  };
+  issues: AdvancedToEasySafetyIssue[];
+};
+
+type CapitalVenue = {
+  key: string;
+  kind: "CEX" | "DEX";
+  label: string;
+  sourceLabel: string;
+  sinkLabel: string;
+  exchange?: string;
+  symbol?: string;
+  baseAsset?: string;
+  quoteAsset?: string;
+  side?: string;
+  chainId?: string;
+  contractAddress?: string;
+};
 
 type PersistedStrategyBuilderState = {
   version: 1;
@@ -348,8 +120,493 @@ type PersistedStrategyBuilderState = {
   agentSteps: string[];
 };
 
+function isWorkspaceNavId(value: string): value is WorkspaceView {
+  return value === "create" || value === "library" || value === "portfolio";
+}
+
 function canUseBrowserStorage() {
   return typeof window !== "undefined" && Boolean(window.localStorage);
+}
+
+function collectAdvancedNodeText(node: AdvancedGraphModel["nodes"][number]) {
+  const data = node.data && typeof node.data === "object" ? node.data as Record<string, unknown> : {};
+  return [
+    node.id,
+    node.type,
+    data.label,
+    data.name,
+    data.title,
+    data.functionName,
+    data.description,
+    data.summary,
+    data.condition,
+    data.styleType,
+  ].map((value) => String(value ?? "")).join(" ").toLowerCase();
+}
+
+function hasAdvancedGraphInit(graph: AdvancedGraphModel) {
+  return graph.nodes.some((node) => {
+    const data = node.data && typeof node.data === "object" ? node.data as Record<string, unknown> : {};
+    if (data.styleType === "dashed-init") return true;
+    return /(^|[\s_-])(init|initial|initialize|bootstrap|setup|start)([\s_-]|$)|초기|초기화|시작/.test(collectAdvancedNodeText(node));
+  });
+}
+
+function hasAdvancedGraphKillSwitch(graph: AdvancedGraphModel) {
+  return graph.nodes.some((node) => {
+    const data = node.data && typeof node.data === "object" ? node.data as Record<string, unknown> : {};
+    if (data.killSwitch === true || data.emergencyStop === true || data.circuitBreaker === true) return true;
+    return /kill\s*switch|killswitch|emergency|panic|circuit\s*breaker|manual\s*(halt|stop)|global\s*(halt|stop)|stop\s*all|halt\s*strategy|킬\s*스위치|긴급|비상|강제\s*중단|전체\s*(중단|정지|청산)/.test(collectAdvancedNodeText(node));
+  });
+}
+
+function auditAdvancedGraphForEasyView(graph: AdvancedGraphModel): AdvancedToEasySafetyIssue[] {
+  const issues: AdvancedToEasySafetyIssue[] = [];
+  if (!hasAdvancedGraphInit(graph)) {
+    issues.push({
+      id: "missing-init",
+      title: "Init / 시작 시퀀스 없음",
+      description: "초기 진입, 초기 자금 배분, 최초 상태 세팅을 담당하는 시작 단계가 보이지 않습니다.",
+    });
+  }
+  if (!hasAdvancedGraphKillSwitch(graph)) {
+    issues.push({
+      id: "missing-kill-switch",
+      title: "Kill switch / 긴급 중단 없음",
+      description: "손실 한도, 데이터 지연, 거래소 연결 이상, 수동 중단 같은 안전 종료 흐름이 보이지 않습니다.",
+    });
+  }
+  return issues;
+}
+
+function makeUniqueAdvancedId(graph: AdvancedGraphModel, preferred: string) {
+  const used = new Set([
+    ...graph.nodes.map((node) => node.id),
+    ...graph.edges.map((edge) => edge.id),
+  ]);
+  if (!used.has(preferred)) return preferred;
+  for (let index = 2; index < 1000; index += 1) {
+    const candidate = `${preferred}-${index}`;
+    if (!used.has(candidate)) return candidate;
+  }
+  return `${preferred}-${Date.now()}`;
+}
+
+function splitTradingSymbol(symbolValue: unknown) {
+  const raw = String(symbolValue ?? "").trim().toUpperCase();
+  if (!raw) return { baseAsset: "ASSET", quoteAsset: "USDT" };
+  const explicit = raw.split(/[\/:_-]/).filter(Boolean);
+  if (explicit.length >= 2) return { baseAsset: explicit[0], quoteAsset: explicit[1] };
+  const quotes = ["USDT", "USDC", "USD", "DAI", "BTC", "ETH", "KRW", "EUR"];
+  const quoteAsset = quotes.find((quote) => raw.length > quote.length && raw.endsWith(quote)) ?? "USDT";
+  return {
+    baseAsset: raw.endsWith(quoteAsset) ? raw.slice(0, -quoteAsset.length) : raw,
+    quoteAsset,
+  };
+}
+
+function formatChainLabel(chainId: unknown) {
+  const value = String(chainId ?? "").trim();
+  if (!value) return "EVM";
+  const labels: Record<string, string> = {
+    "1": "Ethereum",
+    "10": "Optimism",
+    "56": "BNB Chain",
+    "137": "Polygon",
+    "42161": "Arbitrum",
+    "8453": "Base",
+  };
+  return labels[value] ?? `Chain ${value}`;
+}
+
+function getCapitalVenueFromAction(node: AdvancedGraphModel["nodes"][number]): CapitalVenue | null {
+  if (node.type !== "actionNode" || !node.data || typeof node.data !== "object") return null;
+  const data = node.data as Record<string, unknown>;
+  const actionType = String(data.actionType ?? "").toUpperCase();
+  if (actionType === "CEX") {
+    const exchange = String(data.exchange ?? "CEX").trim() || "CEX";
+    const symbol = String(data.symbol ?? "").trim();
+    const side = String(data.side ?? "").toUpperCase();
+    const { baseAsset, quoteAsset } = splitTradingSymbol(symbol);
+    const sourceLabel = side === "BUY"
+      ? `${exchange} ${quoteAsset} 현물/가용 잔고`
+      : `${exchange} ${quoteAsset} 증거금 또는 담보 잔고`;
+    const sinkLabel = `${exchange} ${quoteAsset} 안전 잔고`;
+    return {
+      key: `cex:${exchange}:${symbol || quoteAsset}`,
+      kind: "CEX",
+      label: symbol ? `${exchange} ${symbol}` : exchange,
+      sourceLabel,
+      sinkLabel,
+      exchange,
+      symbol,
+      baseAsset,
+      quoteAsset,
+      side,
+    };
+  }
+
+  if (actionType === "DEX") {
+    const chainId = String(data.chainId ?? data.evmChain ?? "").trim();
+    const chainLabel = formatChainLabel(chainId);
+    const contractAddress = String(data.contractAddress ?? "").trim();
+    return {
+      key: `dex:${chainLabel}:${contractAddress || node.id}`,
+      kind: "DEX",
+      label: `${chainLabel} DEX`,
+      sourceLabel: `${chainLabel} 연결 지갑 / 컨트랙트 승인 자금`,
+      sinkLabel: `${chainLabel} 연결 지갑`,
+      chainId,
+      contractAddress,
+    };
+  }
+
+  return null;
+}
+
+function inferCapitalVenues(graph: AdvancedGraphModel) {
+  const byKey = new Map<string, CapitalVenue>();
+  graph.nodes.forEach((node) => {
+    if (/kill|emergency|긴급|청산|중단/.test(collectAdvancedNodeText(node))) return;
+    const venue = getCapitalVenueFromAction(node);
+    if (venue && !byKey.has(venue.key)) byKey.set(venue.key, venue);
+  });
+  return Array.from(byKey.values());
+}
+
+function getCapitalSummary(venues: CapitalVenue[]) {
+  if (venues.length === 0) {
+    return {
+      sourceSummary: "연결 거래소 또는 온체인 지갑의 전략 전용 자금",
+      sinkSummary: "전략 종료 후 안전 지갑 또는 현금성 잔고",
+    };
+  }
+  return {
+    sourceSummary: venues.map((venue) => venue.sourceLabel).join(", "),
+    sinkSummary: Array.from(new Set(venues.map((venue) => venue.sinkLabel))).join(", "),
+  };
+}
+
+function getRootStrategyGroup(graph: AdvancedGraphModel) {
+  return graph.nodes.find((node) =>
+    node.type === "groupNode" &&
+    node.data &&
+    typeof node.data === "object" &&
+    (node.data as Record<string, unknown>).styleType === "solid") ?? null;
+}
+
+function getNextSequencePosition(graph: AdvancedGraphModel, parentId?: string) {
+  const siblings = graph.nodes.filter((node) => parentId ? node.parentId === parentId : !node.parentId);
+  const maxBottom = siblings.reduce((max, node) => {
+    const height = typeof node.style === "object" && node.style && "height" in node.style ? Number(node.style.height) : 140;
+    return Math.max(max, (node.position?.y ?? 0) + (Number.isFinite(height) ? height : 140));
+  }, 40);
+  return { x: 40, y: maxBottom + 30 };
+}
+
+function getFirstActionNodeId(graph: AdvancedGraphModel) {
+  const action = graph.nodes
+    .filter((node) => node.type === "actionNode" && !/kill|emergency|긴급|청산|중단/.test(collectAdvancedNodeText(node)))
+    .sort((left, right) => (left.position?.x ?? 0) - (right.position?.x ?? 0))[0];
+  return action?.id ?? "";
+}
+
+function buildKillSwitchActions(graph: AdvancedGraphModel, groupId: string, venues: CapitalVenue[]) {
+  const targets = venues.length > 0 ? venues.slice(0, 4) : [{
+    key: "fallback",
+    kind: "CEX" as const,
+    label: "전략 자금",
+    sourceLabel: "전략 전용 자금",
+    sinkLabel: "안전 현금성 잔고",
+    exchange: "Connected Exchange",
+    symbol: "ALL/USDT",
+    baseAsset: "ALL",
+    quoteAsset: "USDT",
+    side: "BUY",
+  }];
+
+  return targets.map((venue, index) => {
+    const id = makeUniqueAdvancedId(graph, `auto-kill-action-${index + 1}`);
+    if (venue.kind === "DEX") {
+      return {
+        id,
+        type: "actionNode",
+        parentId: groupId,
+        position: { x: 560 + index * 260, y: 46 },
+        data: {
+          label: `회수: ${venue.label} 포지션을 ${venue.sinkLabel}로 정리`,
+          actionType: "DEX",
+          contractAddress: venue.contractAddress || "0x0000000000000000000000000000000000000000",
+          functionName: "emergencyExit()",
+          chainId: Number(venue.chainId) || 1,
+          inputBlocks: [{ id: "exit-plan", name: "exitPlan", type: "input" }],
+          outputBlocks: [{ id: "positions-closed", name: "positionsClosed", type: "output" }],
+          isExpanded: false,
+          killSwitch: true,
+          emergencyStop: true,
+          capitalSink: venue.sinkLabel,
+        },
+      } satisfies AdvancedGraphModel["nodes"][number];
+    }
+
+    const closeSide = venue.side === "SELL" ? "BUY" : "SELL";
+    return {
+      id,
+      type: "actionNode",
+      parentId: groupId,
+      position: { x: 560 + index * 260, y: 46 },
+      data: {
+        label: `회수: ${venue.label} 정리 후 ${venue.sinkLabel}로 모으기`,
+        actionType: "CEX",
+        exchange: venue.exchange || "Connected Exchange",
+        symbol: venue.symbol || "ALL/USDT",
+        side: closeSide,
+        orderType: "MARKET",
+        amount: "ALL",
+        amountType: "PERCENT",
+        inputBlocks: [{ id: "exit-plan", name: "exitPlan", type: "input" }],
+        outputBlocks: [{ id: "positions-closed", name: "positionsClosed", type: "output" }],
+        isExpanded: false,
+        reduceOnly: true,
+        cancelOpenOrders: true,
+        closeAllPositions: true,
+        killSwitch: true,
+        emergencyStop: true,
+        capitalSink: venue.sinkLabel,
+      },
+    } satisfies AdvancedGraphModel["nodes"][number];
+  });
+}
+
+function addCapitalSafetyScaffold(graph: AdvancedGraphModel, issues: AdvancedToEasySafetyIssue[]) {
+  const shouldAddInit = issues.some((issue) => issue.id === "missing-init") && !hasAdvancedGraphInit(graph);
+  const shouldAddKill = issues.some((issue) => issue.id === "missing-kill-switch") && !hasAdvancedGraphKillSwitch(graph);
+  if (!shouldAddInit && !shouldAddKill) return graph;
+
+  const venues = inferCapitalVenues(graph);
+  const { sourceSummary, sinkSummary } = getCapitalSummary(venues);
+  const rootGroup = getRootStrategyGroup(graph);
+  const nodes: AdvancedGraphModel["nodes"] = graph.nodes.map((node) => ({ ...node }));
+  const edges: AdvancedGraphModel["edges"] = graph.edges.map((edge) => ({ ...edge }));
+  const rootGroupId = rootGroup?.id;
+  const addedGroupIds: string[] = [];
+
+  const appendEdge = (edge: AdvancedGraphModel["edges"][number]) => {
+    edges.push({ ...edge, id: makeUniqueAdvancedId({ nodes, edges }, edge.id) });
+  };
+
+  if (shouldAddInit) {
+    const groupId = makeUniqueAdvancedId({ nodes, edges }, "auto-init");
+    const clickId = makeUniqueAdvancedId({ nodes, edges }, "auto-init-click");
+    const planId = makeUniqueAdvancedId({ nodes, edges }, "auto-init-capital-plan");
+    const groupPosition = getNextSequencePosition({ nodes, edges }, rootGroupId);
+    nodes.push({
+      id: groupId,
+      type: "groupNode",
+      parentId: rootGroupId,
+      position: groupPosition,
+      style: { width: 980, height: 170 },
+      data: {
+        label: "Init: 전략 자금 출발지 확인",
+        styleType: "dashed-init",
+        summaryWord: "자금 확인",
+        summaryGlyph: "I",
+        isCollapsed: true,
+        capitalSource: sourceSummary,
+      },
+    });
+    nodes.push({
+      id: clickId,
+      type: "clickTrigger",
+      parentId: groupId,
+      position: { x: 24, y: 62 },
+      data: {
+        label: "전략 시작 승인",
+        shortcut: null,
+        isRecording: false,
+        outputBlocks: [{ id: "click", name: "click", description: "Init 실행 승인 신호", type: "output" }],
+      },
+    });
+    nodes.push({
+      id: planId,
+      type: "functionNode",
+      parentId: groupId,
+      position: { x: 300, y: 42 },
+      data: {
+        label: "Init: 자금 출발지와 할당 확인",
+        functionName: "prepareInitialCapital()",
+        description: `전략 시작 전 자금 출발지: ${sourceSummary}`,
+        logicDescription: `시작 시점에 전략에 투입될 돈이 ${sourceSummary}에 있는지 확인하고, 각 실행 노드가 사용할 capitalReady 신호를 만듭니다.`,
+        inputBlocks: [],
+        outputBlocks: [{ id: "capital-ready", name: "capitalReady", description: sourceSummary, type: "output" }],
+        viewMode: "node",
+        capitalSource: sourceSummary,
+      },
+    });
+    appendEdge({
+      id: "auto-init-click-plan",
+      source: clickId,
+      target: planId,
+      sourceHandle: `${clickId}-block-click-out`,
+      targetHandle: `${planId}-func-in`,
+      type: "custom",
+    });
+    const firstActionId = getFirstActionNodeId({ nodes, edges });
+    if (firstActionId) {
+      appendEdge({
+        id: "auto-init-to-first-action",
+        source: planId,
+        target: firstActionId,
+        sourceHandle: `${planId}-block-capital-ready-out`,
+        targetHandle: `${firstActionId}-func-in`,
+        type: "custom",
+      });
+    }
+    addedGroupIds.push(groupId);
+  }
+
+  if (shouldAddKill) {
+    const groupId = makeUniqueAdvancedId({ nodes, edges }, "auto-kill-switch");
+    const clickId = makeUniqueAdvancedId({ nodes, edges }, "auto-kill-click");
+    const planId = makeUniqueAdvancedId({ nodes, edges }, "auto-kill-exit-plan");
+    const groupPosition = getNextSequencePosition({ nodes, edges }, rootGroupId);
+    const killActions = buildKillSwitchActions({ nodes, edges }, groupId, venues);
+    nodes.push({
+      id: groupId,
+      type: "groupNode",
+      parentId: rootGroupId,
+      position: groupPosition,
+      style: { width: Math.max(980, 620 + killActions.length * 260), height: 170 },
+      data: {
+        label: "Kill switch: 전략 자금 회수",
+        styleType: "dashed-emergency",
+        summaryWord: "회수",
+        summaryGlyph: "K",
+        isCollapsed: true,
+        killSwitch: true,
+        emergencyStop: true,
+        capitalSink: sinkSummary,
+      },
+    });
+    nodes.push({
+      id: clickId,
+      type: "clickTrigger",
+      parentId: groupId,
+      position: { x: 24, y: 62 },
+      data: {
+        label: "긴급 중단 승인",
+        shortcut: null,
+        isRecording: false,
+        outputBlocks: [{ id: "click", name: "click", description: "Kill switch 실행 승인 신호", type: "output" }],
+        killSwitch: true,
+        emergencyStop: true,
+      },
+    });
+    nodes.push({
+      id: planId,
+      type: "functionNode",
+      parentId: groupId,
+      position: { x: 300, y: 42 },
+      data: {
+        label: "Kill switch: 자금 회수 계획",
+        functionName: "prepareEmergencyExit()",
+        description: `전략 중지 시 자금 회수지: ${sinkSummary}`,
+        logicDescription: `전략에서 사용된 자금을 ${sinkSummary}로 모으도록 포지션 정리, 주문 취소, LP 회수 순서를 결정합니다.`,
+        inputBlocks: [],
+        outputBlocks: [{ id: "exit-plan", name: "exitPlan", description: sinkSummary, type: "output" }],
+        viewMode: "node",
+        killSwitch: true,
+        emergencyStop: true,
+        capitalSink: sinkSummary,
+      },
+    });
+    nodes.push(...killActions);
+    appendEdge({
+      id: "auto-kill-click-plan",
+      source: clickId,
+      target: planId,
+      sourceHandle: `${clickId}-block-click-out`,
+      targetHandle: `${planId}-func-in`,
+      type: "custom",
+    });
+    killActions.forEach((action, index) => {
+      appendEdge({
+        id: `auto-kill-plan-action-${index + 1}`,
+        source: index === 0 ? planId : killActions[index - 1].id,
+        target: action.id,
+        sourceHandle: index === 0 ? `${planId}-block-exit-plan-out` : `${killActions[index - 1].id}-success-out`,
+        targetHandle: `${action.id}-func-in`,
+        type: "custom",
+      });
+      appendEdge({
+        id: `auto-kill-plan-input-${index + 1}`,
+        source: planId,
+        target: action.id,
+        sourceHandle: `${planId}-block-exit-plan-out`,
+        targetHandle: `${action.id}-input-exit-plan-in`,
+        type: "custom",
+      });
+    });
+    addedGroupIds.push(groupId);
+  }
+
+  if (rootGroupId && addedGroupIds.length > 0) {
+    const rootIndex = nodes.findIndex((node) => node.id === rootGroupId);
+    const root = nodes[rootIndex];
+    const maxChildRight = nodes
+      .filter((node) => node.parentId === rootGroupId)
+      .reduce((max, node) => {
+        const width = typeof node.style === "object" && node.style && "width" in node.style ? Number(node.style.width) : 240;
+        return Math.max(max, (node.position?.x ?? 0) + (Number.isFinite(width) ? width : 240));
+      }, 0);
+    const maxChildBottom = nodes
+      .filter((node) => node.parentId === rootGroupId)
+      .reduce((max, node) => {
+        const height = typeof node.style === "object" && node.style && "height" in node.style ? Number(node.style.height) : 160;
+        return Math.max(max, (node.position?.y ?? 0) + (Number.isFinite(height) ? height : 160));
+      }, 0);
+    if (root && typeof root.style === "object") {
+      nodes[rootIndex] = {
+        ...root,
+        style: {
+          ...root.style,
+          width: Math.max(Number(root.style?.width) || 0, maxChildRight + 50),
+          height: Math.max(Number(root.style?.height) || 0, maxChildBottom + 50),
+        },
+      };
+    }
+  }
+
+  return { nodes, edges };
+}
+
+function buildAISafetyScaffoldPrompt(
+  graph: AdvancedGraphModel,
+  issues: AdvancedToEasySafetyIssue[],
+  strategyName: string,
+) {
+  const venues = inferCapitalVenues(graph);
+  const { sourceSummary, sinkSummary } = getCapitalSummary(venues);
+  const missingLabels = issues.map((issue) => issue.title).join(", ");
+  const venueLines = venues.length > 0
+    ? venues.map((venue) => `- ${venue.kind} ${venue.label}: source=${venue.sourceLabel}, current fallback sink=${venue.sinkLabel}`).join("\n")
+    : "- No explicit venue was detected. Infer from connected exchange/API context and existing action blocks.";
+
+  return [
+    `Revise the existing Hershy strategy "${strategyName}" by adding only the missing safety structure: ${missingLabels}.`,
+    "Preserve the existing trading logic, symbols, venues, thresholds, and execution intent. Do not rewrite the strategy into a different strategy.",
+    "Safety objective: when the strategy stops, move my assets into lower-volatility assets as safely as possible. Prefer stable/cash-like assets such as USDC, USDT, DAI, USD, or KRW. For CEX actions, cancel open orders, reduce/close strategy exposure, and settle into the safest available quote/stable balance. For DEX/on-chain actions, unwind LP/positions and swap or return residual volatile exposure into a stable token wallet when possible.",
+    "Init requirement: add an explicit Init/start sequence that checks where the strategy capital currently lives, verifies required balances/allowances/collateral, and emits a capitalReady/start-approved signal before the first execution action can use funds.",
+    "Kill switch requirement: add an explicit manual/emergency stop trigger plus fail-safe predicates for drawdown, stale data, disconnect, failed hedge, or failed order. It must route to close/cancel/reduce-only or unwind actions that collect assets into the lower-volatility destination.",
+    "Mark safety blocks with config fields such as killSwitch, emergencyStop, capitalSource, capitalSink, safeAsset, and safetyObjective so the UI can recognize them.",
+    "Before finalizing runtimeGraph, define runtimeGraph.metadata.workflowGroups. Each workflow group must have id, title, purpose, nodeIds, canAbstract, and mustStayVisibleNodeIds. Assign every runtimeGraph block to exactly one workflow either by config.workflowId or by listing it in workflowGroups[].nodeIds.",
+    "Workflow grouping rule: group semantic workflows first, then list the exact node ids inside each workflow. Do not put editable execution actions, branch decision triggers, Init approval, or Kill switch trigger/action into abstractable groups; put those ids in mustStayVisibleNodeIds or set canAbstract=false for that workflow.",
+    "Recommended workflow groups: init-capital-readiness, data-ingestion, signal-computation, decision-gating, execution, risk-monitoring, kill-switch-safe-exit. Use only the groups that fit the current strategy.",
+    `Detected capital source summary: ${sourceSummary}`,
+    `Detected current fallback sink summary: ${sinkSummary}`,
+    `Detected venues:\n${venueLines}`,
+    "Return a complete Hershy semantic strategy package with intentPlan, logicIR, and runtimeGraph. Use only connected exchanges/API context from the server. Do not invent private URLs, keys, or unverified contract addresses.",
+  ].join("\n\n");
 }
 
 function isEasyViewModel(value: unknown): value is EasyViewModel {
@@ -398,6 +655,20 @@ const EASY_SYNC_ACTION_PARAM_KEYS = [
 ] as const;
 
 const EASY_SYNC_ACTION_PARAM_KEY_SET = new Set<string>(EASY_SYNC_ACTION_PARAM_KEYS);
+const LEGACY_SEEDED_AGENT_STEPS = [
+  "기본 전략 템플릿 코드 로드",
+  "코드에서 쉬운 보기 블록과 간선을 생성",
+  "쉬운 보기에서는 CEX/DEX 실행 파라미터만 편집 가능",
+] as const;
+const DEFAULT_AGENT_STEPS = [
+  "거래소 연결 확인",
+  "AI 전략 생성 또는 템플릿 선택",
+  "쉬운 보기와 고급 보기 동기화",
+] as const;
+
+function matchesExactStepSequence(steps: string[], target: readonly string[]) {
+  return steps.length === target.length && steps.every((step, index) => step === target[index]);
+}
 
 function getAdvancedGraphActionParamValues(graph: AdvancedGraphModel) {
   const paramsByNodeId = new Map<string, Record<string, string>>();
@@ -472,12 +743,33 @@ function readPersistedStrategyBuilderState(): PersistedStrategyBuilderState | nu
     if (parsed.version !== 1 || !isEasyViewModel(parsed.easyViewModel)) return null;
 
     const advancedGraphModel = isAdvancedGraphModel(parsed.advancedGraphModel) ? parsed.advancedGraphModel : null;
+    const restoredGeneratedCode = typeof parsed.generatedCode === "string" ? parsed.generatedCode : parsed.easyViewModel.code;
+    const restoredProgramCode = typeof parsed.programCode === "string" ? parsed.programCode : "";
+    const restoredAiSummary = typeof parsed.aiSummary === "string" ? parsed.aiSummary : `AI 요약: ${parsed.easyViewModel.summary}`;
+    const restoredAgentSteps = Array.isArray(parsed.agentSteps)
+      ? parsed.agentSteps.filter((step): step is string => typeof step === "string")
+      : [];
+
+    const isLegacySeededTemplate =
+      !advancedGraphModel &&
+      restoredProgramCode === "" &&
+      restoredGeneratedCode === INITIAL_STRATEGY_CODE &&
+      parsed.easyViewModel.code === INITIAL_STRATEGY_CODE &&
+      parsed.easyViewModel.title === INITIAL_EASY_VIEW.title &&
+      parsed.easyViewModel.summary === INITIAL_EASY_VIEW.summary &&
+      restoredAiSummary === `AI 요약: ${INITIAL_EASY_VIEW.summary}` &&
+      (restoredAgentSteps.length === 0 || matchesExactStepSequence(restoredAgentSteps, LEGACY_SEEDED_AGENT_STEPS));
+
+    if (isLegacySeededTemplate) {
+      window.localStorage.removeItem(STRATEGY_BUILDER_STORAGE_KEY);
+      return null;
+    }
 
     return {
       version: 1,
       savedAt: typeof parsed.savedAt === "number" ? parsed.savedAt : Date.now(),
-      generatedCode: typeof parsed.generatedCode === "string" ? parsed.generatedCode : parsed.easyViewModel.code,
-      programCode: typeof parsed.programCode === "string" ? parsed.programCode : "",
+      generatedCode: restoredGeneratedCode,
+      programCode: restoredProgramCode,
       easyViewModel: parsed.easyViewModel,
       advancedGraphModel,
       lastSyncedAdvancedGraphSignature: advancedGraphModel
@@ -485,10 +777,8 @@ function readPersistedStrategyBuilderState(): PersistedStrategyBuilderState | nu
         : typeof parsed.lastSyncedAdvancedGraphSignature === "string"
           ? parsed.lastSyncedAdvancedGraphSignature
           : "",
-      aiSummary: typeof parsed.aiSummary === "string" ? parsed.aiSummary : `AI 요약: ${parsed.easyViewModel.summary}`,
-      agentSteps: Array.isArray(parsed.agentSteps)
-        ? parsed.agentSteps.filter((step): step is string => typeof step === "string")
-        : [],
+      aiSummary: restoredAiSummary,
+      agentSteps: restoredAgentSteps,
     };
   } catch (error) {
     console.warn("[strategyBuilder] failed to restore persisted easy view", error);
@@ -509,6 +799,23 @@ function writePersistedStrategyBuilderState(state: Omit<PersistedStrategyBuilder
   } catch (error) {
     console.warn("[strategyBuilder] failed to persist easy view", error);
   }
+}
+
+function isExchangeFormEffectivelyEmpty(form: ExchangeFormState) {
+  return ![
+    form.id,
+    form.name,
+    form.apiUrl,
+    form.wsUrl,
+    form.rpcUrl,
+    form.marketDataUrl,
+    form.apiKey,
+    form.apiSecret,
+    form.apiPassphrase,
+    form.privateKey,
+    form.funder,
+    form.chainId,
+  ].some((value) => value.trim().length > 0);
 }
 
 function stableStringify(value: unknown): string {
@@ -552,77 +859,6 @@ function createAdvancedGraphSignature(graph: AdvancedGraphModel | null | undefin
     .sort((a, b) => a.id.localeCompare(b.id));
 
   return stableStringify({ nodes, edges });
-}
-
-function Sparkline({ tone = "up" }: { tone?: "up" | "down" }) {
-  const points =
-    tone === "up"
-      ? "0,24 8,20 16,22 24,16 32,18 40,11 48,14 56,7 64,10 72,4"
-      : "0,8 8,10 16,7 24,12 32,11 40,17 48,15 56,22 64,20 72,24";
-
-  return (
-    <svg viewBox="0 0 72 28" className="h-6 w-full">
-      <polyline
-        points={points}
-        fill="none"
-        stroke={tone === "up" ? "#22c55e" : "#ef4444"}
-        strokeWidth="2"
-        strokeLinecap="round"
-        strokeLinejoin="round"
-      />
-    </svg>
-  );
-}
-
-function IconButton({
-  children,
-  title,
-  onClick,
-  active,
-}: {
-  children: ReactNode;
-  title: string;
-  onClick?: () => void;
-  active?: boolean;
-}) {
-  return (
-    <button
-      type="button"
-      title={title}
-      onClick={onClick}
-      className={cn(
-        "inline-flex h-9 w-9 items-center justify-center rounded-lg border border-transparent text-slate-600 transition-colors hover:border-slate-200 hover:bg-slate-50",
-        active && "border-violet-200 bg-violet-50 text-violet-700",
-      )}
-    >
-      {children}
-    </button>
-  );
-}
-
-function StatusBadge({ status }: { status: StrategyBlock["status"] }) {
-  const label = {
-    ready: "대기",
-    watching: "감시",
-    running: "작동",
-    complete: "완료",
-    blocked: "제한",
-  }[status];
-
-  return (
-    <span
-      className={cn(
-        "rounded-full px-2 py-0.5 text-[10px] font-bold",
-        status === "running" && "bg-emerald-100 text-emerald-700",
-        status === "watching" && "bg-blue-100 text-blue-700",
-        status === "complete" && "bg-violet-100 text-violet-700",
-        status === "blocked" && "bg-rose-100 text-rose-700",
-        status === "ready" && "bg-slate-100 text-slate-600",
-      )}
-    >
-      {label}
-    </span>
-  );
 }
 
 const AI_REASONING_LAYER_LABELS: Record<string, string> = {
@@ -694,6 +930,26 @@ function extractRuntimeProgramCode(runtime: unknown) {
   const runtimeObj = runtime && typeof runtime === "object" ? runtime as Record<string, unknown> : null;
   const programCode = runtimeObj?.programCode || runtimeObj?.generatedGoCode;
   return typeof programCode === "string" ? programCode : "";
+}
+
+function parseStrategyGraphCode(code: string): StrategyGraphPayload | null {
+  const trimmed = code.trim();
+  if (!trimmed.startsWith("{")) return null;
+  try {
+    const parsed = JSON.parse(trimmed) as StrategyGraphPayload;
+    if (
+      parsed &&
+      typeof parsed === "object" &&
+      parsed.kind === "hershy-strategy-graph" &&
+      Array.isArray(parsed.blocks) &&
+      Array.isArray(parsed.connections)
+    ) {
+      return parsed;
+    }
+  } catch {
+    return null;
+  }
+  return null;
 }
 
 function formatAILogicErrorLog(value: unknown) {
@@ -792,35 +1048,30 @@ export default function Page() {
   const [openTabs, setOpenTabs] = useState<string[]>([]);
   const [activeTabId, setActiveTabId] = useState<string | null>(null);
   const [snapshots, setSnapshots] = useState<HistorySnapshot[]>([]);
+  const [activeWorkspace, setActiveWorkspace] = useState<WorkspaceView>("create");
   const [mainView, setMainView] = useState<MainView>("easy");
   const [detailTab, setDetailTab] = useState<DetailTab>("params");
   const [selectedBlockId, setSelectedBlockId] = useState("spot-buy");
-  const [exchangeTab, setExchangeTab] = useState<ExchangeTab>("binance");
+  const [exchangeTab, setExchangeTab] = useState<ExchangeTab>(EXCHANGE_CONNECTIONS[0]?.id ?? "binance");
   const [planTier, setPlanTier] = useState<PlanTier>("pro");
   const [marketRows, setMarketRows] = useState<MarketRow[]>(MARKET_ROWS);
   const [marketUpdatedAt, setMarketUpdatedAt] = useState("");
   const [marketWarning, setMarketWarning] = useState("");
   const [exchangeConnections, setExchangeConnections] = useState<ExchangeConnection[]>(EXCHANGE_CONNECTIONS);
-  const [exchangeForm, setExchangeForm] = useState({
-    id: "",
-    name: "",
-    type: "CEX" as ExchangeConnection["type"],
-    apiUrl: "",
-    wsUrl: "",
-    rpcUrl: "",
-    marketDataUrl: "",
-    apiKey: "",
-    apiSecret: "",
-    scopes: "Spot,Futures,Trade",
-  });
+  const [exchangeForm, setExchangeForm] = useState<ExchangeFormState>(createEmptyExchangeForm);
   const [isSavingExchange, setIsSavingExchange] = useState(false);
   const [isTestingExchangeAuth, setIsTestingExchangeAuth] = useState(false);
-  const [exchangeAuthMarket, setExchangeAuthMarket] = useState<"spot" | "futures">("spot");
+  const [exchangeAuthMarket] = useState<"spot" | "futures">("spot");
   const [exchangeAuthMessage, setExchangeAuthMessage] = useState("");
   const [exchangeFormError, setExchangeFormError] = useState("");
+  const [clientUserName, setClientUserName] = useState("Guest");
+  const [isPersonalLoggedIn, setIsPersonalLoggedIn] = useState(false);
+  const [loginInput, setLoginInput] = useState("");
+  const [loginError, setLoginError] = useState("");
   const [guideDone, setGuideDone] = useState<Set<number>>(new Set([0]));
   const [isGuideOpen, setIsGuideOpen] = useState(false);
   const [isExchangeLibraryOpen, setIsExchangeLibraryOpen] = useState(false);
+  const [isUserSettingsOpen, setIsUserSettingsOpen] = useState(false);
   const [guideStep, setGuideStep] = useState(0);
   const [isSummarizing, setIsSummarizing] = useState(false);
   const [isAgentRunning, setIsAgentRunning] = useState(false);
@@ -834,21 +1085,21 @@ export default function Page() {
     },
   ]);
   const [agentActivities, setAgentActivities] = useState<AgentActivity[]>([]);
-  const [generatedCode, setGeneratedCode] = useState(INITIAL_STRATEGY_CODE);
+  const [generatedCode, setGeneratedCode] = useState("");
   const [programCode, setProgramCode] = useState("");
-  const [easyViewModel, setEasyViewModel] = useState<EasyViewModel>(INITIAL_EASY_VIEW);
+  const [programCodeError, setProgramCodeError] = useState("");
+  const [isGeneratingProgramCode, setIsGeneratingProgramCode] = useState(false);
+  const [easyViewModel, setEasyViewModel] = useState<EasyViewModel>(EMPTY_EASY_VIEW);
   const [advancedGraphModel, setAdvancedGraphModel] = useState<NonNullable<EasyViewAgentResult["advancedGraph"]> | null>(null);
   const [advancedGraphVersion, setAdvancedGraphVersion] = useState(0);
   const [lastSyncedAdvancedGraphSignature, setLastSyncedAdvancedGraphSignature] = useState("");
   const [isAdvancedSyncPromptOpen, setIsAdvancedSyncPromptOpen] = useState(false);
+  const [pendingAdvancedToEasyRegeneration, setPendingAdvancedToEasyRegeneration] =
+    useState<PendingAdvancedToEasyRegeneration | null>(null);
   const [isRegeneratingEasyView, setIsRegeneratingEasyView] = useState(false);
-  const [agentSteps, setAgentSteps] = useState<string[]>([
-    "기본 전략 템플릿 코드 로드",
-    "코드에서 쉬운 보기 블록과 간선을 생성",
-    "쉬운 보기에서는 CEX/DEX 실행 파라미터만 편집 가능",
-  ]);
+  const [agentSteps, setAgentSteps] = useState<string[]>(() => [...DEFAULT_AGENT_STEPS]);
   const [aiSummary, setAiSummary] = useState(
-    `AI 요약: ${INITIAL_EASY_VIEW.summary}`,
+    `AI 요약: ${EMPTY_EASY_VIEW.summary}`,
   );
   const [paramValues, setParamValues] = useState<Record<string, string>>(() => {
     const entries = STRATEGY_BLOCKS.flatMap((block) =>
@@ -857,21 +1108,104 @@ export default function Page() {
     return Object.fromEntries(entries);
   });
   const templatePanelCloseTimer = useRef<number | null>(null);
+  const agentAbortControllerRef = useRef<AbortController | null>(null);
   const strategyPersistenceReadyRef = useRef(false);
   const isRestoringStrategyStateRef = useRef(false);
   const switchToEasyAfterAdvancedSaveRef = useRef(false);
+  const programCodeRequestRef = useRef("");
   const connectedExchangeCount = exchangeConnections.filter((item) => item.status === "연결됨").length;
   const selectedExchange = exchangeConnections.find((item) => item.id === exchangeTab) ?? exchangeConnections[0];
-  const hasExchangeExecutionUrl = Boolean(exchangeForm.apiUrl.trim() || exchangeForm.rpcUrl.trim());
+  const hasExchangeExecutionUrl = Boolean(
+    exchangeForm.apiUrl.trim() ||
+    exchangeForm.rpcUrl.trim() ||
+    selectedExchange?.apiUrl ||
+    selectedExchange?.restUrl ||
+    selectedExchange?.rpcUrl,
+  );
+  const selectedExchangeName = selectedExchange?.name || DEFAULT_CEX_TRADE_EXCHANGE;
   const selectedExchangeCredentials = selectedExchange?.credentials;
-  const canTestBinanceAuth = Boolean(
+  const isSelectedExchangePolymarket = Boolean(
     selectedExchange &&
-    /binance/i.test(`${selectedExchange.id} ${selectedExchange.name}`) &&
-    selectedExchangeCredentials?.hasApiKey &&
-    selectedExchangeCredentials?.hasApiSecret,
+    /polymarket/i.test(`${selectedExchange.id} ${selectedExchange.name}`),
+  );
+  const isSelectedExchangeOKX = Boolean(
+    selectedExchange &&
+    /okx/i.test(`${selectedExchange.id} ${selectedExchange.name}`),
+  );
+  const isSelectedExchangeBinance = Boolean(
+    selectedExchange &&
+    /binance/i.test(`${selectedExchange.id} ${selectedExchange.name}`),
+  );
+  const hasPendingBinanceCredentialInput = Boolean(exchangeForm.apiKey.trim() || exchangeForm.apiSecret.trim());
+  const hasResolvableBinanceCredentialPair = Boolean(
+    (exchangeForm.apiKey.trim() || selectedExchangeCredentials?.hasApiKey)
+    && (exchangeForm.apiSecret.trim() || selectedExchangeCredentials?.hasApiSecret),
+  );
+  const canTestBinanceAuth = Boolean(
+    isSelectedExchangeBinance &&
+    hasResolvableBinanceCredentialPair,
+  );
+  const isCreateWorkspace = activeWorkspace === "create";
+  const generatedStrategyGraph = useMemo(() => parseStrategyGraphCode(generatedCode), [generatedCode]);
+  const generatedStrategyGraphSignature = useMemo(
+    () => (generatedStrategyGraph ? stableStringify(generatedStrategyGraph) : ""),
+    [generatedStrategyGraph],
+  );
+  const codeViewContent = programCode || generatedCode;
+  const codeViewTitle = programCode
+    ? "Hershy generated_strategy.go"
+    : generatedStrategyGraph
+      ? "Hershy Strategy Graph"
+      : "Hershy Strategy Code";
+  const codeViewStatus = isGeneratingProgramCode
+    ? "generating program"
+    : programCode
+      ? "program"
+      : generatedStrategyGraph
+        ? "graph"
+        : "source";
+
+  const generateRuntimeProgramCode = useCallback(
+    async (options?: { force?: boolean }) => {
+      if (!generatedStrategyGraph || isGeneratingProgramCode) return false;
+      if (programCode.trim() && !options?.force) return true;
+      if (generatedStrategyGraphSignature && programCodeRequestRef.current === generatedStrategyGraphSignature && !options?.force) {
+        return false;
+      }
+
+      programCodeRequestRef.current = generatedStrategyGraphSignature;
+      setIsGeneratingProgramCode(true);
+      setProgramCodeError("");
+      try {
+        const response = await fetch("/api/strategy/runtime-artifacts", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ strategy: generatedStrategyGraph }),
+        });
+        const payload = await response.json().catch(() => null);
+        if (!response.ok) {
+          const issues = Array.isArray(payload?.validation?.issues) && payload.validation.issues.length > 0
+            ? `: ${payload.validation.issues.slice(0, 3).join(" / ")}`
+            : "";
+          throw new Error(`${payload?.message || payload?.error || "Hershy program generation failed"}${issues}`);
+        }
+        const nextProgramCode = extractRuntimeProgramCode(payload?.runtime);
+        if (!nextProgramCode) {
+          throw new Error("runtime response did not include generated_strategy.go");
+        }
+        setProgramCode(nextProgramCode);
+        return true;
+      } catch (error) {
+        setProgramCodeError(error instanceof Error ? error.message : "Hershy program generation failed");
+        return false;
+      } finally {
+        setIsGeneratingProgramCode(false);
+      }
+    },
+    [generatedStrategyGraph, generatedStrategyGraphSignature, isGeneratingProgramCode, programCode],
   );
 
-  const loadMarketOverview = async () => {
+  const loadMarketOverview = useCallback(async () => {
     try {
       const response = await fetch("/api/market/overview", { cache: "no-store" });
       const data = await response.json().catch(() => null);
@@ -882,11 +1216,14 @@ export default function Page() {
     } catch (error) {
       setMarketWarning(error instanceof Error ? error.message : "시장 데이터 로딩 실패");
     }
-  };
+  }, []);
 
-  const loadExchangeConnections = async () => {
+  const loadExchangeConnections = useCallback(async () => {
     try {
-      const response = await fetch("/api/exchange-connections", { cache: "no-store" });
+      const response = await fetch("/api/exchange-connections", {
+        cache: "no-store",
+        headers: withUserContextHeaders(),
+      });
       const data = await response.json().catch(() => null);
       if (!response.ok) throw new Error(String(data?.message || "거래소 연결 정보를 불러오지 못했습니다."));
       const connections = Array.isArray(data?.connections) ? data.connections as ExchangeConnection[] : EXCHANGE_CONNECTIONS;
@@ -897,58 +1234,106 @@ export default function Page() {
     } catch {
       setExchangeConnections(EXCHANGE_CONNECTIONS);
     }
+  }, [exchangeTab]);
+
+  const handlePersonalLogin = async (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    setLoginError("");
+    try {
+      const profile = loginClientUser(loginInput);
+      setClientUserName(profile.displayName);
+      setIsPersonalLoggedIn(profile.isLoggedIn);
+      setIsUserSettingsOpen(false);
+      setExchangeForm(createEmptyExchangeForm());
+      setExchangeAuthMessage(`${profile.displayName} 계정으로 전환했습니다.`);
+      setExchangeFormError("");
+      await loadExchangeConnections();
+    } catch {
+      setLoginError("이름이나 이메일을 입력해 주세요.");
+    }
   };
 
-  const saveExchangeConnection = async () => {
+  const handlePersonalLogout = async () => {
+    const profile = logoutClientUser();
+    setClientUserName(profile.displayName);
+    setIsPersonalLoggedIn(profile.isLoggedIn);
+    setLoginInput("");
+    setLoginError("");
+    setIsUserSettingsOpen(false);
+    setExchangeForm(createEmptyExchangeForm());
+    setExchangeAuthMessage("게스트 세션으로 전환했습니다.");
+    setExchangeFormError("");
+    await loadExchangeConnections();
+  };
+
+  const openUserSettings = () => {
+    setLoginInput(isPersonalLoggedIn ? clientUserName : "");
+    setLoginError("");
+    setIsUserSettingsOpen(true);
+  };
+
+  const handleCancelAgentRun = useCallback(() => {
+    agentAbortControllerRef.current?.abort();
+  }, []);
+
+  const persistExchangeConnection = async (options?: { successMessage?: string | null }) => {
     if (!exchangeForm.name.trim()) {
       setExchangeFormError("거래소 이름을 입력하세요.");
-      return;
+      return null;
     }
     if (!hasExchangeExecutionUrl) {
-      setExchangeFormError("AI 전략 생성에는 REST API URL 또는 RPC URL이 필요합니다. WSS는 시세 수신용 보조 URL로만 사용됩니다.");
-      return;
+      setExchangeFormError("선택한 거래소의 실행 API 기본값을 찾지 못했습니다.");
+      return null;
     }
     setIsSavingExchange(true);
     setExchangeFormError("");
     try {
       const response = await fetch("/api/exchange-connections", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(exchangeForm),
+        headers: withUserContextHeaders({ "Content-Type": "application/json" }),
+        body: JSON.stringify(withUserContextPayload(exchangeForm)),
       });
       const data = await response.json().catch(() => null);
       if (!response.ok) throw new Error(String(data?.message || "거래소 연결 저장 실패"));
       const connections = Array.isArray(data?.connections) ? data.connections as ExchangeConnection[] : exchangeConnections;
       setExchangeConnections(connections);
       if (data?.connection?.id) setExchangeTab(data.connection.id);
-      setExchangeForm({
-        id: "",
-        name: "",
-        type: "CEX",
-        apiUrl: "",
-        wsUrl: "",
-        rpcUrl: "",
-        marketDataUrl: "",
-        apiKey: "",
-        apiSecret: "",
-        scopes: "Spot,Futures,Trade",
-      });
-      setExchangeAuthMessage("연결 정보를 저장했습니다. Binance 키가 있으면 서명 테스트를 실행할 수 있습니다.");
+      const nextSelected = connections.find((item) => item.id === data?.connection?.id) || data?.connection || selectedExchange || null;
+      setExchangeForm(buildExchangeFormFromConnection(nextSelected as ExchangeConnection | null));
+      if (options?.successMessage !== null) {
+        setExchangeAuthMessage(options?.successMessage || "연결 정보를 저장했습니다.");
+      }
       setGuideDone((prev) => new Set([...prev, 0]));
+      return {
+        connection: (nextSelected as ExchangeConnection | null) || null,
+        connections,
+      };
     } catch (error) {
       setExchangeFormError(error instanceof Error ? error.message : "거래소 연결 저장 실패");
       setAgentMessages((prev) => [
         ...prev,
         { role: "ai", text: `거래소 연결 저장 실패: ${error instanceof Error ? error.message : "unknown error"}` },
       ]);
+      return null;
     } finally {
       setIsSavingExchange(false);
     }
   };
 
+  const saveExchangeConnection = async () => {
+    await persistExchangeConnection({
+      successMessage: "연결 정보를 저장했습니다.",
+    });
+  };
+
   const testBinanceAuth = async () => {
-    if (!selectedExchange?.id) {
-      setExchangeAuthMessage("먼저 Binance 연결을 선택하세요.");
+    const selectedExchangeId = selectedExchange?.id || exchangeForm.id.trim();
+    if (!selectedExchangeId) {
+      setExchangeAuthMessage("먼저 연결을 선택하세요.");
+      return;
+    }
+    if (!isSelectedExchangeBinance) {
+      setExchangeAuthMessage("현재 서명 테스트는 Binance 연결에서만 지원합니다.");
       return;
     }
     if (!canTestBinanceAuth) {
@@ -956,13 +1341,25 @@ export default function Page() {
       return;
     }
 
+    let connectionIdForTest = selectedExchangeId;
+    if (hasPendingBinanceCredentialInput) {
+      const saved = await persistExchangeConnection({ successMessage: null });
+      if (!saved?.connection?.id) {
+        return;
+      }
+      connectionIdForTest = saved.connection.id;
+      setExchangeAuthMessage("연결 정보를 저장한 뒤 Binance 서명 테스트를 시작합니다.");
+    }
+
     setIsTestingExchangeAuth(true);
-    setExchangeAuthMessage("");
+    if (!hasPendingBinanceCredentialInput) {
+      setExchangeAuthMessage("");
+    }
     try {
-      const response = await fetch(`/api/exchange-connections/${encodeURIComponent(selectedExchange.id)}/binance-auth-test`, {
+      const response = await fetch(`/api/exchange-connections/${encodeURIComponent(connectionIdForTest)}/binance-auth-test`, {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ market: exchangeAuthMarket }),
+        headers: withUserContextHeaders({ "Content-Type": "application/json" }),
+        body: JSON.stringify(withUserContextPayload({ market: exchangeAuthMarket })),
       });
       const data = await response.json().catch(() => null);
       if (!response.ok) throw new Error(String(data?.message || "Binance 서명 테스트 실패"));
@@ -980,6 +1377,23 @@ export default function Page() {
       setIsTestingExchangeAuth(false);
     }
   };
+
+  useEffect(() => {
+    const profile = getClientUserProfile();
+    setClientUserName(profile.displayName);
+    setIsPersonalLoggedIn(profile.isLoggedIn);
+    setLoginInput(profile.isLoggedIn ? profile.displayName : "");
+  }, []);
+
+  useEffect(() => {
+    if (!selectedExchange) return;
+    setExchangeForm((prev) => {
+      if (!isExchangeFormEffectivelyEmpty(prev)) {
+        return prev;
+      }
+      return buildExchangeFormFromConnection(selectedExchange);
+    });
+  }, [selectedExchange]);
 
   useEffect(() => {
     setOpenTabs(historyStore.getOpenTabs());
@@ -1002,6 +1416,7 @@ export default function Page() {
       if (templatePanelCloseTimer.current) {
         window.clearTimeout(templatePanelCloseTimer.current);
       }
+      agentAbortControllerRef.current?.abort();
     };
   }, []);
 
@@ -1062,7 +1477,12 @@ export default function Page() {
       void loadMarketOverview();
     }, 30_000);
     return () => window.clearInterval(timer);
-  }, []);
+  }, [loadExchangeConnections, loadMarketOverview]);
+
+  useEffect(() => {
+    if (mainView !== "code" || programCode.trim() || !generatedStrategyGraph) return;
+    void generateRuntimeProgramCode();
+  }, [generateRuntimeProgramCode, generatedStrategyGraph, mainView, programCode]);
 
   const activeSnapshot = useMemo(
     () => snapshots.find((snapshot) => snapshot.id === activeTabId) ?? null,
@@ -1105,6 +1525,59 @@ export default function Page() {
   const handleSave = () => {
     window.dispatchEvent(new CustomEvent("saveHistorySnapshot"));
   };
+
+  const handleCreateTemplateDraft = useCallback(() => {
+    const fallbackName =
+      easyViewModel.title && easyViewModel.title !== EMPTY_EASY_VIEW.title
+        ? easyViewModel.title
+        : "새 전략 템플릿";
+    historyStore.createEmptyStrategy(null, fallbackName);
+  }, [easyViewModel.title]);
+
+  const handleCreateBranchDraft = useCallback(() => {
+    const graph = activeAdvancedGraph ?? advancedGraphModel;
+    const activeId = historyStore.getActiveId();
+
+    if (!activeId) {
+      const draft = historyStore.createEmptyStrategy(null, easyViewModel.title || "새 전략 템플릿");
+      if (draft && graph && graph.nodes.length > 0) {
+        historyStore.updateActiveSnapshot(graph.nodes, graph.edges);
+      }
+      return;
+    }
+
+    historyStore.createBranchDraft(activeId);
+  }, [activeAdvancedGraph, advancedGraphModel, easyViewModel.title]);
+
+  const handleSaveTemplateVersion = useCallback(() => {
+    const graph = activeAdvancedGraph ?? advancedGraphModel;
+
+    if (!historyStore.getActiveId()) {
+      const draft = historyStore.createEmptyStrategy(null, easyViewModel.title || "새 전략 템플릿");
+      if (draft && graph && graph.nodes.length > 0) {
+        historyStore.updateActiveSnapshot(graph.nodes, graph.edges);
+      }
+      return;
+    }
+
+    if (graph && graph.nodes.length > 0) {
+      historyStore.saveSnapshot(graph.nodes, graph.edges);
+      return;
+    }
+
+    window.dispatchEvent(new CustomEvent("saveHistorySnapshot"));
+  }, [activeAdvancedGraph, advancedGraphModel, easyViewModel.title]);
+
+  const handleSaveCurrentEasyBlock = useCallback((node: EasyViewNode) => {
+    handleSaveTemplateVersion();
+    setAgentMessages((prev) => [
+      ...prev,
+      {
+        role: "ai",
+        text: `${node.title || "선택한 블록"} 기준으로 현재 전략 버전을 저장했습니다. 버전 타임라인에서 이 시점의 쉬운 보기와 고급 보기 노드를 다시 볼 수 있어요.`,
+      },
+    ]);
+  }, [handleSaveTemplateVersion]);
 
   const handleMainViewChange = (nextView: MainView) => {
     if (nextView === mainView) return;
@@ -1210,10 +1683,29 @@ export default function Page() {
   );
 
   const regenerateEasyViewFromAdvancedGraph = useCallback(
-    (graph: AdvancedGraphModel, options?: { strategyName?: string; switchToEasy?: boolean; source?: "save" | "tab-switch" }) => {
+    (graph: AdvancedGraphModel, options?: {
+      strategyName?: string;
+      switchToEasy?: boolean;
+      source?: "save" | "tab-switch";
+      bypassSafetyPrompt?: boolean;
+    }) => {
       if (!graph.nodes.some((node) => node.type !== "groupNode")) return false;
 
       const strategyName = options?.strategyName || activeSnapshot?.name || easyViewModel.title || "고급 보기 수정 전략";
+      const safetyIssues = auditAdvancedGraphForEasyView(graph);
+      if (safetyIssues.length > 0 && !options?.bypassSafetyPrompt) {
+        setPendingAdvancedToEasyRegeneration({
+          graph,
+          options: {
+            strategyName,
+            switchToEasy: options?.switchToEasy,
+            source: options?.source,
+          },
+          issues: safetyIssues,
+        });
+        return false;
+      }
+
       const signature = createAdvancedGraphSignature(graph);
       setIsRegeneratingEasyView(true);
       setAgentActivities([
@@ -1313,6 +1805,314 @@ export default function Page() {
     [activeSnapshot?.name, easyViewModel.title],
   );
 
+  const runAISafetyScaffoldFromAdvancedGraph = useCallback(
+    async (
+      graph: AdvancedGraphModel,
+      issues: AdvancedToEasySafetyIssue[],
+      options?: {
+        strategyName?: string;
+        switchToEasy?: boolean;
+        source?: "save" | "tab-switch";
+      },
+    ) => {
+      if (isAgentRunning) return false;
+
+      const strategyName = options?.strategyName || activeSnapshot?.name || easyViewModel.title || "고급 보기 수정 전략";
+      const strategyGraph = advancedGraphToStrategyGraph(graph, strategyName);
+      const prompt = buildAISafetyScaffoldPrompt(graph, issues, strategyName);
+      const safetyPolicy = {
+        objective: "move_strategy_assets_to_lower_volatility_assets_on_stop",
+        preferredSafeAssets: ["USDC", "USDT", "DAI", "USD", "KRW"],
+        detectedCapital: getCapitalSummary(inferCapitalVenues(graph)),
+        missingSafety: issues.map((issue) => issue.id),
+      };
+
+      setIsRegeneratingEasyView(true);
+      setIsAgentRunning(true);
+      const initialActivity: AgentActivity = {
+        id: "ai-safety-scaffold",
+        status: "running",
+        stage: "ai-safety-scaffold",
+        label: "AI가 Init / Kill switch 안전 구조 설계",
+        timestamp: new Date().toISOString(),
+      };
+      setAgentActivities([initialActivity]);
+      setAgentSteps([initialActivity.label]);
+      setAgentMessages((prev) => [
+        ...prev,
+        {
+          role: "user",
+          text: "고급 보기의 Init / Kill switch를 AI가 자금 출발지와 안전자산 회수 기준으로 보강",
+        },
+      ]);
+
+      const controller = new AbortController();
+      agentAbortControllerRef.current = controller;
+
+      try {
+        if (connectedExchangeCount === 0) {
+          throw new Error("AI 안전 구조 생성을 위해서는 거래소 연결 탭에 REST API URL 또는 RPC URL이 하나 이상 필요합니다.");
+        }
+
+        const appendAgentActivity = (rawActivity: unknown) => {
+          const activity = normalizeAgentActivities([rawActivity])[0];
+          if (!activity) return;
+          setAgentActivities((prev) => {
+            const next = [...prev.filter((item) => item.id !== activity.id), activity].slice(-80);
+            setAgentSteps(agentStepsFromActivities(next));
+            return next;
+          });
+        };
+
+        const response = await fetch("/api/ai/strategy-draft-stream", {
+          method: "POST",
+          headers: withUserContextHeaders({ "Content-Type": "application/json" }),
+          signal: controller.signal,
+          body: JSON.stringify(withUserContextPayload({
+            prompt,
+            current_strategy: {
+              code: strategyGraphToCode(strategyGraph),
+              runtimeGraph: strategyGraph,
+              safetyPolicy,
+              easyView: {
+                title: easyViewModel.title,
+                summary: easyViewModel.summary,
+                nodes: easyViewModel.nodes.map((node) => ({
+                  id: node.id,
+                  title: node.title,
+                  kind: node.kind,
+                })),
+              },
+            },
+          })),
+        });
+
+        if (!response.ok) {
+          const errorData = await response.json().catch(() => null);
+          throw new Error(
+            `${String(errorData?.message || errorData?.error || `AI 안전 구조 요청 실패 (${response.status})`)}${formatAILogicErrorLog(errorData?.logicErrorLog)}`,
+          );
+        }
+        if (!response.body) {
+          throw new Error("AI 안전 구조 생성 진행 스트림을 열 수 없습니다.");
+        }
+
+        const reader = response.body.getReader();
+        const decoder = new TextDecoder();
+        let buffer = "";
+        let data: any = null;
+        let streamError = "";
+
+        while (true) {
+          const { value, done } = await reader.read();
+          if (value) {
+            buffer += decoder.decode(value, { stream: !done });
+            const parsed = parseAgentEventBuffer(buffer);
+            buffer = parsed.remainder;
+            for (const item of parsed.events) {
+              if (item.event === "progress" || item.event === "done") {
+                appendAgentActivity(item.data);
+              } else if (item.event === "result") {
+                data = item.data;
+              } else if (item.event === "error") {
+                const payload = item.data && typeof item.data === "object" ? item.data as Record<string, unknown> : {};
+                streamError = `${typeof payload.message === "string" ? payload.message : "AI 안전 구조 스트림 오류"}${formatAILogicErrorLog(payload.logicErrorLog)}`;
+                appendAgentActivity(item.data);
+              }
+            }
+          }
+          if (done) break;
+        }
+
+        if (buffer.trim()) {
+          for (const item of parseAgentEventBuffer(`${buffer}\n\n`).events) {
+            if (item.event === "progress" || item.event === "done") appendAgentActivity(item.data);
+            if (item.event === "result") data = item.data;
+            if (item.event === "error") {
+              const payload = item.data && typeof item.data === "object" ? item.data as Record<string, unknown> : {};
+              streamError = `${typeof payload.message === "string" ? payload.message : "AI 안전 구조 스트림 오류"}${formatAILogicErrorLog(payload.logicErrorLog)}`;
+              appendAgentActivity(item.data);
+            }
+          }
+        }
+
+        if (streamError) {
+          throw new Error(streamError);
+        }
+        if (!data?.strategy?.blocks || !data?.strategy?.connections) {
+          throw new Error("AI 응답에 strategy graph가 없습니다.");
+        }
+
+        const result = runEasyViewGraphAgentLoop(data.strategy, prompt);
+        const advancedGraph = result.advancedGraph;
+        if (!advancedGraph || advancedGraph.nodes.length === 0) {
+          throw new Error("AI 안전 구조를 고급 보기 그래프로 변환하지 못했습니다.");
+        }
+
+        const remainingIssues = auditAdvancedGraphForEasyView(advancedGraph);
+        if (remainingIssues.length > 0) {
+          throw new Error(`AI 응답에 아직 안전 구조가 부족합니다: ${remainingIssues.map((issue) => issue.title).join(", ")}`);
+        }
+
+        setGeneratedCode(result.code);
+        setProgramCode(extractRuntimeProgramCode(data.runtime));
+        setEasyViewModel(result.easyView);
+        setAdvancedGraphModel(advancedGraph);
+        setAdvancedGraphVersion((version) => version + 1);
+        setLastSyncedAdvancedGraphSignature(createAdvancedGraphSignature(advancedGraph));
+        setAgentSteps([
+          "AI 안전 구조 생성",
+          "변동성 낮은 자산으로 회수하는 Kill switch 반영",
+          ...result.steps,
+        ]);
+        setAiSummary(`AI 요약: ${result.easyView.summary}`);
+        setAgentActivities((prev) => {
+          const next = [
+            ...prev.filter((item) => item.id !== initialActivity.id && item.id !== "easy-view-regenerated"),
+            {
+              ...initialActivity,
+              status: "complete",
+              label: "AI Init / Kill switch 안전 구조 생성 완료",
+            },
+            {
+              id: "easy-view-regenerated",
+              status: "complete",
+              stage: "easy-view-regenerated",
+              label: "쉬운 보기 재생성 완료",
+              timestamp: new Date().toISOString(),
+            },
+          ];
+          setAgentSteps(agentStepsFromActivities(next));
+          return next;
+        });
+
+        if (!historyStore.getActiveId()) {
+          historyStore.createEmptyStrategy(null, result.easyView.title);
+        } else {
+          historyStore.updateSnapshotName(historyStore.getActiveId()!, result.easyView.title);
+        }
+        historyStore.updateActiveSnapshot(advancedGraph.nodes, advancedGraph.edges);
+        window.dispatchEvent(
+          new CustomEvent("loadSnapshot", {
+            detail: {
+              nodes: advancedGraph.nodes,
+              edges: advancedGraph.edges,
+            },
+          }),
+        );
+        window.dispatchEvent(new CustomEvent("runAutoLayout"));
+
+        setAgentMessages((prev) => [
+          ...prev,
+          {
+            role: "ai",
+            text: `${data.message || "AI safety scaffold generated"}\nprovider: ${data.providers?.strategy || data.providers?.orchestrator || data.provider || "unknown"} / model: ${data.model || data.models?.strategy || "unknown"}\n\nInit은 전략 자금의 출발지를 확인하고, Kill switch는 전략 자산을 변동성이 낮은 자산으로 회수하도록 설계했습니다.${formatAIRuntimeResult(data.validation, data.runtime)}${formatAIReasoningTrace(data.reasoning)}`,
+          },
+        ]);
+
+        if (options?.switchToEasy) {
+          setMainView("easy");
+        }
+        return true;
+      } catch (error) {
+        const message = error instanceof Error ? error.message : "AI 안전 구조 생성 실패";
+        setAgentActivities((prev) => [
+          ...prev,
+          {
+            id: "ai-safety-scaffold-failed",
+            status: "error",
+            stage: "ai-safety-scaffold-failed",
+            label: message,
+            timestamp: new Date().toISOString(),
+          },
+        ]);
+        setAgentMessages((prev) => [
+          ...prev,
+          {
+            role: "ai",
+            text: `AI 안전 구조 생성에 실패해서 로컬 기본 안전 구조로 보강합니다: ${message}`,
+          },
+        ]);
+        return false;
+      } finally {
+        agentAbortControllerRef.current = null;
+        setIsAgentRunning(false);
+        setIsRegeneratingEasyView(false);
+      }
+    },
+    [activeSnapshot?.name, connectedExchangeCount, easyViewModel, isAgentRunning],
+  );
+
+  const handleCancelAdvancedToEasySafetyPrompt = useCallback(() => {
+    setPendingAdvancedToEasyRegeneration(null);
+    switchToEasyAfterAdvancedSaveRef.current = false;
+  }, []);
+
+  const handleConfirmAdvancedToEasySafetyPrompt = useCallback(async () => {
+    const pending = pendingAdvancedToEasyRegeneration;
+    if (!pending) return;
+    setPendingAdvancedToEasyRegeneration(null);
+    switchToEasyAfterAdvancedSaveRef.current = false;
+    const aiHandled = await runAISafetyScaffoldFromAdvancedGraph(pending.graph, pending.issues, pending.options);
+    if (aiHandled) return;
+    const graphWithSafetyScaffold = addCapitalSafetyScaffold(pending.graph, pending.issues);
+    if (graphWithSafetyScaffold !== pending.graph && historyStore.getActiveId()) {
+      historyStore.updateActiveSnapshot(graphWithSafetyScaffold.nodes, graphWithSafetyScaffold.edges);
+    }
+    regenerateEasyViewFromAdvancedGraph(graphWithSafetyScaffold, {
+      ...pending.options,
+      bypassSafetyPrompt: true,
+    });
+  }, [
+    pendingAdvancedToEasyRegeneration,
+    regenerateEasyViewFromAdvancedGraph,
+    runAISafetyScaffoldFromAdvancedGraph,
+  ]);
+
+  const handleCheckoutTemplate = useCallback(
+    (snapshotId: string) => {
+      const snapshot = snapshots.find((item) => item.id === snapshotId);
+      if (!snapshot) return;
+
+      const graph: AdvancedGraphModel = {
+        nodes: snapshot.nodes as AdvancedGraphModel["nodes"],
+        edges: snapshot.edges as AdvancedGraphModel["edges"],
+      };
+
+      historyStore.setActiveId(snapshotId);
+
+      if (graph.nodes.length > 0) {
+        const nextSignature = createAdvancedGraphSignature(graph);
+        const restored =
+          nextSignature === lastSyncedAdvancedGraphSignature
+            ? syncEasyViewParamsFromAdvancedGraph(graph, {
+                strategyName: snapshot.name,
+                silent: true,
+              })
+            : regenerateEasyViewFromAdvancedGraph(graph, {
+                strategyName: snapshot.name,
+              });
+
+        if (!restored) {
+          setAdvancedGraphModel(graph);
+          setAdvancedGraphVersion((version) => version + 1);
+        }
+      } else {
+        setAdvancedGraphModel(graph);
+        setAdvancedGraphVersion((version) => version + 1);
+      }
+
+      setActiveWorkspace("create");
+      setMainView("advanced");
+    },
+    [
+      lastSyncedAdvancedGraphSignature,
+      regenerateEasyViewFromAdvancedGraph,
+      snapshots,
+      syncEasyViewParamsFromAdvancedGraph,
+    ],
+  );
+
   useEffect(() => {
     const handleHistorySnapshotSaved = (event: Event) => {
       const snapshot = (event as CustomEvent<HistorySnapshot>).detail;
@@ -1393,6 +2193,8 @@ export default function Page() {
     setAgentActivities([initialActivity]);
     setAgentSteps([initialActivity.label]);
     setIsAgentRunning(true);
+    const controller = new AbortController();
+    agentAbortControllerRef.current = controller;
 
     try {
       if (connectedExchangeCount === 0) {
@@ -1411,8 +2213,9 @@ export default function Page() {
 
       const response = await fetch("/api/ai/strategy-draft-stream", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
+        headers: withUserContextHeaders({ "Content-Type": "application/json" }),
+        signal: controller.signal,
+        body: JSON.stringify(withUserContextPayload({
           prompt,
           current_strategy: {
             code: generatedCode,
@@ -1426,7 +2229,7 @@ export default function Page() {
               })),
             },
           },
-        }),
+        })),
       });
 
       if (!response.ok) {
@@ -1532,6 +2335,26 @@ export default function Page() {
         },
       ]);
     } catch (error) {
+      if (error instanceof Error && error.name === "AbortError") {
+        setAgentActivities((prev) => [
+          ...prev,
+          {
+            id: `cancelled-${Date.now()}`,
+            status: "error",
+            stage: "cancelled",
+            label: "사용자가 전략 생성을 중단했습니다.",
+            timestamp: new Date().toISOString(),
+          },
+        ]);
+        setAgentMessages((prev) => [
+          ...prev,
+          {
+            role: "ai",
+            text: "전략 생성 요청을 중단했습니다.",
+          },
+        ]);
+        return;
+      }
       const message = error instanceof Error ? error.message : "전략 생성 중 오류가 발생했습니다.";
       const isTimeout = /timeout|timed out|aborted/i.test(message);
       const isExchangeSetupError = /거래소 연결|REST API URL|RPC URL|API\/RPC/.test(message);
@@ -1547,6 +2370,7 @@ export default function Page() {
         },
       ]);
     } finally {
+      agentAbortControllerRef.current = null;
       setIsAgentRunning(false);
     }
   };
@@ -1573,17 +2397,28 @@ export default function Page() {
         <nav className="flex-1 space-y-1 overflow-y-auto px-2 py-3">
           {NAV_ITEMS.map((item) => {
             const Icon = item.icon;
+            const workspaceId = isWorkspaceNavId(item.id) ? item.id : null;
+            const isInteractive = Boolean(workspaceId);
+            const isActive = workspaceId === activeWorkspace;
             return (
               <button
                 key={item.id}
                 type="button"
+                onClick={workspaceId ? () => setActiveWorkspace(workspaceId) : undefined}
+                title={isInteractive ? undefined : "준비 중"}
                 className={cn(
                   "flex h-10 w-full items-center gap-2 rounded-lg px-2.5 text-[13px] font-semibold text-slate-700 transition-colors hover:bg-slate-100",
-                  item.active && "bg-violet-600 text-white shadow-sm hover:bg-violet-600",
+                  !isInteractive && "cursor-default opacity-55 hover:bg-transparent",
+                  isActive && "bg-violet-600 text-white shadow-sm hover:bg-violet-600",
                 )}
               >
                 <Icon className="h-4 w-4 shrink-0" />
                 <span className="truncate">{item.label}</span>
+                {!isInteractive ? (
+                  <span className="ml-auto rounded-full bg-slate-100 px-1.5 py-0.5 text-[9px] font-bold text-slate-500">
+                    soon
+                  </span>
+                ) : null}
               </button>
             );
           })}
@@ -1592,8 +2427,8 @@ export default function Page() {
         <div className="space-y-3 border-t border-slate-200 p-2.5">
           <section className="rounded-lg border border-slate-200 bg-white p-2.5">
             <div className="mb-2 text-xs font-bold text-slate-700">거래소 연결</div>
-            <div className="mb-2 grid grid-cols-3 gap-1">
-              {exchangeConnections.slice(0, 3).map((exchange) => (
+            <div className="mb-2 grid grid-cols-2 gap-1">
+              {exchangeConnections.map((exchange) => (
                 <button
                   key={exchange.id}
                   type="button"
@@ -1621,18 +2456,30 @@ export default function Page() {
                 </div>
               </div>
             </div>
-            <div className="mt-2 flex flex-wrap gap-1">
-              {(selectedExchange?.scopes ?? ["API/RPC URL 필요"]).map((scope) => (
-                <span key={scope} className="rounded bg-slate-100 px-1.5 py-0.5 text-[10px] text-slate-600">
-                  {scope}
-                </span>
-              ))}
-            </div>
             {selectedExchange?.rpcUrl || selectedExchange?.apiUrl || selectedExchange?.wsUrl ? (
               <div className="mt-2 rounded bg-emerald-50 px-2 py-1 text-[10px] font-semibold text-emerald-700">
                 API/RPC URL 저장됨
               </div>
             ) : null}
+            <button
+              type="button"
+              onClick={openUserSettings}
+              className="mt-2 flex w-full items-center gap-2 rounded-lg border border-violet-200 bg-violet-50 px-2 py-2 text-left transition-colors hover:bg-violet-100"
+            >
+              <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-violet-600 text-[11px] font-black text-white">
+                {isPersonalLoggedIn ? clientUserName.slice(0, 1).toUpperCase() : "G"}
+              </div>
+              <div className="min-w-0 flex-1">
+                <div className="text-[10px] font-bold text-violet-700">유저 설정</div>
+                <div className="truncate text-[11px] font-black text-violet-950">
+                  {isPersonalLoggedIn ? clientUserName : "Guest"}
+                </div>
+                <div className="mt-0.5 text-[9px] font-semibold text-violet-500">
+                  {isPersonalLoggedIn ? "내 거래소 연결 사용 중" : "설정하면 개인 연결로 저장"}
+                </div>
+              </div>
+              <ChevronRight className="h-3.5 w-3.5 shrink-0 text-violet-500" />
+            </button>
             <button
               type="button"
               onClick={() => setIsExchangeLibraryOpen(true)}
@@ -1674,25 +2521,38 @@ export default function Page() {
 
       <div className="flex min-w-0 flex-1 flex-col">
         <header className="flex h-[52px] shrink-0 items-center justify-between border-b border-slate-200 bg-white px-3">
-          <div className="flex min-w-0 overflow-x-auto rounded-lg border border-slate-200 bg-slate-50 p-1">
-            {MAIN_VIEW_TABS.map((tab) => {
-              const Icon = tab.icon;
-              return (
-                <button
-                  key={tab.id}
-                  type="button"
-                  onClick={() => handleMainViewChange(tab.id)}
-                  className={cn(
-                    "inline-flex h-9 shrink-0 items-center gap-1.5 rounded-md px-3 text-xs font-bold",
-                    mainView === tab.id ? "bg-violet-600 text-white shadow-sm" : "text-slate-600 hover:bg-white",
-                  )}
-                >
-                  <Icon className="h-3.5 w-3.5" />
-                  {tab.label}
-                </button>
-              );
-            })}
-          </div>
+          {isCreateWorkspace ? (
+            <div className="flex min-w-0 overflow-x-auto rounded-lg border border-slate-200 bg-slate-50 p-1">
+              {MAIN_VIEW_TABS.map((tab) => {
+                const Icon = tab.icon;
+                return (
+                  <button
+                    key={tab.id}
+                    type="button"
+                    onClick={() => handleMainViewChange(tab.id)}
+                    className={cn(
+                      "inline-flex h-9 shrink-0 items-center gap-1.5 rounded-md px-3 text-xs font-bold",
+                      mainView === tab.id ? "bg-violet-600 text-white shadow-sm" : "text-slate-600 hover:bg-white",
+                    )}
+                  >
+                    <Icon className="h-3.5 w-3.5" />
+                    {tab.label}
+                  </button>
+                );
+              })}
+            </div>
+          ) : (
+            <div className="min-w-0">
+              <div className="text-[11px] font-bold uppercase tracking-[0.18em] text-slate-500">
+                {activeWorkspace === "portfolio" ? "Portfolio" : "Strategy Library"}
+              </div>
+              <div className="truncate text-sm font-black text-slate-950">
+                {activeWorkspace === "portfolio"
+                  ? "거래소별 자산과 가용 자금을 추적합니다"
+                  : "저장한 전략 템플릿을 Git 스타일로 관리합니다"}
+              </div>
+            </div>
+          )}
 
           <div className="flex items-center gap-2">
             <button
@@ -1703,30 +2563,75 @@ export default function Page() {
               <Coins className="h-4 w-4 text-amber-600" />
               거래소
             </button>
-            <button
-              type="button"
-              onClick={handleAutoLayout}
-              className="inline-flex h-9 items-center gap-2 rounded-lg border border-slate-200 bg-white px-3 text-sm font-semibold text-slate-700 hover:bg-slate-50"
-            >
-              <Network className="h-4 w-4 text-violet-600" />
-              Auto Layout
-            </button>
-            <button
-              type="button"
-              onClick={handleSave}
-              className="inline-flex h-9 items-center gap-2 rounded-lg bg-violet-600 px-4 text-sm font-bold text-white shadow-sm hover:bg-violet-700"
-            >
-              <Save className="h-4 w-4" />
-              저장
-            </button>
+            {isCreateWorkspace ? (
+              <>
+                <button
+                  type="button"
+                  onClick={handleAutoLayout}
+                  className="inline-flex h-9 items-center gap-2 rounded-lg border border-slate-200 bg-white px-3 text-sm font-semibold text-slate-700 hover:bg-slate-50"
+                >
+                  <Network className="h-4 w-4 text-violet-600" />
+                  Auto Layout
+                </button>
+                <button
+                  type="button"
+                  onClick={handleSave}
+                  className="inline-flex h-9 items-center gap-2 rounded-lg bg-violet-600 px-4 text-sm font-bold text-white shadow-sm hover:bg-violet-700"
+                >
+                  <Save className="h-4 w-4" />
+                  저장
+                </button>
+              </>
+            ) : activeWorkspace === "portfolio" ? (
+              <button
+                type="button"
+                onClick={() => setIsExchangeLibraryOpen(true)}
+                className="inline-flex h-9 items-center gap-2 rounded-lg bg-slate-950 px-4 text-sm font-bold text-white shadow-sm hover:bg-slate-800"
+              >
+                <Coins className="h-4 w-4 text-amber-300" />
+                거래소 연결 관리
+              </button>
+            ) : (
+              <>
+                <button
+                  type="button"
+                  onClick={() => setIsHistoryOpen(true)}
+                  className="inline-flex h-9 items-center gap-2 rounded-lg border border-slate-200 bg-white px-3 text-sm font-semibold text-slate-700 hover:bg-slate-50"
+                >
+                  <Clock3 className="h-4 w-4 text-cyan-600" />
+                  히스토리
+                </button>
+                <button
+                  type="button"
+                  onClick={handleCreateBranchDraft}
+                  className="inline-flex h-9 items-center gap-2 rounded-lg border border-slate-200 bg-white px-3 text-sm font-semibold text-slate-700 hover:bg-slate-50"
+                >
+                  브랜치
+                </button>
+                <button
+                  type="button"
+                  onClick={handleSaveTemplateVersion}
+                  className="inline-flex h-9 items-center gap-2 rounded-lg bg-slate-950 px-4 text-sm font-bold text-white shadow-sm hover:bg-slate-800"
+                >
+                  <Save className="h-4 w-4" />
+                  버전 저장
+                </button>
+              </>
+            )}
           </div>
         </header>
 
-        <main className="grid min-h-0 flex-1 grid-cols-1 overflow-hidden xl:grid-cols-[minmax(0,1fr)_clamp(246px,20vw,320px)]">
+        <main
+          className={cn(
+            "grid min-h-0 flex-1 overflow-hidden",
+            isCreateWorkspace ? "grid-cols-1 xl:grid-cols-[minmax(0,1fr)_clamp(246px,20vw,320px)]" : "grid-cols-1",
+          )}
+        >
           <section className="flex min-w-0 flex-col overflow-hidden">
-            <div className="relative min-h-0 flex-1 overflow-hidden bg-slate-50">
+            {isCreateWorkspace ? (
+              <div className="relative min-h-0 flex-1 overflow-hidden bg-slate-50">
               {mainView === "easy" ? (
-                <EasyStrategyGraph model={easyViewModel} />
+                <EasyStrategyGraph model={easyViewModel} onSaveCurrentBlock={handleSaveCurrentEasyBlock} />
               ) : null}
               {false && mainView === "easy" ? (
                 <div className="grid h-full grid-rows-[minmax(292px,1fr)_158px]">
@@ -2027,193 +2932,123 @@ export default function Page() {
                   <div className="mb-3 flex items-center justify-between">
                     <div className="flex items-center gap-2 text-sm font-bold text-slate-100">
                       <FileCode2 className="h-4 w-4 text-emerald-400" />
-                      Hershy Strategy JSON
+                      {codeViewTitle}
+                      <span className={cn("rounded-full px-2 py-0.5 text-[10px] font-black", programCode ? "bg-emerald-500/15 text-emerald-300" : "bg-amber-500/15 text-amber-300")}>
+                        {codeViewStatus}
+                      </span>
                     </div>
-                    <button className="rounded-lg border border-slate-700 px-3 py-1.5 text-xs font-bold text-slate-300">
-                      코드에서 블록 재생성
+                    <button
+                      type="button"
+                      onClick={() => void generateRuntimeProgramCode({ force: true })}
+                      disabled={!generatedStrategyGraph || isGeneratingProgramCode}
+                      className="rounded-lg border border-slate-700 px-3 py-1.5 text-xs font-bold text-slate-300 disabled:cursor-not-allowed disabled:opacity-50"
+                    >
+                      {isGeneratingProgramCode ? "생성 중" : "Hershy Go 생성"}
                     </button>
                   </div>
+                  {programCodeError ? (
+                    <div className="mb-3 rounded-lg border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-xs font-semibold text-amber-200">
+                      {programCodeError}
+                    </div>
+                  ) : null}
                   <pre className="rounded-lg border border-slate-800 bg-black/40 p-4 text-sm leading-7 text-emerald-200">
-                    {generatedCode}
+                    {codeViewContent}
                   </pre>
                 </div>
               ) : null}
-            </div>
+              </div>
+            ) : activeWorkspace === "portfolio" ? (
+              <PortfolioWorkspace
+                exchangeConnections={exchangeConnections}
+                marketRows={marketRows}
+                strategyCount={snapshots.length}
+                onManageExchanges={() => setIsExchangeLibraryOpen(true)}
+              />
+            ) : (
+              <StrategyLibraryWorkspace
+                snapshots={snapshots}
+                activeSnapshot={activeSnapshot}
+                openTabs={openTabs}
+                programCode={programCode}
+                onOpenHistory={() => setIsHistoryOpen(true)}
+                onCreateTemplate={handleCreateTemplateDraft}
+                onCreateBranch={handleCreateBranchDraft}
+                onSaveVersion={handleSaveTemplateVersion}
+                onCheckoutTemplate={handleCheckoutTemplate}
+              />
+            )}
           </section>
 
-          <aside className="hidden min-h-0 flex-col gap-2 overflow-y-auto border-l border-slate-200 bg-white p-2 xl:flex">
-            <section className="rounded-lg border border-slate-200 bg-white p-2.5">
-              <div className="mb-1.5 flex items-center justify-between">
-                <h2 className="text-xs font-black">시장 개요</h2>
-                <span className="text-[10px] text-slate-500">
-                  {marketUpdatedAt ? new Date(marketUpdatedAt).toLocaleTimeString("ko-KR", { hour: "2-digit", minute: "2-digit", second: "2-digit" }) : "로딩"}
-                </span>
-              </div>
-              {marketWarning ? (
-                <div className="mb-1.5 rounded bg-amber-50 px-2 py-1 text-[10px] font-semibold text-amber-700">
-                  public ticker fallback
-                </div>
-              ) : null}
-              <div className="grid gap-1">
-                {marketRows.map((row) => (
-                  <div key={row.symbol} className="grid h-8 grid-cols-[20px_1fr_52px_40px] items-center gap-1.5">
-                    <div className={cn("flex h-5 w-5 items-center justify-center rounded-full text-[10px] font-black text-white", row.tone === "up" ? "bg-orange-500" : "bg-slate-900")}>
-                      {row.icon}
-                    </div>
-                    <div className="min-w-0">
-                      <div className="truncate text-[11px] font-bold text-slate-800">{row.symbol}</div>
-                      <div className="truncate text-[10px] text-slate-500">{row.price}</div>
-                    </div>
-                    <Sparkline tone={row.tone as "up" | "down"} />
-                    <div className={cn("text-right text-[10px] font-bold", row.tone === "up" ? "text-emerald-600" : "text-rose-600")}>
-                      {row.change}
-                    </div>
-                  </div>
-                ))}
-              </div>
-            </section>
-
-            <section className="rounded-lg border border-slate-200 p-2.5">
-              <div className="mb-2 flex items-center justify-between">
-                <div>
-                  <h2 className="text-xs font-black">{easyViewModel.title}</h2>
-                  <div className="text-[10px] text-slate-500">1분 전</div>
-                </div>
-                <Search className="h-4 w-4 text-slate-400" />
-              </div>
-              <div className="flex items-end gap-2">
-                <div className="text-2xl font-black text-emerald-600">0.180%</div>
-                <div className="pb-1 text-[11px] font-bold text-emerald-500">+0.042%</div>
-              </div>
-              <svg viewBox="0 0 224 76" className="mt-2 h-[74px] w-full rounded-lg bg-slate-50">
-                <polyline
-                  points="0,54 12,46 24,52 36,40 48,43 60,34 72,38 84,27 96,29 108,21 120,27 132,17 144,23 156,15 168,19 180,11 192,16 204,9 216,14 224,10"
-                  fill="none"
-                  stroke="#8b5cf6"
-                  strokeWidth="3"
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                />
-                <line x1="0" x2="224" y1="40" y2="40" stroke="#cbd5e1" strokeDasharray="4 4" />
-                <text x="2" y="70" className="fill-slate-500 text-[9px]">10:30</text>
-                <text x="92" y="70" className="fill-slate-500 text-[9px]">11:00</text>
-                <text x="184" y="70" className="fill-slate-500 text-[9px]">12:00</text>
-              </svg>
-            </section>
-
-            <section className="rounded-lg border border-slate-200 p-2.5">
-              <div className="mb-2 flex items-center justify-between">
-                <div className="text-sm font-black">현재 전략 요약</div>
-                <button onClick={handleAiSummary} className="text-[10px] font-bold text-violet-700">
-                  {isSummarizing ? "요약 중" : "AI 요약"}
-                </button>
-              </div>
-              <div className="text-[15px] font-black leading-5">{easyViewModel.title}</div>
-              <p className="mt-1 line-clamp-2 text-xs leading-5 text-slate-600">{easyViewModel.summary}</p>
-              <div className="mt-2 flex flex-wrap gap-1.5">
-                <span className="rounded-full bg-emerald-50 px-2 py-1 text-[10px] font-bold text-emerald-700">백테스트 가능</span>
-                <span className="rounded-full bg-blue-50 px-2 py-1 text-[10px] font-bold text-blue-700">드라이런 준비됨</span>
-              </div>
-              <p className="mt-2 line-clamp-2 text-[11px] leading-4 text-violet-700">{aiSummary}</p>
-              <dl className="mt-2 grid grid-cols-[72px_1fr] gap-y-1 text-xs">
-                <dt className="text-slate-500">전략 유형</dt>
-                <dd className="text-right font-bold">{easyViewModel.strategyType}</dd>
-                <dt className="text-slate-500">시간 프레임</dt>
-                <dd className="text-right font-bold">{easyViewModel.timeframe}</dd>
-                <dt className="text-slate-500">마지막 수정</dt>
-                <dd className="text-right font-bold">{activeSnapshot?.timestamp ? new Date(activeSnapshot.timestamp).toLocaleString("ko-KR") : easyViewModel.lastModified}</dd>
-              </dl>
-            </section>
-
-            <section className="rounded-lg border border-violet-200 bg-violet-50 p-2.5">
-              <div className="mb-2 flex items-center justify-between">
-                <div className="text-sm font-black text-violet-900">에이전트 루프</div>
-                <span className="text-[10px] font-bold text-violet-700">{isAgentRunning ? "생성 중" : "완료"}</span>
-              </div>
-              <div className="grid gap-1.5">
-                {visibleAgentActivities.map((activity, index) => (
-                  <div key={`${activity.id}-${index}`} className="grid grid-cols-[18px_1fr] gap-1 text-[11px] leading-4 text-violet-900">
-                    <span
-                      className={cn(
-                        "flex h-4 w-4 items-center justify-center rounded-full bg-white text-[9px] font-black",
-                        activity.status === "error" ? "text-rose-600" : activity.status === "done" ? "text-emerald-600" : "text-violet-700",
-                      )}
-                    >
-                      {index + 1}
-                    </span>
-                    <span>
-                      {activity.label}
-                      {activity.stage ? <span className="ml-1 text-[10px] font-bold text-violet-500">· {activity.stage}</span> : null}
-                    </span>
-                  </div>
-                ))}
-              </div>
-            </section>
-
-            <section className="rounded-lg border border-slate-800 bg-slate-950 p-2.5">
-              <div className="mb-2 flex items-center justify-between">
-                <div className="text-sm font-black text-slate-100">관리자 Hershy Program 코드</div>
-                <span className={cn("text-[10px] font-bold", programCode ? "text-emerald-300" : "text-amber-300")}>
-                  {programCode ? "program" : "not generated"}
-                </span>
-              </div>
-              <pre className="max-h-44 overflow-auto rounded-md border border-slate-800 bg-black/40 p-2 text-[10px] leading-4 text-emerald-200">
-                {programCode || "아직 generated_strategy.go program 코드가 없습니다.\nAI 전략 생성이 서버 검증과 코드 생성을 통과하면 이 영역에 실제 Hershy Go program 코드가 표시됩니다."}
-              </pre>
-            </section>
-
-            <section className="rounded-lg border border-slate-200 p-2.5">
-              <div className="mb-2 flex items-center justify-between">
-                <div className="text-sm font-black">시작 가이드</div>
-                <button
-                  type="button"
-                  onClick={() => setIsGuideOpen(true)}
-                  className="text-[10px] font-bold text-violet-700"
-                >
-                  열기
-                </button>
-              </div>
-              <div className="grid gap-1.5">
-                {GUIDE_ITEMS.map((item, index) => (
-                  <button
-                    key={item}
-                    type="button"
-                    onClick={() => {
-                      setGuideStep(index);
-                      setIsGuideOpen(true);
-                    }}
-                    className="grid h-7 grid-cols-[20px_1fr_12px] items-center gap-1 text-left text-xs"
-                  >
-                    <span className={cn("flex h-5 w-5 items-center justify-center rounded-full border text-[10px] font-bold", guideDone.has(index) ? "border-violet-300 bg-violet-50 text-violet-700" : "border-slate-200 text-slate-500")}>
-                      {index + 1}
-                    </span>
-                    <span className="truncate font-semibold text-slate-700">{item}</span>
-                    <ChevronRight className="h-3 w-3 text-slate-400" />
-                  </button>
-                ))}
-              </div>
-            </section>
-
-            <button className="mt-auto inline-flex h-9 items-center justify-center gap-2 rounded-lg border border-slate-200 bg-white text-xs font-bold text-slate-700 hover:bg-slate-50">
-              <ExternalLink className="h-3.5 w-3.5" />
-              전략 리포트 열기
-            </button>
-          </aside>
+          {isCreateWorkspace ? (
+            <PageRightRail
+              marketUpdatedAt={marketUpdatedAt}
+              marketWarning={marketWarning}
+              marketRows={marketRows}
+              easyViewModel={easyViewModel}
+              aiSummary={aiSummary}
+              activeSnapshot={activeSnapshot}
+              isSummarizing={isSummarizing}
+              onAiSummary={handleAiSummary}
+              isAgentRunning={isAgentRunning}
+              onCancelAgentRun={handleCancelAgentRun}
+              connectedExchangeCount={connectedExchangeCount}
+              visibleAgentActivities={visibleAgentActivities}
+              programCode={programCode}
+              guideItems={GUIDE_ITEMS}
+              guideDone={guideDone}
+              onOpenGuide={() => setIsGuideOpen(true)}
+              onSelectGuideStep={(index) => {
+                setGuideStep(index);
+                setIsGuideOpen(true);
+              }}
+            />
+          ) : null}
         </main>
       </div>
 
-      {isExchangeLibraryOpen ? (
-        <div className="fixed inset-0 z-40 flex items-center justify-center bg-slate-950/35 p-4 backdrop-blur-sm">
-          <section className="flex max-h-[82vh] w-full max-w-4xl flex-col rounded-2xl border border-slate-200 bg-white shadow-2xl">
+      <ExchangeLibraryModal
+        isOpen={isExchangeLibraryOpen}
+        exchangeConnections={exchangeConnections}
+        exchangeConnectionNames={EXCHANGE_CONNECTION_NAMES}
+        selectedExchangeId={selectedExchange?.id}
+        selectedExchangeName={selectedExchangeName}
+        selectedExchangeCredentials={selectedExchangeCredentials}
+        isSelectedExchangePolymarket={isSelectedExchangePolymarket}
+        isSelectedExchangeOKX={isSelectedExchangeOKX}
+        isSelectedExchangeBinance={isSelectedExchangeBinance}
+        canTestBinanceAuth={canTestBinanceAuth}
+        hasPendingBinanceCredentialInput={hasPendingBinanceCredentialInput}
+        exchangeForm={exchangeForm}
+        setExchangeForm={setExchangeForm}
+        exchangeFormError={exchangeFormError}
+        exchangeAuthMessage={exchangeAuthMessage}
+        isTestingExchangeAuth={isTestingExchangeAuth}
+        isSavingExchange={isSavingExchange}
+        hasExchangeExecutionUrl={hasExchangeExecutionUrl}
+        onSelectExchange={(exchange) => {
+          setExchangeTab(exchange.id);
+          setExchangeForm(buildExchangeFormFromConnection(exchange));
+          setExchangeAuthMessage("");
+        }}
+        onTestBinanceAuth={testBinanceAuth}
+        onSaveExchangeConnection={saveExchangeConnection}
+        onClose={() => setIsExchangeLibraryOpen(false)}
+      />
+
+      {isUserSettingsOpen ? (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/35 p-4 backdrop-blur-sm">
+          <section className="w-full max-w-md rounded-2xl border border-slate-200 bg-white shadow-2xl">
             <div className="flex items-center justify-between border-b border-slate-200 px-5 py-4">
               <div>
-                <div className="text-xs font-bold uppercase tracking-wide text-violet-600">Exchange Block Library</div>
-                <h2 className="mt-1 text-xl font-black text-slate-950">거래소 연결 블록 모음</h2>
-                <p className="mt-1 text-xs text-slate-500">연결된 CEX/DEX 블록을 한 탭에서 확인하고 쉬운 보기의 실행 파라미터에 연결합니다.</p>
+                <div className="text-xs font-bold uppercase tracking-wide text-violet-600">User Settings</div>
+                <h2 className="mt-1 text-xl font-black text-slate-950">유저 설정</h2>
+                <p className="mt-1 text-xs font-semibold text-slate-500">
+                  거래소 연결과 AI 전략 컨텍스트를 이 사용자 기준으로 저장합니다.
+                </p>
               </div>
               <button
                 type="button"
-                onClick={() => setIsExchangeLibraryOpen(false)}
+                onClick={() => setIsUserSettingsOpen(false)}
                 className="rounded-lg p-2 text-slate-400 hover:bg-slate-100 hover:text-slate-700"
                 title="닫기"
               >
@@ -2221,235 +3056,58 @@ export default function Page() {
               </button>
             </div>
 
-            <div className="grid min-h-0 flex-1 grid-cols-[180px_minmax(0,1fr)] overflow-hidden">
-              <aside className="border-r border-slate-200 bg-slate-50 p-3">
-                <div className="grid gap-2">
-                  {[
-                    ["전체", exchangeConnections.length],
-                    ["연결됨", exchangeConnections.filter((item) => item.status === "연결됨").length],
-                    ["CEX", exchangeConnections.filter((item) => item.type === "CEX").length],
-                    ["DEX", exchangeConnections.filter((item) => item.type === "DEX").length],
-                  ].map(([label, count]) => (
-                    <button
-                      key={String(label)}
-                      type="button"
-                      className="flex h-9 items-center justify-between rounded-lg border border-slate-200 bg-white px-3 text-xs font-bold text-slate-700"
-                    >
-                      <span>{label}</span>
-                      <span className="rounded-full bg-slate-100 px-2 py-0.5 text-[10px] text-slate-500">{count}</span>
-                    </button>
-                  ))}
-                </div>
-                <div className="mt-4 rounded-lg border border-violet-200 bg-violet-50 p-3 text-xs leading-5 text-violet-900">
-                  저장된 연결만 AI 전략 생성에 사용됩니다. RPC/API URL 원문은 서버에 저장하고, AI에는 연결된 거래소 이름과 권한만 전달합니다.
-                </div>
-              </aside>
+            <form onSubmit={handlePersonalLogin} className="px-5 py-4">
+              <label className="text-xs font-black text-slate-700" htmlFor="user-display-name">
+                표시 이름 또는 이메일
+              </label>
+              <input
+                id="user-display-name"
+                value={loginInput}
+                onChange={(event) => {
+                  setLoginInput(event.target.value);
+                  setLoginError("");
+                }}
+                placeholder="예: minsu 또는 minsu@example.com"
+                className="mt-2 h-10 w-full rounded-xl border border-slate-200 bg-slate-50 px-3 text-sm font-semibold text-slate-900 outline-none focus:border-violet-400 focus:bg-white"
+              />
+              {loginError ? <div className="mt-2 text-xs font-semibold text-rose-600">{loginError}</div> : null}
 
-              <div className="overflow-auto p-4">
-                <div className="mb-4 rounded-xl border border-slate-200 bg-slate-50 p-3">
-                  <div className="mb-3 flex items-center justify-between gap-3">
-                    <div>
-                      <div className="text-sm font-black text-slate-950">API / RPC / 키 연결</div>
-                      <div className="mt-0.5 text-[11px] font-semibold text-slate-500">CEX REST API와 API Key/Secret, DEX RPC URL을 저장합니다. 키 원문은 다시 표시하지 않습니다.</div>
-                    </div>
-                    <div className="flex shrink-0 items-center gap-2">
-                      <select
-                        value={exchangeAuthMarket}
-                        onChange={(event) => setExchangeAuthMarket(event.target.value as "spot" | "futures")}
-                        className="h-8 rounded-lg border border-slate-200 bg-white px-2 text-xs font-bold text-slate-700 outline-none focus:border-violet-300"
-                      >
-                        <option value="spot">Spot</option>
-                        <option value="futures">Futures</option>
-                      </select>
-                      <button
-                        type="button"
-                        onClick={testBinanceAuth}
-                        disabled={isTestingExchangeAuth || !canTestBinanceAuth}
-                        className="inline-flex h-8 items-center gap-1 rounded-lg border border-amber-300 bg-white px-3 text-xs font-bold text-amber-700 disabled:border-slate-200 disabled:text-slate-400"
-                      >
-                        <KeyRound className="h-3.5 w-3.5" />
-                        {isTestingExchangeAuth ? "검증 중" : "서명 테스트"}
-                      </button>
-                      <button
-                        type="button"
-                        onClick={saveExchangeConnection}
-                        disabled={isSavingExchange || !exchangeForm.name.trim() || !hasExchangeExecutionUrl}
-                        className="h-8 rounded-lg bg-violet-600 px-3 text-xs font-bold text-white disabled:bg-slate-300"
-                      >
-                        {isSavingExchange ? "저장 중" : "연결 저장"}
-                      </button>
-                    </div>
-                  </div>
-                  <div className="grid grid-cols-[1fr_100px] gap-2">
-                    <input
-                      value={exchangeForm.name}
-                      onChange={(event) => setExchangeForm((prev) => ({ ...prev, name: event.target.value }))}
-                      placeholder="거래소 이름 예: Binance"
-                      className="h-9 rounded-lg border border-slate-200 bg-white px-3 text-xs font-semibold outline-none focus:border-violet-300"
-                    />
-                    <select
-                      value={exchangeForm.type}
-                      onChange={(event) => setExchangeForm((prev) => ({ ...prev, type: event.target.value as ExchangeConnection["type"] }))}
-                      className="h-9 rounded-lg border border-slate-200 bg-white px-2 text-xs font-bold outline-none focus:border-violet-300"
-                    >
-                      <option value="CEX">CEX</option>
-                      <option value="DEX">DEX</option>
-                      <option value="RPC">RPC</option>
-                    </select>
-                  </div>
-                  <div className="mt-2 grid grid-cols-2 gap-2">
-                    <input
-                      value={exchangeForm.apiUrl}
-                      onChange={(event) => {
-                        setExchangeFormError("");
-                        setExchangeForm((prev) => ({ ...prev, apiUrl: event.target.value }));
-                      }}
-                      placeholder="REST API URL 예: https://api.binance.com"
-                      className="h-9 rounded-lg border border-slate-200 bg-white px-3 text-xs outline-none focus:border-violet-300"
-                    />
-                    <input
-                      value={exchangeForm.wsUrl}
-                      onChange={(event) => {
-                        setExchangeFormError("");
-                        setExchangeForm((prev) => ({ ...prev, wsUrl: event.target.value }));
-                      }}
-                      placeholder="WebSocket URL 선택"
-                      className="h-9 rounded-lg border border-slate-200 bg-white px-3 text-xs outline-none focus:border-violet-300"
-                    />
-                    <input
-                      value={exchangeForm.rpcUrl}
-                      onChange={(event) => {
-                        setExchangeFormError("");
-                        setExchangeForm((prev) => ({ ...prev, rpcUrl: event.target.value }));
-                      }}
-                      placeholder="RPC URL 예: https://mainnet.infura.io/v3/..."
-                      className="h-9 rounded-lg border border-slate-200 bg-white px-3 text-xs outline-none focus:border-violet-300"
-                    />
-                    <input
-                      value={exchangeForm.scopes}
-                      onChange={(event) => setExchangeForm((prev) => ({ ...prev, scopes: event.target.value }))}
-                      placeholder="권한 예: Spot,Futures,Trade"
-                      className="h-9 rounded-lg border border-slate-200 bg-white px-3 text-xs outline-none focus:border-violet-300"
-                    />
-                    <input
-                      type="password"
-                      autoComplete="off"
-                      value={exchangeForm.apiKey}
-                      onChange={(event) => {
-                        setExchangeFormError("");
-                        setExchangeAuthMessage("");
-                        setExchangeForm((prev) => ({ ...prev, apiKey: event.target.value }));
-                      }}
-                      placeholder={
-                        selectedExchangeCredentials?.hasApiKey
-                          ? `Binance API Key 저장됨 · ****${selectedExchangeCredentials.apiKeyLast4 || "****"}`
-                          : "Binance API Key 선택"
-                      }
-                      className="h-9 rounded-lg border border-slate-200 bg-white px-3 text-xs outline-none focus:border-violet-300"
-                    />
-                    <input
-                      type="password"
-                      autoComplete="off"
-                      value={exchangeForm.apiSecret}
-                      onChange={(event) => {
-                        setExchangeFormError("");
-                        setExchangeAuthMessage("");
-                        setExchangeForm((prev) => ({ ...prev, apiSecret: event.target.value }));
-                      }}
-                      placeholder={selectedExchangeCredentials?.hasApiSecret ? "Binance Secret 저장됨 · 새 Secret 입력 시 교체" : "Binance API Secret 선택"}
-                      className="h-9 rounded-lg border border-slate-200 bg-white px-3 text-xs outline-none focus:border-violet-300"
-                    />
-                  </div>
-                  <div className="mt-2 grid grid-cols-2 gap-2">
-                    <div className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-[11px] font-semibold text-slate-600">
-                      키 상태: {selectedExchangeCredentials?.hasApiKey ? `API Key ****${selectedExchangeCredentials.apiKeyLast4 || "****"}` : "API Key 없음"}
-                      {" / "}
-                      {selectedExchangeCredentials?.hasApiSecret ? "Secret 저장됨" : "Secret 없음"}
-                    </div>
-                    <div
-                      className={cn(
-                        "rounded-lg border px-3 py-2 text-[11px] font-semibold",
-                        selectedExchangeCredentials?.authStatus === "검증됨"
-                          ? "border-emerald-200 bg-emerald-50 text-emerald-700"
-                          : selectedExchangeCredentials?.authStatus === "실패"
-                            ? "border-rose-200 bg-rose-50 text-rose-700"
-                            : "border-slate-200 bg-white text-slate-600",
-                      )}
-                    >
-                      서명 상태: {selectedExchangeCredentials?.authStatus || "미검증"}
-                      {selectedExchangeCredentials?.lastAuthCheckAt ? ` · ${new Date(selectedExchangeCredentials.lastAuthCheckAt).toLocaleString("ko-KR")}` : ""}
-                    </div>
-                  </div>
-                  {exchangeFormError ? (
-                    <div className="mt-2 rounded-lg border border-rose-200 bg-rose-50 px-3 py-2 text-[11px] font-semibold text-rose-700">
-                      {exchangeFormError}
-                    </div>
-                  ) : null}
-                  {exchangeAuthMessage ? (
-                    <div className="mt-2 rounded-lg border border-slate-200 bg-white px-3 py-2 text-[11px] font-semibold text-slate-700">
-                      {exchangeAuthMessage}
-                    </div>
-                  ) : null}
+              <div className="mt-4 rounded-xl border border-violet-100 bg-violet-50 px-3 py-3">
+                <div className="text-xs font-black text-violet-950">
+                  현재 사용자: {isPersonalLoggedIn ? clientUserName : "Guest"}
                 </div>
-                <div className="grid grid-cols-[repeat(auto-fit,minmax(180px,1fr))] gap-3">
-                  {exchangeConnections.map((exchange) => (
-                    <button
-                      key={exchange.id}
-                      type="button"
-                      onClick={() => {
-                        setExchangeTab(exchange.id);
-                        setExchangeForm((prev) => ({
-                          ...prev,
-                          id: exchange.id,
-                          name: exchange.name,
-                          type: exchange.type,
-                          apiUrl: exchange.apiUrl || exchange.restUrl || "",
-                          wsUrl: exchange.wsUrl || "",
-                          rpcUrl: exchange.rpcUrl || "",
-                          marketDataUrl: exchange.marketDataUrl || "",
-                          apiKey: "",
-                          apiSecret: "",
-                          scopes: exchange.scopes.join(","),
-                        }));
-                        setExchangeAuthMessage("");
-                      }}
-                      className="rounded-xl border border-slate-200 bg-white p-3 text-left shadow-sm transition-colors hover:border-violet-300 hover:bg-violet-50"
-                    >
-                      <div className="flex items-start justify-between gap-2">
-                        <div className="min-w-0">
-                          <div className="truncate text-sm font-black text-slate-950">{exchange.name}</div>
-                          <div className="mt-0.5 text-[11px] font-bold text-slate-500">{exchange.type}</div>
-                        </div>
-                        <span
-                          className={cn(
-                            "rounded-full px-2 py-0.5 text-[10px] font-bold",
-                            exchange.status === "연결됨" ? "bg-emerald-50 text-emerald-700" : "bg-slate-100 text-slate-500",
-                          )}
-                        >
-                          {exchange.status}
-                        </span>
-                      </div>
-                      <div className="mt-3 flex flex-wrap gap-1">
-                        {exchange.scopes.map((scope) => (
-                          <span key={scope} className="rounded bg-slate-100 px-1.5 py-0.5 text-[10px] font-semibold text-slate-600">
-                            {scope}
-                          </span>
-                        ))}
-                      </div>
-                      <div className="mt-3 text-[10px] font-semibold text-slate-500">
-                        {exchange.apiUrl || exchange.wsUrl || exchange.rpcUrl || exchange.marketDataUrl ? "API/RPC URL 저장됨" : "URL 미설정"}
-                      </div>
-                      <div className="mt-1 text-[10px] font-semibold text-slate-500">
-                        {exchange.credentials?.hasApiKey && exchange.credentials?.hasApiSecret
-                          ? `서명키 저장됨${exchange.credentials.apiKeyLast4 ? ` · ****${exchange.credentials.apiKeyLast4}` : ""}`
-                          : "서명키 미설정"}
-                        {exchange.credentials?.authStatus ? ` · ${exchange.credentials.authStatus}` : ""}
-                      </div>
-                    </button>
-                  ))}
+                <p className="mt-1 text-xs leading-5 text-violet-700">
+                  내부 세션 ID는 숨깁니다. 설정한 사용자 이름만 기준으로 연결 정보와 AI 컨텍스트를 분리합니다.
+                </p>
+              </div>
+
+              <div className="mt-5 flex items-center justify-between gap-2">
+                {isPersonalLoggedIn ? (
+                  <button
+                    type="button"
+                    onClick={handlePersonalLogout}
+                    className="h-9 rounded-lg border border-slate-200 px-3 text-sm font-bold text-slate-600 hover:bg-slate-50"
+                  >
+                    로그아웃
+                  </button>
+                ) : <span />}
+                <div className="flex items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={() => setIsUserSettingsOpen(false)}
+                    className="h-9 rounded-lg border border-slate-200 px-3 text-sm font-bold text-slate-700 hover:bg-slate-50"
+                  >
+                    취소
+                  </button>
+                  <button
+                    type="submit"
+                    className="h-9 rounded-lg bg-violet-600 px-4 text-sm font-black text-white hover:bg-violet-700"
+                  >
+                    저장
+                  </button>
                 </div>
               </div>
-            </div>
+            </form>
           </section>
         </div>
       ) : null}
@@ -2547,13 +3205,14 @@ export default function Page() {
         </div>
       ) : null}
 
-      <div
-        className="fixed bottom-5 right-5 z-50"
-        onMouseEnter={openTemplatePanel}
-        onMouseLeave={scheduleTemplatePanelClose}
-        onFocus={openTemplatePanel}
-        onBlur={scheduleTemplatePanelClose}
-      >
+      {isCreateWorkspace ? (
+        <div
+          className="fixed bottom-5 right-5 z-50"
+          onMouseEnter={openTemplatePanel}
+          onMouseLeave={scheduleTemplatePanelClose}
+          onFocus={openTemplatePanel}
+          onBlur={scheduleTemplatePanelClose}
+        >
         <div
           className={cn(
             "absolute bottom-14 right-0 translate-y-2 opacity-0 transition-all duration-200",
@@ -2670,19 +3329,29 @@ export default function Page() {
                   <Sparkles className="h-4 w-4" />
                   {isAgentRunning ? "에이전트 생성 중" : "에이전트에게 보내기"}
                 </button>
+                {isAgentRunning ? (
+                  <button
+                    type="button"
+                    onClick={handleCancelAgentRun}
+                    className="inline-flex h-9 w-full items-center justify-center rounded-lg border border-violet-200 bg-white text-sm font-bold text-violet-700 transition-colors hover:bg-violet-50"
+                  >
+                    현재 생성 중단
+                  </button>
+                ) : null}
               </form>
             </div>
           </section>
         </div>
 
-        <button
-          type="button"
-          className="inline-flex h-12 items-center gap-2 rounded-full bg-violet-600 px-5 text-sm font-black text-white shadow-xl shadow-violet-600/25 transition-transform hover:scale-[1.03]"
-        >
-          <Sparkles className="h-4 w-4" />
-          {isAgentRunning ? "전략 생성 중" : "AI 전략 템플릿"}
-        </button>
-      </div>
+          <button
+            type="button"
+            className="inline-flex h-12 items-center gap-2 rounded-full bg-violet-600 px-5 text-sm font-black text-white shadow-xl shadow-violet-600/25 transition-transform hover:scale-[1.03]"
+          >
+            <Sparkles className="h-4 w-4" />
+            {isAgentRunning ? "전략 생성 중" : "AI 전략 템플릿"}
+          </button>
+        </div>
+      ) : null}
 
       {isAdvancedSyncPromptOpen ? (
         <div className="fixed inset-0 z-[80] flex items-center justify-center bg-slate-950/35 px-4">
@@ -2715,6 +3384,49 @@ export default function Page() {
                 className="h-9 rounded-lg bg-violet-600 px-4 text-sm font-black text-white hover:bg-violet-700 disabled:cursor-not-allowed disabled:opacity-60"
               >
                 {isRegeneratingEasyView ? "재생성 중" : "저장하고 재생성"}
+              </button>
+            </div>
+          </section>
+        </div>
+      ) : null}
+
+      {pendingAdvancedToEasyRegeneration ? (
+        <div className="fixed inset-0 z-[85] flex items-center justify-center bg-slate-950/40 px-4">
+          <section className="w-full max-w-lg rounded-2xl border border-amber-200 bg-white shadow-2xl">
+            <div className="border-b border-amber-100 bg-amber-50/80 px-5 py-4">
+              <div className="text-sm font-black text-amber-950">Init / Kill switch를 자동으로 추가할까요?</div>
+              <p className="mt-2 text-sm leading-6 text-amber-900">
+                AI가 전략 자금의 출발지와 종료 시 회수지를 보고, 변동성이 낮은 자산으로 안전하게 옮기는 흐름을 설계합니다.
+              </p>
+            </div>
+            <div className="px-5 py-4">
+              <div className="grid gap-2">
+                {pendingAdvancedToEasyRegeneration.issues.map((issue) => (
+                  <div key={issue.id} className="rounded-xl border border-amber-100 bg-amber-50/60 px-3 py-2">
+                    <div className="text-xs font-black text-amber-950">{issue.title}</div>
+                    <p className="mt-1 text-xs leading-5 text-amber-800">{issue.description}</p>
+                  </div>
+                ))}
+              </div>
+              <p className="mt-3 text-xs leading-5 text-slate-600">
+                우선순위는 USDC, USDT, DAI, USD, KRW 같은 현금성/스테이블 자산입니다. AI 생성이 실패하면 기존 로컬 규칙으로 최소 안전 구조를 보강합니다.
+              </p>
+            </div>
+            <div className="flex items-center justify-end gap-2 border-t border-slate-100 px-5 py-4">
+              <button
+                type="button"
+                onClick={handleCancelAdvancedToEasySafetyPrompt}
+                className="h-9 rounded-lg border border-slate-200 px-3 text-sm font-bold text-slate-700 hover:bg-slate-50"
+              >
+                고급 보기로 돌아가기
+              </button>
+              <button
+                type="button"
+                onClick={handleConfirmAdvancedToEasySafetyPrompt}
+                disabled={isRegeneratingEasyView || isAgentRunning}
+                className="h-9 rounded-lg bg-amber-600 px-4 text-sm font-black text-white hover:bg-amber-700 disabled:cursor-not-allowed disabled:opacity-60"
+              >
+                {isRegeneratingEasyView || isAgentRunning ? "AI 설계 중" : "AI로 추가하고 치환"}
               </button>
             </div>
           </section>

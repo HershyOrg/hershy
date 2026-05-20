@@ -10,6 +10,7 @@ import {
   Rocket,
   RotateCcw,
   RefreshCw,
+  Save,
   ShieldAlert,
   SlidersHorizontal,
   TrendingDown,
@@ -30,24 +31,25 @@ type DetailTab = "overview" | "params" | "code";
 type EasyStrategyGraphProps = {
   model: EasyViewModel;
   toolbar?: ReactNode;
+  onSaveCurrentBlock?: (node: EasyViewNode) => void;
 };
 
 const EDGE_STYLE: Record<EasyEdgeKind, { stroke: string; dash?: string }> = {
-  sequence: { stroke: "#3b82f6" },
-  condition: { stroke: "#22c55e", dash: "7 6" },
-  data: { stroke: "#64748b", dash: "8 7" },
-  risk: { stroke: "#ef4444", dash: "7 6" },
+  sequence: { stroke: "#007aff" },
+  condition: { stroke: "#34c759", dash: "7 6" },
+  data: { stroke: "#8e8e93", dash: "8 7" },
+  risk: { stroke: "#ff3b30", dash: "7 6" },
 };
 
 const KIND_STYLE: Record<EasyViewNode["kind"], string> = {
-  start: "border-violet-300 bg-white text-violet-600",
-  stream: "border-sky-300 bg-sky-50 text-sky-600",
-  condition: "border-emerald-300 bg-emerald-50 text-emerald-600",
-  cex: "border-blue-300 bg-white text-blue-600",
-  dex: "border-cyan-300 bg-white text-cyan-600",
-  monitor: "border-blue-300 bg-blue-50 text-blue-600",
-  risk: "border-rose-300 bg-rose-50 text-rose-600",
-  end: "border-rose-300 bg-white text-rose-600",
+  start: "border-white/80 bg-white/[0.88] text-blue-600",
+  stream: "border-white/80 bg-white/[0.88] text-sky-600",
+  condition: "border-white/80 bg-white/[0.88] text-emerald-600",
+  cex: "border-white/80 bg-white/[0.9] text-blue-600",
+  dex: "border-white/80 bg-white/[0.9] text-cyan-600",
+  monitor: "border-white/80 bg-white/[0.88] text-blue-600",
+  risk: "border-white/80 bg-white/[0.88] text-rose-600",
+  end: "border-white/80 bg-white/[0.88] text-rose-600",
 };
 
 function NodeIcon({ kind }: { kind: EasyViewNode["kind"] }) {
@@ -74,12 +76,12 @@ function StatusBadge({ status }: { status: EasyViewNode["status"] }) {
   return (
     <span
       className={cn(
-        "rounded-full px-2 py-0.5 text-[10px] font-bold",
-        status === "running" && "bg-emerald-100 text-emerald-700",
-        status === "watching" && "bg-blue-100 text-blue-700",
-        status === "complete" && "bg-violet-100 text-violet-700",
-        status === "blocked" && "bg-rose-100 text-rose-700",
-        status === "ready" && "bg-slate-100 text-slate-600",
+        "rounded-full px-2.5 py-1 text-[10px] font-black",
+        status === "running" && "bg-emerald-500/10 text-emerald-700",
+        status === "watching" && "bg-blue-500/10 text-blue-700",
+        status === "complete" && "bg-slate-900/[0.06] text-slate-700",
+        status === "blocked" && "bg-rose-500/10 text-rose-700",
+        status === "ready" && "bg-white/70 text-slate-500 shadow-sm ring-1 ring-slate-200/70",
       )}
     >
       {label}
@@ -396,7 +398,7 @@ function StreamMiniChart({ node }: { node: EasyViewNode }) {
   const fields = chart.fields.length > 0 ? chart.fields : ["price", "volume"];
 
   return (
-    <div className="mt-2 rounded-md border border-sky-100 bg-white/80 p-1.5">
+    <div className="mt-2 rounded-2xl border border-white/80 bg-white/70 p-2 shadow-inner">
       <div className="mb-1 flex items-center justify-between gap-2 text-[9px] font-bold text-slate-500">
         <span className="truncate">{chart.title}</span>
         {chart.highlight ? <span className="shrink-0 text-sky-600">{chart.highlight}</span> : null}
@@ -408,7 +410,7 @@ function StreamMiniChart({ node }: { node: EasyViewNode }) {
       </svg>
       <div className="mt-1 flex min-w-0 gap-1 overflow-hidden">
         {fields.slice(0, 3).map((field) => (
-          <span key={field} className="truncate rounded bg-sky-50 px-1.5 py-0.5 text-[9px] font-bold text-sky-700">
+          <span key={field} className="truncate rounded-full bg-sky-500/10 px-1.5 py-0.5 text-[9px] font-bold text-sky-700">
             {field}
           </span>
         ))}
@@ -417,7 +419,7 @@ function StreamMiniChart({ node }: { node: EasyViewNode }) {
   );
 }
 
-export function EasyStrategyGraph({ model, toolbar }: EasyStrategyGraphProps) {
+export function EasyStrategyGraph({ model, toolbar, onSaveCurrentBlock }: EasyStrategyGraphProps) {
   const [selectedNodeId, setSelectedNodeId] = useState(model.nodes[0]?.id ?? "");
   const [focusedNodeId, setFocusedNodeId] = useState<string | null>(null);
   const [detailTab, setDetailTab] = useState<DetailTab>("overview");
@@ -587,10 +589,84 @@ export function EasyStrategyGraph({ model, toolbar }: EasyStrategyGraphProps) {
     ? selectedOutgoing.map((edge) => `${nodeTitleById.get(edge.target) ?? edge.target} (${getEdgeLabelText(edge.label) || edge.kind})`).join(", ")
     : "다음 블록 없음";
   const showTradingCriterion = selectedNode?.kind === "cex" || selectedNode?.kind === "dex";
+  const handleSaveCurrentBlock = () => {
+    if (!selectedNode) return;
+    onSaveCurrentBlock?.(selectedNode);
+  };
+
+  if (model.nodes.length === 0) {
+    return (
+      <div className="grid h-full min-h-0 grid-rows-[minmax(420px,1fr)_clamp(154px,22vh,220px)]">
+        <div className="relative overflow-auto border-b border-white/70 bg-[radial-gradient(circle_at_top_left,rgba(255,255,255,0.95),transparent_34rem),linear-gradient(135deg,#f8fafc_0%,#eef4fb_45%,#e9eef5_100%)]">
+          {toolbar ? <div className="absolute left-3 top-2 z-20">{toolbar}</div> : null}
+          <div className="flex h-full min-h-[420px] items-center justify-center p-6">
+            <div className="w-full max-w-xl rounded-[32px] border border-white/80 bg-white/[0.82] p-7 text-center shadow-[0_30px_90px_rgba(15,23,42,0.12)] backdrop-blur-2xl">
+              <div className="mx-auto flex h-14 w-14 items-center justify-center rounded-[20px] bg-blue-500/10 text-blue-600 shadow-inner">
+                <Rocket className="h-7 w-7" />
+              </div>
+              <h3 className="mt-4 text-lg font-black text-slate-950">아직 쉬운 보기에 올라온 전략이 없습니다</h3>
+              <p className="mt-2 text-sm leading-6 text-slate-600">
+                AI에게 전략을 요청하거나 추천 템플릿을 선택하면 거래소 연결을 바탕으로 블록과 간선이 여기 생성됩니다.
+              </p>
+              <div className="mt-5 grid gap-2 text-left sm:grid-cols-3">
+                <div className="rounded-3xl border border-white/80 bg-white/70 px-3 py-3 shadow-[0_12px_32px_rgba(15,23,42,0.06)]">
+                  <div className="flex items-center gap-2 text-sm font-black text-blue-900">
+                    <PlayCircle className="h-4 w-4" />
+                    AI로 시작
+                  </div>
+                  <p className="mt-1 text-xs leading-5 text-slate-600">자연어로 전략을 설명하면 쉬운 보기와 코드가 함께 만들어집니다.</p>
+                </div>
+                <div className="rounded-3xl border border-white/80 bg-white/70 px-3 py-3 shadow-[0_12px_32px_rgba(15,23,42,0.06)]">
+                  <div className="flex items-center gap-2 text-sm font-black text-sky-900">
+                    <SlidersHorizontal className="h-4 w-4" />
+                    템플릿 선택
+                  </div>
+                  <p className="mt-1 text-xs leading-5 text-slate-600">추천 템플릿으로 빠르게 시작한 뒤 파라미터만 조정할 수 있습니다.</p>
+                </div>
+                <div className="rounded-3xl border border-white/80 bg-white/70 px-3 py-3 shadow-[0_12px_32px_rgba(15,23,42,0.06)]">
+                  <div className="flex items-center gap-2 text-sm font-black text-emerald-900">
+                    <BarChart3 className="h-4 w-4" />
+                    생성 후 검증
+                  </div>
+                  <p className="mt-1 text-xs leading-5 text-slate-600">전략이 만들어지면 쉬운 보기에서 백테스트와 드라이런 흐름까지 이어집니다.</p>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div className="grid min-h-0 grid-cols-[minmax(160px,220px)_minmax(0,1fr)] bg-white/[0.78] backdrop-blur-2xl">
+          <div className="border-r border-white/70 p-3">
+            <div className="text-xs font-bold text-slate-600">다음 단계</div>
+            <div className="mt-2 grid gap-2">
+              {[
+                "거래소 연결 상태 확인",
+                "AI 전략 생성 또는 추천 템플릿 선택",
+                "생성 후 파라미터 조정",
+              ].map((step) => (
+                <div key={step} className="rounded-2xl border border-white/80 bg-white/70 px-3 py-2 text-xs font-semibold text-slate-700 shadow-sm">
+                  {step}
+                </div>
+              ))}
+            </div>
+          </div>
+
+          <div className="flex items-center justify-center p-6">
+            <div className="max-w-lg rounded-[28px] border border-dashed border-slate-300/80 bg-white/70 px-6 py-5 text-center shadow-sm">
+              <div className="text-sm font-black text-slate-900">전략이 생성되면 여기서 블록 개요와 파라미터를 볼 수 있습니다.</div>
+              <p className="mt-2 text-xs leading-5 text-slate-600">
+                쉬운 보기에서는 실행 파라미터를 빠르게 조정하고, 구조를 바꾸고 싶을 때만 고급 보기로 넘어가면 됩니다.
+              </p>
+            </div>
+          </div>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="grid h-full min-h-0 grid-rows-[minmax(420px,1fr)_clamp(154px,22vh,220px)]">
-      <div className="relative overflow-auto border-b border-slate-200 bg-[radial-gradient(circle,#dbe3f0_1px,transparent_1px)] [background-size:18px_18px]">
+      <div className="relative overflow-auto border-b border-white/70 bg-[radial-gradient(circle_at_top_left,rgba(255,255,255,0.95),transparent_34rem),linear-gradient(135deg,#f8fafc_0%,#eef4fb_45%,#e9eef5_100%)]">
         {toolbar ? <div className="absolute left-3 top-2 z-20">{toolbar}</div> : null}
         <div
           className="relative h-full min-h-[420px] min-w-full"
@@ -693,7 +769,7 @@ export function EasyStrategyGraph({ model, toolbar }: EasyStrategyGraphProps) {
             return (
               <div
                 key={`label-${edge.id}`}
-                className="pointer-events-none absolute z-10 inline-flex items-center justify-center rounded-md border bg-white text-[10px] font-black text-slate-600 shadow-sm"
+                className="pointer-events-none absolute z-10 inline-flex items-center justify-center rounded-full border bg-white/85 text-[10px] font-black text-slate-600 shadow-[0_10px_28px_rgba(15,23,42,0.10)] backdrop-blur-xl"
                 style={{
                   left: labelPlacement.x - labelPlacement.width / 2,
                   top: labelPlacement.y - labelPlacement.height / 2,
@@ -708,7 +784,7 @@ export function EasyStrategyGraph({ model, toolbar }: EasyStrategyGraphProps) {
             );
           }) : null}
 
-          <div className="absolute left-8 top-[84px] z-20 rounded-full bg-emerald-500 px-2 py-0.5 text-[11px] font-black text-white">
+          <div className="absolute left-8 top-[84px] z-20 rounded-full border border-white/80 bg-white/85 px-3 py-1 text-[11px] font-black text-emerald-700 shadow-[0_12px_30px_rgba(15,23,42,0.10)] backdrop-blur-xl">
             시작
           </div>
 
@@ -731,11 +807,11 @@ export function EasyStrategyGraph({ model, toolbar }: EasyStrategyGraphProps) {
                   setDetailTab("overview");
                 }}
                 className={cn(
-                  "absolute z-20 rounded-lg border-2 text-left shadow-sm transition-all hover:-translate-y-0.5 hover:shadow-md",
-                  isCompact ? "px-2 py-2" : "p-3",
+                  "absolute z-20 rounded-[26px] border text-left shadow-[0_18px_52px_rgba(15,23,42,0.10)] backdrop-blur-2xl transition-all hover:-translate-y-1 hover:shadow-[0_26px_70px_rgba(15,23,42,0.14)]",
+                  isCompact ? "px-3 py-2.5" : "p-3.5",
                   KIND_STYLE[node.kind],
-                  isSelected && "border-violet-500 ring-4 ring-violet-100",
-                  isFocusedNode && "z-30 ring-4 ring-violet-200 shadow-lg",
+                  isSelected && "border-blue-300 ring-[6px] ring-blue-500/10",
+                  isFocusedNode && "z-30 ring-[6px] ring-blue-500/15 shadow-[0_30px_80px_rgba(0,122,255,0.18)]",
                   isFocusActive && !isFocusRelated && "opacity-25 grayscale",
                 )}
                 style={{
@@ -743,7 +819,7 @@ export function EasyStrategyGraph({ model, toolbar }: EasyStrategyGraphProps) {
                   top: node.y,
                   width: node.w,
                   minHeight: getNodeVisualHeight(node),
-                  filter: isFocusedNode ? "drop-shadow(0 0 14px rgba(124, 58, 237, 0.34))" : undefined,
+                  filter: isFocusedNode ? "drop-shadow(0 0 18px rgba(0, 122, 255, 0.24))" : undefined,
                 }}
               >
                 <div className="flex items-start justify-between gap-2">
@@ -757,7 +833,7 @@ export function EasyStrategyGraph({ model, toolbar }: EasyStrategyGraphProps) {
                     </div>
                   </div>
                   {!isCompact ? (
-                    <span className="rounded-full bg-slate-100 px-1.5 text-[10px] font-bold text-slate-500">
+                    <span className="rounded-full bg-slate-900/[0.05] px-2 py-0.5 text-[10px] font-bold text-slate-500">
                       {node.index}
                     </span>
                   ) : null}
@@ -765,13 +841,13 @@ export function EasyStrategyGraph({ model, toolbar }: EasyStrategyGraphProps) {
                 {!isCompact ? (
                   <div className="mt-2 flex items-center justify-between">
                     {node.kind === "start" ? (
-                      <div className="flex items-center gap-1 rounded bg-amber-100 px-1.5 py-0.5 text-[9px] font-bold text-amber-600">
+                      <div className="flex items-center gap-1 rounded-full bg-amber-500/10 px-2 py-1 text-[9px] font-bold text-amber-700">
                         <RefreshCw className="h-2.5 w-2.5 animate-spin" /> 무한 루프 주기
                       </div>
                     ) : (
                       <StatusBadge status={node.status} />
                     )}
-                    <span className={cn("text-[10px] font-bold", node.editableInEasyView ? "text-violet-600" : "text-slate-400")}>
+                    <span className={cn("text-[10px] font-bold", node.editableInEasyView ? "text-blue-600" : "text-slate-400")}>
                       {isAbstracted ? `요약 ${node.sourceBlockIds?.length ?? 1}` : node.editableInEasyView ? "파라미터" : "읽기 전용"}
                     </span>
                   </div>
@@ -788,8 +864,8 @@ export function EasyStrategyGraph({ model, toolbar }: EasyStrategyGraphProps) {
 
           <div className="absolute right-4 top-[92px] flex w-[116px] flex-col gap-2" onClick={(event) => event.stopPropagation()}>
             {[
-              { label: "백테스트", icon: BarChart3, tone: "violet" },
-              { label: "튜닝하기", icon: SlidersHorizontal, tone: "violet" },
+              { label: "백테스트", icon: BarChart3, tone: "blue" },
+              { label: "튜닝하기", icon: SlidersHorizontal, tone: "slate" },
               { label: "드라이런", icon: PlayCircle, tone: "cyan" },
               { label: "실전 실행", icon: Rocket, tone: "emerald" },
             ].map((action) => {
@@ -799,10 +875,11 @@ export function EasyStrategyGraph({ model, toolbar }: EasyStrategyGraphProps) {
                   key={action.label}
                   type="button"
                   className={cn(
-                    "inline-flex h-10 items-center justify-center gap-2 rounded-lg border bg-white text-sm font-bold shadow-sm",
-                    action.tone === "violet" && "border-violet-300 text-violet-700",
-                    action.tone === "cyan" && "border-cyan-300 text-cyan-700",
-                    action.tone === "emerald" && "border-emerald-300 text-emerald-700",
+                    "inline-flex h-11 items-center justify-center gap-2 rounded-2xl border bg-white/85 text-sm font-black shadow-[0_14px_36px_rgba(15,23,42,0.10)] backdrop-blur-xl transition hover:-translate-y-0.5 hover:bg-white",
+                    action.tone === "blue" && "border-blue-200 text-blue-700",
+                    action.tone === "slate" && "border-slate-200 text-slate-700",
+                    action.tone === "cyan" && "border-cyan-200 text-cyan-700",
+                    action.tone === "emerald" && "border-emerald-200 text-emerald-700",
                   )}
                 >
                   <Icon className="h-4 w-4" />
@@ -814,8 +891,8 @@ export function EasyStrategyGraph({ model, toolbar }: EasyStrategyGraphProps) {
         </div>
       </div>
 
-      <div className="grid min-h-0 grid-cols-[minmax(160px,220px)_minmax(0,1fr)] bg-white">
-        <div className="border-r border-slate-200 p-2.5">
+      <div className="grid min-h-0 grid-cols-[minmax(160px,220px)_minmax(0,1fr)] bg-white/[0.78] backdrop-blur-2xl">
+        <div className="border-r border-white/70 p-2.5">
           <div className="mb-2 text-xs font-bold text-slate-600">쉬운 보기에서 수정 가능</div>
           <div className="grid gap-1.5">
             {editableNodes.map((node) => (
@@ -827,8 +904,8 @@ export function EasyStrategyGraph({ model, toolbar }: EasyStrategyGraphProps) {
                   setDetailTab("params");
                 }}
                 className={cn(
-                  "rounded-lg border p-2 text-left text-xs transition-colors",
-                  selectedNodeId === node.id ? "border-blue-300 bg-blue-50" : "border-slate-200 bg-white hover:bg-slate-50",
+                  "rounded-2xl border p-2.5 text-left text-xs shadow-sm transition",
+                  selectedNodeId === node.id ? "border-blue-200 bg-blue-500/10 text-blue-800" : "border-white/80 bg-white/70 hover:bg-white",
                 )}
               >
                 <div className="font-black text-slate-900">{node.title}</div>
@@ -839,8 +916,8 @@ export function EasyStrategyGraph({ model, toolbar }: EasyStrategyGraphProps) {
         </div>
 
         <div className="min-w-0">
-          <div className="flex h-10 items-center justify-between border-b border-slate-200 px-3">
-            <div className="flex gap-1">
+          <div className="flex h-12 items-center justify-between border-b border-white/70 px-3">
+            <div className="flex rounded-full bg-slate-900/[0.05] p-1">
               {[
                 { id: "overview", label: "개요" },
                 { id: "params", label: "파라미터" },
@@ -851,21 +928,34 @@ export function EasyStrategyGraph({ model, toolbar }: EasyStrategyGraphProps) {
                   type="button"
                   onClick={() => setDetailTab(tab.id as DetailTab)}
                   className={cn(
-                    "h-8 rounded-md px-3 text-xs font-bold",
-                    detailTab === tab.id ? "bg-violet-50 text-violet-700" : "text-slate-500 hover:bg-slate-50",
+                    "h-8 rounded-full px-3 text-xs font-bold transition",
+                    detailTab === tab.id ? "bg-white text-blue-700 shadow-sm" : "text-slate-500 hover:text-slate-800",
                   )}
                 >
                   {tab.label}
                 </button>
               ))}
             </div>
-            <div className="hidden items-center gap-1 rounded-full bg-slate-100 px-2 py-1 text-[10px] font-bold text-slate-500 md:flex">
-              <Code2 className="h-3 w-3" />
-              코드에서 생성됨
+            <div className="flex items-center gap-2">
+              {onSaveCurrentBlock ? (
+                <button
+                  type="button"
+                  onClick={handleSaveCurrentBlock}
+                  disabled={!selectedNode}
+                  className="inline-flex h-8 items-center gap-1.5 rounded-full bg-slate-950 px-3 text-[11px] font-black text-white shadow-sm transition hover:bg-slate-800 disabled:cursor-not-allowed disabled:bg-slate-300"
+                >
+                  <Save className="h-3.5 w-3.5 text-emerald-300" />
+                  현재 블록 저장
+                </button>
+              ) : null}
+              <div className="hidden items-center gap-1 rounded-full bg-white/70 px-2.5 py-1.5 text-[10px] font-bold text-slate-500 shadow-sm md:flex">
+                <Code2 className="h-3 w-3" />
+                코드에서 생성됨
+              </div>
             </div>
           </div>
 
-          <div className="h-[calc(100%-40px)] overflow-auto p-3">
+          <div className="h-[calc(100%-48px)] overflow-auto p-3">
             {detailTab === "overview" ? (
               <div
                 className={cn(
@@ -875,36 +965,36 @@ export function EasyStrategyGraph({ model, toolbar }: EasyStrategyGraphProps) {
                     : "grid-cols-[minmax(180px,1fr)_minmax(260px,1.65fr)_minmax(220px,1.1fr)]",
                 )}
               >
-                <div className="rounded-lg border border-slate-200 p-3">
+                <div className="rounded-2xl border border-white/80 bg-white/70 p-3 shadow-sm">
                   <div className="flex items-center justify-between gap-2">
                     <div className="text-xs font-bold text-slate-500">선택 블록</div>
                     {selectedNode ? <StatusBadge status={selectedNode.status} /> : null}
                   </div>
                   <div className="mt-2 text-sm font-black text-slate-900">{selectedNode?.title}</div>
-                  <div className="mt-1 text-[11px] font-bold text-violet-600">{getNodeKindLabel(selectedNode?.kind)}</div>
+                  <div className="mt-1 text-[11px] font-bold text-blue-600">{getNodeKindLabel(selectedNode?.kind)}</div>
                   <p className="mt-2 text-xs leading-5 text-slate-600">{selectedNode?.description}</p>
                 </div>
-                <div className="rounded-lg border border-slate-200 p-3">
+                <div className="rounded-2xl border border-white/80 bg-white/70 p-3 shadow-sm">
                   <div className="text-xs font-bold text-slate-500">이 전략에서 하는 일</div>
                   <p className="mt-2 text-xs leading-5 text-slate-600">
                     {selectedNode?.roleDescription ?? selectedNode?.description ?? "선택한 블록의 전략 내 역할을 표시합니다."}
                   </p>
-                  <div className="mt-3 rounded-md bg-slate-50 px-2 py-1.5 text-[11px] font-semibold leading-5 text-slate-600">
+                  <div className="mt-3 rounded-xl bg-slate-900/[0.04] px-2.5 py-2 text-[11px] font-semibold leading-5 text-slate-600">
                     이전: {incomingSummary}
                   </div>
-                  <div className="mt-1.5 rounded-md bg-slate-50 px-2 py-1.5 text-[11px] font-semibold leading-5 text-slate-600">
+                  <div className="mt-1.5 rounded-xl bg-slate-900/[0.04] px-2.5 py-2 text-[11px] font-semibold leading-5 text-slate-600">
                     다음: {outgoingSummary}
                   </div>
                 </div>
                 {showTradingCriterion ? (
-                  <div className="rounded-lg border border-slate-200 p-3">
+                  <div className="rounded-2xl border border-white/80 bg-white/70 p-3 shadow-sm">
                     <div className="text-xs font-bold text-slate-500">매매 기준</div>
                     <p className="mt-2 text-xs leading-5 text-slate-600">
                       {selectedNode?.conditionText || "연결된 매매 기준이 충족될 때 실행됩니다."}
                     </p>
                   </div>
                 ) : null}
-                <div className="rounded-lg border border-slate-200 p-3">
+                <div className="rounded-2xl border border-white/80 bg-white/70 p-3 shadow-sm">
                   <div className="text-xs font-bold text-slate-500">입출력</div>
                   <p className="mt-2 text-xs leading-5 text-slate-600">
                     {selectedNode?.inputSummary ?? "받는 입력: 연결된 이전 블록"}
@@ -931,7 +1021,7 @@ export function EasyStrategyGraph({ model, toolbar }: EasyStrategyGraphProps) {
                               setParamValues((prev) => ({ ...prev, [key]: event.target.value }))
                             }
                             disabled={param.readonly}
-                            className="h-10 w-full rounded-lg border border-slate-200 bg-white px-2 text-sm font-semibold outline-none focus:border-violet-300 disabled:bg-slate-100 disabled:text-slate-500"
+                            className="h-10 w-full rounded-xl border border-slate-200 bg-white/85 px-2 text-sm font-semibold outline-none focus:border-blue-300 disabled:bg-slate-100 disabled:text-slate-500"
                           >
                             {param.options.map((option) => (
                               <option key={option} value={option}>
@@ -940,7 +1030,7 @@ export function EasyStrategyGraph({ model, toolbar }: EasyStrategyGraphProps) {
                             ))}
                           </select>
                         ) : (
-                          <div className={`flex h-10 rounded-lg border border-slate-200 bg-white ${param.readonly ? "bg-slate-100" : ""}`}>
+                          <div className={`flex h-10 rounded-xl border border-slate-200 bg-white/85 ${param.readonly ? "bg-slate-100" : ""}`}>
                             <input
                               value={paramValues[key] ?? param.value}
                               onChange={(event) =>
@@ -948,7 +1038,7 @@ export function EasyStrategyGraph({ model, toolbar }: EasyStrategyGraphProps) {
                               }
                               readOnly={param.readonly}
                               disabled={param.readonly}
-                              className="min-w-0 flex-1 rounded-l-lg px-2 text-sm font-semibold outline-none focus:ring-1 focus:ring-violet-300 disabled:bg-slate-100 disabled:text-slate-500"
+                              className="min-w-0 flex-1 rounded-l-xl px-2 text-sm font-semibold outline-none focus:ring-1 focus:ring-blue-300 disabled:bg-slate-100 disabled:text-slate-500"
                             />
                             {param.unit ? (
                               <span className="inline-flex items-center border-l border-slate-200 px-2 text-xs font-bold text-slate-400">
@@ -963,14 +1053,14 @@ export function EasyStrategyGraph({ model, toolbar }: EasyStrategyGraphProps) {
                   })}
                 </div>
               ) : (
-                <div className="flex h-full items-center justify-center rounded-lg border border-dashed border-slate-300 bg-slate-50 px-4 text-center text-sm font-semibold text-slate-500">
+                <div className="flex h-full items-center justify-center rounded-2xl border border-dashed border-slate-300 bg-white/70 px-4 text-center text-sm font-semibold text-slate-500">
                   이 블록은 파이프라인 구조에 속합니다. 쉬운 보기에서는 CEX/DEX 실행 파라미터만 조절하고, 구조 변경은 고급 보기에서 합니다.
                 </div>
               )
             ) : null}
 
             {detailTab === "code" ? (
-              <pre className="h-full overflow-auto rounded-lg bg-slate-950 p-3 text-xs leading-5 text-emerald-200">
+              <pre className="h-full overflow-auto rounded-2xl bg-slate-950 p-3 text-xs leading-5 text-emerald-200 shadow-inner">
                 {model.code}
               </pre>
             ) : null}

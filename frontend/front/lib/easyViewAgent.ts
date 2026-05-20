@@ -259,7 +259,7 @@ function advancedNodeToStrategyBlockType(node: Node) {
   if (node.type === "streamingNode") return "streaming";
   if (node.type === "actionNode") return "action";
   if (node.type === "monitoringNode") return "monitoring";
-  if (node.type === "timeTrigger") return "trigger";
+  if (node.type === "timeTrigger" || node.type === "clickTrigger") return "trigger";
   return "normal";
 }
 
@@ -285,6 +285,18 @@ function sanitizeAdvancedNodeConfig(node: Node) {
     ];
   }
 
+  if (node.type === "clickTrigger") {
+    config.triggerType = "manual";
+    config.outputBlocks = config.outputBlocks ?? [
+      {
+        id: "click",
+        name: "click",
+        description: "클릭되면 true 신호를 내보냅니다.",
+        type: "output",
+      },
+    ];
+  }
+
   if (node.type === "functionNode") {
     if (typeof config.triggerCondition === "string" && !config.condition) {
       config.condition = config.triggerCondition;
@@ -296,6 +308,27 @@ function sanitizeAdvancedNodeConfig(node: Node) {
 
   if (node.type === "actionNode" && typeof config.actionType === "string") {
     config.actionType = config.actionType.toUpperCase();
+    const exchange = normalizeGraphText(config.exchange).toLowerCase().replace(/[\s._-]+/g, "");
+    if (config.actionType === "CEX" && exchange === "polymarket") {
+      const tokenId = normalizeGraphText(config.tokenId);
+      const price = normalizeGraphText(config.price);
+      const size = normalizeGraphText(config.size || config.amount);
+      const postOnly = typeof config.postOnly === "boolean"
+        ? config.postOnly
+        : normalizeGraphText(config.postOnly).toLowerCase() === "true";
+      config.dexProtocol = "polymarket";
+      config.executionMode = "api";
+      config.apiUrl = "https://clob.polymarket.com";
+      config.chainId = normalizeGraphNumber(config.chainId, 137);
+      config.parameters = [
+        { name: "tokenId", value: tokenId },
+        { name: "side", value: normalizeGraphText(config.side, "BUY").toUpperCase() },
+        { name: "price", value: price },
+        { name: "size", value: size },
+        { name: "orderType", value: normalizeGraphText(config.polymarketOrderType || config.orderType, "GTC").toUpperCase() },
+        { name: "postOnly", value: String(postOnly) },
+      ];
+    }
   }
 
   return config;
@@ -319,11 +352,13 @@ function normalizeAdvancedEdgeKind(edge: Edge, sourceNode?: Node, targetNode?: N
 
   if (sourceNode?.type === "actionNode") return "action-result";
   if (targetNode?.type === "monitoringNode") return "stream-monitor";
-  if (sourceNode?.type === "timeTrigger" && targetNode?.type === "timeTrigger") return "trigger-input";
+  const sourceIsTrigger = sourceNode?.type === "timeTrigger" || sourceNode?.type === "clickTrigger";
+  const targetIsTrigger = targetNode?.type === "timeTrigger" || targetNode?.type === "clickTrigger";
+  if (sourceIsTrigger && targetIsTrigger) return "trigger-input";
   if (targetNode?.type === "actionNode") {
-    return sourceNode?.type === "timeTrigger" ? "trigger-action" : "action-input";
+    return sourceIsTrigger ? "trigger-action" : "action-input";
   }
-  if (targetNode?.type === "timeTrigger") return "trigger-input";
+  if (targetIsTrigger) return "trigger-input";
   return "data-flow";
 }
 
@@ -1234,6 +1269,91 @@ type EasyTriggerAbsorption = {
   triggerToSources: Map<string, StrategyGraphBlock[]>;
 };
 
+type EasyWorkflowGroupSpec = {
+  id: string;
+  title: string;
+  purpose: string;
+  nodeIds: string[];
+  canAbstract: boolean;
+  mustStayVisibleNodeIds: string[];
+};
+
+function normalizeEasyWorkflowGroups(strategyGraph: StrategyGraphPayload): EasyWorkflowGroupSpec[] {
+  const metadata = strategyGraph.metadata && typeof strategyGraph.metadata === "object" ? strategyGraph.metadata : {};
+  const rawGroups = Array.isArray(metadata.workflowGroups) ? metadata.workflowGroups : [];
+  return rawGroups
+    .map((group, index) => {
+      if (!group || typeof group !== "object") return null;
+      const item = group as Record<string, unknown>;
+      const id = normalizeGraphText(item.id ?? item.workflowId ?? item.name, `workflow-${index + 1}`);
+      return {
+        id,
+        title: readConfigText(item, ["title", "label", "name"], id),
+        purpose: readConfigText(item, ["purpose", "description", "summary"], ""),
+        nodeIds: normalizeGraphTextList(item.nodeIds ?? item.nodes ?? item.blockIds),
+        canAbstract: item.canAbstract !== false,
+        mustStayVisibleNodeIds: normalizeGraphTextList(item.mustStayVisibleNodeIds ?? item.visibleNodeIds ?? item.anchorNodeIds),
+      };
+    })
+    .filter((group): group is EasyWorkflowGroupSpec => Boolean(group?.id));
+}
+
+function getBlockWorkflowId(block: StrategyGraphBlock) {
+  const config = getBlockConfig(block);
+  return readConfigText(config, ["workflowId", "workflow", "phaseId"], "");
+}
+
+function collectWorkflowForcedVisibleIds(workflowGroups: EasyWorkflowGroupSpec[]) {
+  const visibleIds = new Set<string>();
+  workflowGroups.forEach((group) => {
+    if (!group.canAbstract) {
+      group.nodeIds.forEach((id) => visibleIds.add(id));
+    }
+    group.mustStayVisibleNodeIds.forEach((id) => visibleIds.add(id));
+  });
+  return visibleIds;
+}
+
+function buildWorkflowComponentSpecs(
+  workflowGroups: EasyWorkflowGroupSpec[],
+  abstractableIds: Set<string>,
+  blocksById: Map<string, StrategyGraphBlock>,
+) {
+  const assignedIds = new Set<string>();
+  const componentSpecs: Array<{
+    id: string;
+    memberIds: string[];
+    blocks: StrategyGraphBlock[];
+    title?: string;
+    purpose?: string;
+  }> = [];
+
+  workflowGroups.forEach((group) => {
+    if (!group.canAbstract) return;
+    const memberIdSet = new Set(group.nodeIds);
+    blocksById.forEach((block, blockId) => {
+      if (getBlockWorkflowId(block) === group.id) memberIdSet.add(blockId);
+    });
+
+    const memberIds = Array.from(memberIdSet).filter((id) => abstractableIds.has(id));
+    if (memberIds.length === 0) return;
+    const blocks = memberIds
+      .map((memberId) => blocksById.get(memberId))
+      .filter((block): block is StrategyGraphBlock => Boolean(block));
+    if (blocks.length === 0) return;
+    memberIds.forEach((id) => assignedIds.add(id));
+    componentSpecs.push({
+      id: `workflow-${group.id.replace(/[^a-zA-Z0-9_-]/g, "-").slice(0, 72)}`,
+      memberIds,
+      blocks,
+      title: group.title,
+      purpose: group.purpose,
+    });
+  });
+
+  return { componentSpecs, assignedIds };
+}
+
 function buildEasyTriggerAbsorption(blocks: StrategyGraphBlock[], connections: StrategyGraphConnection[]): EasyTriggerAbsorption {
   const blocksById = new Map(blocks.map((block, index) => [getBlockId(block, index), block]));
   const hiddenIds = new Set<string>();
@@ -1516,13 +1636,17 @@ function buildAbstractEasyNode(
   row: number,
   prompt: string,
   chart?: EasyViewChart,
+  workflowTitle?: string,
+  workflowPurpose?: string,
 ): EasyViewNode {
   const sourceBlockIds = memberBlocks.map((block, memberIndex) => getBlockId(block, memberIndex));
-  const title = inferAbstractNodeTitle(memberBlocks, prompt);
+  const title = workflowTitle || inferAbstractNodeTitle(memberBlocks, prompt);
   const kind = inferAbstractNodeKind(memberBlocks);
   const descriptions = summarizeAbstractMemberDescriptions(memberBlocks);
-  const description = descriptions[0] || `${title} 단계입니다.`;
-  const roleDescription = descriptions.length > 0
+  const description = workflowPurpose || descriptions[0] || `${title} 단계입니다.`;
+  const roleDescription = workflowPurpose
+    ? `${title} 워크플로우는 ${workflowPurpose}`
+    : descriptions.length > 0
     ? descriptions.slice(0, 2).join(" ")
     : `${title} 단계는 쉬운 보기에서 직접 조정하지 않는 데이터 수집, 계산, 조건 확인을 하나로 묶어 보여줍니다.`;
 
@@ -1640,6 +1764,7 @@ export function strategyGraphToCode(strategyGraph: StrategyGraphPayload): string
         blocks: blocks.length,
         connections: connections.length,
       },
+    metadata: strategyGraph.metadata && typeof strategyGraph.metadata === "object" ? strategyGraph.metadata : {},
     blocks,
     connections,
   };
@@ -1657,10 +1782,16 @@ export function createEasyViewFromStrategyGraph(strategyGraph: StrategyGraphPayl
   const effectiveConnections = buildEffectiveEasyConnections(allBlocks, connections, absorption);
   const visibleIdSet = new Set(visibleBlocks.map((block, index) => getBlockId(block, index)));
   const branchAnchorIds = buildEasyBranchAnchorIds(visibleBlocks, effectiveConnections);
+  const workflowGroups = normalizeEasyWorkflowGroups(normalizedStrategyGraph);
+  const workflowForcedVisibleIds = collectWorkflowForcedVisibleIds(workflowGroups);
   const anchorIds = new Set(
     visibleBlocks
       .map((block, index) => ({ block, id: getBlockId(block, index) }))
-      .filter(({ block, id }) => isEasyEditableBlock(block) || branchAnchorIds.has(id) || isKillSwitchBlock(block))
+      .filter(({ block, id }) =>
+        isEasyEditableBlock(block) ||
+        branchAnchorIds.has(id) ||
+        isKillSwitchBlock(block) ||
+        workflowForcedVisibleIds.has(id))
       .map(({ id }) => id),
   );
   const abstractableIds = new Set(
@@ -1668,22 +1799,35 @@ export function createEasyViewFromStrategyGraph(strategyGraph: StrategyGraphPayl
       .map((block, index) => getBlockId(block, index))
       .filter((id) => !anchorIds.has(id)),
   );
+  const workflowComponents = buildWorkflowComponentSpecs(workflowGroups, abstractableIds, blocksById);
+  const unassignedAbstractableIds = new Set(
+    Array.from(abstractableIds).filter((id) => !workflowComponents.assignedIds.has(id)),
+  );
   const abstractAdjacency = new Map<string, Set<string>>(
-    Array.from(abstractableIds).map((id) => [id, new Set<string>()]),
+    Array.from(unassignedAbstractableIds).map((id) => [id, new Set<string>()]),
   );
 
   effectiveConnections.forEach((connection) => {
     const source = normalizeGraphText(connection.fromId);
     const target = normalizeGraphText(connection.toId);
-    if (!abstractableIds.has(source) || !abstractableIds.has(target)) return;
+    if (!unassignedAbstractableIds.has(source) || !unassignedAbstractableIds.has(target)) return;
     abstractAdjacency.get(source)?.add(target);
     abstractAdjacency.get(target)?.add(source);
   });
 
   const componentByBlockId = new Map<string, string>();
-  const componentSpecs: Array<{ id: string; memberIds: string[]; blocks: StrategyGraphBlock[] }> = [];
+  const componentSpecs: Array<{
+    id: string;
+    memberIds: string[];
+    blocks: StrategyGraphBlock[];
+    title?: string;
+    purpose?: string;
+  }> = [...workflowComponents.componentSpecs];
+  componentSpecs.forEach((component) => {
+    component.memberIds.forEach((memberId) => componentByBlockId.set(memberId, component.id));
+  });
   const visited = new Set<string>();
-  Array.from(abstractableIds).forEach((startId) => {
+  Array.from(unassignedAbstractableIds).forEach((startId) => {
     if (visited.has(startId)) return;
     const queue = [startId];
     const memberIds: string[] = [];
@@ -1748,10 +1892,16 @@ export function createEasyViewFromStrategyGraph(strategyGraph: StrategyGraphPayl
     .map((block, index) => ({ type: "block" as const, id: getBlockId(block, index), block }))
     .filter((spec) => anchorIds.has(spec.id));
   const easySpecs: Array<
-    | { type: "abstract"; id: string; blocks: StrategyGraphBlock[] }
+    | { type: "abstract"; id: string; blocks: StrategyGraphBlock[]; title?: string; purpose?: string }
     | { type: "block"; id: string; block: StrategyGraphBlock }
   > = [
-      ...componentSpecs.map((component) => ({ type: "abstract" as const, id: component.id, blocks: component.blocks })),
+      ...componentSpecs.map((component) => ({
+        type: "abstract" as const,
+        id: component.id,
+        blocks: component.blocks,
+        title: component.title,
+        purpose: component.purpose,
+      })),
       ...anchorSpecs,
     ];
   const layoutBlocks = easySpecs.map((spec) => ({ id: spec.id, type: "normal", config: {} }));
@@ -1766,7 +1916,7 @@ export function createEasyViewFromStrategyGraph(strategyGraph: StrategyGraphPayl
       const chart = streamBlock
         ? buildStreamingChart(streamBlock, getMonitoringBlocksForStream(streamId, blocksById, connections))
         : undefined;
-      return buildAbstractEasyNode(spec.id, spec.blocks, index, item.level, item.row, prompt, chart);
+      return buildAbstractEasyNode(spec.id, spec.blocks, index, item.level, item.row, prompt, chart, spec.title, spec.purpose);
     }
 
     const block = spec.block;
@@ -1992,7 +2142,8 @@ function buildIndicatorConditionConfig(config: Record<string, unknown>, outputNa
 
 function buildStreamingNodeData(id: string, config: Record<string, unknown>): StreamingNodeData {
   const label = readConfigText(config, ["name", "label", "title", "symbol"], id);
-  const url = readConfigText(config, ["url", "endpoint", "apiReference"], "wss://stream.binance.com/ws");
+  const streamKind = readConfigText(config, ["streamKind"], readConfigText(config, ["streamChain"], "") ? "evm-rpc" : "url") as StreamingNodeData["streamKind"];
+  const url = readConfigText(config, ["sourceUrl", "url", "endpoint", "apiUrl"], streamKind === "evm-rpc" ? "" : "wss://stream.binance.com/ws");
   const methodText = readConfigText(config, ["method", "protocol"], url.startsWith("ws") ? "WEBSOCKET" : "POLLING").toUpperCase();
   return {
     label,
@@ -2000,7 +2151,12 @@ function buildStreamingNodeData(id: string, config: Record<string, unknown>): St
     url,
     intervalMs: readConfigNumber(config, ["intervalMs", "pollMs"], 1000),
     isActive: readConfigBool(config, ["isActive", "active"], true),
-    outputBlocks: readOutputBlocks(config, ["price", "volume"]),
+    streamKind: streamKind || "url",
+    streamChain: readConfigText(config, ["streamChain"], streamKind === "evm-rpc" ? "eth-mainnet" : ""),
+    streamMethod: readConfigText(config, ["streamMethod"], streamKind === "evm-rpc" ? "eth_call" : ""),
+    streamParamsJson: readConfigText(config, ["streamParamsJson"], streamKind === "evm-rpc" ? '[{"to":"0x...","data":"0x..."}, "latest"]' : ""),
+    responseSchema: readConfigText(config, ["responseSchema"], ""),
+    outputBlocks: readOutputBlocks(config, streamKind === "evm-rpc" ? ["result_dec", "result"] : ["price", "volume"]),
     isExpanded: false,
     apiReference: readConfigText(config, ["apiReference", "reference"], ""),
     authMode: "NONE",
