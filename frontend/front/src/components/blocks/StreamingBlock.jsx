@@ -6,12 +6,25 @@ import { Input } from '../ui/input';
 import { Select } from '../ui/select';
 import { NumberStepper } from '../ui/number-stepper';
 
+const CEX_STREAM_EXCHANGES = [
+  { value: 'binance', label: 'Binance' },
+  { value: 'bybit', label: 'Bybit' },
+  { value: 'okx', label: 'OKX' },
+  { value: 'kucoin', label: 'KuCoin' },
+  { value: 'bitget', label: 'Bitget' },
+  { value: 'gateio', label: 'Gate.io' }
+];
+
 const StreamingBlock = ({
   blockId,
   name = "Streaming_Block",
   fields = [],
   apiUrl = '',
   streamKind = 'url',
+  exchange = 'binance',
+  symbol = '',
+  marketId = '',
+  tokenId = '',
   streamChain = '',
   streamMethod = 'eth_blockNumber',
   streamParamsJson = '[]',
@@ -26,6 +39,10 @@ const StreamingBlock = ({
   const [interval, setInterval] = useState(updateInterval);
   const [sourceUrl, setSourceUrl] = useState(apiUrl);
   const [kind, setKind] = useState(streamKind || 'url');
+  const [exchangeName, setExchangeName] = useState(exchange || 'binance');
+  const [marketSymbol, setMarketSymbol] = useState(symbol);
+  const [marketIdentifier, setMarketIdentifier] = useState(marketId);
+  const [tokenIdentifier, setTokenIdentifier] = useState(tokenId);
   const [chain, setChain] = useState(streamChain);
   const [method, setMethod] = useState(streamMethod);
   const [paramsJson, setParamsJson] = useState(streamParamsJson);
@@ -49,6 +66,22 @@ const StreamingBlock = ({
   useEffect(() => {
     setKind(streamKind || 'url');
   }, [streamKind]);
+
+  useEffect(() => {
+    setExchangeName(exchange || 'binance');
+  }, [exchange]);
+
+  useEffect(() => {
+    setMarketSymbol(symbol);
+  }, [symbol]);
+
+  useEffect(() => {
+    setMarketIdentifier(marketId);
+  }, [marketId]);
+
+  useEffect(() => {
+    setTokenIdentifier(tokenId);
+  }, [tokenId]);
 
   useEffect(() => {
     setChain(streamChain);
@@ -229,6 +262,8 @@ const StreamingBlock = ({
           }}
         >
           <option value="url">URL / WebSocket</option>
+          <option value="cex-market">CEX Market</option>
+          <option value="polymarket-market">Polymarket</option>
           <option value="evm-rpc">EVM RPC</option>
         </Select>
       </div>
@@ -248,6 +283,74 @@ const StreamingBlock = ({
             }}
           />
         </div>
+      )}
+
+      {kind === 'cex-market' && (
+        <>
+          <div className="streaming-block-interval">
+            <label className="streaming-block-label">거래소</label>
+            <Select
+              className="streaming-block-select"
+              value={exchangeName}
+              onChange={(event) => {
+                const next = event.target.value;
+                setExchangeName(next);
+                onUpdateBlock?.(blockId, { exchange: next });
+              }}
+            >
+              {CEX_STREAM_EXCHANGES.map((item) => (
+                <option key={item.value} value={item.value}>{item.label}</option>
+              ))}
+            </Select>
+          </div>
+          <div className="streaming-block-interval">
+            <label className="streaming-block-label">심볼</label>
+            <Input
+              type="text"
+              className="streaming-block-input"
+              value={marketSymbol}
+              placeholder="BTCUSDT / BTC-USDT / BTC_USDT"
+              onChange={(event) => {
+                const next = event.target.value;
+                setMarketSymbol(next);
+                onUpdateBlock?.(blockId, { symbol: next });
+              }}
+            />
+          </div>
+        </>
+      )}
+
+      {kind === 'polymarket-market' && (
+        <>
+          <div className="streaming-block-interval">
+            <label className="streaming-block-label">Token ID</label>
+            <Input
+              type="text"
+              className="streaming-block-input"
+              value={tokenIdentifier}
+              placeholder="Polymarket token_id"
+              onChange={(event) => {
+                const next = event.target.value;
+                setTokenIdentifier(next);
+                onUpdateBlock?.(blockId, { tokenId: next });
+              }}
+            />
+          </div>
+          <div className="streaming-block-interval">
+            <label className="streaming-block-label">Market ID (선택)</label>
+            <Input
+              type="text"
+              className="streaming-block-input"
+              value={marketIdentifier}
+              placeholder="condition id / market id"
+              onChange={(event) => {
+                const next = event.target.value;
+                setMarketIdentifier(next);
+                onUpdateBlock?.(blockId, { marketId: next });
+              }}
+            />
+          </div>
+        </>
       )}
 
       {kind === 'evm-rpc' && (

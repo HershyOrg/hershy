@@ -2,14 +2,22 @@
 
 import { memo, useCallback, useState, useEffect, useRef } from "react";
 import { Handle, Position, NodeProps, useReactFlow } from "@xyflow/react";
-import type { ClickTriggerData } from "./types";
+import type { BlockData, ClickTriggerData } from "./types";
 import { cn } from "@/lib/utils";
 import { MousePointer2, Keyboard, X } from "lucide-react";
+
+const DEFAULT_CLICK_OUTPUT_BLOCK: BlockData = {
+  id: "click",
+  name: "click",
+  description: "클릭되면 true 신호를 내보냅니다.",
+  type: "output",
+};
 
 function ClickTriggerNodeComponent({ id, data, selected }: NodeProps<import("@xyflow/react").Node<ClickTriggerData>>) {
   const { setNodes } = useReactFlow();
   const [isRecording, setIsRecording] = useState(false);
   const recordingRef = useRef(false);
+  const outputBlocks = data.outputBlocks?.length ? data.outputBlocks : [DEFAULT_CLICK_OUTPUT_BLOCK];
 
   // Handle keyboard shortcut recording
   useEffect(() => {
@@ -103,15 +111,6 @@ function ClickTriggerNodeComponent({ id, data, selected }: NodeProps<import("@xy
         <span className="text-xs font-semibold text-white">CLICK</span>
       </div>
 
-      {/* Input Handle */}
-      <Handle
-        type="target"
-        position={Position.Left}
-        id={`${id}-trigger-in`}
-        className="!w-2.5 !h-2.5 !bg-gray-400 !border-gray-500 !top-[24px]"
-        style={{ left: -5 }}
-      />
-
       {/* Content */}
       <div className="px-3 py-2">
         {/* Shortcut Display */}
@@ -163,6 +162,33 @@ function ClickTriggerNodeComponent({ id, data, selected }: NodeProps<import("@xy
             {data.shortcut ? "Change Shortcut" : "Set Shortcut"}
           </button>
         )}
+        <div className="mt-2 space-y-1">
+          {outputBlocks.map((block) => (
+            <div key={block.id} className="relative rounded border border-gray-200 bg-white px-2 py-1">
+              <div className="text-[11px] font-semibold text-gray-800">{block.name}</div>
+              <div className="truncate text-[10px] text-gray-500">
+                {block.description || "수동 클릭 신호"}
+              </div>
+              <Handle
+                type="source"
+                position={Position.Right}
+                id={`${id}-block-${block.id}-out`}
+                className="!h-2.5 !w-2.5 !border-gray-700 !bg-gray-700"
+                style={{ right: -17 }}
+              />
+              {block.id === "click" ? (
+                <Handle
+                  type="source"
+                  position={Position.Right}
+                  id={`${id}-trigger-out`}
+                  isConnectable={false}
+                  className="!h-0 !w-0 !border-0 !bg-transparent opacity-0"
+                  style={{ right: -17 }}
+                />
+              ) : null}
+            </div>
+          ))}
+        </div>
       </div>
 
     </div>

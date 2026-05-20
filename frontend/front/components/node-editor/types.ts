@@ -66,6 +66,7 @@ export type ClickTriggerData = Record<string, unknown> & {
   label: string;
   shortcut: string | null;
   isRecording: boolean; // for shortcut recording mode
+  outputBlocks?: BlockData[];
 }
 
 // IF Trigger Node - now with expandable detail view
@@ -114,6 +115,13 @@ export type CEXActionData = Record<string, unknown> & RuntimeArtifactData & {
   amount: string; // quantity or percentage
   amountType: "FIXED" | "PERCENT";
   price?: string; // for limit orders
+  polymarketMarketTitle?: string;
+  polymarketOutcomeLabel?: string;
+  tokenId?: string;
+  size?: string;
+  polymarketOrderType?: "GTC" | "FAK" | "FOK";
+  postOnly?: boolean | string;
+  chainId?: number | string;
   // Parameters (shown when expanded)
   inputBlocks: BlockData[];
   // Return value - trade success status
@@ -173,6 +181,11 @@ export type StreamingNodeData = Record<string, unknown> & RuntimeArtifactData & 
   url: string;
   intervalMs?: number; // Used only if method === "POLLING"
   isActive: boolean;
+  streamKind?: "url" | "evm-rpc" | "cex-market" | "polymarket-market";
+  streamChain?: string;
+  streamMethod?: string;
+  streamParamsJson?: string;
+  responseSchema?: string;
   // Output blocks mapped to data fields returned by the endpoint
   outputBlocks: BlockData[];
   isExpanded?: boolean;

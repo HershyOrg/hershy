@@ -111,13 +111,23 @@ function GroupNodeComponent({ id, data, selected }: NodeProps<import("@xyflow/re
 
       {/* FSM target handle is kept for legacy snapshots; FSM source edges are no longer connectable. */}
       {!isSolid && (
-        <Handle
-          type="target"
-          position={Position.Left}
-          id={`${id}-fsm-target`}
-          className="!w-[3px] !h-[3px] !bg-[#10b981] !border-none !rounded-full"
-          style={{ top: "35%", left: -4 }}
-        />
+        <>
+          <Handle
+            type="target"
+            position={Position.Left}
+            id={`${id}-fsm-target`}
+            className="!w-[3px] !h-[3px] !bg-[#10b981] !border-none !rounded-full"
+            style={{ top: "35%", left: -4 }}
+          />
+          <Handle
+            type="source"
+            position={Position.Right}
+            id={`${id}-fsm-source`}
+            className="!w-[3px] !h-[3px] !bg-[#10b981] !border-none !rounded-full"
+            isConnectable={false}
+            style={{ top: "35%", right: -4 }}
+          />
+        </>
       )}
 
       {isCollapsed ? (

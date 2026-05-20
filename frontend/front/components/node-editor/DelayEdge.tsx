@@ -4,6 +4,7 @@ import { memo, useState, useCallback } from "react";
 import {
   BaseEdge,
   EdgeProps,
+  Position,
   getSmoothStepPath,
   EdgeLabelRenderer,
   useReactFlow,
@@ -23,8 +24,6 @@ function DelayEdgeComponent({
   sourceY,
   targetX,
   targetY,
-  sourcePosition,
-  targetPosition,
   style = {},
   selected,
   data,
@@ -40,10 +39,10 @@ function DelayEdgeComponent({
   const [edgePath, labelX, labelY] = getSmoothStepPath({
     sourceX,
     sourceY,
-    sourcePosition,
+    sourcePosition: Position.Right,
     targetX,
     targetY,
-    targetPosition,
+    targetPosition: Position.Left,
     borderRadius: 8,
   });
 
@@ -89,7 +88,7 @@ function DelayEdgeComponent({
   );
 
   // Color based on mode
-  let edgeColor = waitForResult ? "#f59e0b" : "#06b6d4"; // amber for wait, cyan for parallel
+  const edgeColor = waitForResult ? "#f59e0b" : "#06b6d4"; // amber for wait, cyan for parallel
   let strokeWidth = 3;
 
   if (isHighlighted) {

@@ -93,6 +93,7 @@ function FunctionNodeComponent({
   const runtimeCode = typeof data.runtimeCode === "string" ? data.runtimeCode : "";
   const displayCode = runtimeCode || data.code || "";
   const chartSource = typeof data.chartSource === "string" ? data.chartSource : "";
+  const chartWarning = typeof data.chartWarning === "string" ? data.chartWarning : "";
   const chartSeries = useMemo(
     () => {
       const integratedSeries = Array.isArray(data.chartSeries)
@@ -339,7 +340,9 @@ function FunctionNodeComponent({
             <MetricChart series={chartSeries} condition={condition} compact height={132} />
           </div>
           <div className="mt-2 flex items-center justify-between text-[10px] text-slate-500">
-            <span className="truncate">{chartSource || getConditionLabel(condition)}</span>
+            <span className={cn("truncate", chartWarning && "text-amber-600")} title={chartWarning || chartSource}>
+              {chartWarning || chartSource || getConditionLabel(condition)}
+            </span>
             <span className={conditionMet ? "font-semibold text-emerald-600" : ""}>
               {conditionMet ? "TRIGGER" : "WATCH"}
             </span>
@@ -506,8 +509,8 @@ function FunctionNodeComponent({
               <div className="mb-2 flex items-center justify-between">
                 <div>
                   <div className="text-xs font-semibold text-slate-900">{primaryOutput.name}</div>
-                  <div className="text-[11px] text-slate-500">
-                    {chartSource ? `차트 데이터: ${chartSource}` : "조건 충족 구간은 초록색으로 표시됩니다"}
+                  <div className={cn("text-[11px] text-slate-500", chartWarning && "text-amber-600")}>
+                    {chartWarning ? `차트 계산 경고: ${chartWarning}` : chartSource ? `차트 데이터: ${chartSource}` : "조건 충족 구간은 초록색으로 표시됩니다"}
                   </div>
                 </div>
                 <div className="text-right">

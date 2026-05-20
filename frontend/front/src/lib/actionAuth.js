@@ -20,6 +20,76 @@ export const AUTH_PROVIDER_META = {
       }
     ]
   },
+  bybit: {
+    id: 'bybit',
+    label: 'Bybit',
+    description: 'Bybit Spot 주문용 사전인증',
+    credentials: [
+      {
+        key: 'apiKey',
+        label: 'API Key',
+        placeholder: 'bybit-api-key',
+        secret: false,
+        required: true
+      },
+      {
+        key: 'apiSecret',
+        label: 'API Secret',
+        placeholder: 'bybit-api-secret',
+        secret: true,
+        required: true
+      }
+    ]
+  },
+  okx: {
+    id: 'okx',
+    label: 'OKX',
+    description: 'OKX Spot 주문용 사전인증',
+    credentials: [
+      {
+        key: 'apiKey',
+        label: 'API Key',
+        placeholder: 'okx-api-key',
+        secret: false,
+        required: true
+      },
+      {
+        key: 'apiSecret',
+        label: 'API Secret',
+        placeholder: 'okx-api-secret',
+        secret: true,
+        required: true
+      },
+      {
+        key: 'apiPassphrase',
+        label: 'API Passphrase',
+        placeholder: 'okx-api-passphrase',
+        secret: true,
+        required: true
+      }
+    ]
+  },
+  gateio: {
+    id: 'gateio',
+    label: 'Gate.io',
+    description: 'Gate.io Spot 주문용 사전인증',
+    credentials: [
+      {
+        key: 'apiKey',
+        label: 'API Key',
+        placeholder: 'gateio-api-key',
+        secret: false,
+        required: true
+      },
+      {
+        key: 'apiSecret',
+        label: 'API Secret',
+        placeholder: 'gateio-api-secret',
+        secret: true,
+        required: true
+      }
+    ]
+  },
   polymarket: {
     id: 'polymarket',
     label: 'Polymarket',
@@ -161,6 +231,18 @@ export const resolveActionAuthRequirement = (action = {}) => {
     const exchange = normalizeText(action.exchange);
     if (exchange === 'binance') {
       return AUTH_PROVIDER_META.binance;
+    }
+    if (exchange === 'bybit') {
+      return AUTH_PROVIDER_META.bybit;
+    }
+    if (exchange === 'okx') {
+      return AUTH_PROVIDER_META.okx;
+    }
+    if (exchange === 'gate' || exchange === 'gateio' || exchange === 'gate.io') {
+      return AUTH_PROVIDER_META.gateio;
+    }
+    if (exchange === 'polymarket') {
+      return AUTH_PROVIDER_META.polymarket;
     }
     return null;
   }

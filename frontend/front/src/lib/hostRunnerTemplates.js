@@ -3,14 +3,14 @@ const RUNNER_GO_MOD = `module strategy-runner
 go 1.24.13
 
 require (
-	github.com/HershyOrg/hersh v0.2.0
+	github.com/HershyOrg/hersh v0.3.1
 	github.com/ethereum/go-ethereum v1.16.8
 	github.com/gorilla/websocket v1.5.3
 )
 `;
 
-const RUNNER_GO_SUM = `github.com/HershyOrg/hersh v0.2.0 h1:5iPfdHc+567hp1rVRLECpmuW2WQjCyWleOZoNPhBzIg=
-github.com/HershyOrg/hersh v0.2.0/go.mod h1:/oES/OVsTyr7bv63qC0k/YsW6z51/k+j5TBWwSPrib4=
+const RUNNER_GO_SUM = `github.com/HershyOrg/hersh v0.3.1 h1:Db1T3SOrmADAGgB4Rd4TU3jw38lODT1pgwMhCyxOBB0=
+github.com/HershyOrg/hersh v0.3.1/go.mod h1:/oES/OVsTyr7bv63qC0k/YsW6z51/k+j5TBWwSPrib4=
 github.com/gorilla/websocket v1.5.3 h1:saDtZ6Pbx/0u+bgYQ3q96pZgCzfhKXGPqt7kZ72aNNg=
 github.com/gorilla/websocket v1.5.3/go.mod h1:YR8l580nyteQvAITg2hZ9XVh4b55+EU/adAjf1fMHhE=
 `;
@@ -24,6 +24,7 @@ import (
 	"crypto/hmac"
 	cryptorand "crypto/rand"
 	"crypto/sha256"
+	"crypto/sha512"
 	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
@@ -32,6 +33,7 @@ import (
 	"fmt"
 	"io"
 	"log"
+	"math"
 	"math/big"
 	"net/http"
 	"net/url"
@@ -63,6 +65,10 @@ type StreamDef struct {
 	IntervalMs int
 	SourceURL  string
 	Kind       string
+	Exchange   string
+	Symbol     string
+	MarketID   string
+	TokenID    string
 	Chain      string
 	Method     string
 	ParamsJSON string
@@ -193,6 +199,10 @@ func LoadEngine(path string) (*Engine, error) {
 				IntervalMs: intervalMs,
 				SourceURL:  asString(cfg["sourceUrl"]),
 				Kind:       firstNonEmpty(asString(cfg["streamKind"]), "url"),
+				Exchange:   asString(cfg["exchange"]),
+				Symbol:     asString(cfg["symbol"]),
+				MarketID:   asString(cfg["marketId"]),
+				TokenID:    asString(cfg["tokenId"]),
 				Chain:      asString(cfg["streamChain"]),
 				Method:     asString(cfg["streamMethod"]),
 				ParamsJSON: asString(cfg["streamParamsJson"]),
@@ -380,18 +390,18 @@ func (e *Engine) executeAction(action ActionDef, inputs map[string]any) ActionEx
 
 	switch strings.ToLower(strings.TrimSpace(action.Kind)) {
 	case "cex":
-		exchange := strings.ToLower(asString(action.Config["exchange"]))
-		if exchange != "binance" {
-			exec.Error = fmt.Sprintf("live execution not supported for exchange=%s", exchange)
-			return exec
+		exchange := normalizeCEXExchange(asString(action.Config["exchange"]))
+		providerID := exchange
+		if providerID == "" {
+			providerID = "binance"
 		}
-		credentials, ok := e.authCredentials("binance")
+		credentials, ok := e.authCredentials(providerID)
 		if !ok {
-			exec.Error = "missing Binance pre-auth credentials"
+			exec.Error = fmt.Sprintf("missing %s pre-auth credentials", strings.ToUpper(providerID))
 			return exec
 		}
 		exec.Mode = "live"
-		result, err := placeBinanceSpotOrder(params, credentials)
+		result, err := placeCEXSpotOrder(exchange, params, credentials)
 		if err != nil {
 			exec.Status = "failed"
 			exec.Error = err.Error()
@@ -600,6 +610,23 @@ func parseRuntimeAuth(raw any) map[string]RuntimeProviderAuth {
 	return out
 }
 
+func placeCEXSpotOrder(exchange string, params map[string]any, credentials map[string]string) (map[string]any, error) {
+	switch normalizeCEXExchange(exchange) {
+	case "", "binance":
+		return placeBinanceSpotOrder(params, credentials)
+	case "polymarket":
+		return placePolymarketOrder(params, credentials)
+	case "bybit":
+		return placeBybitSpotOrder(params, credentials)
+	case "okx":
+		return placeOKXSpotOrder(params, credentials)
+	case "gateio":
+		return placeGateIOSpotOrder(params, credentials)
+	default:
+		return nil, fmt.Errorf("live execution not supported for exchange=%s", exchange)
+	}
+}
+
 func placeBinanceSpotOrder(params map[string]any, credentials map[string]string) (map[string]any, error) {
 	apiKey := strings.TrimSpace(credentials["apiKey"])
 	hmacSecret := strings.TrimSpace(credentials["hmacSecret"])
@@ -693,10 +720,332 @@ func placeBinanceSpotOrder(params map[string]any, credentials map[string]string)
 	return out, nil
 }
 
+func placeBybitSpotOrder(params map[string]any, credentials map[string]string) (map[string]any, error) {
+	apiKey := strings.TrimSpace(credentials["apiKey"])
+	apiSecret := strings.TrimSpace(credentials["apiSecret"])
+	if apiKey == "" || apiSecret == "" {
+		return nil, errors.New("bybit apiKey/apiSecret required")
+	}
+
+	symbol := formatCEXSymbol("bybit", toTrimmedString(params["symbol"]))
+	if symbol == "" {
+		return nil, errors.New("bybit action requires symbol")
+	}
+
+	side := "Buy"
+	if strings.EqualFold(toTrimmedString(params["side"]), "SELL") {
+		side = "Sell"
+	}
+	orderType := strings.Title(strings.ToLower(firstNonEmpty(toTrimmedString(params["type"]), "MARKET")))
+	baseURL := firstNonEmpty(toTrimmedString(params["apiBaseUrl"]), toTrimmedString(params["baseUrl"]), "https://api.bybit.com")
+	recvWindow := firstNonEmpty(toTrimmedString(params["recvWindow"]), "5000")
+
+	bodyMap := map[string]any{
+		"category":    "spot",
+		"symbol":      symbol,
+		"side":        side,
+		"orderType":   orderType,
+		"isLeverage":  0,
+		"orderFilter": "Order",
+	}
+	if clientOrderID := firstNonEmpty(toTrimmedString(params["orderLinkId"]), toTrimmedString(params["newClientOrderId"])); clientOrderID != "" {
+		bodyMap["orderLinkId"] = clientOrderID
+	}
+
+	quantity := formatOrderNumber(params["quantity"])
+	price := formatOrderNumber(params["price"])
+	quoteOrderQty := formatOrderNumber(params["quoteOrderQty"])
+	switch orderType {
+	case "Limit":
+		if quantity == "" || price == "" {
+			return nil, errors.New("bybit limit order requires quantity and price")
+		}
+		bodyMap["qty"] = quantity
+		bodyMap["price"] = price
+		bodyMap["timeInForce"] = firstNonEmpty(toTrimmedString(params["timeInForce"]), "GTC")
+	case "Market":
+		if quoteOrderQty != "" {
+			bodyMap["qty"] = quoteOrderQty
+			bodyMap["marketUnit"] = "quoteCoin"
+		} else if quantity != "" {
+			bodyMap["qty"] = quantity
+			bodyMap["marketUnit"] = "baseCoin"
+		} else {
+			return nil, errors.New("bybit market order requires quantity or quoteOrderQty")
+		}
+		bodyMap["timeInForce"] = firstNonEmpty(toTrimmedString(params["timeInForce"]), "IOC")
+	default:
+		if quantity == "" {
+			return nil, errors.New("bybit order requires quantity")
+		}
+		bodyMap["qty"] = quantity
+		if price != "" {
+			bodyMap["price"] = price
+		}
+	}
+
+	bodyBytes, err := json.Marshal(bodyMap)
+	if err != nil {
+		return nil, err
+	}
+	timestamp := strconv.FormatInt(time.Now().UnixMilli(), 10)
+	signature := buildHMACSHA256Hex(apiSecret, timestamp+apiKey+recvWindow+string(bodyBytes))
+	req, err := http.NewRequest(http.MethodPost, strings.TrimRight(baseURL, "/")+"/v5/order/create", strings.NewReader(string(bodyBytes)))
+	if err != nil {
+		return nil, err
+	}
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("X-BAPI-API-KEY", apiKey)
+	req.Header.Set("X-BAPI-TIMESTAMP", timestamp)
+	req.Header.Set("X-BAPI-RECV-WINDOW", recvWindow)
+	req.Header.Set("X-BAPI-SIGN", signature)
+	req.Header.Set("X-BAPI-SIGN-TYPE", "2")
+
+	resp, err := (&http.Client{Timeout: 15 * time.Second}).Do(req)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+
+	payload, err := io.ReadAll(io.LimitReader(resp.Body, 2<<20))
+	if err != nil {
+		return nil, err
+	}
+	var out map[string]any
+	if err := json.Unmarshal(payload, &out); err != nil {
+		return nil, fmt.Errorf("bybit response parse failed: %w", err)
+	}
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		return nil, fmt.Errorf("bybit order failed (%d): %s", resp.StatusCode, trimSnippet(payload, 240))
+	}
+	if retCode := int(asFloat(out["retCode"])); retCode != 0 {
+		return nil, fmt.Errorf("bybit order failed (%d): %s", retCode, firstNonEmpty(toTrimmedString(out["retMsg"]), trimSnippet(payload, 240)))
+	}
+	if result := asMap(out["result"]); len(result) > 0 {
+		return result, nil
+	}
+	return out, nil
+}
+
+func placeOKXSpotOrder(params map[string]any, credentials map[string]string) (map[string]any, error) {
+	apiKey := strings.TrimSpace(credentials["apiKey"])
+	apiSecret := strings.TrimSpace(credentials["apiSecret"])
+	apiPassphrase := strings.TrimSpace(credentials["apiPassphrase"])
+	if apiKey == "" || apiSecret == "" || apiPassphrase == "" {
+		return nil, errors.New("okx apiKey/apiSecret/apiPassphrase required")
+	}
+
+	symbol := formatCEXSymbol("okx", toTrimmedString(params["symbol"]))
+	if symbol == "" {
+		return nil, errors.New("okx action requires symbol")
+	}
+
+	side := strings.ToLower(firstNonEmpty(toTrimmedString(params["side"]), "buy"))
+	orderType := strings.ToLower(firstNonEmpty(toTrimmedString(params["type"]), "market"))
+	baseURL := firstNonEmpty(toTrimmedString(params["apiBaseUrl"]), toTrimmedString(params["baseUrl"]), "https://www.okx.com")
+	bodyMap := map[string]any{
+		"instId":  symbol,
+		"tdMode":  firstNonEmpty(toTrimmedString(params["tdMode"]), "cash"),
+		"side":    side,
+		"ordType": orderType,
+	}
+	if clientOrderID := firstNonEmpty(toTrimmedString(params["clOrdId"]), toTrimmedString(params["newClientOrderId"])); clientOrderID != "" {
+		bodyMap["clOrdId"] = clientOrderID
+	}
+
+	quantity := formatOrderNumber(params["quantity"])
+	price := formatOrderNumber(params["price"])
+	quoteOrderQty := formatOrderNumber(params["quoteOrderQty"])
+	switch orderType {
+	case "limit":
+		if quantity == "" || price == "" {
+			return nil, errors.New("okx limit order requires quantity and price")
+		}
+		bodyMap["sz"] = quantity
+		bodyMap["px"] = price
+	case "market":
+		if quoteOrderQty != "" {
+			bodyMap["sz"] = quoteOrderQty
+			bodyMap["tgtCcy"] = "quote_ccy"
+		} else if quantity != "" {
+			bodyMap["sz"] = quantity
+			bodyMap["tgtCcy"] = "base_ccy"
+		} else {
+			return nil, errors.New("okx market order requires quantity or quoteOrderQty")
+		}
+	default:
+		if quantity == "" {
+			return nil, errors.New("okx order requires quantity")
+		}
+		bodyMap["sz"] = quantity
+		if price != "" {
+			bodyMap["px"] = price
+		}
+	}
+
+	bodyBytes, err := json.Marshal(bodyMap)
+	if err != nil {
+		return nil, err
+	}
+	requestPath := "/api/v5/trade/order"
+	timestamp := okxTimestamp(time.Now().UTC())
+	signature := buildHMACSHA256Base64(apiSecret, timestamp+"POST"+requestPath+string(bodyBytes))
+	req, err := http.NewRequest(http.MethodPost, strings.TrimRight(baseURL, "/")+requestPath, strings.NewReader(string(bodyBytes)))
+	if err != nil {
+		return nil, err
+	}
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("OK-ACCESS-KEY", apiKey)
+	req.Header.Set("OK-ACCESS-SIGN", signature)
+	req.Header.Set("OK-ACCESS-TIMESTAMP", timestamp)
+	req.Header.Set("OK-ACCESS-PASSPHRASE", apiPassphrase)
+	if strings.EqualFold(firstNonEmpty(toTrimmedString(credentials["simulated"]), toTrimmedString(params["simulated"])), "true") || firstNonEmpty(toTrimmedString(credentials["simulated"]), toTrimmedString(params["simulated"])) == "1" {
+		req.Header.Set("x-simulated-trading", "1")
+	}
+
+	resp, err := (&http.Client{Timeout: 15 * time.Second}).Do(req)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+
+	payload, err := io.ReadAll(io.LimitReader(resp.Body, 2<<20))
+	if err != nil {
+		return nil, err
+	}
+	var out map[string]any
+	if err := json.Unmarshal(payload, &out); err != nil {
+		return nil, fmt.Errorf("okx response parse failed: %w", err)
+	}
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		return nil, fmt.Errorf("okx order failed (%d): %s", resp.StatusCode, trimSnippet(payload, 240))
+	}
+	if code := firstNonEmpty(toTrimmedString(out["code"]), "0"); code != "0" {
+		return nil, fmt.Errorf("okx order failed (%s): %s", code, firstNonEmpty(toTrimmedString(out["msg"]), trimSnippet(payload, 240)))
+	}
+	if items := asMapSlice(out["data"]); len(items) > 0 {
+		return items[0], nil
+	}
+	return out, nil
+}
+
+func placeGateIOSpotOrder(params map[string]any, credentials map[string]string) (map[string]any, error) {
+	apiKey := strings.TrimSpace(credentials["apiKey"])
+	apiSecret := strings.TrimSpace(credentials["apiSecret"])
+	if apiKey == "" || apiSecret == "" {
+		return nil, errors.New("gateio apiKey/apiSecret required")
+	}
+
+	symbol := formatCEXSymbol("gateio", toTrimmedString(params["symbol"]))
+	if symbol == "" {
+		return nil, errors.New("gateio action requires symbol")
+	}
+
+	side := strings.ToLower(firstNonEmpty(toTrimmedString(params["side"]), "buy"))
+	orderType := strings.ToLower(firstNonEmpty(toTrimmedString(params["type"]), "market"))
+	baseURL := firstNonEmpty(toTrimmedString(params["apiBaseUrl"]), toTrimmedString(params["baseUrl"]), "https://api.gateio.ws")
+	bodyMap := map[string]any{
+		"currency_pair": symbol,
+		"account":       firstNonEmpty(toTrimmedString(params["account"]), "spot"),
+		"side":          side,
+		"type":          orderType,
+	}
+	if clientOrderID := firstNonEmpty(toTrimmedString(params["text"]), toTrimmedString(params["newClientOrderId"])); clientOrderID != "" {
+		bodyMap["text"] = clientOrderID
+	}
+
+	quantity := formatOrderNumber(params["quantity"])
+	price := formatOrderNumber(params["price"])
+	quoteOrderQty := formatOrderNumber(params["quoteOrderQty"])
+	switch orderType {
+	case "limit":
+		if quantity == "" || price == "" {
+			return nil, errors.New("gateio limit order requires quantity and price")
+		}
+		bodyMap["amount"] = quantity
+		bodyMap["price"] = price
+		bodyMap["time_in_force"] = strings.ToLower(firstNonEmpty(toTrimmedString(params["timeInForce"]), "gtc"))
+	case "market":
+		if side == "buy" && quoteOrderQty != "" {
+			bodyMap["amount"] = quoteOrderQty
+		} else if quantity != "" {
+			bodyMap["amount"] = quantity
+		} else {
+			return nil, errors.New("gateio market order requires quantity or quoteOrderQty")
+		}
+		bodyMap["time_in_force"] = strings.ToLower(firstNonEmpty(toTrimmedString(params["timeInForce"]), "ioc"))
+	default:
+		if quantity == "" {
+			return nil, errors.New("gateio order requires quantity")
+		}
+		bodyMap["amount"] = quantity
+		if price != "" {
+			bodyMap["price"] = price
+		}
+	}
+
+	bodyBytes, err := json.Marshal(bodyMap)
+	if err != nil {
+		return nil, err
+	}
+	requestPath := "/api/v4/spot/orders"
+	timestamp := strconv.FormatInt(time.Now().UTC().Unix(), 10)
+	signString := "POST\n" + requestPath + "\n\n" + sha512Hex(string(bodyBytes)) + "\n" + timestamp
+	signature := buildHMACSHA512Hex(apiSecret, signString)
+	req, err := http.NewRequest(http.MethodPost, strings.TrimRight(baseURL, "/")+requestPath, strings.NewReader(string(bodyBytes)))
+	if err != nil {
+		return nil, err
+	}
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("KEY", apiKey)
+	req.Header.Set("SIGN", signature)
+	req.Header.Set("Timestamp", timestamp)
+
+	resp, err := (&http.Client{Timeout: 15 * time.Second}).Do(req)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+
+	payload, err := io.ReadAll(io.LimitReader(resp.Body, 2<<20))
+	if err != nil {
+		return nil, err
+	}
+	var out map[string]any
+	if err := json.Unmarshal(payload, &out); err != nil {
+		return nil, fmt.Errorf("gateio response parse failed: %w", err)
+	}
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		return nil, fmt.Errorf("gateio order failed (%d): %s", resp.StatusCode, trimSnippet(payload, 240))
+	}
+	return out, nil
+}
+
 func buildHMACSHA256Hex(secret, payload string) string {
 	mac := hmac.New(sha256.New, []byte(secret))
 	_, _ = mac.Write([]byte(payload))
 	return hex.EncodeToString(mac.Sum(nil))
+}
+
+func buildHMACSHA256Base64(secret, payload string) string {
+	mac := hmac.New(sha256.New, []byte(secret))
+	_, _ = mac.Write([]byte(payload))
+	return base64.StdEncoding.EncodeToString(mac.Sum(nil))
+}
+
+func buildHMACSHA512Hex(secret, payload string) string {
+	mac := hmac.New(sha512.New, []byte(secret))
+	_, _ = mac.Write([]byte(payload))
+	return hex.EncodeToString(mac.Sum(nil))
+}
+
+func sha512Hex(payload string) string {
+	sum := sha512.Sum512([]byte(payload))
+	return hex.EncodeToString(sum[:])
+}
+
+func okxTimestamp(now time.Time) string {
+	return now.UTC().Format("2006-01-02T15:04:05.000Z")
 }
 
 func formatOrderNumber(value any) string {
@@ -1121,7 +1470,7 @@ func extractHexHash(raw string, byteLen int) string {
 	fields := strings.Fields(strings.TrimSpace(raw))
 	expectedLen := 2 + (byteLen * 2)
 	for _, field := range fields {
-		candidate := strings.TrimSpace(strings.Trim(field, `"'`))
+		candidate := strings.TrimSpace(strings.Trim(field, "\"'"))
 		if len(candidate) != expectedLen || !strings.HasPrefix(candidate, "0x") {
 			continue
 		}
@@ -2135,6 +2484,10 @@ func (e *Engine) resolveStreamValue(stream StreamDef, ctx hersh.HershContext) an
 	switch {
 	case isEVMRPCStream(stream):
 		return e.watchEVMRPCStream(stream, ctx)
+	case isCEXMarketStream(stream):
+		return e.watchCEXMarketStream(stream, ctx)
+	case isPolymarketMarketStream(stream):
+		return e.watchPolymarketMarketStream(stream, ctx)
 	case isWSSourceURL(sourceURL):
 		return e.watchWSStream(stream, ctx)
 	case isHTTPSourceURL(sourceURL):
@@ -2150,6 +2503,14 @@ func isEVMRPCStream(stream StreamDef) bool {
 		return true
 	}
 	return strings.TrimSpace(stream.Chain) != ""
+}
+
+func isCEXMarketStream(stream StreamDef) bool {
+	return strings.EqualFold(strings.TrimSpace(stream.Kind), "cex-market")
+}
+
+func isPolymarketMarketStream(stream StreamDef) bool {
+	return strings.EqualFold(strings.TrimSpace(stream.Kind), "polymarket-market")
 }
 
 func (e *Engine) watchUnavailableStream(stream StreamDef, ctx hersh.HershContext) any {
@@ -2181,6 +2542,376 @@ func (e *Engine) watchEVMRPCStream(stream StreamDef, ctx hersh.HershContext) any
 			return next, true, nil
 		}, nil
 	}, varName, time.Duration(stream.IntervalMs)*time.Millisecond, ctx)
+}
+
+func (e *Engine) watchCEXMarketStream(stream StreamDef, ctx hersh.HershContext) any {
+	varName := "stream_" + stream.ID
+	client := httpClientForStream(ctx)
+	return hersh.WatchCall(func() (manager.VarUpdateFunc, error) {
+		return func(prev any) (any, bool, error) {
+			prevMap, _ := prev.(map[string]any)
+			next, err := readCEXMarketSnapshot(client, stream)
+			if err != nil {
+				if len(prevMap) > 0 {
+					stale := cloneMap(prevMap)
+					stale["t_ms"] = time.Now().UnixMilli()
+					stale["fetch_error"] = err.Error()
+					return stale, true, nil
+				}
+				return buildStreamErrorSnapshot(stream, err), true, nil
+			}
+			return next, true, nil
+		}, nil
+	}, varName, time.Duration(stream.IntervalMs)*time.Millisecond, ctx)
+}
+
+func (e *Engine) watchPolymarketMarketStream(stream StreamDef, ctx hersh.HershContext) any {
+	varName := "stream_" + stream.ID
+	client := httpClientForStream(ctx)
+	return hersh.WatchCall(func() (manager.VarUpdateFunc, error) {
+		return func(prev any) (any, bool, error) {
+			prevMap, _ := prev.(map[string]any)
+			next, err := readPolymarketMarketSnapshot(client, stream)
+			if err != nil {
+				if len(prevMap) > 0 {
+					stale := cloneMap(prevMap)
+					stale["t_ms"] = time.Now().UnixMilli()
+					stale["fetch_error"] = err.Error()
+					return stale, true, nil
+				}
+				return buildStreamErrorSnapshot(stream, err), true, nil
+			}
+			return next, true, nil
+		}, nil
+	}, varName, time.Duration(stream.IntervalMs)*time.Millisecond, ctx)
+}
+
+func readCEXMarketSnapshot(client *http.Client, stream StreamDef) (map[string]any, error) {
+	exchange := normalizeCEXExchange(stream.Exchange)
+	symbol := formatCEXSymbol(exchange, stream.Symbol)
+	if exchange == "" {
+		return nil, errors.New("cex market stream requires exchange")
+	}
+	if symbol == "" {
+		return nil, errors.New("cex market stream requires symbol")
+	}
+
+	switch exchange {
+	case "binance":
+		payload, err := fetchJSONPayload(client, "https://api.binance.com/api/v3/ticker/24hr?symbol="+url.QueryEscape(symbol))
+		if err != nil {
+			return nil, err
+		}
+		row := asMap(payload)
+		return buildMarketSnapshot(stream, map[string]any{
+			"exchange":    exchange,
+			"symbol":      symbol,
+			"lastPrice":   row["lastPrice"],
+			"bidPrice":    row["bidPrice"],
+			"askPrice":    row["askPrice"],
+			"bidSize":     row["bidQty"],
+			"askSize":     row["askQty"],
+			"volume":      row["volume"],
+			"quoteVolume": row["quoteVolume"],
+			"highPrice":   row["highPrice"],
+			"lowPrice":    row["lowPrice"],
+			"openPrice":   row["openPrice"],
+			"eventTime":   row["closeTime"],
+		}), nil
+	case "bybit":
+		payload, err := fetchJSONPayload(client, "https://api.bybit.com/v5/market/tickers?category=spot&symbol="+url.QueryEscape(symbol))
+		if err != nil {
+			return nil, err
+		}
+		root := asMap(payload)
+		items := asMapSlice(asMap(root["result"])["list"])
+		row := map[string]any{}
+		if len(items) > 0 {
+			row = items[0]
+		}
+		return buildMarketSnapshot(stream, map[string]any{
+			"exchange":    exchange,
+			"symbol":      symbol,
+			"lastPrice":   row["lastPrice"],
+			"bidPrice":    row["bid1Price"],
+			"askPrice":    row["ask1Price"],
+			"bidSize":     row["bid1Size"],
+			"askSize":     row["ask1Size"],
+			"volume":      row["volume24h"],
+			"quoteVolume": row["turnover24h"],
+			"highPrice":   row["highPrice24h"],
+			"lowPrice":    row["lowPrice24h"],
+			"eventTime":   root["time"],
+		}), nil
+	case "okx":
+		payload, err := fetchJSONPayload(client, "https://www.okx.com/api/v5/market/ticker?instId="+url.QueryEscape(symbol))
+		if err != nil {
+			return nil, err
+		}
+		items := asMapSlice(asMap(payload)["data"])
+		row := map[string]any{}
+		if len(items) > 0 {
+			row = items[0]
+		}
+		return buildMarketSnapshot(stream, map[string]any{
+			"exchange":    exchange,
+			"symbol":      symbol,
+			"lastPrice":   row["last"],
+			"bidPrice":    row["bidPx"],
+			"askPrice":    row["askPx"],
+			"bidSize":     row["bidSz"],
+			"askSize":     row["askSz"],
+			"volume":      row["vol24h"],
+			"quoteVolume": row["volCcy24h"],
+			"highPrice":   row["high24h"],
+			"lowPrice":    row["low24h"],
+			"eventTime":   row["ts"],
+		}), nil
+	case "kucoin":
+		payload, err := fetchJSONPayload(client, "https://api.kucoin.com/api/ua/v1/market/ticker?tradeType=SPOT&symbol="+url.QueryEscape(symbol))
+		if err != nil {
+			return nil, err
+		}
+		items := asMapSlice(asMap(asMap(payload)["data"])["list"])
+		row := map[string]any{}
+		if len(items) > 0 {
+			row = items[0]
+		}
+		return buildMarketSnapshot(stream, map[string]any{
+			"exchange":    exchange,
+			"symbol":      symbol,
+			"lastPrice":   row["lastPrice"],
+			"bidPrice":    row["bestBidPrice"],
+			"askPrice":    row["bestAskPrice"],
+			"bidSize":     row["bestBidSize"],
+			"askSize":     row["bestAskSize"],
+			"volume":      row["baseVolume"],
+			"quoteVolume": row["quoteVolume"],
+			"highPrice":   row["high"],
+			"lowPrice":    row["low"],
+			"openPrice":   row["open"],
+			"eventTime":   row["ts"],
+		}), nil
+	case "bitget":
+		payload, err := fetchJSONPayload(client, "https://api.bitget.com/api/v2/spot/market/tickers?symbol="+url.QueryEscape(symbol))
+		if err != nil {
+			return nil, err
+		}
+		items := asMapSlice(asMap(payload)["data"])
+		row := map[string]any{}
+		if len(items) > 0 {
+			row = items[0]
+		}
+		return buildMarketSnapshot(stream, map[string]any{
+			"exchange":    exchange,
+			"symbol":      symbol,
+			"lastPrice":   row["lastPr"],
+			"bidPrice":    row["bidPr"],
+			"askPrice":    row["askPr"],
+			"bidSize":     row["bidSz"],
+			"askSize":     row["askSz"],
+			"volume":      row["baseVolume"],
+			"quoteVolume": firstNonEmpty(toTrimmedString(row["quoteVolume"]), toTrimmedString(row["usdtVolume"])),
+			"highPrice":   row["high24h"],
+			"lowPrice":    row["low24h"],
+			"openPrice":   row["open"],
+			"eventTime":   row["ts"],
+		}), nil
+	case "gateio":
+		payload, err := fetchJSONPayload(client, "https://api.gateio.ws/api/v4/spot/tickers?currency_pair="+url.QueryEscape(symbol))
+		if err != nil {
+			return nil, err
+		}
+		rows := asMapSlice(payload)
+		row := map[string]any{}
+		if len(rows) > 0 {
+			row = rows[0]
+		}
+		return buildMarketSnapshot(stream, map[string]any{
+			"exchange":    exchange,
+			"symbol":      symbol,
+			"lastPrice":   row["last"],
+			"bidPrice":    row["highest_bid"],
+			"askPrice":    row["lowest_ask"],
+			"bidSize":     row["highest_size"],
+			"askSize":     row["lowest_size"],
+			"volume":      row["base_volume"],
+			"quoteVolume": row["quote_volume"],
+			"highPrice":   firstNonEmpty(toTrimmedString(row["high_24h"]), toTrimmedString(row["high24h"])),
+			"lowPrice":    firstNonEmpty(toTrimmedString(row["low_24h"]), toTrimmedString(row["low24h"])),
+			"eventTime":   time.Now().UnixMilli(),
+		}), nil
+	default:
+		return nil, fmt.Errorf("unsupported cex exchange: %s", exchange)
+	}
+}
+
+func readPolymarketMarketSnapshot(client *http.Client, stream StreamDef) (map[string]any, error) {
+	tokenID := strings.TrimSpace(stream.TokenID)
+	if tokenID == "" {
+		return nil, errors.New("polymarket stream requires tokenId")
+	}
+	payload, err := fetchJSONPayload(client, "https://clob.polymarket.com/book?token_id="+url.QueryEscape(tokenID))
+	if err != nil {
+		return nil, err
+	}
+	row := asMap(payload)
+	bestBidPrice, bestBidSize := bestBookLevel(asMapSlice(row["bids"]))
+	bestAskPrice, bestAskSize := bestBookLevel(asMapSlice(row["asks"]))
+	lastPrice := asFloat(row["last_trade_price"])
+	if lastPrice <= 0 {
+		lastPrice = midpoint(bestBidPrice, bestAskPrice)
+	}
+	return buildMarketSnapshot(stream, map[string]any{
+		"exchange":  "polymarket",
+		"tokenId":   tokenID,
+		"marketId":  firstNonEmpty(stream.MarketID, toTrimmedString(row["market"])),
+		"lastPrice": lastPrice,
+		"bidPrice":  bestBidPrice,
+		"askPrice":  bestAskPrice,
+		"bidSize":   bestBidSize,
+		"askSize":   bestAskSize,
+		"liquidity": bestBidPrice*bestBidSize + bestAskPrice*bestAskSize,
+		"eventTime": row["timestamp"],
+	}), nil
+}
+
+func fetchJSONPayload(client *http.Client, sourceURL string) (any, error) {
+	req, err := http.NewRequest(http.MethodGet, sourceURL, nil)
+	if err != nil {
+		return nil, fmt.Errorf("build request: %w", err)
+	}
+	req.Header.Set("Accept", "application/json")
+
+	resp, err := client.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("request failed: %w", err)
+	}
+	defer resp.Body.Close()
+
+	body, err := io.ReadAll(io.LimitReader(resp.Body, 2<<20))
+	if err != nil {
+		return nil, fmt.Errorf("read body: %w", err)
+	}
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		return nil, fmt.Errorf("status %d: %s", resp.StatusCode, trimSnippet(body, 160))
+	}
+
+	var payload any
+	if err := json.Unmarshal(body, &payload); err != nil {
+		return nil, fmt.Errorf("decode payload: %w", err)
+	}
+	return payload, nil
+}
+
+func buildMarketSnapshot(stream StreamDef, values map[string]any) map[string]any {
+	bidPrice := asFloat(values["bidPrice"])
+	askPrice := asFloat(values["askPrice"])
+	lastPrice := asFloat(values["lastPrice"])
+	if lastPrice <= 0 {
+		lastPrice = midpoint(bidPrice, askPrice)
+	}
+	out := map[string]any{
+		"t_ms":      time.Now().UnixMilli(),
+		"stream_id": stream.ID,
+		"source":    stream.SourceURL,
+		"kind":      firstNonEmpty(stream.Kind, "url"),
+		"exchange":  values["exchange"],
+	}
+	for key, value := range values {
+		out[key] = normalizePayloadValue(value)
+	}
+	out["lastPrice"] = lastPrice
+	out["midPrice"] = midpoint(bidPrice, askPrice)
+	out["spread"] = spreadValue(bidPrice, askPrice)
+	if value := strings.TrimSpace(toTrimmedString(values["exchange"])); value != "" {
+		out["exchange"] = value
+	}
+	if value := strings.TrimSpace(toTrimmedString(values["symbol"])); value != "" {
+		out["symbol"] = value
+	}
+	if value := strings.TrimSpace(toTrimmedString(values["marketId"])); value != "" {
+		out["marketId"] = value
+	}
+	if value := strings.TrimSpace(toTrimmedString(values["tokenId"])); value != "" {
+		out["tokenId"] = value
+	}
+	if out["eventTime"] == nil || out["eventTime"] == "" || out["eventTime"] == 0 {
+		out["eventTime"] = out["t_ms"]
+	}
+	return out
+}
+
+func midpoint(bidPrice, askPrice float64) float64 {
+	switch {
+	case bidPrice > 0 && askPrice > 0:
+		return (bidPrice + askPrice) / 2
+	case bidPrice > 0:
+		return bidPrice
+	default:
+		return askPrice
+	}
+}
+
+func spreadValue(bidPrice, askPrice float64) float64 {
+	if bidPrice > 0 && askPrice > 0 {
+		return askPrice - bidPrice
+	}
+	return 0
+}
+
+func bestBookLevel(levels []map[string]any) (float64, float64) {
+	if len(levels) == 0 {
+		return 0, 0
+	}
+	first := levels[0]
+	return asFloat(first["price"]), asFloat(first["size"])
+}
+
+func normalizeCEXExchange(raw string) string {
+	text := strings.ToLower(strings.TrimSpace(raw))
+	switch text {
+	case "gate", "gate.io":
+		return "gateio"
+	case "poly-market", "poly_market", "poly market":
+		return "polymarket"
+	default:
+		return text
+	}
+}
+
+func formatCEXSymbol(exchange, raw string) string {
+	base, quote := splitCompactMarketSymbol(raw)
+	if base == "" {
+		return strings.TrimSpace(raw)
+	}
+	switch exchange {
+	case "okx", "kucoin":
+		if quote != "" {
+			return base + "-" + quote
+		}
+	case "gateio":
+		if quote != "" {
+			return base + "_" + quote
+		}
+	}
+	return base + quote
+}
+
+func splitCompactMarketSymbol(raw string) (string, string) {
+	compact := strings.ToUpper(strings.TrimSpace(raw))
+	replacer := strings.NewReplacer("-", "", "_", "", "/", "", " ", "")
+	compact = replacer.Replace(compact)
+	if compact == "" {
+		return "", ""
+	}
+	quotes := []string{"USDT", "USDC", "FDUSD", "BUSD", "TUSD", "DAI", "USD", "BTC", "ETH", "EUR", "KRW"}
+	for _, quote := range quotes {
+		if len(compact) > len(quote) && strings.HasSuffix(compact, quote) {
+			return compact[:len(compact)-len(quote)], quote
+		}
+	}
+	return compact, ""
 }
 
 func (e *Engine) watchHTTPStream(stream StreamDef, ctx hersh.HershContext) any {

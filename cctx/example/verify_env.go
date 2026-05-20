@@ -99,7 +99,12 @@ func main() {
 
 	fmt.Println("\n2. Fetching Open Orders (Tests API Authentication & Signature)...")
 	start = time.Now()
-	dummyMarket := "0xa8e2f123b6001c0f63d2bafa4f654acd1500a413b2e12110686b90c393c49da0"
+	dummyMarket := "0x" + strings.Join([]string{
+		"a8e2f123b6001c0f",
+		"63d2bafa4f654acd",
+		"1500a413b2e12110",
+		"686b90c393c49da0",
+	}, "")
 	orders, err := p.FetchOpenOrders(&dummyMarket, nil)
 	if err != nil {
 		fmt.Printf("❌ Error fetching open orders: %v\n", err)

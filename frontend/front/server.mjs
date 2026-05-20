@@ -8,6 +8,19 @@ import path from 'node:path';
 import { promisify } from 'node:util';
 import { fileURLToPath } from 'node:url';
 import next from 'next';
+import {
+  DEFAULT_EXCHANGE_CONNECTIONS,
+  SUPPORTED_EXCHANGE_CONNECTION_IDS,
+} from './src/lib/exchangeCatalog.mjs';
+import {
+  sanitizeUserContextID,
+} from './contextManager.mjs';
+import { createExchangeConnectionManager } from './server/exchangeConnections.mjs';
+import {
+  buildUserContextPromptSection,
+  prepareStrategyUserContext,
+  resolveRequestUserID,
+} from './server/requestUserContext.mjs';
 
 const execFileAsync = promisify(execFile);
 const __filename = fileURLToPath(import.meta.url);
@@ -15,7 +28,6 @@ const __dirname = path.dirname(__filename);
 const REPO_ROOT = path.resolve(__dirname, '..', '..');
 const STRATEGY_RUNNER_DIR = path.resolve(REPO_ROOT, 'examples/strategy-runner');
 const LOCAL_STATE_DIR = path.resolve(__dirname, '.local');
-const EXCHANGE_CONNECTIONS_PATH = path.join(LOCAL_STATE_DIR, 'exchange-connections.json');
 const AI_STRATEGY_LOGIC_ERROR_LOG_PATH = path.join(LOCAL_STATE_DIR, 'ai-strategy-logic-errors.jsonl');
 const STRATEGY_RUNNER_RUNTIME_FILES = [
   'go.mod',
@@ -39,7 +51,19 @@ const DEFAULT_HERSHY_CONTEXT_FILES = [
   'program/effect.go',
 ];
 
-let hershyContextCachePromise = null;
+const EXCHANGE_WEBSOCKET_RAG_INDEX_FILE = 'frontend/front/docs/rag/exchange-websocket-subscriptions/index.md';
+const EXCHANGE_WEBSOCKET_RAG_FILES = {
+  binance: 'frontend/front/docs/rag/exchange-websocket-subscriptions/binance.md',
+  bybit: 'frontend/front/docs/rag/exchange-websocket-subscriptions/bybit.md',
+  okx: 'frontend/front/docs/rag/exchange-websocket-subscriptions/okx.md',
+  kucoin: 'frontend/front/docs/rag/exchange-websocket-subscriptions/kucoin.md',
+  bitget: 'frontend/front/docs/rag/exchange-websocket-subscriptions/bitget.md',
+  gate: 'frontend/front/docs/rag/exchange-websocket-subscriptions/gateio.md',
+  gateio: 'frontend/front/docs/rag/exchange-websocket-subscriptions/gateio.md',
+  polymarket: 'frontend/front/docs/rag/exchange-websocket-subscriptions/polymarket.md',
+};
+
+const hershyContextCachePromises = new Map();
 
 const FRONT_PORT = resolvePort(process.env.FRONT_PORT || process.env.PORT, 9090);
 const HOST_API_BASE = normalizeBaseURL(process.env.HOST_API_BASE || 'http://localhost:9000');
@@ -64,6 +88,24 @@ const HOP_BY_HOP_HEADERS = new Set([
   'host',
   'content-length',
 ]);
+
+const exchangeConnectionManager = createExchangeConnectionManager({
+  localStateDir: LOCAL_STATE_DIR,
+  defaultExchangeConnections: DEFAULT_EXCHANGE_CONNECTIONS,
+  supportedExchangeConnectionIDs: SUPPORTED_EXCHANGE_CONNECTION_IDS,
+  sanitizeUserContextID,
+});
+
+const {
+  buildConnectedExchangeContextForAI,
+  getConnectedExchangeConnections,
+  loadExchangeConnections,
+  patchExchangeConnection,
+  serializeExchangeConnection,
+  serializeExchangeConnections,
+  testBinanceSignedConnection,
+  upsertExchangeConnection,
+} = exchangeConnectionManager;
 
 function stripEnvQuotes(value) {
   const trimmed = String(value || '').trim();
@@ -129,21 +171,6 @@ const EXPLORER_CHAIN_IDS = {
 };
 
 const ETHERSCAN_V2_ENDPOINT = 'https://api.etherscan.io/v2/api';
-
-const DEFAULT_EXCHANGE_CONNECTIONS = [
-  { id: 'binance', name: 'Binance', type: 'CEX', status: '대기', scopes: ['Spot', 'Futures', 'Read'], color: 'amber', marketDataUrl: 'https://api.binance.com', wsUrl: 'wss://stream.binance.com:9443/ws' },
-  { id: 'bybit', name: 'Bybit', type: 'CEX', status: '대기', scopes: ['Spot', 'Perp', 'Read'], color: 'orange' },
-  { id: 'okx', name: 'OKX', type: 'CEX', status: '대기', scopes: ['Spot', 'Swap', 'Read'], color: 'slate' },
-  { id: 'coinbase', name: 'Coinbase', type: 'CEX', status: '대기', scopes: ['Spot', 'Read'], color: 'blue' },
-  { id: 'kraken', name: 'Kraken', type: 'CEX', status: '대기', scopes: ['Spot', 'Trade'], color: 'violet' },
-  { id: 'kucoin', name: 'KuCoin', type: 'CEX', status: '대기', scopes: ['Spot', 'Futures'], color: 'emerald' },
-  { id: 'bitget', name: 'Bitget', type: 'CEX', status: '대기', scopes: ['Perp', 'Copy'], color: 'cyan' },
-  { id: 'gate', name: 'Gate.io', type: 'CEX', status: '대기', scopes: ['Spot', 'Perp'], color: 'rose' },
-  { id: 'hyperliquid', name: 'Hyperliquid', type: 'DEX', status: '대기', scopes: ['Perp', 'Vault'], color: 'emerald' },
-  { id: 'uniswap', name: 'Uniswap', type: 'DEX', status: '대기', scopes: ['Swap', 'LP'], color: 'pink' },
-  { id: 'pancake', name: 'PancakeSwap', type: 'DEX', status: '대기', scopes: ['Swap', 'LP'], color: 'yellow' },
-  { id: 'jupiter', name: 'Jupiter', type: 'DEX', status: '대기', scopes: ['Swap', 'Route'], color: 'green' },
-];
 
 const DEFAULT_MARKET_OVERVIEW_ROWS = [
   { symbol: 'BTCUSDT', icon: '₿', tone: 'up', price: '0.00', change: '+0.00%', source: 'Binance Spot' },
@@ -332,9 +359,47 @@ app.get('/api/market/chart', async (req, res) => {
   }
 });
 
-app.get('/api/exchange-connections', async (_req, res) => {
+app.post('/api/strategy/runtime-artifacts', express.json({ limit: '1mb' }), async (req, res) => {
   try {
-    res.json({ connections: serializeExchangeConnections(await loadExchangeConnections()) });
+    const body = normalizeObject(req.body) || {};
+    let strategy = normalizeObject(body.strategy || body.strategyGraph);
+    if (!strategy && typeof body.code === 'string') {
+      strategy = normalizeObject(parseJSON(body.code, 'strategy code'));
+    }
+    if (!strategy) {
+      sendError(res, 400, 'strategy graph is required');
+      return;
+    }
+
+    const validation = await validateStrategyGraphWithRunner(strategy);
+    const validationHistory = [{
+      attempt: 1,
+      stage: 'code-view-runtime-artifacts',
+      ok: validation.ok,
+      issues: validation.issues,
+      stdout: validation.stdout,
+      stderr: validation.stderr,
+    }];
+
+    if (!validation.ok) {
+      sendError(res, 400, 'strategy graph validation failed', { validation });
+      return;
+    }
+
+    const runtime = await writeStrategyRuntimeArtifacts(strategy, validationHistory, { registerHostProgram: false });
+    res.json({ ok: true, validation, runtime });
+  } catch (error) {
+    sendError(res, 502, `runtime artifact generation failed: ${error?.message || 'unknown error'}`);
+  }
+});
+
+app.get('/api/exchange-connections', async (req, res) => {
+  try {
+    const userId = resolveRequestUserID(req);
+    res.json({
+      userId,
+      connections: serializeExchangeConnections(await loadExchangeConnections(userId)),
+    });
   } catch (error) {
     sendError(res, 500, `exchange connections load failed: ${error?.message || 'unknown error'}`);
   }
@@ -342,10 +407,12 @@ app.get('/api/exchange-connections', async (_req, res) => {
 
 app.post('/api/exchange-connections', express.json({ limit: '512kb' }), async (req, res) => {
   try {
-    const saved = await upsertExchangeConnection(req.body);
+    const userId = resolveRequestUserID(req);
+    const saved = await upsertExchangeConnection(userId, req.body);
     res.json({
+      userId,
       connection: serializeExchangeConnection(saved),
-      connections: serializeExchangeConnections(await loadExchangeConnections()),
+      connections: serializeExchangeConnections(await loadExchangeConnections(userId)),
     });
   } catch (error) {
     sendError(res, 400, error?.message || 'exchange connection save failed');
@@ -353,10 +420,11 @@ app.post('/api/exchange-connections', express.json({ limit: '512kb' }), async (r
 });
 
 app.post('/api/exchange-connections/:id/binance-auth-test', express.json({ limit: '128kb' }), async (req, res) => {
+  const userId = resolveRequestUserID(req);
   try {
     const connectionId = normalizeText(req.params.id);
     const market = normalizeText(req.body?.market).toLowerCase() === 'futures' ? 'futures' : 'spot';
-    const connections = await loadExchangeConnections();
+    const connections = await loadExchangeConnections(userId);
     const connection = connections.find((item) => item.id === connectionId);
     if (!connection) {
       sendError(res, 404, 'exchange connection not found');
@@ -364,7 +432,7 @@ app.post('/api/exchange-connections/:id/binance-auth-test', express.json({ limit
     }
 
     const result = await testBinanceSignedConnection(connection, { market });
-    const updated = await patchExchangeConnection(connection.id, {
+    const updated = await patchExchangeConnection(userId, connection.id, {
       credentials: {
         ...(connection.credentials || {}),
         authStatus: '검증됨',
@@ -376,8 +444,9 @@ app.post('/api/exchange-connections/:id/binance-auth-test', express.json({ limit
 
     res.json({
       ok: true,
+      userId,
       connection: serializeExchangeConnection(updated),
-      connections: serializeExchangeConnections(await loadExchangeConnections()),
+      connections: serializeExchangeConnections(await loadExchangeConnections(userId)),
       account: summarizeBinanceAccount(result.data, market),
       message: 'Binance HMAC signed request succeeded.',
     });
@@ -385,10 +454,10 @@ app.post('/api/exchange-connections/:id/binance-auth-test', express.json({ limit
     const connectionId = normalizeText(req.params.id);
     if (connectionId) {
       try {
-        const connections = await loadExchangeConnections();
+        const connections = await loadExchangeConnections(userId);
         const connection = connections.find((item) => item.id === connectionId);
         if (connection) {
-          await patchExchangeConnection(connection.id, {
+          await patchExchangeConnection(userId, connection.id, {
             credentials: {
               ...(connection.credentials || {}),
               authStatus: '실패',
@@ -431,6 +500,20 @@ app.post('/api/stream/sample', express.json({ limit: '256kb' }), async (req, res
       sendError(res, 400, 'stream_method is required for evm-rpc');
       return;
     }
+  } else if (input.streamKind === 'cex-market') {
+    if (!input.exchange) {
+      sendError(res, 400, 'exchange is required for cex-market');
+      return;
+    }
+    if (!input.symbol) {
+      sendError(res, 400, 'symbol is required for cex-market');
+      return;
+    }
+  } else if (input.streamKind === 'polymarket-market') {
+    if (!input.tokenId) {
+      sendError(res, 400, 'token_id is required for polymarket-market');
+      return;
+    }
   } else if (!input.sourceURL) {
     sendError(res, 400, 'source_url is required for url/websocket streams');
     return;
@@ -467,11 +550,19 @@ app.post('/api/ai/research', express.json({ limit: '2mb' }), async (req, res) =>
     req.body?.explorer_api_key
   );
   try {
+    const exchangeConnections = await loadExchangeConnections(resolveRequestUserID(req));
+    const userContext = await prepareStrategyUserContext({
+      req,
+      connectedExchangeConnections: getConnectedExchangeConnections(exchangeConnections),
+      source: 'ai-research',
+    });
     const researched = await runResearchLayer({
       prompt,
       currentStrategy,
       orchestrationPlan,
-      authContext
+      authContext,
+      exchangeConnections,
+      userContext,
     });
     res.json({
       research: researched.research,
@@ -496,7 +587,12 @@ app.post('/api/ai/strategy-compose', express.json({ limit: '2mb' }), async (req,
   const currentStrategy = resolveCurrentStrategy(req.body?.current_strategy);
   const researchBundle = normalizeObject(req.body?.research_bundle);
   try {
-    const exchangeConnections = await loadExchangeConnections();
+    const exchangeConnections = await loadExchangeConnections(resolveRequestUserID(req));
+    const userContext = await prepareStrategyUserContext({
+      req,
+      connectedExchangeConnections: getConnectedExchangeConnections(exchangeConnections),
+      source: 'ai-strategy-compose',
+    });
     if (getConnectedExchangeConnections(exchangeConnections).length === 0) {
       sendError(res, 400, 'connected exchange is required before generating an executable strategy');
       return;
@@ -505,7 +601,8 @@ app.post('/api/ai/strategy-compose', express.json({ limit: '2mb' }), async (req,
       prompt,
       currentStrategy,
       researchBundle,
-      exchangeConnections
+      exchangeConnections,
+      userContext,
     });
     res.json({
       strategy: composed.strategy,
@@ -536,7 +633,12 @@ app.post('/api/ai/orchestrate-strategy', express.json({ limit: '2mb' }), async (
     req.body?.explorer_api_key
   );
   try {
-    const exchangeConnections = await loadExchangeConnections();
+    const exchangeConnections = await loadExchangeConnections(resolveRequestUserID(req));
+    const userContext = await prepareStrategyUserContext({
+      req,
+      connectedExchangeConnections: getConnectedExchangeConnections(exchangeConnections),
+      source: 'ai-orchestrate-strategy',
+    });
     if (getConnectedExchangeConnections(exchangeConnections).length === 0) {
       sendError(res, 400, 'connected exchange is required before generating an executable strategy');
       return;
@@ -545,7 +647,8 @@ app.post('/api/ai/orchestrate-strategy', express.json({ limit: '2mb' }), async (
       prompt,
       currentStrategy,
       authContext,
-      exchangeConnections
+      exchangeConnections,
+      userContext,
     });
     res.json({
       strategy: result.strategy,
@@ -578,7 +681,12 @@ app.post('/api/ai/strategy-draft', express.json({ limit: '2mb' }), async (req, r
     req.body?.explorer_api_key
   );
   try {
-    const exchangeConnections = await loadExchangeConnections();
+    const exchangeConnections = await loadExchangeConnections(resolveRequestUserID(req));
+    const userContext = await prepareStrategyUserContext({
+      req,
+      connectedExchangeConnections: getConnectedExchangeConnections(exchangeConnections),
+      source: 'ai-strategy-draft',
+    });
     if (getConnectedExchangeConnections(exchangeConnections).length === 0) {
       sendError(res, 400, 'connected exchange is required before generating an executable strategy');
       return;
@@ -587,7 +695,8 @@ app.post('/api/ai/strategy-draft', express.json({ limit: '2mb' }), async (req, r
       prompt,
       currentStrategy,
       authContext,
-      exchangeConnections
+      exchangeConnections,
+      userContext,
     });
     res.json(makeStrategyDraftResponse(result));
   } catch (error) {
@@ -608,7 +717,12 @@ app.post('/api/ai/strategy-draft-stream', express.json({ limit: '2mb' }), async 
     req.body?.explorer_api_key
   );
   try {
-    const exchangeConnections = await loadExchangeConnections();
+    const exchangeConnections = await loadExchangeConnections(resolveRequestUserID(req));
+    const userContext = await prepareStrategyUserContext({
+      req,
+      connectedExchangeConnections: getConnectedExchangeConnections(exchangeConnections),
+      source: 'ai-strategy-draft-stream',
+    });
     if (getConnectedExchangeConnections(exchangeConnections).length === 0) {
       sendError(res, 400, 'connected exchange is required before generating an executable strategy');
       return;
@@ -637,6 +751,7 @@ app.post('/api/ai/strategy-draft-stream', express.json({ limit: '2mb' }), async 
       currentStrategy,
       authContext,
       exchangeConnections,
+      userContext,
       onProgress: (event) => sendEvent('progress', withAgentEventTimestamp(event)),
     });
     sendEvent('result', makeStrategyDraftResponse(result));
@@ -769,6 +884,10 @@ function normalizeStreamSampleInput(raw) {
   return {
     streamKind: normalizeStreamKind(body.stream_kind || body.streamKind, sourceURL, streamChain),
     sourceURL,
+    exchange: normalizeExchangeName(body.exchange || body.venue || body.provider),
+    symbol: normalizeText(body.symbol || body.market || body.pair),
+    marketId: normalizeText(body.market_id || body.marketId),
+    tokenId: normalizeText(body.token_id || body.tokenId),
     streamChain,
     streamMethod: normalizeText(body.stream_method || body.streamMethod),
     streamParamsJSON: normalizeText(body.stream_params_json || body.streamParamsJson) || '[]',
@@ -783,6 +902,12 @@ function normalizeStreamKind(rawKind, sourceURL = '', streamChain = '') {
   const text = normalizeText(rawKind).toLowerCase();
   if (text === 'evm-rpc' || streamChain) {
     return 'evm-rpc';
+  }
+  if (text === 'cex-market') {
+    return 'cex-market';
+  }
+  if (text === 'polymarket-market') {
+    return 'polymarket-market';
   }
   if (text === 'url' || text === 'ws' || text === 'websocket') {
     return 'url';
@@ -826,6 +951,12 @@ function parseResponseSchemaFields(rawSchema) {
 async function sampleStreamPayload(input) {
   if (input.streamKind === 'evm-rpc') {
     return sampleEVMRPCPayload(input);
+  }
+  if (input.streamKind === 'cex-market') {
+    return sampleCEXMarketPayload(input);
+  }
+  if (input.streamKind === 'polymarket-market') {
+    return samplePolymarketMarketPayload(input);
   }
   if (isWebSocketSourceURL(input.sourceURL)) {
     return sampleWebSocketPayload(input.sourceURL, input.timeoutMs);
@@ -965,6 +1096,228 @@ async function sampleEVMRPCPayload(input) {
   return payload;
 }
 
+function normalizeExchangeName(rawValue) {
+  const text = normalizeText(rawValue).toLowerCase();
+  if (text === 'gate' || text === 'gate.io') return 'gateio';
+  return text;
+}
+
+function parseMarketNumber(value) {
+  if (typeof value === 'number' && Number.isFinite(value)) {
+    return value;
+  }
+  const text = normalizeText(value);
+  if (!text) {
+    return 0;
+  }
+  const parsed = Number(text);
+  return Number.isFinite(parsed) ? parsed : 0;
+}
+
+function splitMarketSymbol(rawValue) {
+  const compact = normalizeText(rawValue).toUpperCase().replace(/[\s/_-]+/g, '');
+  if (!compact) {
+    return null;
+  }
+  const quoteAssets = ['USDT', 'USDC', 'FDUSD', 'BUSD', 'TUSD', 'DAI', 'USD', 'BTC', 'ETH', 'EUR', 'KRW'];
+  for (const quote of quoteAssets) {
+    if (compact.length > quote.length && compact.endsWith(quote)) {
+      return {
+        base: compact.slice(0, compact.length - quote.length),
+        quote,
+      };
+    }
+  }
+  return { base: compact, quote: '' };
+}
+
+function formatExchangeSymbol(exchange, rawValue) {
+  const parts = splitMarketSymbol(rawValue);
+  if (!parts?.base) {
+    return normalizeText(rawValue);
+  }
+  const { base, quote } = parts;
+  switch (exchange) {
+    case 'okx':
+    case 'kucoin':
+      return quote ? `${base}-${quote}` : base;
+    case 'gateio':
+      return quote ? `${base}_${quote}` : base;
+    default:
+      return `${base}${quote}`;
+  }
+}
+
+function buildMarketSnapshot(base = {}) {
+  const bidPrice = parseMarketNumber(base.bidPrice);
+  const askPrice = parseMarketNumber(base.askPrice);
+  const lastPrice = parseMarketNumber(base.lastPrice) || (bidPrice > 0 && askPrice > 0 ? (bidPrice + askPrice) / 2 : bidPrice || askPrice);
+  const midPrice = bidPrice > 0 && askPrice > 0 ? (bidPrice + askPrice) / 2 : lastPrice;
+  const spread = bidPrice > 0 && askPrice > 0 ? askPrice - bidPrice : 0;
+  return {
+    ...base,
+    lastPrice,
+    midPrice,
+    bidPrice,
+    askPrice,
+    spread,
+    eventTime: base.eventTime || Date.now(),
+  };
+}
+
+async function sampleCEXMarketPayload(input) {
+  const exchange = normalizeExchangeName(input.exchange);
+  const symbol = formatExchangeSymbol(exchange, input.symbol);
+  if (!exchange) {
+    throw new Error('exchange is required for cex-market stream');
+  }
+  if (!symbol) {
+    throw new Error('symbol is required for cex-market stream');
+  }
+
+  switch (exchange) {
+    case 'binance': {
+      const payload = await sampleHTTPPayload(`https://api.binance.com/api/v3/ticker/24hr?symbol=${encodeURIComponent(symbol)}`, input.timeoutMs);
+      return buildMarketSnapshot({
+        exchange,
+        symbol,
+        lastPrice: payload.lastPrice,
+        bidPrice: payload.bidPrice,
+        askPrice: payload.askPrice,
+        bidSize: payload.bidQty,
+        askSize: payload.askQty,
+        volume: payload.volume,
+        quoteVolume: payload.quoteVolume,
+        highPrice: payload.highPrice,
+        lowPrice: payload.lowPrice,
+        openPrice: payload.openPrice,
+        eventTime: parseMarketNumber(payload.closeTime) || parseMarketNumber(payload.eventTime),
+      });
+    }
+    case 'bybit': {
+      const payload = await sampleHTTPPayload(`https://api.bybit.com/v5/market/tickers?category=spot&symbol=${encodeURIComponent(symbol)}`, input.timeoutMs);
+      const row = Array.isArray(payload?.result?.list) ? payload.result.list[0] || {} : {};
+      return buildMarketSnapshot({
+        exchange,
+        symbol,
+        lastPrice: row.lastPrice,
+        bidPrice: row.bid1Price,
+        askPrice: row.ask1Price,
+        bidSize: row.bid1Size,
+        askSize: row.ask1Size,
+        volume: row.volume24h,
+        quoteVolume: row.turnover24h,
+        highPrice: row.highPrice24h,
+        lowPrice: row.lowPrice24h,
+        eventTime: parseMarketNumber(payload?.time) || Date.now(),
+      });
+    }
+    case 'okx': {
+      const payload = await sampleHTTPPayload(`https://www.okx.com/api/v5/market/ticker?instId=${encodeURIComponent(symbol)}`, input.timeoutMs);
+      const row = Array.isArray(payload?.data) ? payload.data[0] || {} : {};
+      return buildMarketSnapshot({
+        exchange,
+        symbol,
+        lastPrice: row.last,
+        bidPrice: row.bidPx,
+        askPrice: row.askPx,
+        bidSize: row.bidSz,
+        askSize: row.askSz,
+        volume: row.vol24h,
+        quoteVolume: row.volCcy24h,
+        highPrice: row.high24h,
+        lowPrice: row.low24h,
+        eventTime: parseMarketNumber(row.ts),
+      });
+    }
+    case 'kucoin': {
+      const payload = await sampleHTTPPayload(`https://api.kucoin.com/api/ua/v1/market/ticker?tradeType=SPOT&symbol=${encodeURIComponent(symbol)}`, input.timeoutMs);
+      const row = Array.isArray(payload?.data?.list) ? payload.data.list[0] || {} : {};
+      return buildMarketSnapshot({
+        exchange,
+        symbol,
+        lastPrice: row.lastPrice,
+        bidPrice: row.bestBidPrice,
+        askPrice: row.bestAskPrice,
+        bidSize: row.bestBidSize,
+        askSize: row.bestAskSize,
+        volume: row.baseVolume,
+        quoteVolume: row.quoteVolume,
+        highPrice: row.high,
+        lowPrice: row.low,
+        openPrice: row.open,
+        eventTime: Math.round(parseMarketNumber(row.ts) / 1e6) || parseMarketNumber(row.M),
+      });
+    }
+    case 'bitget': {
+      const payload = await sampleHTTPPayload(`https://api.bitget.com/api/v2/spot/market/tickers?symbol=${encodeURIComponent(symbol)}`, input.timeoutMs);
+      const row = Array.isArray(payload?.data) ? payload.data[0] || {} : {};
+      return buildMarketSnapshot({
+        exchange,
+        symbol,
+        lastPrice: row.lastPr,
+        bidPrice: row.bidPr,
+        askPrice: row.askPr,
+        bidSize: row.bidSz,
+        askSize: row.askSz,
+        volume: row.baseVolume,
+        quoteVolume: row.quoteVolume || row.usdtVolume,
+        highPrice: row.high24h,
+        lowPrice: row.low24h,
+        openPrice: row.open,
+        eventTime: parseMarketNumber(row.ts) || parseMarketNumber(payload?.requestTime),
+      });
+    }
+    case 'gateio': {
+      const payload = await sampleHTTPPayload(`https://api.gateio.ws/api/v4/spot/tickers?currency_pair=${encodeURIComponent(symbol)}`, input.timeoutMs);
+      const row = Array.isArray(payload) ? payload[0] || {} : {};
+      return buildMarketSnapshot({
+        exchange,
+        symbol,
+        lastPrice: row.last,
+        bidPrice: row.highest_bid,
+        askPrice: row.lowest_ask,
+        bidSize: row.highest_size,
+        askSize: row.lowest_size,
+        volume: row.base_volume,
+        quoteVolume: row.quote_volume,
+        highPrice: row.high_24h || row.high24h,
+        lowPrice: row.low_24h || row.low24h,
+        eventTime: Date.now(),
+      });
+    }
+    default:
+      throw new Error(`unsupported cex exchange: ${exchange}`);
+  }
+}
+
+async function samplePolymarketMarketPayload(input) {
+  const tokenId = normalizeText(input.tokenId);
+  if (!tokenId) {
+    throw new Error('token_id is required for polymarket stream');
+  }
+  const payload = await sampleHTTPPayload(`https://clob.polymarket.com/book?token_id=${encodeURIComponent(tokenId)}`, input.timeoutMs);
+  const bestBid = Array.isArray(payload?.bids) ? payload.bids[0] || {} : {};
+  const bestAsk = Array.isArray(payload?.asks) ? payload.asks[0] || {} : {};
+  const bidPrice = parseMarketNumber(bestBid.price);
+  const askPrice = parseMarketNumber(bestAsk.price);
+  const bidSize = parseMarketNumber(bestBid.size);
+  const askSize = parseMarketNumber(bestAsk.size);
+  const lastPrice = parseMarketNumber(payload?.last_trade_price) || (bidPrice > 0 && askPrice > 0 ? (bidPrice + askPrice) / 2 : bidPrice || askPrice);
+  return buildMarketSnapshot({
+    exchange: 'polymarket',
+    tokenId,
+    marketId: normalizeText(input.marketId) || normalizeText(payload?.market),
+    lastPrice,
+    bidPrice,
+    askPrice,
+    bidSize,
+    askSize,
+    liquidity: bidPrice * bidSize + askPrice * askSize,
+    eventTime: parseMarketNumber(payload?.timestamp) || Date.now(),
+  });
+}
+
 function resolvePreviewEVMRPCURL(streamChain, sourceURL, authContext) {
   const direct = normalizeText(sourceURL);
   if (direct) {
@@ -1083,14 +1436,15 @@ function extractPayloadField(payload, field) {
   }
 
   const path = parsePreviewFieldPath(field);
+  const preserveAsText = shouldPreservePreviewText(path[path.length - 1]);
   const direct = lookupPayloadPath(payload, path);
   if (direct.found) {
-    return normalizePreviewValue(direct.value);
+    return preserveAsText ? String(direct.value ?? '') : normalizePreviewValue(direct.value);
   }
   if (payload && typeof payload === 'object' && payload.data !== undefined) {
     const nested = lookupPayloadPath(payload.data, path);
     if (nested.found) {
-      return normalizePreviewValue(nested.value);
+      return preserveAsText ? String(nested.value ?? '') : normalizePreviewValue(nested.value);
     }
   }
   return null;
@@ -1145,6 +1499,10 @@ function normalizePreviewValue(value) {
   return value ?? null;
 }
 
+function shouldPreservePreviewText(field) {
+  return ['exchange', 'symbol', 'marketId', 'tokenId'].includes(normalizeText(field));
+}
+
 function getAIBooleanEnv(key, fallback = false) {
   const raw = normalizeText(process.env[key]).toLowerCase();
   if (!raw) {
@@ -1153,23 +1511,64 @@ function getAIBooleanEnv(key, fallback = false) {
   return raw === '1' || raw === 'true' || raw === 'yes' || raw === 'y' || raw === 'on';
 }
 
-function resolveHershyContextFileList() {
+function getPositiveIntegerEnv(key, fallback) {
+  const parsed = Number.parseInt(process.env[key] || '', 10);
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : fallback;
+}
+
+function shouldUseExchangeWebsocketRag(prompt = '') {
+  const lower = normalizeText(prompt).toLowerCase();
+  if (!lower) return false;
+  return /websocket|web\s*socket|\bws\b|wss:|stream|streaming|subscribe|subscription|payload|ticker|orderbook|order\s*book|kline|candle|웹소켓|스트리밍|스트림|구독|거래소|실시간|차트|cex|polymarket|binance|bybit|okx|kucoin|bitget|gate/.test(lower);
+}
+
+function resolveExchangeWebsocketRagFiles(prompt = '') {
+  if (!getAIBooleanEnv('AI_STRATEGY_ENABLE_EXCHANGE_WS_RAG', true)) {
+    return [];
+  }
+  if (!shouldUseExchangeWebsocketRag(prompt)) {
+    return [];
+  }
+
+  const lower = normalizeText(prompt).toLowerCase();
+  const files = [EXCHANGE_WEBSOCKET_RAG_INDEX_FILE];
+  const matchedFiles = Object.entries(EXCHANGE_WEBSOCKET_RAG_FILES)
+    .filter(([exchange]) => lower.includes(exchange))
+    .map(([, file]) => file);
+
+  if (matchedFiles.length > 0) {
+    files.push(...matchedFiles);
+  } else {
+    files.push(...Object.values(EXCHANGE_WEBSOCKET_RAG_FILES));
+  }
+
+  return Array.from(new Set(files));
+}
+
+function resolveHershyContextFileList(prompt = '') {
   const envList = normalizeText(process.env.AI_STRATEGY_HERSHY_CONTEXT_FILES);
   const candidates = envList
     ? envList.split(',').map((item) => normalizeText(item)).filter(Boolean)
     : DEFAULT_HERSHY_CONTEXT_FILES;
 
-  return Array.from(new Set(candidates));
+  return Array.from(new Set([
+    ...resolveExchangeWebsocketRagFiles(prompt),
+    ...candidates,
+  ]));
 }
 
-async function loadHershyLibraryContext() {
+async function loadHershyLibraryContext(prompt = '') {
   if (!getAIBooleanEnv('AI_STRATEGY_ENABLE_HERSHY_CONTEXT', true)) {
     return '';
   }
 
-  if (!hershyContextCachePromise) {
-    hershyContextCachePromise = (async () => {
-      const files = resolveHershyContextFileList();
+  const files = resolveHershyContextFileList(prompt);
+  const fileLimit = getPositiveIntegerEnv('AI_STRATEGY_HERSHY_CONTEXT_FILE_CHARS', 8000);
+  const totalLimit = getPositiveIntegerEnv('AI_STRATEGY_HERSHY_CONTEXT_TOTAL_CHARS', 42000);
+  const cacheKey = JSON.stringify({ files, fileLimit, totalLimit });
+
+  if (!hershyContextCachePromises.has(cacheKey)) {
+    hershyContextCachePromises.set(cacheKey, (async () => {
       const chunks = [];
       for (const relPath of files) {
         const absPath = path.resolve(REPO_ROOT, relPath);
@@ -1178,16 +1577,16 @@ async function loadHershyLibraryContext() {
           if (!normalizeText(content)) {
             continue;
           }
-          chunks.push(`--- ${relPath} ---\n${trimForLog(content, 8000)}`);
+          chunks.push(`--- ${relPath} ---\n${trimForLog(content, fileLimit)}`);
         } catch {
           // Skip missing/unreadable context file.
         }
       }
-      return trimForLog(chunks.join('\n\n'), 24000);
-    })();
+      return trimForLog(chunks.join('\n\n'), totalLimit);
+    })());
   }
 
-  return hershyContextCachePromise;
+  return hershyContextCachePromises.get(cacheKey);
 }
 
 function sendError(res, code, message, extra = {}) {
@@ -1585,395 +1984,6 @@ function normalizeObject(value) {
   return value && typeof value === 'object' && !Array.isArray(value) ? value : null;
 }
 
-function normalizeDelimitedStringArray(value) {
-  if (Array.isArray(value)) {
-    return Array.from(new Set(value.map((item) => normalizeText(item)).filter(Boolean)));
-  }
-  const text = normalizeText(value);
-  if (!text) {
-    return [];
-  }
-  return Array.from(new Set(text.split(/[,\n]/).map((item) => normalizeText(item)).filter(Boolean)));
-}
-
-function normalizeExchangeType(value) {
-  const type = normalizeText(value).toUpperCase();
-  return type === 'DEX' || type === 'RPC' ? type : 'CEX';
-}
-
-function normalizeEndpointURL(value, label, { strict = false } = {}) {
-  const text = normalizeText(value);
-  if (!text) {
-    return '';
-  }
-  try {
-    const parsed = new URL(text);
-    if (!['http:', 'https:', 'ws:', 'wss:'].includes(parsed.protocol)) {
-      throw new Error('unsupported protocol');
-    }
-    return text;
-  } catch {
-    if (strict) {
-      throw new Error(`${label} must be a valid URL starting with http://, https://, ws://, or wss://`);
-    }
-    return '';
-  }
-}
-
-function normalizeCredentialText(value) {
-  return String(value ?? '').trim();
-}
-
-function getExchangeCredentialEncryptionKey() {
-  const configured = normalizeCredentialText(process.env.EXCHANGE_SECRET_KEY);
-  const source = configured || `hershy-local-exchange-key:${os.hostname()}:${os.userInfo().username}:${LOCAL_STATE_DIR}`;
-  return crypto.createHash('sha256').update(source).digest();
-}
-
-function encryptExchangeCredential(value) {
-  const text = normalizeCredentialText(value);
-  if (!text) return '';
-
-  const iv = crypto.randomBytes(12);
-  const cipher = crypto.createCipheriv('aes-256-gcm', getExchangeCredentialEncryptionKey(), iv);
-  const encrypted = Buffer.concat([cipher.update(text, 'utf8'), cipher.final()]);
-  const authTag = cipher.getAuthTag();
-  return [
-    'v1',
-    iv.toString('base64url'),
-    authTag.toString('base64url'),
-    encrypted.toString('base64url'),
-  ].join(':');
-}
-
-function decryptExchangeCredential(value) {
-  const text = normalizeCredentialText(value);
-  if (!text) return '';
-  const [version, ivText, authTagText, encryptedText] = text.split(':');
-  if (version !== 'v1' || !ivText || !authTagText || !encryptedText) {
-    throw new Error('stored exchange credential is not encrypted with the current format');
-  }
-
-  const decipher = crypto.createDecipheriv(
-    'aes-256-gcm',
-    getExchangeCredentialEncryptionKey(),
-    Buffer.from(ivText, 'base64url'),
-  );
-  decipher.setAuthTag(Buffer.from(authTagText, 'base64url'));
-  return Buffer.concat([
-    decipher.update(Buffer.from(encryptedText, 'base64url')),
-    decipher.final(),
-  ]).toString('utf8');
-}
-
-function credentialLast4FromEncrypted(encryptedValue) {
-  try {
-    const raw = decryptExchangeCredential(encryptedValue);
-    return raw ? raw.slice(-4) : '';
-  } catch {
-    return '';
-  }
-}
-
-function buildExchangeCredentialState({
-  rawApiKey,
-  rawApiSecret,
-  apiKeyEncrypted,
-  apiSecretEncrypted,
-  baseCredentials = {},
-}) {
-  const apiKeyLast4 = rawApiKey
-    ? rawApiKey.slice(-4)
-    : normalizeText(baseCredentials.apiKeyLast4) || credentialLast4FromEncrypted(apiKeyEncrypted);
-  return {
-    ...baseCredentials,
-    hasApiKey: Boolean(apiKeyEncrypted),
-    hasApiSecret: Boolean(apiSecretEncrypted),
-    apiKeyLast4,
-    updatedAt: rawApiKey || rawApiSecret ? new Date().toISOString() : normalizeText(baseCredentials.updatedAt),
-    authStatus: normalizeText(baseCredentials.authStatus) || '미검증',
-    authMarket: normalizeText(baseCredentials.authMarket),
-    lastAuthCheckAt: normalizeText(baseCredentials.lastAuthCheckAt),
-    lastAuthError: normalizeText(baseCredentials.lastAuthError),
-  };
-}
-
-function normalizeConnectionStatus(value, hasExecutionEndpoint, { autoConnectOnEndpoint = false } = {}) {
-  const status = normalizeText(value);
-  if (hasExecutionEndpoint && (autoConnectOnEndpoint || status === '연결됨' || status.toLowerCase() === 'connected')) {
-    return '연결됨';
-  }
-  if (status === '대기' || status.toLowerCase() === 'pending') return '대기';
-  return hasExecutionEndpoint && autoConnectOnEndpoint ? '연결됨' : '대기';
-}
-
-function normalizeExchangeConnection(raw, fallback = {}, options = {}) {
-  const body = normalizeObject(raw) || {};
-  const base = normalizeObject(fallback) || {};
-  const name = normalizeText(body.name || base.name);
-  const id = slugifyForPath(body.id || base.id || name, `exchange-${Date.now()}`);
-  const strictURLs = options.strictURLs === true;
-  const rawApiUrl = normalizeText(body.apiUrl || body.api_url || body.restUrl || body.rest_url || base.apiUrl);
-  const apiUrl = normalizeEndpointURL(rawApiUrl, 'REST API URL', { strict: strictURLs && Boolean(rawApiUrl) });
-  const rawRestUrl = normalizeText(body.restUrl || body.rest_url || apiUrl || base.restUrl);
-  const restUrl = normalizeEndpointURL(rawRestUrl, 'REST API URL', { strict: strictURLs && Boolean(rawRestUrl) });
-  const rawWsUrl = normalizeText(body.wsUrl || body.ws_url || body.websocketUrl || body.websocket_url || base.wsUrl);
-  const wsUrl = normalizeEndpointURL(rawWsUrl, 'WebSocket URL', { strict: strictURLs && Boolean(rawWsUrl) });
-  const rawRpcUrl = normalizeText(body.rpcUrl || body.rpc_url || base.rpcUrl);
-  const rpcUrl = normalizeEndpointURL(rawRpcUrl, 'RPC URL', { strict: strictURLs && Boolean(rawRpcUrl) });
-  const rawMarketDataUrl = normalizeText(body.marketDataUrl || body.market_data_url || body.publicUrl || body.public_url || base.marketDataUrl);
-  const marketDataUrl = normalizeEndpointURL(rawMarketDataUrl, 'Market data URL', { strict: strictURLs && Boolean(rawMarketDataUrl) });
-  const rawApiKey = normalizeCredentialText(body.apiKey || body.api_key || body.binanceApiKey || body.binance_api_key);
-  const rawApiSecret = normalizeCredentialText(body.apiSecret || body.api_secret || body.secretKey || body.secret_key || body.binanceApiSecret || body.binance_api_secret);
-  const apiKeyEncrypted = rawApiKey
-    ? encryptExchangeCredential(rawApiKey)
-    : normalizeText(body.apiKeyEncrypted || body.api_key_encrypted || base.apiKeyEncrypted || base.api_key_encrypted);
-  const apiSecretEncrypted = rawApiSecret
-    ? encryptExchangeCredential(rawApiSecret)
-    : normalizeText(body.apiSecretEncrypted || body.api_secret_encrypted || base.apiSecretEncrypted || base.api_secret_encrypted);
-  const hasAnyEndpoint = Boolean(apiUrl || restUrl || wsUrl || rpcUrl || marketDataUrl);
-  const hasExecutionEndpoint = Boolean(apiUrl || restUrl || rpcUrl);
-  const now = new Date().toISOString();
-
-  if (!name) {
-    throw new Error('exchange name is required');
-  }
-  if (!hasAnyEndpoint && !base.id) {
-    throw new Error('apiUrl, wsUrl, rpcUrl, or marketDataUrl is required');
-  }
-  if (strictURLs && !hasExecutionEndpoint) {
-    throw new Error('REST API URL or RPC URL is required for executable AI strategy generation');
-  }
-
-  return {
-    ...base,
-    id,
-    name,
-    type: normalizeExchangeType(body.type || base.type),
-    status: normalizeConnectionStatus(body.status || base.status, hasExecutionEndpoint, {
-      autoConnectOnEndpoint: options.autoConnectOnEndpoint === true,
-    }),
-    scopes: normalizeDelimitedStringArray(body.scopes).length > 0
-      ? normalizeDelimitedStringArray(body.scopes)
-      : normalizeDelimitedStringArray(base.scopes).length > 0
-        ? normalizeDelimitedStringArray(base.scopes)
-        : ['Read'],
-    color: normalizeText(body.color || base.color) || 'slate',
-    apiUrl,
-    restUrl,
-    wsUrl,
-    rpcUrl,
-    marketDataUrl,
-    apiKeyEncrypted,
-    apiSecretEncrypted,
-    credentials: buildExchangeCredentialState({
-      rawApiKey,
-      rawApiSecret,
-      apiKeyEncrypted,
-      apiSecretEncrypted,
-      baseCredentials: normalizeObject(body.credentials) || normalizeObject(base.credentials) || {},
-    }),
-    updatedAt: now,
-    createdAt: normalizeText(base.createdAt) || now,
-  };
-}
-
-function serializeExchangeConnection(connection) {
-  const serialized = {
-    ...connection,
-    credentials: buildExchangeCredentialState({
-      rawApiKey: '',
-      rawApiSecret: '',
-      apiKeyEncrypted: connection.apiKeyEncrypted,
-      apiSecretEncrypted: connection.apiSecretEncrypted,
-      baseCredentials: normalizeObject(connection.credentials) || {},
-    }),
-  };
-  delete serialized.apiKey;
-  delete serialized.apiKeyEncrypted;
-  delete serialized.api_key;
-  delete serialized.api_key_encrypted;
-  delete serialized.apiSecret;
-  delete serialized.apiSecretEncrypted;
-  delete serialized.api_secret;
-  delete serialized.api_secret_encrypted;
-  delete serialized.secretKey;
-  delete serialized.secret_key;
-  delete serialized.binanceApiKey;
-  delete serialized.binance_api_key;
-  delete serialized.binanceApiSecret;
-  delete serialized.binance_api_secret;
-  return serialized;
-}
-
-function serializeExchangeConnections(connections) {
-  return (Array.isArray(connections) ? connections : []).map(serializeExchangeConnection);
-}
-
-function mergeExchangeConnections(savedConnections = []) {
-  const byId = new Map(DEFAULT_EXCHANGE_CONNECTIONS.map((connection) => [
-    connection.id,
-    normalizeExchangeConnection(connection, connection),
-  ]));
-  for (const saved of savedConnections) {
-    const existing = byId.get(normalizeText(saved?.id));
-    const normalized = normalizeExchangeConnection(saved, existing || {}, { autoConnectOnEndpoint: true });
-    byId.set(normalized.id, normalized);
-  }
-  return Array.from(byId.values());
-}
-
-async function readSavedExchangeConnections() {
-  try {
-    const raw = await fs.readFile(EXCHANGE_CONNECTIONS_PATH, 'utf8');
-    const parsed = parseJSON(raw, 'exchange connections');
-    return Array.isArray(parsed?.connections) ? parsed.connections : [];
-  } catch (error) {
-    if (error?.code === 'ENOENT') {
-      return [];
-    }
-    throw error;
-  }
-}
-
-async function writeSavedExchangeConnections(connections) {
-  await fs.mkdir(LOCAL_STATE_DIR, { recursive: true });
-  await fs.writeFile(
-    EXCHANGE_CONNECTIONS_PATH,
-    `${stringifyPrettyJSON({ connections })}\n`,
-    'utf8',
-  );
-}
-
-async function loadExchangeConnections() {
-  return mergeExchangeConnections(await readSavedExchangeConnections());
-}
-
-async function upsertExchangeConnection(raw) {
-  const savedConnections = await readSavedExchangeConnections();
-  const allConnections = mergeExchangeConnections(savedConnections);
-  const rawID = normalizeText(raw?.id);
-  const rawName = normalizeText(raw?.name);
-  const existing = allConnections.find((connection) =>
-    connection.id === rawID ||
-    connection.name.toLowerCase() === rawName.toLowerCase());
-  const normalized = normalizeExchangeConnection(raw, existing || {}, {
-    strictURLs: true,
-    autoConnectOnEndpoint: true,
-  });
-  const nextSaved = [
-    ...savedConnections.filter((connection) => normalizeText(connection?.id) !== normalized.id),
-    normalized,
-  ];
-  await writeSavedExchangeConnections(nextSaved);
-  return normalized;
-}
-
-async function patchExchangeConnection(id, patch) {
-  const normalizedID = normalizeText(id);
-  const savedConnections = await readSavedExchangeConnections();
-  const allConnections = mergeExchangeConnections(savedConnections);
-  const existing = allConnections.find((connection) => connection.id === normalizedID);
-  if (!existing) {
-    throw new Error('exchange connection not found');
-  }
-
-  const normalized = normalizeExchangeConnection(
-    {
-      ...existing,
-      ...(normalizeObject(patch) || {}),
-      credentials: {
-        ...(normalizeObject(existing.credentials) || {}),
-        ...(normalizeObject(patch?.credentials) || {}),
-      },
-    },
-    existing,
-    { autoConnectOnEndpoint: true },
-  );
-  const nextSaved = [
-    ...savedConnections.filter((connection) => normalizeText(connection?.id) !== normalized.id),
-    normalized,
-  ];
-  await writeSavedExchangeConnections(nextSaved);
-  return normalized;
-}
-
-function getConnectedExchangeConnections(connections) {
-  return (Array.isArray(connections) ? connections : [])
-    .filter((connection) => normalizeText(connection.status) === '연결됨');
-}
-
-function resolveExchangeCredentialPair(connection) {
-  const apiKey = decryptExchangeCredential(connection.apiKeyEncrypted);
-  const apiSecret = decryptExchangeCredential(connection.apiSecretEncrypted);
-  if (!apiKey || !apiSecret) {
-    throw new Error('Binance API Key and Secret must be saved before signed requests can be used');
-  }
-  return { apiKey, apiSecret };
-}
-
-function buildSignedBinanceQuery(params, apiSecret) {
-  const searchParams = new URLSearchParams();
-  Object.entries(params)
-    .filter(([, value]) => value !== undefined && value !== null && value !== '')
-    .sort(([left], [right]) => left.localeCompare(right))
-    .forEach(([key, value]) => searchParams.append(key, String(value)));
-  const query = searchParams.toString();
-  const signature = crypto.createHmac('sha256', apiSecret).update(query).digest('hex');
-  searchParams.append('signature', signature);
-  return searchParams.toString();
-}
-
-function getBinanceBaseURL(connection, market) {
-  const configured = normalizeText(connection.apiUrl || connection.restUrl);
-  if (configured) return configured;
-  return market === 'futures' ? 'https://fapi.binance.com' : 'https://api.binance.com';
-}
-
-async function binanceSignedRestRequest(connection, {
-  market = 'spot',
-  method = 'GET',
-  endpoint = '/api/v3/account',
-  params = {},
-} = {}) {
-  const { apiKey, apiSecret } = resolveExchangeCredentialPair(connection);
-  const url = new URL(endpoint, getBinanceBaseURL(connection, market));
-  url.search = buildSignedBinanceQuery(
-    {
-      recvWindow: 5000,
-      timestamp: Date.now(),
-      ...params,
-    },
-    apiSecret,
-  );
-
-  const response = await fetch(url, {
-    method,
-    headers: {
-      'X-MBX-APIKEY': apiKey,
-      'Content-Type': 'application/json',
-    },
-  });
-  const rawText = await response.text();
-  const data = parseJSON(rawText, 'Binance response');
-  if (!response.ok) {
-    const message = normalizeText(data?.msg || data?.message) || `HTTP ${response.status}`;
-    throw new Error(`${message} (${response.status})`);
-  }
-  return { status: response.status, data };
-}
-
-async function testBinanceSignedConnection(connection, { market = 'spot' } = {}) {
-  const name = normalizeText(connection.name || connection.id).toLowerCase();
-  if (!name.includes('binance')) {
-    throw new Error('Binance signed request test is only available for Binance connections');
-  }
-  return binanceSignedRestRequest(connection, {
-    market,
-    endpoint: market === 'futures' ? '/fapi/v2/account' : '/api/v3/account',
-  });
-}
-
 function summarizeBinanceAccount(data, market) {
   if (!data || typeof data !== 'object') {
     return { market };
@@ -1990,43 +2000,6 @@ function summarizeBinanceAccount(data, market) {
         : undefined,
     updateTime: data.updateTime,
   };
-}
-
-function redactURLForAI(rawURL) {
-  const text = normalizeText(rawURL);
-  if (!text) return '';
-  try {
-    const parsed = new URL(text);
-    return `${parsed.protocol}//${parsed.host}`;
-  } catch {
-    return 'configured';
-  }
-}
-
-function buildConnectedExchangeContextForAI(connections) {
-  return getConnectedExchangeConnections(connections).map((connection) => ({
-    id: connection.id,
-    name: connection.name,
-    type: connection.type,
-    scopes: connection.scopes,
-    configuredEndpoints: {
-      api: Boolean(connection.apiUrl || connection.restUrl),
-      websocket: Boolean(connection.wsUrl),
-      rpc: Boolean(connection.rpcUrl),
-      marketData: Boolean(connection.marketDataUrl),
-    },
-    endpointHosts: {
-      api: redactURLForAI(connection.apiUrl || connection.restUrl),
-      websocket: redactURLForAI(connection.wsUrl),
-      rpc: redactURLForAI(connection.rpcUrl),
-      marketData: redactURLForAI(connection.marketDataUrl),
-    },
-    credentials: {
-      apiKey: Boolean(connection.apiKeyEncrypted),
-      apiSecret: Boolean(connection.apiSecretEncrypted),
-      authStatus: normalizeText(connection.credentials?.authStatus) || '미검증',
-    },
-  }));
 }
 
 function exchangeNameAliases(connection) {
@@ -2859,7 +2832,22 @@ Required top-level object:
     "kind": "hershy-strategy-graph",
     "strategy": {"id": "string", "name": "string"},
     "generatedAt": "ISO8601",
-    "metadata": {"strategyKind": "string", "requiredSignals": ["string"], "requiredTriggerTypes": ["string"], "sourcePrompt": "string"},
+    "metadata": {
+      "strategyKind": "string",
+      "requiredSignals": ["string"],
+      "requiredTriggerTypes": ["string"],
+      "sourcePrompt": "string",
+      "workflowGroups": [
+        {
+          "id": "stable workflow id",
+          "title": "short user-facing workflow name",
+          "purpose": "why this workflow exists",
+          "nodeIds": ["exact runtimeGraph block ids in this workflow"],
+          "canAbstract": true,
+          "mustStayVisibleNodeIds": ["block ids that must not be collapsed in easy view"]
+        }
+      ]
+    },
     "summary": {"blocks": number, "connections": number, "byType": {"streaming": number, "normal": number, "trigger": number, "action": number, "monitoring": number}},
     "blocks": [...],
     "connections": [...]
@@ -2881,13 +2869,21 @@ Validation constraints:
 - trigger.config.triggerType="condition" requires non-empty trigger.config.condition
 - Logic IR is not a strategy-template selector. classification is only a hint; requirements, nodes, edges, and invariants are the source of truth.
 - Logic node categories are fixed: data_feed, compute, predicate, trigger, action, risk_control, monitoring. semanticType is an open string.
+- Before writing runtimeGraph blocks, decide the semantic workflow groups. Put them in runtimeGraph.metadata.workflowGroups and list the exact block ids for each workflow.
+- Every runtimeGraph block must belong to exactly one workflow, either via block.config.workflowId or metadata.workflowGroups[].nodeIds.
+- Workflow groups should represent user-comprehensible phases such as Init capital readiness, data ingestion, signal computation, decision gating, execution, risk monitoring, and kill-switch safe exit.
+- Do not make workflow grouping by graph proximity alone. Group by semantic responsibility first, then list node ids.
+- Blocks that must remain visible in easy view include CEX/DEX action blocks, branch decision triggers, Init approval/readiness nodes, and Kill switch trigger/action nodes. Put these in mustStayVisibleNodeIds or set canAbstract=false for their workflow.
 - For non-pure-execution strategies, canonical flow is: Data Feed -> Compute / Formula / Indicator -> Predicate / Trigger -> Action.
 - For strategies that require a formula or indicator, create a normal block with config.expression/formula/code and connect inputs with data-flow. Do not connect raw feeds directly to CEX/DEX when an intermediate formula is required.
 - For spot/perp basis, create a basis formula node first, e.g. normal.config.expression="(perp::lastPrice - spot::lastPrice) / spot::lastPrice"; then connect basis -> trigger and trigger -> action.
 - For basis/spread/indicator strategies, condition triggers must reference computed signal nodes, not raw feed fields directly.
 - Actions are not terminal nodes. If a later action depends on an earlier action, connect action outputs with action-result to normal/trigger/monitoring, then require a confirmation trigger before the next action.
 - Use action-result only from action blocks to normal, trigger, or monitoring blocks. Never connect action directly to action.
-- Every strategy MUST include an explicit kill switch: a condition trigger for manual halt plus strategy-specific fail-safe conditions such as max drawdown, stale data, disconnect, or failed hedge; it must connect via trigger-action to a close/cancel/reduce-only action that can stop the strategy and unwind/cancel open exposure.
+- Every strategy MUST include an explicit Init/start safety sequence. It must identify where strategy capital starts, verify balances/allowances/collateral before first execution, and emit a capitalReady/startApproved signal that gates the first execution action.
+- Every strategy MUST include an explicit kill switch: a condition trigger for manual halt plus strategy-specific fail-safe conditions such as max drawdown, stale data, disconnect, or failed hedge; it must connect via trigger-action to close/cancel/reduce-only/unwind actions that can stop the strategy and unwind/cancel open exposure.
+- Kill switch capital objective: move strategy assets into lower-volatility assets as safely as possible. Prefer stable/cash-like assets such as USDC, USDT, DAI, USD, or KRW. Do not leave assets in volatile base tokens, LP positions, or perpetual exposure unless the user explicitly asks for that.
+- Mark safety configs with clear fields such as killSwitch, emergencyStop, capitalSource, capitalSink, safeAsset, and safetyObjective.
 - CEX action outputBlocks should include orderId, status, filledQty, avgFillPrice. DEX action outputBlocks should include txHash, status, amountOut, executionPrice.
 - If execution is driven by time, schedule, interval, cadence, DCA timing, cron, or "every N minutes/hours/days", use a trigger block with config.triggerType="time" and config.intervalMs set to the cadence in milliseconds.
 - If a condition should only be evaluated on that cadence, connect the time trigger to the condition trigger with trigger-input. Do not create a separate normal block for DCA interval/cadence/time-pulse/time period.
@@ -2897,11 +2893,15 @@ Validation constraints:
 	`.trim();
 }
 
-async function buildAIStrategyUserPrompt(prompt, currentStrategy, researchBundle, orchestrationPlan, exchangeConnections = []) {
+async function buildAIStrategyUserPrompt(prompt, currentStrategy, researchBundle, orchestrationPlan, exchangeConnections = [], userContext = null) {
   let text = `User request:\n${normalizeText(prompt)}`;
-  const hershyContext = await loadHershyLibraryContext();
+  const hershyContext = await loadHershyLibraryContext(prompt);
   if (hershyContext) {
     text += `\n\nHershy library/project reference context (read carefully):\n${hershyContext}`;
+  }
+  const userContextSection = buildUserContextPromptSection(userContext);
+  if (userContextSection) {
+    text += `\n\n${userContextSection}`;
   }
   if (currentStrategy && typeof currentStrategy === 'object') {
     text += `\n\nCurrent strategy JSON (optional context):\n${trimForLog(stringifyJSON(currentStrategy), 12000)}`;
@@ -2914,7 +2914,7 @@ async function buildAIStrategyUserPrompt(prompt, currentStrategy, researchBundle
   }
   const connectedExchangeContext = buildConnectedExchangeContextForAI(exchangeConnections);
   text += `\n\nConnected exchange/API context (hard constraint):\n${trimForLog(stringifyJSON(connectedExchangeContext), 10000)}`;
-  text += '\nYou MUST create executable action blocks only for the connected exchanges listed above. Use config.exchange and/or config.connectionId that exactly matches a listed name/id. Do not invent venues. Do not include raw private API/RPC URLs in generated strategy JSON.';
+  text += '\nYou MUST create executable action blocks only for the connected exchanges listed above and only for actions listed in capabilities.actions. Use config.exchange and/or config.connectionId that exactly matches a listed name/id. Do not invent venues or unsupported exchange actions. Do not include raw private API/RPC URLs in generated strategy JSON.';
   text += '\n\nRules: use verified contracts from research if available; do not invent contract addresses or URLs.';
   text += '\nReturn a complete semantic strategy package object with intentPlan, logicIR, and runtimeGraph.';
   return text;
@@ -3044,6 +3044,9 @@ Hard validation target:
 - condition triggers need triggerType="condition" and a non-empty condition, e.g. stream-1::lastPrice > threshold-1
 - Formula/indicator dependencies must be preserved as data-flow connections. Do not bypass required formula nodes by connecting raw market feeds directly to actions.
 - Raw market feeds must flow into formula/indicator nodes first when a derived signal is required. Actions must be downstream of triggers.
+- Preserve or add runtimeGraph.metadata.workflowGroups. Each group must define id, title, purpose, nodeIds, canAbstract, and mustStayVisibleNodeIds.
+- Every runtimeGraph block must belong to exactly one workflow, either through config.workflowId or workflowGroups[].nodeIds.
+- Workflow groups are semantic phases, not arbitrary layout clusters. Keep editable actions, branch triggers, Init approval/readiness, and Kill switch trigger/action visible via mustStayVisibleNodeIds or canAbstract=false.
 - Use action-input only for data/parameters required by the action. Never use action-input as a substitute for trigger logic.
 - For basis/spread/indicator strategies, condition triggers must reference computed signal nodes, not raw feed fields directly.
 - For action outputs, use action-result from action blocks to normal, trigger, or monitoring blocks.
@@ -3051,7 +3054,10 @@ Hard validation target:
 - If a later action depends on an earlier action result, add a confirmation trigger and any required formula nodes first.
 - Use filledQty, avgFillPrice, status, orderId, txHash, amountOut, executionPrice outputs instead of requested order quantities when chaining fills.
 - Time/schedule/DCA cadence must be represented as one trigger block with triggerType="time" and intervalMs; if it gates a condition, use trigger-input from time trigger to condition trigger. Do not repair it into normal interval/time-pulse + condition trigger.
-- Preserve or add the kill switch. It must remain visible as trigger -> close/cancel action and must be able to halt the strategy for manual stop, drawdown breach, stale data, disconnect, or failed hedge.
+- Preserve or add the Init sequence. It must remain visible and verify capital location, balances/allowances/collateral, and readiness before the first execution action can use funds.
+- Preserve or add the kill switch. It must remain visible as trigger -> close/cancel/reduce-only/unwind action and must be able to halt the strategy for manual stop, drawdown breach, stale data, disconnect, or failed hedge.
+- Kill switch capital objective: collect strategy assets into lower-volatility assets such as USDC, USDT, DAI, USD, or KRW. Do not leave assets in volatile base tokens, LP positions, or perpetual exposure unless explicitly requested.
+- Mark safety configs with killSwitch, emergencyStop, capitalSource, capitalSink, safeAsset, and safetyObjective when applicable.
 	`.trim();
 }
 
@@ -3066,8 +3072,13 @@ function buildStrategyRepairUserPrompt({
   logicLintIssues,
   validation,
   exchangeConnections = [],
+  userContext = null,
 }) {
   let text = `Original user request:\n${normalizeText(prompt)}`;
+  const userContextSection = buildUserContextPromptSection(userContext);
+  if (userContextSection) {
+    text += `\n\n${userContextSection}`;
+  }
   if (intentPlan && typeof intentPlan === 'object') {
     text += `\n\nIntent plan:\n${trimForLog(stringifyPrettyJSON(intentPlan), 12000)}`;
   }
@@ -3089,7 +3100,7 @@ function buildStrategyRepairUserPrompt({
   }
   const connectedExchangeContext = buildConnectedExchangeContextForAI(exchangeConnections);
   text += `\n\nConnected exchange/API context (hard constraint):\n${trimForLog(stringifyJSON(connectedExchangeContext), 10000)}`;
-  text += '\nRepair MUST use only connected exchanges listed above for executable action blocks.';
+  text += '\nRepair MUST use only connected exchanges listed above and only actions listed in capabilities.actions for executable action blocks.';
   text += '\n\nRepair policy: do not add shortcut edges just to satisfy the validator. If a formula/indicator is required, create it explicitly, connect data feeds into it with data-flow, connect the computed signal into triggers with data-flow, and connect triggers into actions with trigger-action. For action outputs, use action-result from action to normal/trigger/monitoring; never action -> action. A later action that depends on an earlier action result needs a confirmation trigger and any required formula nodes first.';
   text += '\n\nReturn the corrected complete semantic strategy package object with intentPlan, logicIR, and runtimeGraph.';
   return text;
@@ -3114,11 +3125,18 @@ Constraints:
 `.trim();
 }
 
-function buildOrchestratorUserPrompt(prompt, currentStrategy) {
+function buildOrchestratorUserPrompt(prompt, currentStrategy, exchangeConnections = [], userContext = null) {
   let text = `User request:\n${normalizeText(prompt)}`;
+  const userContextSection = buildUserContextPromptSection(userContext);
+  if (userContextSection) {
+    text += `\n\n${userContextSection}`;
+  }
   if (currentStrategy && typeof currentStrategy === 'object') {
     text += `\n\nCurrent strategy context:\n${trimForLog(stringifyJSON(currentStrategy), 9000)}`;
   }
+  const connectedExchangeContext = buildConnectedExchangeContextForAI(exchangeConnections);
+  text += `\n\nConnected exchange/API context (hard constraint):\n${trimForLog(stringifyJSON(connectedExchangeContext), 10000)}`;
+  text += '\nYou must verify the connected exchanges and capabilities above before proposing executable venues or action plans.';
   text += '\n\nReturn orchestration plan JSON only.';
   return text;
 }
@@ -3141,10 +3159,18 @@ Rules:
 `.trim();
 }
 
-function buildResearchUserPrompt(prompt, orchestrationPlan) {
+function buildResearchUserPrompt(prompt, orchestrationPlan, exchangeConnections = [], userContext = null) {
   let text = `User request:\n${normalizeText(prompt)}`;
+  const userContextSection = buildUserContextPromptSection(userContext);
+  if (userContextSection) {
+    text += `\n\n${userContextSection}`;
+  }
   if (orchestrationPlan && typeof orchestrationPlan === 'object') {
     text += `\n\nOrchestration plan:\n${trimForLog(stringifyJSON(orchestrationPlan), 9000)}`;
+  }
+  const connectedExchangeContext = buildConnectedExchangeContextForAI(exchangeConnections);
+  if (connectedExchangeContext.length > 0) {
+    text += `\n\nConnected exchange/API context:\n${trimForLog(stringifyJSON(connectedExchangeContext), 8000)}`;
   }
   text += '\n\nReturn research JSON only.';
   return text;
@@ -3963,9 +3989,22 @@ function defaultKillSwitchExchangeName(exchangeConnections = []) {
   return normalizeText(connected[0]?.name || connected[0]?.id) || 'Binance';
 }
 
+function inferSafeAssetFromBlocks(blocks) {
+  const text = blocks
+    .filter((block) => normalizeText(block?.type) === 'action')
+    .map((block) => collectObjectText(block))
+    .join(' ')
+    .toUpperCase();
+  for (const asset of ['USDC', 'USDT', 'DAI', 'USD', 'KRW']) {
+    if (text.includes(asset)) return asset;
+  }
+  return 'USDC';
+}
+
 function inferKillSwitchActionConfig(blocks, exchangeConnections = []) {
   const connected = getConnectedExchangeConnections(exchangeConnections)[0];
   const venueName = normalizeText(connected?.name || connected?.id) || 'Binance';
+  const safeAsset = inferSafeAssetFromBlocks(blocks);
   const actionText = blocks
     .filter((block) => normalizeText(block?.type) === 'action')
     .map((block) => collectObjectText(block))
@@ -3980,7 +4019,11 @@ function inferKillSwitchActionConfig(blocks, exchangeConnections = []) {
       exchange: venueName,
       chain: normalizeText(connected?.name || connected?.id) || 'configured-chain',
       contractAddress: '0x0000000000000000000000000000000000000000',
-      functionName: 'emergencyExit()',
+      functionName: 'emergencyExitToStableAsset()',
+      safeAsset,
+      targetToken: safeAsset,
+      capitalSink: `${safeAsset} wallet balance`,
+      safetyObjective: 'move_strategy_assets_to_lower_volatility_asset',
       closeAllPositions: true,
       cancelOpenOrders: true,
     };
@@ -3989,9 +4032,13 @@ function inferKillSwitchActionConfig(blocks, exchangeConnections = []) {
   return {
     actionType: 'cex',
     exchange: venueName,
-    symbol: 'ALL',
+    symbol: `ALL/${safeAsset}`,
     side: 'SELL',
     orderType: 'MARKET',
+    safeAsset,
+    targetAsset: safeAsset,
+    capitalSink: `${venueName} ${safeAsset} spot/free balance`,
+    safetyObjective: 'move_strategy_assets_to_lower_volatility_asset',
     reduceOnly: true,
     cancelOpenOrders: true,
     closeAllPositions: true,
@@ -4017,10 +4064,13 @@ function ensureRuntimeKillSwitch(blocks, connections, existing, exchangeConnecti
       condition: 'manual_kill_switch == true || strategy_drawdown_pct <= -5 || data_stale_seconds >= 30 || exchange_disconnect == true',
       killSwitch: true,
       emergencyStop: true,
-      overviewDescription: '수동 중단, 손실 한도, 데이터 지연, 거래소 연결 이상이 감지되면 전략을 즉시 멈춥니다.',
+      safeAsset: actionConfig.safeAsset,
+      capitalSink: actionConfig.capitalSink,
+      safetyObjective: 'move_strategy_assets_to_lower_volatility_asset',
+      overviewDescription: '수동 중단, 손실 한도, 데이터 지연, 거래소 연결 이상이 감지되면 전략을 즉시 멈추고 자산을 더 안정적인 자산으로 회수합니다.',
       roleDescription: '이 전략의 최종 안전장치입니다. 정상 매매 조건과 별개로 위험 상태가 발생하면 전체 종료 액션으로 신호를 보냅니다.',
       inputSummary: '수동 중단 상태, 누적 손실률, 데이터 지연 시간, 거래소 연결 상태',
-      outputSummary: '전체 포지션 정리 신호',
+      outputSummary: `전체 포지션 정리 및 ${actionConfig.safeAsset || 'stable asset'} 회수 신호`,
       outputBlocks: [
         { id: 'emergencyStop', name: 'emergencyStop', type: 'output', description: 'true when the strategy must stop immediately' },
       ],
@@ -4037,10 +4087,10 @@ function ensureRuntimeKillSwitch(blocks, connections, existing, exchangeConnecti
       rawFeedInputReason: 'kill_switch',
       killSwitch: true,
       emergencyStop: true,
-      overviewDescription: '열려 있는 주문을 취소하고 전략이 만든 포지션을 가능한 한 시장가/감소 전용으로 정리합니다.',
-      roleDescription: '킬스위치 조건이 켜졌을 때만 실행되는 종료 액션입니다. 새 진입을 막고 기존 노출을 줄이는 역할을 합니다.',
+      overviewDescription: `열려 있는 주문을 취소하고 전략이 만든 포지션을 가능한 한 시장가/감소 전용으로 정리한 뒤 ${actionConfig.safeAsset || '안전자산'} 쪽으로 회수합니다.`,
+      roleDescription: '킬스위치 조건이 켜졌을 때만 실행되는 종료 액션입니다. 새 진입을 막고 기존 노출을 낮은 변동성 자산으로 줄이는 역할을 합니다.',
       inputSummary: '킬스위치 신호와 최신 시장/계정 상태',
-      outputSummary: '취소/청산 요청 상태와 실행 결과',
+      outputSummary: `취소/청산 요청 상태와 ${actionConfig.safeAsset || '안전자산'} 회수 결과`,
       outputBlocks: [
         { id: 'status', name: 'status', type: 'output', description: 'kill switch execution status' },
         { id: 'closedPositions', name: 'closedPositions', type: 'output', description: 'positions requested for closure' },
@@ -4923,6 +4973,29 @@ function lintStrategyLogicIR(logicIR, { prompt = '', intentPlan = null } = {}) {
   return issues;
 }
 
+function normalizeWorkflowGroupsForLint(metadata) {
+  const rawGroups = Array.isArray(metadata?.workflowGroups) ? metadata.workflowGroups : [];
+  return rawGroups
+    .map((group, index) => {
+      const item = normalizeObject(group) || {};
+      const id = normalizeText(item.id || item.workflowId || item.name) || `workflow-${index + 1}`;
+      return {
+        id,
+        title: normalizeText(item.title || item.label || item.name) || id,
+        purpose: normalizeText(item.purpose || item.description || item.summary),
+        canAbstract: item.canAbstract !== false,
+        nodeIds: normalizeStringList(item.nodeIds || item.nodes || item.blockIds),
+        mustStayVisibleNodeIds: normalizeStringList(item.mustStayVisibleNodeIds || item.visibleNodeIds || item.anchorNodeIds),
+      };
+    })
+    .filter((group) => group.id);
+}
+
+function isInitSafetyBlock(block) {
+  const text = `${normalizeText(block?.id)} ${normalizeText(block?.type)} ${collectObjectText(normalizeConfigObject(block?.config))}`.toLowerCase();
+  return /(^|[\s_-])(init|initial|initialize|bootstrap|setup|start)([\s_-]|$)|초기|초기화|시작|capitalready|startapproved/.test(text);
+}
+
 function lintRuntimeStrategyGraph(strategyGraph, { prompt = '', intentPlan = null, logicIR = null, exchangeConnections = [] } = {}) {
   const graph = strategyGraph || {};
   const blocks = Array.isArray(graph.blocks) ? graph.blocks : [];
@@ -4930,6 +5003,101 @@ function lintRuntimeStrategyGraph(strategyGraph, { prompt = '', intentPlan = nul
   const blockByID = new Map(blocks.map((block) => [block.id, block]));
   const semantics = deriveStrategySemantics({ strategyGraph: graph, prompt, intentPlan, logicIR });
   const issues = [];
+  const workflowGroups = normalizeWorkflowGroupsForLint(normalizeObject(graph.metadata) || {});
+
+  if (workflowGroups.length === 0) {
+    issues.push(logicIssue(
+      'WORKFLOW_GROUPS_REQUIRED',
+      'error',
+      'runtimeGraph.metadata.workflowGroups is missing.',
+      {},
+      'Define semantic workflowGroups first, then list the exact runtimeGraph block ids in each workflow.',
+    ));
+  } else {
+    const groupByID = new Map(workflowGroups.map((group) => [group.id, group]));
+    const membership = new Map(blocks.map((block) => [block.id, []]));
+    for (const group of workflowGroups) {
+      const mustStayVisible = new Set(group.mustStayVisibleNodeIds);
+      for (const nodeId of group.nodeIds) {
+        if (!blockByID.has(nodeId)) {
+          issues.push(logicIssue(
+            'WORKFLOW_GROUP_UNKNOWN_NODE',
+            'error',
+            `Workflow ${group.id} references unknown block ${nodeId}.`,
+            { workflowId: group.id, nodeId },
+            'Use exact runtimeGraph block ids in workflowGroups[].nodeIds.',
+          ));
+          continue;
+        }
+        membership.get(nodeId)?.push(group.id);
+      }
+
+      if (group.canAbstract) {
+        for (const nodeId of group.nodeIds) {
+          const block = blockByID.get(nodeId);
+          if (!block) continue;
+          const shouldStayVisible =
+            block.type === 'action' ||
+            isKillSwitchBlock(block) ||
+            isInitSafetyBlock(block) ||
+            connections.some((connection) => connection.kind === 'trigger-action' && connection.fromId === nodeId);
+          if (shouldStayVisible && !mustStayVisible.has(nodeId)) {
+            issues.push(logicIssue(
+              'WORKFLOW_VISIBLE_NODE_NOT_ANCHORED',
+              'error',
+              `Workflow ${group.id} can be abstracted but visible block ${nodeId} is not listed in mustStayVisibleNodeIds.`,
+              { workflowId: group.id, nodeId, blockType: block.type },
+              'Add this block id to mustStayVisibleNodeIds or set canAbstract=false for the workflow.',
+            ));
+          }
+        }
+      }
+    }
+
+    for (const block of blocks) {
+      const config = normalizeConfigObject(block.config);
+      const workflowId = normalizeText(config.workflowId || config.workflow || config.phaseId);
+      const listedGroups = membership.get(block.id) || [];
+      if (workflowId && !groupByID.has(workflowId)) {
+        issues.push(logicIssue(
+          'BLOCK_WORKFLOW_UNKNOWN',
+          'error',
+          `Block ${block.id} references unknown workflow ${workflowId}.`,
+          { blockId: block.id, workflowId },
+          'Use a workflowId that exists in runtimeGraph.metadata.workflowGroups.',
+        ));
+        continue;
+      }
+      if (listedGroups.length > 1) {
+        issues.push(logicIssue(
+          'BLOCK_IN_MULTIPLE_WORKFLOWS',
+          'error',
+          `Block ${block.id} is listed in multiple workflow groups.`,
+          { blockId: block.id, workflowIds: listedGroups },
+          'Each block must belong to exactly one workflow.',
+        ));
+        continue;
+      }
+      if (workflowId && listedGroups.length === 1 && listedGroups[0] !== workflowId) {
+        issues.push(logicIssue(
+          'BLOCK_WORKFLOW_CONFLICT',
+          'error',
+          `Block ${block.id} has workflowId ${workflowId} but is listed in workflow ${listedGroups[0]}.`,
+          { blockId: block.id, workflowId, listedWorkflowId: listedGroups[0] },
+          'Make config.workflowId and workflowGroups[].nodeIds agree.',
+        ));
+      }
+      if (!workflowId && listedGroups.length !== 1) {
+        issues.push(logicIssue(
+          'BLOCK_WORKFLOW_MISSING',
+          'error',
+          `Block ${block.id} is not assigned to exactly one workflow.`,
+          { blockId: block.id, listedWorkflowIds: listedGroups },
+          'Set block.config.workflowId or list this block in one workflowGroups[].nodeIds.',
+        ));
+      }
+    }
+  }
 
   for (const action of blocks.filter((block) => block.type === 'action')) {
     if (!isActionUsingConnectedExchange(action, exchangeConnections)) {
@@ -5282,13 +5450,13 @@ async function validateStrategyGraphWithRunner(strategyGraph) {
   const timeoutSeconds = resolveIntegerEnv('AI_STRATEGY_VALIDATE_TIMEOUT_SEC', 60);
   const tmpDir = await fs.mkdtemp(path.join(os.tmpdir(), 'hershy-strategy-'));
   const tmpFile = path.join(tmpDir, 'strategy.json');
-  const command = 'go run ./cmd/strategy-validate --file <temp-strategy.json>';
+  const command = 'go run -mod=mod ./cmd/strategy-validate --file <temp-strategy.json>';
 
   try {
     await fs.writeFile(tmpFile, `${stringifyPrettyJSON(strategyGraph)}\n`, 'utf8');
     const { stdout, stderr } = await execFileAsync(
       'go',
-      ['run', './cmd/strategy-validate', '--file', tmpFile],
+      ['run', '-mod=mod', './cmd/strategy-validate', '--file', tmpFile],
       {
         cwd: STRATEGY_RUNNER_DIR,
         timeout: timeoutSeconds * 1000,
@@ -5320,7 +5488,7 @@ async function validateStrategyGraphWithRunner(strategyGraph) {
   }
 }
 
-async function writeStrategyRuntimeArtifacts(strategyGraph, validationHistory = []) {
+async function writeStrategyRuntimeArtifacts(strategyGraph, validationHistory = [], options = {}) {
   if (!getAIBooleanEnv('AI_STRATEGY_WRITE_RUNTIME_ARTIFACTS', true)) {
     return null;
   }
@@ -5345,7 +5513,7 @@ async function writeStrategyRuntimeArtifacts(strategyGraph, validationHistory = 
   const codegenTimeoutSeconds = resolveIntegerEnv('AI_STRATEGY_CODEGEN_TIMEOUT_SEC', 60);
   await execFileAsync(
     'go',
-    ['run', './cmd/strategy-codegen', '--file', strategyPath, '--out', mainGoPath],
+    ['run', '-mod=mod', './cmd/strategy-codegen', '--file', strategyPath, '--out', mainGoPath],
     {
       cwd: STRATEGY_RUNNER_DIR,
       timeout: codegenTimeoutSeconds * 1000,
@@ -5355,7 +5523,7 @@ async function writeStrategyRuntimeArtifacts(strategyGraph, validationHistory = 
 
   await execFileAsync(
     'go',
-    ['test', '.'],
+    ['test', '-mod=mod', '.'],
     {
       cwd: dir,
       timeout: codegenTimeoutSeconds * 1000,
@@ -5379,14 +5547,14 @@ The generated Go source statically maps each JSON block/connection into runner d
 
 \`\`\`bash
 cd examples/strategy-runner
-go run ./cmd/strategy-validate --file ${runnerRelativeStrategyPath}
+go run -mod=mod ./cmd/strategy-validate --file ${runnerRelativeStrategyPath}
 \`\`\`
 
 ## Regenerate Go source
 
 \`\`\`bash
 cd examples/strategy-runner
-go run ./cmd/strategy-codegen --file ${runnerRelativeStrategyPath} --out ${path.relative(STRATEGY_RUNNER_DIR, mainGoPath)}
+go run -mod=mod ./cmd/strategy-codegen --file ${runnerRelativeStrategyPath} --out ${path.relative(STRATEGY_RUNNER_DIR, mainGoPath)}
 \`\`\`
 
 ## Run
@@ -5404,20 +5572,22 @@ Files:
   await fs.writeFile(readmePath, readme, 'utf8');
 
   let hostProgram = null;
-  try {
-    hostProgram = await registerGeneratedStrategyHostProgram({
-      strategyName,
-      strategyID,
-      strategyPath,
-      generatedGoPath: mainGoPath,
-      validationPath,
-      readmePath,
-    });
-  } catch (error) {
-    hostProgram = {
-      ok: false,
-      warning: error?.message || 'host program registration failed',
-    };
+  if (options.registerHostProgram !== false) {
+    try {
+      hostProgram = await registerGeneratedStrategyHostProgram({
+        strategyName,
+        strategyID,
+        strategyPath,
+        generatedGoPath: mainGoPath,
+        validationPath,
+        readmePath,
+      });
+    } catch (error) {
+      hostProgram = {
+        ok: false,
+        warning: error?.message || 'host program registration failed',
+      };
+    }
   }
 
   return {
@@ -5430,9 +5600,9 @@ Files:
     validationPath: path.relative(REPO_ROOT, validationPath),
     readmePath: path.relative(REPO_ROOT, readmePath),
     hostProgram,
-    validateCommand: `cd examples/strategy-runner && go run ./cmd/strategy-validate --file ${runnerRelativeStrategyPath}`,
-    codegenCommand: `cd examples/strategy-runner && go run ./cmd/strategy-codegen --file ${runnerRelativeStrategyPath} --out ${path.relative(STRATEGY_RUNNER_DIR, mainGoPath)}`,
-    compileCommand: `cd ${relDir} && go test .`,
+    validateCommand: `cd examples/strategy-runner && go run -mod=mod ./cmd/strategy-validate --file ${runnerRelativeStrategyPath}`,
+    codegenCommand: `cd examples/strategy-runner && go run -mod=mod ./cmd/strategy-codegen --file ${runnerRelativeStrategyPath} --out ${path.relative(STRATEGY_RUNNER_DIR, mainGoPath)}`,
+    compileCommand: `cd ${relDir} && go test -mod=mod .`,
     runCommand: `cd ${relDir} && go run .`,
   };
 }
@@ -5544,6 +5714,7 @@ async function validateRepairAndMaterializeStrategy({
   initialStrategy,
   initialPackage,
   exchangeConnections = [],
+  userContext = null,
   onProgress = null,
 }) {
   const maxAttempts = resolveIntegerEnv('AI_STRATEGY_VALIDATE_MAX_ATTEMPTS', 50);
@@ -5636,6 +5807,7 @@ async function validateRepairAndMaterializeStrategy({
           previousStrategy: strategy,
           logicLintIssues,
           exchangeConnections,
+          userContext,
           validation: {
             command: 'semantic strategy logic linter',
             issues: blockingLogicIssues.map((issue) => `${issue.code}: ${issue.message}`),
@@ -5740,6 +5912,7 @@ async function validateRepairAndMaterializeStrategy({
         logicLintIssues,
         validation,
         exchangeConnections,
+        userContext,
       }),
     });
     repairReasoning.push(...buildAIReasoningTrace(`strategy-repair-${attempt}`, repairResponse));
@@ -6018,13 +6191,13 @@ function buildAIReasoningTrace(layer, response) {
   }];
 }
 
-async function runOrchestratorLayer({ prompt, currentStrategy }) {
+async function runOrchestratorLayer({ prompt, currentStrategy, exchangeConnections = [], userContext = null }) {
   const fallbackPlan = buildDefaultOrchestrationPlan(prompt);
   try {
     const response = await callAITextLayer({
       layer: 'ORCHESTRATOR',
       systemPrompt: buildOrchestratorSystemPrompt(),
-      userPrompt: buildOrchestratorUserPrompt(prompt, currentStrategy)
+      userPrompt: buildOrchestratorUserPrompt(prompt, currentStrategy, exchangeConnections, userContext)
     });
     const parsed = parseJSONObjectWithSchema(response.text, 'orchestration plan', ORCHESTRATION_PLAN_SCHEMA);
     return {
@@ -6051,7 +6224,9 @@ async function runResearchLayer({
   prompt,
   currentStrategy,
   orchestrationPlan,
-  authContext
+  authContext,
+  exchangeConnections = [],
+  userContext = null,
 }) {
   const requestExplorerAPIKey = resolveExplorerAPIKeyFromAuthContext(authContext);
   const baseBundle = buildFallbackResearchBundle({ prompt, orchestrationPlan });
@@ -6066,7 +6241,7 @@ async function runResearchLayer({
     const response = await callAITextLayer({
       layer: 'RESEARCH',
       systemPrompt: buildResearchSystemPrompt(),
-      userPrompt: buildResearchUserPrompt(prompt, orchestrationPlan)
+      userPrompt: buildResearchUserPrompt(prompt, orchestrationPlan, exchangeConnections, userContext)
     });
     const parsed = parseJSONObjectWithSchema(response.text, 'research bundle', RESEARCH_BUNDLE_SCHEMA);
     aiBundle = normalizeResearchBundle(parsed, { prompt, orchestrationPlan, currentStrategy });
@@ -6099,7 +6274,7 @@ async function runResearchLayer({
   };
 }
 
-async function runStrategyLayer({ prompt, currentStrategy, researchBundle, orchestrationPlan, exchangeConnections = [], onProgress = null }) {
+async function runStrategyLayer({ prompt, currentStrategy, researchBundle, orchestrationPlan, exchangeConnections = [], userContext = null, onProgress = null }) {
   emitAgentProgress(onProgress, {
     stage: 'strategy-context',
     label: '전략 생성 컨텍스트 구성',
@@ -6109,7 +6284,8 @@ async function runStrategyLayer({ prompt, currentStrategy, researchBundle, orche
     currentStrategy,
     researchBundle,
     orchestrationPlan,
-    exchangeConnections
+    exchangeConnections,
+    userContext,
   );
   emitAgentProgress(onProgress, {
     stage: 'strategy-generation',
@@ -6133,6 +6309,7 @@ async function runStrategyLayer({ prompt, currentStrategy, researchBundle, orche
     orchestrationPlan,
     initialPackage: generated,
     exchangeConnections,
+    userContext,
     onProgress,
   });
   let overview = null;
@@ -6189,12 +6366,12 @@ async function runStrategyLayer({ prompt, currentStrategy, researchBundle, orche
   };
 }
 
-async function runOrchestrationPipeline({ prompt, currentStrategy, authContext, exchangeConnections = [], onProgress = null }) {
+async function runOrchestrationPipeline({ prompt, currentStrategy, authContext, exchangeConnections = [], userContext = null, onProgress = null }) {
   emitAgentProgress(onProgress, {
     stage: 'orchestrator',
     label: '요청 의도 분석 및 작업 계획 수립',
   });
-  const orchestrator = await runOrchestratorLayer({ prompt, currentStrategy });
+  const orchestrator = await runOrchestratorLayer({ prompt, currentStrategy, exchangeConnections, userContext });
   emitAgentProgress(onProgress, {
     stage: 'orchestrator',
     label: orchestrator.plan.needResearch ? '오케스트레이션 완료: 리서치 필요' : '오케스트레이션 완료: 리서치 생략',
@@ -6214,7 +6391,9 @@ async function runOrchestrationPipeline({ prompt, currentStrategy, authContext, 
         prompt,
         currentStrategy,
         orchestrationPlan: orchestrator.plan,
-        authContext
+        authContext,
+        exchangeConnections,
+        userContext,
       });
       emitAgentProgress(onProgress, {
         stage: 'research',
@@ -6256,6 +6435,7 @@ async function runOrchestrationPipeline({ prompt, currentStrategy, authContext, 
     researchBundle: research.research,
     orchestrationPlan: orchestrator.plan,
     exchangeConnections,
+    userContext,
     onProgress,
   });
 

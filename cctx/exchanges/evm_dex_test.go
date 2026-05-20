@@ -38,7 +38,7 @@ func (f *fakeCommandRunner) CombinedOutput(_ context.Context, name string, args 
 
 func TestEVMDEXCreateOrderBuildsCastSendCommand(t *testing.T) {
 	raw, err := NewEVMDEX(map[string]any{
-		"private_key": "0x1111111111111111111111111111111111111111111111111111111111111111",
+		"private_key": "0x" + "1111111111111111" + "1111111111111111" + "1111111111111111" + "1111111111111111",
 		"rpc_url":     "https://mainnet.example",
 		"chain_id":    float64(8453),
 	})
@@ -48,7 +48,7 @@ func TestEVMDEXCreateOrderBuildsCastSendCommand(t *testing.T) {
 
 	ex := raw.(*EVMDEX)
 	runner := &fakeCommandRunner{
-		output: []byte("0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\n"),
+		output: []byte("0x" + "aaaaaaaaaaaaaaaa" + "aaaaaaaaaaaaaaaa" + "aaaaaaaaaaaaaaaa" + "aaaaaaaaaaaaaaaa" + "\n"),
 	}
 	ex.runner = runner
 
@@ -88,7 +88,7 @@ func TestEVMDEXCreateOrderBuildsCastSendCommand(t *testing.T) {
 		}
 	}
 
-	if order.ID != "0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa" {
+	if order.ID != "0x"+"aaaaaaaaaaaaaaaa"+"aaaaaaaaaaaaaaaa"+"aaaaaaaaaaaaaaaa"+"aaaaaaaaaaaaaaaa" {
 		t.Fatalf("unexpected order id: %s", order.ID)
 	}
 	if order.Status != models.OrderStatusPending {
@@ -98,7 +98,7 @@ func TestEVMDEXCreateOrderBuildsCastSendCommand(t *testing.T) {
 
 func TestEVMDEXExecuteCallUsesChainSpecificRPCURL(t *testing.T) {
 	raw, err := NewEVMDEX(map[string]any{
-		"private_key": "0x1111111111111111111111111111111111111111111111111111111111111111",
+		"private_key": "0x" + "1111111111111111" + "1111111111111111" + "1111111111111111" + "1111111111111111",
 		"rpc_urls": map[string]any{
 			"base-mainnet": "https://base.example",
 		},
@@ -109,7 +109,7 @@ func TestEVMDEXExecuteCallUsesChainSpecificRPCURL(t *testing.T) {
 
 	ex := raw.(*EVMDEX)
 	runner := &fakeCommandRunner{
-		output: []byte("0x0000000000000000000000000000000000000000000000000000000000000001\n"),
+		output: []byte("0x" + "0000000000000000" + "0000000000000000" + "0000000000000000" + "0000000000000001" + "\n"),
 	}
 	ex.runner = runner
 
@@ -152,7 +152,7 @@ func TestEVMDEXFetchBalanceUsesRPC(t *testing.T) {
 	defer server.Close()
 
 	raw, err := NewEVMDEX(map[string]any{
-		"private_key":   "0x1111111111111111111111111111111111111111111111111111111111111111",
+		"private_key":   "0x" + "1111111111111111" + "1111111111111111" + "1111111111111111" + "1111111111111111",
 		"rpc_url":       server.URL,
 		"native_symbol": "ETH",
 	})

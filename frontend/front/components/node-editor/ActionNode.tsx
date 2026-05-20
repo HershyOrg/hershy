@@ -1,10 +1,14 @@
 "use client";
 
-import { memo, useCallback, useState } from "react";
+import { memo, useCallback, useEffect, useState } from "react";
 import type { ChangeEvent, DragEvent } from "react";
 import { Handle, Position, NodeProps, useReactFlow, useEdges } from "@xyflow/react";
 import type { ActionNodeData, CEXActionData, DEXActionData, BlockData } from "./types";
 import { cn } from "@/lib/utils";
+import {
+  SUPPORTED_CEX_TRADE_EXCHANGES,
+  isPolymarketExchangeName,
+} from "@/src/lib/exchangeCatalog.mjs";
 import {
   Maximize2, 
   Minimize2, 
@@ -17,11 +21,17 @@ import {
 function ActionNodeComponent({ id, data, selected }: NodeProps) {
   const typedData = data as ActionNodeData;
   const isCEX = typedData.actionType === "CEX";
+  const cexData = typedData as CEXActionData;
+  const isPolymarketCEX = isCEX && isPolymarketExchangeName(cexData.exchange);
   const { setNodes, getNodes } = useReactFlow();
   const edges = useEdges();
   const [isExpanded, setIsExpanded] = useState(typedData.isExpanded || false);
   const primaryOutputBlock = typedData.outputBlocks[0];
   const runtimeCode = typeof typedData.runtimeCode === "string" ? typedData.runtimeCode : "";
+
+  useEffect(() => {
+    setIsExpanded(Boolean(typedData.isExpanded));
+  }, [typedData.isExpanded]);
 
   // Get connected source info for input blocks
   const getConnectedSourceInfo = useCallback(
@@ -81,7 +91,7 @@ function ActionNodeComponent({ id, data, selected }: NodeProps) {
   );
 
   const handleUpdateField = useCallback(
-    (field: string, value: string | number) => {
+    (field: string, value: string | number | boolean) => {
       setNodes((nodes) =>
         nodes.map((node) =>
           node.id === id
@@ -91,6 +101,51 @@ function ActionNodeComponent({ id, data, selected }: NodeProps) {
       );
     },
     [id, setNodes]
+  );
+
+  const handleUpdateFields = useCallback(
+    (patch: Record<string, string | number | boolean>) => {
+      setNodes((nodes) =>
+        nodes.map((node) =>
+          node.id === id
+            ? { ...node, data: { ...node.data, ...patch } }
+            : node
+        )
+      );
+    },
+    [id, setNodes]
+  );
+
+  const handleCEXExchangeChange = useCallback(
+    (exchange: string) => {
+      if (isPolymarketExchangeName(exchange)) {
+        const postOnly = typeof cexData.postOnly === "boolean"
+          ? cexData.postOnly
+          : String(cexData.postOnly || "").toLowerCase() === "true";
+        handleUpdateFields({
+          exchange,
+          dexProtocol: "polymarket",
+          executionMode: "api",
+          apiUrl: "https://clob.polymarket.com",
+          chainId: cexData.chainId || 137,
+          side: cexData.side || "BUY",
+          polymarketOrderType: cexData.polymarketOrderType || "GTC",
+          postOnly,
+          tokenId: cexData.tokenId || "",
+          price: cexData.price || "",
+          size: cexData.size || cexData.amount || "",
+        });
+        return;
+      }
+
+      handleUpdateFields({
+        exchange,
+        dexProtocol: "generic",
+        executionMode: "address",
+        apiUrl: "",
+      });
+    },
+    [cexData.amount, cexData.chainId, cexData.polymarketOrderType, cexData.postOnly, cexData.price, cexData.side, cexData.size, cexData.tokenId, handleUpdateFields]
   );
 
   const handleAddInputBlock = useCallback(() => {
@@ -229,6 +284,11 @@ function ActionNodeComponent({ id, data, selected }: NodeProps) {
                 className="mt-0.5 w-full bg-transparent text-[11px] text-blue-500 outline-none placeholder:text-blue-300"
                 placeholder="블록 설명 한 줄"
               />
+              {block.connectedFrom ? (
+                <div className="mt-1 truncate rounded bg-blue-50 px-1.5 py-0.5 text-[10px] font-semibold text-blue-700">
+                  {String(block.connectedFrom)}
+                </div>
+              ) : null}
               <button
                 onClick={() => handleRemoveInputBlock(block.id)}
                 className="absolute right-4 top-1.5 opacity-0 group-hover:opacity-100 p-0.5 hover:bg-red-50 rounded"
@@ -345,16 +405,25 @@ function ActionNodeComponent({ id, data, selected }: NodeProps) {
             {primaryOutputBlock?.description || ""}
           </div>
           {primaryOutputBlock ? (
-            <Handle
-              type="source"
-              position={Position.Right}
-              id={`${id}-block-${primaryOutputBlock.id}-out`}
-              className={cn(
-                "!w-2.5 !h-2.5",
-                isCEX ? "!bg-amber-500 !border-amber-600" : "!bg-cyan-500 !border-cyan-600"
-              )}
-              style={{ right: -5 }}
-            />
+            <>
+              <Handle
+                type="source"
+                position={Position.Right}
+                id={`${id}-block-${primaryOutputBlock.id}-out`}
+                className={cn(
+                  "!w-2.5 !h-2.5",
+                  isCEX ? "!bg-amber-500 !border-amber-600" : "!bg-cyan-500 !border-cyan-600"
+                )}
+                style={{ right: -5 }}
+              />
+              <Handle
+                type="source"
+                position={Position.Right}
+                id={`${id}-success-out`}
+                className="!h-1 !w-1 !border-transparent !bg-transparent"
+                style={{ right: -5 }}
+              />
+            </>
           ) : null}
         </div>
       </div>
@@ -413,41 +482,159 @@ function ActionNodeComponent({ id, data, selected }: NodeProps) {
       {renderInputBlocks()}
 
       {/* CEX Specific Fields */}
-      {isCEX && (
-        <div className="p-3 border-b border-amber-200">
-          <div className="grid grid-cols-2 gap-2">
-            {/* Exchange */}
-            <div>
-              <label className="text-[10px] font-semibold text-amber-700 uppercase">Exchange</label>
-              <select
-                value={(typedData as CEXActionData).exchange}
-                onChange={(e) => handleUpdateField("exchange", e.target.value)}
-                className="w-full mt-1 px-2 py-1.5 text-xs bg-white border border-amber-200 rounded focus:outline-none focus:ring-1 focus:ring-amber-400"
-              >
-                <option value="Binance">Binance</option>
-                <option value="Bybit">Bybit</option>
-                <option value="OKX">OKX</option>
-                <option value="Coinbase">Coinbase</option>
-                <option value="Kraken">Kraken</option>
-              </select>
-            </div>
+	      {isCEX && (
+	        <div className="p-3 border-b border-amber-200">
+	          <div className="grid grid-cols-2 gap-2">
+	            {/* Exchange */}
+	            <div className={isPolymarketCEX ? "col-span-2" : ""}>
+	              <label className="text-[10px] font-semibold text-amber-700 uppercase">Exchange</label>
+	              <select
+	                value={cexData.exchange}
+	                onChange={(e) => handleCEXExchangeChange(e.target.value)}
+	                className="w-full mt-1 px-2 py-1.5 text-xs bg-white border border-amber-200 rounded focus:outline-none focus:ring-1 focus:ring-amber-400"
+	              >
+	                {SUPPORTED_CEX_TRADE_EXCHANGES.map((exchange) => (
+	                  <option key={exchange.id} value={exchange.name}>{exchange.name}</option>
+	                ))}
+	              </select>
+	            </div>
+	
+	            {!isPolymarketCEX && (
+	              <div>
+	                <label className="text-[10px] font-semibold text-amber-700 uppercase">Symbol</label>
+	                <input
+	                  type="text"
+	                  value={cexData.symbol}
+	                  onChange={(e) => handleUpdateField("symbol", e.target.value)}
+	                  className="w-full mt-1 px-2 py-1.5 text-xs bg-white border border-amber-200 rounded focus:outline-none focus:ring-1 focus:ring-amber-400 font-mono"
+	                  placeholder="BTC/USDT"
+	                />
+	              </div>
+	            )}
+	          </div>
 
-            {/* Symbol */}
-            <div>
-              <label className="text-[10px] font-semibold text-amber-700 uppercase">Symbol</label>
-              <input
-                type="text"
-                value={(typedData as CEXActionData).symbol}
-                onChange={(e) => handleUpdateField("symbol", e.target.value)}
-                className="w-full mt-1 px-2 py-1.5 text-xs bg-white border border-amber-200 rounded focus:outline-none focus:ring-1 focus:ring-amber-400 font-mono"
-                placeholder="BTC/USDT"
-              />
-            </div>
-          </div>
-          
-          <div className="grid grid-cols-2 gap-2 mt-2">
-            {/* Amount with Drag and Drop Support */}
-            <div 
+	          {isPolymarketCEX ? (
+	            <div className="mt-2 rounded border border-cyan-200 bg-cyan-50/80 p-2">
+	              <div className="mb-2 flex items-center justify-between gap-2">
+	                <span className="text-[10px] font-bold uppercase tracking-wide text-cyan-700">Polymarket CLOB</span>
+	                <span className="rounded-full bg-white px-2 py-0.5 text-[10px] font-bold text-cyan-700">
+	                  Chain {cexData.chainId || 137}
+	                </span>
+	              </div>
+	              <div className="grid grid-cols-2 gap-2">
+	                <div>
+	                  <label className="text-[10px] font-semibold text-cyan-700 uppercase">Market Label</label>
+	                  <input
+	                    type="text"
+	                    value={cexData.polymarketMarketTitle || ""}
+	                    onChange={(e) => handleUpdateField("polymarketMarketTitle", e.target.value)}
+	                    className="w-full mt-1 px-2 py-1.5 text-xs bg-white border border-cyan-200 rounded focus:outline-none focus:ring-1 focus:ring-cyan-400"
+	                    placeholder="e.g. Fed 25bp Cut"
+	                  />
+	                </div>
+	                <div>
+	                  <label className="text-[10px] font-semibold text-cyan-700 uppercase">Outcome</label>
+	                  <input
+	                    type="text"
+	                    value={cexData.polymarketOutcomeLabel || ""}
+	                    onChange={(e) => handleUpdateField("polymarketOutcomeLabel", e.target.value)}
+	                    className="w-full mt-1 px-2 py-1.5 text-xs bg-white border border-cyan-200 rounded focus:outline-none focus:ring-1 focus:ring-cyan-400"
+	                    placeholder="YES"
+	                  />
+	                </div>
+	                <div className="col-span-2">
+	                  <label className="text-[10px] font-semibold text-cyan-700 uppercase">Outcome Token ID</label>
+	                  <input
+	                    type="text"
+	                    value={cexData.tokenId || ""}
+	                    onChange={(e) => handleUpdateField("tokenId", e.target.value)}
+	                    className="w-full mt-1 px-2 py-1.5 text-xs bg-white border border-cyan-200 rounded focus:outline-none focus:ring-1 focus:ring-cyan-400 font-mono"
+	                    placeholder="Polymarket token_id"
+	                  />
+	                </div>
+	                <div>
+	                  <label className="text-[10px] font-semibold text-cyan-700 uppercase">Side</label>
+	                  <div className="flex gap-1 mt-1">
+	                    {(["BUY", "SELL"] as const).map((side) => (
+	                      <button
+	                        key={side}
+	                        onClick={() => handleUpdateField("side", side)}
+	                        className={cn(
+	                          "flex-1 px-2 py-1.5 text-xs font-semibold rounded transition-colors",
+	                          cexData.side === side
+	                            ? side === "BUY" ? "bg-green-500 text-white" : "bg-red-500 text-white"
+	                            : "bg-white border border-cyan-200 text-cyan-700 hover:bg-cyan-100"
+	                        )}
+	                      >
+	                        {side}
+	                      </button>
+	                    ))}
+	                  </div>
+	                </div>
+	                <div>
+	                  <label className="text-[10px] font-semibold text-cyan-700 uppercase">Order Type</label>
+	                  <select
+	                    value={cexData.polymarketOrderType || "GTC"}
+	                    onChange={(e) => handleUpdateField("polymarketOrderType", e.target.value)}
+	                    className="w-full mt-1 px-2 py-1.5 text-xs bg-white border border-cyan-200 rounded focus:outline-none focus:ring-1 focus:ring-cyan-400"
+	                  >
+	                    <option value="GTC">GTC</option>
+	                    <option value="FAK">FAK</option>
+	                    <option value="FOK">FOK</option>
+	                  </select>
+	                </div>
+	                <div>
+	                  <label className="text-[10px] font-semibold text-cyan-700 uppercase">Price</label>
+	                  <input
+	                    type="number"
+	                    min="0"
+	                    max="1"
+	                    step="0.01"
+	                    value={cexData.price || ""}
+	                    onChange={(e) => handleUpdateField("price", e.target.value)}
+	                    className="w-full mt-1 px-2 py-1.5 text-xs bg-white border border-cyan-200 rounded focus:outline-none focus:ring-1 focus:ring-cyan-400 font-mono"
+	                    placeholder="0.52"
+	                  />
+	                </div>
+	                <div>
+	                  <label className="text-[10px] font-semibold text-cyan-700 uppercase">Size</label>
+	                  <input
+	                    type="number"
+	                    min="0"
+	                    step="0.01"
+	                    value={cexData.size || ""}
+	                    onChange={(e) => handleUpdateField("size", e.target.value)}
+	                    className="w-full mt-1 px-2 py-1.5 text-xs bg-white border border-cyan-200 rounded focus:outline-none focus:ring-1 focus:ring-cyan-400 font-mono"
+	                    placeholder="10"
+	                  />
+	                </div>
+	                <div>
+	                  <label className="text-[10px] font-semibold text-cyan-700 uppercase">Post Only</label>
+	                  <select
+	                    value={String(cexData.postOnly ?? false)}
+	                    onChange={(e) => handleUpdateField("postOnly", e.target.value === "true")}
+	                    className="w-full mt-1 px-2 py-1.5 text-xs bg-white border border-cyan-200 rounded focus:outline-none focus:ring-1 focus:ring-cyan-400"
+	                  >
+	                    <option value="false">Off</option>
+	                    <option value="true">On</option>
+	                  </select>
+	                </div>
+	                <div>
+	                  <label className="text-[10px] font-semibold text-cyan-700 uppercase">Chain ID</label>
+	                  <input
+	                    type="number"
+	                    value={cexData.chainId || 137}
+	                    onChange={(e) => handleUpdateField("chainId", parseInt(e.target.value, 10) || 137)}
+	                    className="w-full mt-1 px-2 py-1.5 text-xs bg-white border border-cyan-200 rounded focus:outline-none focus:ring-1 focus:ring-cyan-400 font-mono"
+	                    placeholder="137"
+	                  />
+	                </div>
+	              </div>
+	            </div>
+	          ) : (
+	          <div className="grid grid-cols-2 gap-2 mt-2">
+	            {/* Amount with Drag and Drop Support */}
+	            <div 
               onDragOver={handleDragOver}
               onDrop={(e) => handleDropOnField(e, "amount")}
             >
@@ -554,11 +741,12 @@ function ActionNodeComponent({ id, data, selected }: NodeProps) {
                   className="w-full mt-1 px-2 py-1.5 text-xs bg-white border border-amber-200 rounded focus:outline-none focus:ring-1 focus:ring-amber-400 font-mono"
                   placeholder="50000"
                 />
-              </div>
-            )}
-          </div>
-        </div>
-      )}
+	              </div>
+	            )}
+	          </div>
+	          )}
+	        </div>
+	      )}
 
       {/* DEX Specific Fields */}
       {!isCEX && (
@@ -671,6 +859,14 @@ function ActionNodeComponent({ id, data, selected }: NodeProps) {
                     )}
                     placeholder="블록 설명 한 줄"
                   />
+                  {block.connectedFrom ? (
+                    <div className={cn(
+                      "mt-1 truncate rounded bg-white/70 px-1.5 py-0.5 text-[10px] font-semibold",
+                      isCEX ? "text-amber-700" : "text-cyan-700"
+                    )}>
+                      {String(block.connectedFrom)}
+                    </div>
+                  ) : null}
                   <button
                     onClick={() => handleRemoveInputBlock(block.id)}
                     className="absolute right-4 top-1.5 opacity-0 group-hover:opacity-100 p-0.5 hover:bg-red-50 rounded transition-opacity"
@@ -745,6 +941,15 @@ function ActionNodeComponent({ id, data, selected }: NodeProps) {
                 )}
                 style={{ right: -10 }}
               />
+              {index === 0 ? (
+                <Handle
+                  type="source"
+                  position={Position.Right}
+                  id={`${id}-success-out`}
+                  className="!h-1 !w-1 !border-transparent !bg-transparent"
+                  style={{ right: -10 }}
+                />
+              ) : null}
             </div>
           ))}
         </div>

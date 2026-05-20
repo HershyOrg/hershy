@@ -5,11 +5,29 @@ import { parseJsonFields, sampleStreamDefinition } from '../../lib/streamPreview
 import { Button } from '../ui/button';
 import { Input } from '../ui/input';
 
+const CEX_STREAM_EXCHANGES = [
+  { value: 'binance', label: 'Binance' },
+  { value: 'bybit', label: 'Bybit' },
+  { value: 'okx', label: 'OKX' },
+  { value: 'kucoin', label: 'KuCoin' },
+  { value: 'bitget', label: 'Bitget' },
+  { value: 'gateio', label: 'Gate.io' }
+];
+
+const STREAM_DEFAULT_FIELDS = {
+  'cex-market': ['symbol', 'lastPrice', 'midPrice', 'bidPrice', 'askPrice', 'spread', 'volume', 'quoteVolume', 'eventTime'],
+  'polymarket-market': ['tokenId', 'lastPrice', 'midPrice', 'bidPrice', 'askPrice', 'spread', 'bidSize', 'askSize', 'liquidity', 'eventTime']
+};
+
 export default function StreamingBlocksPanel({ onClose, onCreate, authState = {} }) {
   const [streamKind, setStreamKind] = useState('url');
   const [dataReceptionType, setDataReceptionType] = useState('realtime');
   const [blockName, setBlockName] = useState('');
   const [apiUrl, setApiUrl] = useState('');
+  const [exchange, setExchange] = useState('binance');
+  const [symbol, setSymbol] = useState('');
+  const [marketId, setMarketId] = useState('');
+  const [tokenId, setTokenId] = useState('');
   const [streamChain, setStreamChain] = useState('');
   const [streamMethod, setStreamMethod] = useState('eth_blockNumber');
   const [streamParamsJson, setStreamParamsJson] = useState('[]');
@@ -20,12 +38,22 @@ export default function StreamingBlocksPanel({ onClose, onCreate, authState = {}
   const [parseNotice, setParseNotice] = useState('');
 
   const isEVMRPCStream = streamKind === 'evm-rpc';
+  const isCEXMarketStream = streamKind === 'cex-market';
+  const isPolymarketStream = streamKind === 'polymarket-market';
   const canParse = isEVMRPCStream
     ? Boolean(streamChain.trim() && streamMethod.trim())
-    : Boolean(apiUrl.trim() || responseFormat.trim());
+    : isCEXMarketStream
+      ? Boolean(exchange.trim() && symbol.trim())
+      : isPolymarketStream
+        ? Boolean(tokenId.trim())
+        : Boolean(apiUrl.trim() || responseFormat.trim());
   const hasRequiredStreamMeta = isEVMRPCStream
     ? Boolean(streamChain.trim() && streamMethod.trim())
-    : Boolean(apiUrl.trim());
+    : isCEXMarketStream
+      ? Boolean(exchange.trim() && symbol.trim())
+      : isPolymarketStream
+        ? Boolean(tokenId.trim())
+        : Boolean(apiUrl.trim());
   const canCreate = Boolean(blockName.trim()) && hasRequiredStreamMeta && (fields.length > 0 || canParse);
   const evmCredentials = getProviderCredentials(authState, 'evm');
 
@@ -51,9 +79,18 @@ export default function StreamingBlocksPanel({ onClose, onCreate, authState = {}
       return jsonFields;
     }
 
+    const defaultFields = STREAM_DEFAULT_FIELDS[streamKind];
+    if (Array.isArray(defaultFields) && defaultFields.length > 0) {
+      return defaultFields;
+    }
+
     const payload = await sampleStreamDefinition({
       streamKind,
       apiUrl: apiUrl.trim(),
+      exchange: exchange.trim(),
+      symbol: symbol.trim(),
+      marketId: marketId.trim(),
+      tokenId: tokenId.trim(),
       streamChain: streamChain.trim(),
       streamMethod: streamMethod.trim(),
       streamParamsJson: streamParamsJson.trim() || '[]',
@@ -109,10 +146,14 @@ export default function StreamingBlocksPanel({ onClose, onCreate, authState = {}
       name: blockName.trim(),
       fields: nextFields,
       streamKind,
+      exchange: isCEXMarketStream ? exchange.trim() : '',
+      symbol: isCEXMarketStream ? symbol.trim() : '',
+      marketId: isPolymarketStream ? marketId.trim() : '',
+      tokenId: isPolymarketStream ? tokenId.trim() : '',
       streamChain: isEVMRPCStream ? streamChain.trim() : '',
       streamMethod: isEVMRPCStream ? streamMethod.trim() : '',
       streamParamsJson: isEVMRPCStream ? (streamParamsJson.trim() || '[]') : '',
-      apiUrl: isEVMRPCStream ? '' : apiUrl.trim(),
+      apiUrl: isEVMRPCStream || isCEXMarketStream || isPolymarketStream ? '' : apiUrl.trim(),
       updateMode,
       updateInterval: resolvedInterval,
       responseSchema: responseFormat.trim()
@@ -147,6 +188,20 @@ export default function StreamingBlocksPanel({ onClose, onCreate, authState = {}
               </Button>
               <Button
                 type="button"
+                className={`btn-option ${streamKind === 'cex-market' ? 'active' : ''}`}
+                onClick={() => setStreamKind('cex-market')}
+              >
+                CEX Market
+              </Button>
+              <Button
+                type="button"
+                className={`btn-option ${streamKind === 'polymarket-market' ? 'active' : ''}`}
+                onClick={() => setStreamKind('polymarket-market')}
+              >
+                Polymarket
+              </Button>
+              <Button
+                type="button"
                 className={`btn-option ${streamKind === 'evm-rpc' ? 'active' : ''}`}
                 onClick={() => setStreamKind('evm-rpc')}
               >
@@ -177,6 +232,58 @@ export default function StreamingBlocksPanel({ onClose, onCreate, authState = {}
                 onChange={(event) => setApiUrl(event.target.value)}
               />
             </div>
+          )}
+
+          {streamKind === 'cex-market' && (
+            <>
+              <div className="form-field">
+                <label className="field-label">거래소</label>
+                <select
+                  className="field-input"
+                  value={exchange}
+                  onChange={(event) => setExchange(event.target.value)}
+                >
+                  {CEX_STREAM_EXCHANGES.map((item) => (
+                    <option key={item.value} value={item.value}>{item.label}</option>
+                  ))}
+                </select>
+              </div>
+              <div className="form-field">
+                <label className="field-label">심볼</label>
+                <Input
+                  type="text"
+                  className="field-input"
+                  placeholder="BTCUSDT / BTC-USDT / BTC_USDT"
+                  value={symbol}
+                  onChange={(event) => setSymbol(event.target.value)}
+                />
+              </div>
+            </>
+          )}
+
+          {streamKind === 'polymarket-market' && (
+            <>
+              <div className="form-field">
+                <label className="field-label">Token ID</label>
+                <Input
+                  type="text"
+                  className="field-input"
+                  placeholder="Polymarket token_id"
+                  value={tokenId}
+                  onChange={(event) => setTokenId(event.target.value)}
+                />
+              </div>
+              <div className="form-field">
+                <label className="field-label">Market ID (선택)</label>
+                <Input
+                  type="text"
+                  className="field-input"
+                  placeholder="condition id / market id"
+                  value={marketId}
+                  onChange={(event) => setMarketId(event.target.value)}
+                />
+              </div>
+            </>
           )}
 
           {streamKind === 'evm-rpc' && (

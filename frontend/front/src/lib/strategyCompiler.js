@@ -20,6 +20,33 @@ const isLikelyEVMAddress = (value) => (
   /^0x[a-fA-F0-9]{40}$/.test(normalizeString(value))
 );
 
+const isPolymarketExchange = (value) => (
+  normalizeString(value).toLowerCase().replace(/[\s._-]+/g, '') === 'polymarket'
+);
+
+const findActionParameter = (parameters, name) => (
+  Array.isArray(parameters)
+    ? parameters.find((param) => normalizeString(param?.name) === name) || null
+    : null
+);
+
+const hasActionParameterInput = (parameters, name) => {
+  const parameter = findActionParameter(parameters, name);
+  if (!parameter) {
+    return false;
+  }
+  const literalValue = parameter.value === null || parameter.value === undefined
+    ? ''
+    : typeof parameter.value === 'string'
+      ? parameter.value.trim()
+      : String(parameter.value).trim();
+  return Boolean(
+    literalValue
+    || normalizeString(parameter?.source?.blockId)
+    || (Array.isArray(parameter?.sources) && parameter.sources.some((source) => normalizeString(source?.blockId)))
+  );
+};
+
 const normalizeSourceRef = (source) => {
   if (!source || typeof source !== 'object') {
     return null;
@@ -74,6 +101,10 @@ const compileBlockConfig = (block) => {
         name: normalizeString(block.name) || block.id,
         sourceUrl: normalizeString(block.apiUrl),
         streamKind,
+        exchange: normalizeString(block.exchange),
+        symbol: normalizeString(block.symbol),
+        marketId: normalizeString(block.marketId),
+        tokenId: normalizeString(block.tokenId),
         streamChain: normalizeString(block.streamChain),
         streamMethod: normalizeString(block.streamMethod),
         streamParamsJson: normalizeString(block.streamParamsJson),
@@ -108,6 +139,8 @@ const compileBlockConfig = (block) => {
         actionType: normalizeString(block.actionType) || 'cex',
         exchange: normalizeString(block.exchange),
         dexProtocol: normalizeString(block.dexProtocol) || 'generic',
+        polymarketMarketTitle: normalizeString(block.polymarketMarketTitle),
+        polymarketOutcomeLabel: normalizeString(block.polymarketOutcomeLabel),
         executionMode: normalizeString(block.executionMode) || 'address',
         contractAddress: normalizeString(block.contractAddress),
         contractAbi: normalizeString(block.contractAbi),
@@ -346,6 +379,9 @@ export const validateStrategyDefinition = (strategy) => {
   byType.streaming.forEach((block) => {
     const config = block?.config || {};
     const streamKind = normalizeString(config.streamKind || (normalizeString(config.streamChain) ? 'evm-rpc' : 'url'));
+    const exchange = normalizeString(config.exchange);
+    const symbol = normalizeString(config.symbol);
+    const tokenId = normalizeString(config.tokenId);
     const streamChain = normalizeString(config.streamChain);
     const streamMethod = normalizeString(config.streamMethod);
     const streamParamsJson = normalizeString(config.streamParamsJson);
@@ -371,6 +407,23 @@ export const validateStrategyDefinition = (strategy) => {
       return;
     }
 
+    if (streamKind === 'cex-market') {
+      if (!exchange) {
+        errors.push({ code: 'STREAM_EXCHANGE_REQUIRED', message: `cex stream requires exchange: ${block.id}` });
+      }
+      if (!symbol) {
+        errors.push({ code: 'STREAM_SYMBOL_REQUIRED', message: `cex stream requires symbol: ${block.id}` });
+      }
+      return;
+    }
+
+    if (streamKind === 'polymarket-market') {
+      if (!tokenId) {
+        errors.push({ code: 'STREAM_TOKEN_REQUIRED', message: `polymarket stream requires tokenId: ${block.id}` });
+      }
+      return;
+    }
+
     if (!sourceURL) {
       errors.push({ code: 'STREAM_SOURCE_REQUIRED', message: `url/websocket stream requires sourceUrl: ${block.id}` });
       return;
@@ -384,8 +437,11 @@ export const validateStrategyDefinition = (strategy) => {
   byType.action.forEach((block) => {
     const config = block?.config || {};
     const actionType = normalizeString(config.actionType).toLowerCase() || 'cex';
+    const exchange = normalizeString(config.exchange).toLowerCase();
     const dexProtocol = normalizeString(config.dexProtocol).toLowerCase() || 'generic';
     const executionMode = normalizeString(config.executionMode).toLowerCase() || 'address';
+    const isPolymarketAction = (actionType === 'cex' && isPolymarketExchange(exchange))
+      || (actionType === 'dex' && dexProtocol === 'polymarket');
 
     if (actionType === 'dex' && (dexProtocol === 'evm' || dexProtocol === 'evm-contract') && executionMode === 'address') {
       const chain = normalizeString(config.evmChain);
@@ -410,10 +466,19 @@ export const validateStrategyDefinition = (strategy) => {
       }
     }
 
-    if (actionType === 'dex' && dexProtocol === 'polymarket') {
+    if (isPolymarketAction) {
       const chainId = Number(normalizeString(config.chainId));
       if (!Number.isFinite(chainId) || chainId <= 0) {
         errors.push({ code: 'POLYMARKET_CHAIN_REQUIRED', message: `polymarket action requires valid chainId: ${block.id}` });
+      }
+      if (!hasActionParameterInput(config.parameters, 'tokenId')) {
+        errors.push({ code: 'POLYMARKET_TOKEN_REQUIRED', message: `polymarket action requires tokenId: ${block.id}` });
+      }
+      if (!hasActionParameterInput(config.parameters, 'price')) {
+        errors.push({ code: 'POLYMARKET_PRICE_REQUIRED', message: `polymarket action requires price: ${block.id}` });
+      }
+      if (!hasActionParameterInput(config.parameters, 'size')) {
+        errors.push({ code: 'POLYMARKET_SIZE_REQUIRED', message: `polymarket action requires size: ${block.id}` });
       }
     }
 
@@ -495,6 +560,10 @@ const toCanvasBlock = (block, index) => {
       name: normalizeString(config.name) || id,
       apiUrl: normalizeString(config.sourceUrl),
       streamKind: normalizeString(config.streamKind || (normalizeString(config.streamChain) ? 'evm-rpc' : 'url')) || 'url',
+      exchange: normalizeString(config.exchange),
+      symbol: normalizeString(config.symbol),
+      marketId: normalizeString(config.marketId),
+      tokenId: normalizeString(config.tokenId),
       streamChain: normalizeString(config.streamChain),
       streamMethod: normalizeString(config.streamMethod),
       streamParamsJson: normalizeString(config.streamParamsJson),
@@ -543,6 +612,8 @@ const toCanvasBlock = (block, index) => {
       actionType: normalizeString(config.actionType) || 'cex',
       exchange: normalizeString(config.exchange),
       dexProtocol: normalizeString(config.dexProtocol) || 'generic',
+      polymarketMarketTitle: normalizeString(config.polymarketMarketTitle),
+      polymarketOutcomeLabel: normalizeString(config.polymarketOutcomeLabel),
       executionMode: normalizeString(config.executionMode) || 'address',
       contractAddress: normalizeString(config.contractAddress),
       contractAbi: normalizeString(config.contractAbi),

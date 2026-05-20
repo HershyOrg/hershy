@@ -20,6 +20,9 @@ yarn-error.log*
 .env*
 .local/
 
+# local user secrets / generated AI context
+contexts/
+
 # vercel
 .vercel
 

@@ -137,6 +137,13 @@ function TimeTriggerNodeComponent({ id, data, selected }: NodeProps<import("@xyf
         className="!w-2.5 !h-2.5 !bg-purple-400 !border-purple-500 !top-[24px]"
         style={{ left: -5 }}
       />
+      <Handle
+        type="source"
+        position={Position.Right}
+        id={`${id}-trigger-out`}
+        className="!w-2.5 !h-2.5 !bg-purple-500 !border-purple-600 !top-[24px]"
+        style={{ right: -5 }}
+      />
 
       {/* Content */}
       <div className="px-3 py-2">

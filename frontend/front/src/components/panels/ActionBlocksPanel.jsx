@@ -12,6 +12,17 @@ import {
   getEVMChainLabel,
   isValidEVMAddress
 } from '../../lib/evmChains';
+import {
+  DEFAULT_CEX_TRADE_EXCHANGE,
+  SUPPORTED_CEX_TRADE_EXCHANGES,
+  isPolymarketExchangeName
+} from '../../lib/exchangeCatalog.mjs';
+import {
+  buildPolymarketParams,
+  DEFAULT_POLYMARKET_CHAIN_ID,
+  POLYMARKET_ORDER_TYPE_OPTIONS,
+  POLYMARKET_SIDE_OPTIONS
+} from '../../lib/polymarketTrade';
 import { Button } from '../ui/button';
 import { Input } from '../ui/input';
 import { Select } from '../ui/select';
@@ -107,7 +118,7 @@ export default function ActionBlocksPanel({
 }) {
   const [actionType, setActionType] = useState('cex');
   const [blockName, setBlockName] = useState('');
-  const [exchange, setExchange] = useState('Binance');
+  const [exchange, setExchange] = useState(DEFAULT_CEX_TRADE_EXCHANGE);
   const [dexProtocol, setDexProtocol] = useState('generic');
   const [marketType, setMarketType] = useState('');
   const [token, setToken] = useState('');
@@ -117,7 +128,15 @@ export default function ActionBlocksPanel({
   const [apiUrl, setApiUrl] = useState('');
   const [apiPayloadTemplate, setApiPayloadTemplate] = useState('');
   const [evmChain, setEvmChain] = useState(DEFAULT_EVM_CHAIN);
-  const [polymarketChainId, setPolymarketChainId] = useState('137');
+  const [polymarketChainId, setPolymarketChainId] = useState(DEFAULT_POLYMARKET_CHAIN_ID);
+  const [polymarketMarketTitle, setPolymarketMarketTitle] = useState('');
+  const [polymarketOutcomeLabel, setPolymarketOutcomeLabel] = useState('');
+  const [polymarketTokenId, setPolymarketTokenId] = useState('');
+  const [polymarketSide, setPolymarketSide] = useState('BUY');
+  const [polymarketPrice, setPolymarketPrice] = useState('');
+  const [polymarketSize, setPolymarketSize] = useState('');
+  const [polymarketOrderType, setPolymarketOrderType] = useState('GTC');
+  const [polymarketPostOnly, setPolymarketPostOnly] = useState(false);
   const [evmFunctions, setEvmFunctions] = useState([]);
   const [selectedEvmFunctionSig, setSelectedEvmFunctionSig] = useState('');
   const [evmAbiLoading, setEvmAbiLoading] = useState(false);
@@ -136,6 +155,17 @@ export default function ActionBlocksPanel({
   );
 
   const parameters = useMemo(() => {
+    const isPolymarketExchange = actionType === 'cex' && isPolymarketExchangeName(exchange);
+    if (isPolymarketExchange || (actionType === 'dex' && dexProtocol === 'polymarket')) {
+      return buildPolymarketParams({
+        tokenId: polymarketTokenId.trim(),
+        side: polymarketSide,
+        price: polymarketPrice.trim(),
+        size: polymarketSize.trim(),
+        orderType: polymarketOrderType,
+        postOnly: polymarketPostOnly,
+      });
+    }
     if (actionType === 'dex' && dexProtocol === 'evm' && executionMode === 'address') {
       if (evmFunctionParameters.length > 0) {
         return evmFunctionParameters;
@@ -143,7 +173,19 @@ export default function ActionBlocksPanel({
       return [];
     }
     return getActionParams(actionType, executionMode, dexProtocol);
-  }, [actionType, executionMode, dexProtocol, evmFunctionParameters]);
+  }, [
+    actionType,
+    executionMode,
+    dexProtocol,
+    evmFunctionParameters,
+    exchange,
+    polymarketOrderType,
+    polymarketPostOnly,
+    polymarketPrice,
+    polymarketSide,
+    polymarketSize,
+    polymarketTokenId,
+  ]);
 
   const authRequirement = useMemo(() => (
     resolveActionAuthRequirement({
@@ -156,14 +198,51 @@ export default function ActionBlocksPanel({
   const isAuthReady = !authRequirement || isProviderAuthorized(authState, authRequirement.id);
 
   const isEVMAction = actionType === 'dex' && dexProtocol === 'evm' && executionMode === 'address';
-  const isPolymarketAction = actionType === 'dex' && dexProtocol === 'polymarket';
+  const isPolymarketAction = (actionType === 'cex' && isPolymarketExchangeName(exchange))
+    || (actionType === 'dex' && dexProtocol === 'polymarket');
+  const isPolymarketTradeConfigured = !isPolymarketAction || (
+    Boolean(polymarketTokenId.trim())
+    && Number(polymarketPrice) > 0
+    && Number(polymarketSize) > 0
+  );
   const isEVMReady = !isEVMAction || (
     isValidEVMAddress(contractAddress)
     && contractAbi.trim() !== ''
     && Boolean(selectedEvmFunctionSig)
   );
   const isPolymarketReady = !isPolymarketAction || (Number(polymarketChainId) > 0);
-  const canCreate = Boolean(blockName.trim()) && isAuthReady && isEVMReady && isPolymarketReady;
+  const canCreate = Boolean(blockName.trim()) && isAuthReady && isEVMReady && isPolymarketReady && isPolymarketTradeConfigured;
+
+  const selectCEXAction = () => {
+    setActionType('cex');
+  };
+
+  const selectContractAction = () => {
+    setActionType('dex');
+    if (dexProtocol === 'polymarket') {
+      setDexProtocol('generic');
+      setExecutionMode('address');
+    }
+  };
+
+  const handleExchangeChange = (event) => {
+    const nextExchange = event.target.value;
+    setExchange(nextExchange);
+    if (isPolymarketExchangeName(nextExchange)) {
+      setDexProtocol('polymarket');
+      setExecutionMode('api');
+      setApiUrl('https://clob.polymarket.com');
+      if (!blockName.trim()) {
+        setBlockName('Polymarket_Trade_Action');
+      }
+      return;
+    }
+    if (dexProtocol === 'polymarket') {
+      setDexProtocol('generic');
+      setExecutionMode('address');
+      setApiUrl('');
+    }
+  };
 
   const handleFetchEVMABI = async () => {
     const address = contractAddress.trim();
@@ -219,12 +298,22 @@ export default function ActionBlocksPanel({
       name: blockName.trim(),
       actionType,
       exchange: actionType === 'cex' ? exchange : '',
-      dexProtocol: actionType === 'dex' ? dexProtocol : 'generic',
+      dexProtocol: isPolymarketAction ? 'polymarket' : actionType === 'dex' ? dexProtocol : 'generic',
+      polymarketMarketTitle: isPolymarketAction ? polymarketMarketTitle.trim() : '',
+      polymarketOutcomeLabel: isPolymarketAction ? polymarketOutcomeLabel.trim() : '',
       contractAddress: actionType === 'dex' ? contractAddress.trim() : '',
       contractAbi: actionType === 'dex' ? contractAbi.trim() : '',
-      executionMode: actionType === 'dex' ? executionMode : 'address',
-      apiUrl: actionType === 'dex' && executionMode === 'api' ? apiUrl.trim() : '',
-      apiPayloadTemplate: actionType === 'dex' && executionMode === 'api' ? apiPayloadTemplate : '',
+      executionMode: isPolymarketAction ? 'api' : actionType === 'dex' ? executionMode : 'address',
+      apiUrl: isPolymarketAction
+        ? 'https://clob.polymarket.com'
+        : actionType === 'dex' && executionMode === 'api'
+          ? apiUrl.trim()
+          : '',
+      apiPayloadTemplate: isPolymarketAction
+        ? ''
+        : actionType === 'dex' && executionMode === 'api'
+          ? apiPayloadTemplate
+          : '',
       chainId: isPolymarketAction ? polymarketChainId.trim() : '',
       evmChain: isEVMAction ? evmChain : '',
       evmFunctionName: isEVMAction ? (selectedEvmFunction?.name || '') : '',
@@ -237,7 +326,139 @@ export default function ActionBlocksPanel({
 
     setBlockName('');
     setContractAbi('');
+    setPolymarketMarketTitle('');
+    setPolymarketOutcomeLabel('');
+    setPolymarketTokenId('');
+    setPolymarketSide('BUY');
+    setPolymarketPrice('');
+    setPolymarketSize('');
+    setPolymarketOrderType('GTC');
+    setPolymarketPostOnly(false);
+    setPolymarketChainId(DEFAULT_POLYMARKET_CHAIN_ID);
   };
+
+  const renderPolymarketTradeFields = () => (
+    <>
+      <div className="info-box polymarket-panel-card">
+        <p className="info-text">
+          Polymarket 전용 트레이딩 블록입니다. outcome token 기준으로 지정가 가격과 share 수량을 입력하면 CLOB 주문 파라미터를 바로 구성합니다.
+        </p>
+      </div>
+      <div className="polymarket-panel-grid">
+        <div className="form-field">
+          <label className="field-label">마켓 라벨</label>
+          <Input
+            type="text"
+            className="field-input"
+            placeholder="예: Fed 25bp Cut in June"
+            value={polymarketMarketTitle}
+            onChange={(event) => setPolymarketMarketTitle(event.target.value)}
+          />
+        </div>
+        <div className="form-field">
+          <label className="field-label">아웃컴 라벨</label>
+          <Input
+            type="text"
+            className="field-input"
+            placeholder="예: YES"
+            value={polymarketOutcomeLabel}
+            onChange={(event) => setPolymarketOutcomeLabel(event.target.value)}
+          />
+        </div>
+        <div className="form-field polymarket-panel-span-2">
+          <label className="field-label">Outcome Token ID</label>
+          <Input
+            type="text"
+            className="field-input"
+            placeholder="Polymarket token_id"
+            value={polymarketTokenId}
+            onChange={(event) => setPolymarketTokenId(event.target.value)}
+          />
+        </div>
+        <div className="form-field">
+          <label className="field-label">Side</label>
+          <div className="button-group">
+            {POLYMARKET_SIDE_OPTIONS.map((option) => (
+              <Button
+                key={option.value}
+                type="button"
+                className={`btn-option ${polymarketSide === option.value ? 'active' : ''}`}
+                onClick={() => setPolymarketSide(option.value)}
+              >
+                {option.label}
+              </Button>
+            ))}
+          </div>
+        </div>
+        <div className="form-field">
+          <label className="field-label">Order Type</label>
+          <Select
+            className="field-select"
+            value={polymarketOrderType}
+            onChange={(event) => setPolymarketOrderType(event.target.value)}
+          >
+            {POLYMARKET_ORDER_TYPE_OPTIONS.map((option) => (
+              <option key={option.value} value={option.value}>{option.label}</option>
+            ))}
+          </Select>
+        </div>
+        <div className="form-field">
+          <label className="field-label">Price</label>
+          <Input
+            type="number"
+            step="0.01"
+            min="0"
+            max="1"
+            className="field-input"
+            placeholder="0.52"
+            value={polymarketPrice}
+            onChange={(event) => setPolymarketPrice(event.target.value)}
+          />
+        </div>
+        <div className="form-field">
+          <label className="field-label">Size (shares)</label>
+          <Input
+            type="number"
+            step="0.01"
+            min="0"
+            className="field-input"
+            placeholder="10"
+            value={polymarketSize}
+            onChange={(event) => setPolymarketSize(event.target.value)}
+          />
+        </div>
+        <div className="form-field">
+          <label className="field-label">Post Only</label>
+          <div className="button-group">
+            <Button
+              type="button"
+              className={`btn-option ${!polymarketPostOnly ? 'active' : ''}`}
+              onClick={() => setPolymarketPostOnly(false)}
+            >
+              Off
+            </Button>
+            <Button
+              type="button"
+              className={`btn-option ${polymarketPostOnly ? 'active' : ''}`}
+              onClick={() => setPolymarketPostOnly(true)}
+            >
+              On
+            </Button>
+          </div>
+        </div>
+        <div className="form-field">
+          <label className="field-label">Chain ID</label>
+          <Input
+            type="number"
+            className="field-input"
+            value={polymarketChainId}
+            onChange={(event) => setPolymarketChainId(event.target.value)}
+            placeholder="137"
+          />
+        </div>
+      </div>
+    </>
+  );
 
   return (
     <div className="overlay-panel">
@@ -256,7 +477,7 @@ export default function ActionBlocksPanel({
             <Input
               type="text"
               className="field-input"
-              placeholder="예: BTC_Buy_Action"
+              placeholder={isPolymarketAction ? '예: Polymarket_Yes_Limit' : '예: BTC_Buy_Action'}
               value={blockName}
               onChange={(event) => setBlockName(event.target.value)}
             />
@@ -268,16 +489,16 @@ export default function ActionBlocksPanel({
               <Button
                 type="button"
                 className={`btn-option tall ${actionType === 'cex' ? 'active' : ''}`}
-                onClick={() => setActionType('cex')}
+                onClick={selectCEXAction}
               >
-                중앙화 거래소 (CEX)
+                CEX action
               </Button>
               <Button
                 type="button"
-                className={`btn-option tall ${actionType === 'dex' ? 'active' : ''}`}
-                onClick={() => setActionType('dex')}
+                className={`btn-option tall ${actionType === 'dex' && dexProtocol !== 'polymarket' ? 'active' : ''}`}
+                onClick={selectContractAction}
               >
-                스마트 컨트랙트
+                DEX action
               </Button>
             </div>
           </div>
@@ -289,40 +510,46 @@ export default function ActionBlocksPanel({
                 <Select
                   className="field-select"
                   value={exchange}
-                  onChange={(event) => setExchange(event.target.value)}
+                  onChange={handleExchangeChange}
                 >
-                  <option value="Binance">Binance</option>
-                  <option value="Coinbase">Coinbase</option>
-                  <option value="Kraken">Kraken</option>
-                  <option value="Upbit">Upbit</option>
+                  {SUPPORTED_CEX_TRADE_EXCHANGES.map((connection) => (
+                    <option key={connection.id} value={connection.name}>{connection.name}</option>
+                  ))}
                 </Select>
               </div>
 
-              <div className="form-field">
-                <label className="field-label">시장 타입</label>
-                <Input
-                  type="text"
-                  className="field-input"
-                  value={marketType}
-                  onChange={(event) => setMarketType(event.target.value)}
-                />
-              </div>
+              {!isPolymarketAction && (
+                <>
+                  <div className="form-field">
+                    <label className="field-label">시장 타입</label>
+                    <Input
+                      type="text"
+                      className="field-input"
+                      value={marketType}
+                      onChange={(event) => setMarketType(event.target.value)}
+                    />
+                  </div>
 
-              <div className="form-field">
-                <label className="field-label">토큰</label>
-                <Input
-                  type="text"
-                  className="field-input"
-                  placeholder="예: BTCUSDT"
-                  value={token}
-                  onChange={(event) => setToken(event.target.value)}
-                />
-              </div>
+                  <div className="form-field">
+                    <label className="field-label">토큰</label>
+                    <Input
+                      type="text"
+                      className="field-input"
+                      placeholder="예: BTCUSDT"
+                      value={token}
+                      onChange={(event) => setToken(event.target.value)}
+                    />
+                  </div>
+                </>
+              )}
+
+              {isPolymarketAction && renderPolymarketTradeFields()}
             </>
           )}
 
           {actionType === 'dex' && (
             <>
+              {!isPolymarketAction && (
               <div className="form-field">
                 <label className="field-label">DEX 프로토콜</label>
                 <Select
@@ -333,6 +560,7 @@ export default function ActionBlocksPanel({
                     setDexProtocol(next);
                     if (next === 'polymarket') {
                       setExecutionMode('api');
+                      setApiUrl('https://clob.polymarket.com');
                     }
                     if (next === 'evm') {
                       setExecutionMode('address');
@@ -341,41 +569,32 @@ export default function ActionBlocksPanel({
                 >
                   <option value="generic">일반 DEX/커스텀</option>
                   <option value="evm">EVM Contract (Web3)</option>
-                  <option value="polymarket">Polymarket</option>
                 </Select>
               </div>
+              )}
 
-              <div className="form-field">
-                <label className="field-label">실행 방식</label>
-                <div className="button-group">
-                  <Button
-                    type="button"
-                    className={`btn-option ${executionMode === 'address' ? 'active' : ''}`}
-                    onClick={() => setExecutionMode('address')}
-                  >
-                    컨트랙트 주소
-                  </Button>
-                  <Button
-                    type="button"
-                    className={`btn-option ${executionMode === 'api' ? 'active' : ''}`}
-                    onClick={() => setExecutionMode('api')}
-                    disabled={dexProtocol === 'evm'}
-                  >
-                    API
-                  </Button>
-                </div>
-              </div>
+              {isPolymarketAction && renderPolymarketTradeFields()}
 
-              {dexProtocol === 'polymarket' && (
+              {!isPolymarketAction && (
                 <div className="form-field">
-                  <label className="field-label">체인 ID</label>
-                  <Input
-                    type="number"
-                    className="field-input"
-                    value={polymarketChainId}
-                    onChange={(event) => setPolymarketChainId(event.target.value)}
-                    placeholder="예: 137"
-                  />
+                  <label className="field-label">실행 방식</label>
+                  <div className="button-group">
+                    <Button
+                      type="button"
+                      className={`btn-option ${executionMode === 'address' ? 'active' : ''}`}
+                      onClick={() => setExecutionMode('address')}
+                    >
+                      컨트랙트 주소
+                    </Button>
+                    <Button
+                      type="button"
+                      className={`btn-option ${executionMode === 'api' ? 'active' : ''}`}
+                      onClick={() => setExecutionMode('api')}
+                      disabled={dexProtocol === 'evm'}
+                    >
+                      API
+                    </Button>
+                  </div>
                 </div>
               )}
 
@@ -471,7 +690,7 @@ export default function ActionBlocksPanel({
                 </>
               )}
 
-              {executionMode === 'api' && (
+              {executionMode === 'api' && !isPolymarketAction && (
                 <>
                   <div className="form-field">
                     <label className="field-label">API URL</label>
@@ -530,6 +749,11 @@ export default function ActionBlocksPanel({
           {!isPolymarketReady && isPolymarketAction && (
             <div className="strategy-feedback-issue warn">
               Polymarket 액션 실행을 위해 유효한 체인 ID를 입력하세요.
+            </div>
+          )}
+          {!isPolymarketTradeConfigured && isPolymarketAction && (
+            <div className="strategy-feedback-issue warn">
+              Polymarket 주문 생성을 위해 tokenId, price, size를 모두 입력하세요.
             </div>
           )}
 

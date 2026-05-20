@@ -1250,6 +1250,22 @@
   margin: 0;
 }
 
+.polymarket-panel-card {
+  border-color: rgba(34, 211, 238, 0.35);
+  background: linear-gradient(180deg, rgba(8, 47, 73, 0.75) 0%, rgba(10, 22, 40, 0.92) 100%);
+}
+
+.polymarket-panel-grid {
+  display: grid;
+  width: 100%;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.polymarket-panel-span-2 {
+  grid-column: span 2;
+}
+
 /* Monitor Type Cards */
 .monitor-type-cards {
   display: flex;

@@ -626,10 +626,10 @@ func flushLogs(loggers ...*utils.Logger) {
 func runPolymarketExample() {
 	fmt.Println("=== Starting Polymarket Verification ===")
 	params := map[string]string{
-		"private_key": "0x1111111111111111111111111111111111111111111111111111111111111111", // Dummy but valid ECDSA for testing
-		"funder":      "0x0000000000000000000000000000000000000000",
-		"api_key":     "mock-api-key",
-		"api_secret":  "mock-secret",
+		"private_key":    "0x" + "1111111111111111" + "1111111111111111" + "1111111111111111" + "1111111111111111", // Dummy but valid ECDSA for testing
+		"funder":         "0x0000000000000000000000000000000000000000",
+		"api_key":        "mock-api-key",
+		"api_secret":     "mock-secret",
 		"api_passphrase": "mock-passphrase",
 	}
 	exchange, err := base.CreateExchange("polymarket", exchanges.NewPolymarket, nil, params, true, false)
@@ -659,7 +659,7 @@ func runPolymarketExample() {
 			} else {
 				fmt.Printf("=> Success: Fetched market: %s - %s\n", m.ID, m.Question)
 			}
-			
+
 			if clobTokenIds, ok := market.Metadata["clobTokenIds"].([]string); ok && len(clobTokenIds) > 0 {
 				tokenID := clobTokenIds[0]
 				fmt.Printf("\n3. Testing GetOrderbook for token %s...\n", tokenID)

@@ -3,6 +3,7 @@ import Sidebar from './Sidebar';
 import Canvas from './Canvas';
 import FrontTab from './FrontTab';
 import PreAuthTab from './PreAuthTab';
+import ChromeTabs from './ChromeTabs';
 import BackendHeader from './backend/BackendHeader';
 import StrategyFeedbackBar from './backend/StrategyFeedbackBar';
 import HostControlBar from './backend/HostControlBar';
@@ -1427,6 +1428,10 @@ export default function BackendTab() {
       const sampled = await sampleStreamDefinition({
         streamKind: streamingBlock.streamKind || (streamingBlock.streamChain ? 'evm-rpc' : 'url'),
         apiUrl: streamingBlock.apiUrl || '',
+        exchange: streamingBlock.exchange || '',
+        symbol: streamingBlock.symbol || '',
+        marketId: streamingBlock.marketId || '',
+        tokenId: streamingBlock.tokenId || '',
         streamChain: streamingBlock.streamChain || '',
         streamMethod: streamingBlock.streamMethod || '',
         streamParamsJson: streamingBlock.streamParamsJson || '[]',
@@ -1747,6 +1752,10 @@ export default function BackendTab() {
       const streamConfigKey = [
         streaming.streamKind || '',
         streaming.apiUrl || '',
+        streaming.exchange || '',
+        streaming.symbol || '',
+        streaming.marketId || '',
+        streaming.tokenId || '',
         streaming.streamChain || '',
         streaming.streamMethod || '',
         streaming.streamParamsJson || '',
