@@ -23,6 +23,10 @@ function normalizeText(value) {
   return typeof value === 'string' ? value.trim() : '';
 }
 
+function normalizeObject(value) {
+  return value && typeof value === 'object' && !Array.isArray(value) ? value : null;
+}
+
 function trimText(value, limit = 240) {
   const text = normalizeText(value).replace(/\s+/g, ' ');
   if (text.length <= limit) {
@@ -62,6 +66,43 @@ function summarizeConnectedExchange(connection = {}) {
   };
 }
 
+function summarizeBalanceAsset(asset = {}) {
+  const symbol = normalizeText(asset.asset).toUpperCase();
+  if (!symbol) return null;
+  const available = normalizeText(asset.available || asset.free || asset.total || '0');
+  const total = normalizeText(asset.total || asset.marginBalance || asset.walletBalance || available);
+  const availableUsd = Number(asset.availableUsd);
+  const valueUsd = Number(asset.valueUsd);
+  return {
+    asset: symbol,
+    available,
+    total,
+    ...(Number.isFinite(availableUsd) ? { availableUsd } : {}),
+    ...(Number.isFinite(valueUsd) ? { valueUsd } : {}),
+  };
+}
+
+function summarizeBalanceSnapshot(snapshot = {}) {
+  const spendable = normalizeObject(snapshot.spendable) || {};
+  const totals = normalizeObject(snapshot.totals) || {};
+  const assets = (Array.isArray(snapshot.assets) ? snapshot.assets : [])
+    .map(summarizeBalanceAsset)
+    .filter(Boolean)
+    .slice(0, 16);
+  return {
+    id: normalizeText(snapshot.id),
+    exchangeId: normalizeText(snapshot.exchangeId || snapshot.connectionId),
+    connectionId: normalizeText(snapshot.connectionId || snapshot.exchangeId),
+    exchangeName: normalizeText(snapshot.exchangeName || snapshot.exchange),
+    market: normalizeText(snapshot.market),
+    accountType: normalizeText(snapshot.accountType),
+    updatedAt: normalizeText(snapshot.updatedAt),
+    totals,
+    spendable,
+    assets,
+  };
+}
+
 function buildContextMarkdown({
   userId,
   prompt = '',
@@ -69,6 +110,7 @@ function buildContextMarkdown({
   requestCount = 1,
   storageBackend = 'memory',
   connectedExchanges = [],
+  balanceSnapshots = [],
   updatedAt = new Date().toISOString(),
 }) {
   const lines = [
@@ -96,6 +138,29 @@ function buildContextMarkdown({
       lines.push(
         `  credentials: apiKey=${exchange.credentials.apiKey}, apiSecret=${exchange.credentials.apiSecret}, apiPassphrase=${exchange.credentials.apiPassphrase}, privateKey=${exchange.credentials.privateKey}, funder=${exchange.credentials.funder}, authStatus=${exchange.credentials.authStatus}`,
       );
+    });
+  }
+
+  lines.push('');
+  lines.push('## CEX Balance MyData');
+  if (balanceSnapshots.length === 0) {
+    lines.push('- none');
+  } else {
+    balanceSnapshots.forEach((snapshot) => {
+      lines.push(
+        `- exchange=${snapshot.exchangeName || snapshot.exchangeId} | connectionId=${snapshot.connectionId} | market=${snapshot.market || snapshot.accountType} | updated_at=${snapshot.updatedAt || 'unknown'}`,
+      );
+      lines.push(
+        `  spendable: preferredAsset=${normalizeText(snapshot.spendable?.preferredAsset) || 'none'}, preferredAvailable=${normalizeText(snapshot.spendable?.preferredAvailable) || '0'}, stableAvailableUsd=${snapshot.spendable?.totalStableAvailableUsd ?? snapshot.totals?.stableAvailableUsd ?? 0}`,
+      );
+      const assets = Array.isArray(snapshot.assets) ? snapshot.assets.slice(0, 8) : [];
+      if (assets.length === 0) {
+        lines.push('  assets: none');
+      } else {
+        lines.push(
+          `  assets: ${assets.map((asset) => `${asset.asset} available=${asset.available} total=${asset.total}`).join('; ')}`,
+        );
+      }
     });
   }
 
@@ -237,6 +302,7 @@ export async function readUserContextMarkdown(userId) {
 export async function initUserSession({
   userId,
   exchangeConnections = [],
+  balanceSnapshots = [],
   prompt = '',
   requestPath = '',
   source = '',
@@ -247,6 +313,10 @@ export async function initUserSession({
   const connectedExchanges = (Array.isArray(exchangeConnections) ? exchangeConnections : [])
     .map((connection) => summarizeConnectedExchange(connection))
     .filter((exchange, index, items) => items.findIndex((item) => item.id === exchange.id) === index);
+  const balanceMyData = (Array.isArray(balanceSnapshots) ? balanceSnapshots : [])
+    .map(summarizeBalanceSnapshot)
+    .filter((snapshot) => snapshot.connectionId || snapshot.exchangeId)
+    .slice(0, 8);
 
   const contextRecord = {
     userId: normalizedUserId,
@@ -259,6 +329,9 @@ export async function initUserSession({
     hasConnectedExchanges: connectedExchanges.length > 0,
     connectedExchangeCount: connectedExchanges.length,
     connectedExchanges,
+    hasBalanceMyData: balanceMyData.length > 0,
+    balanceSnapshotCount: balanceMyData.length,
+    balanceMyData,
   };
 
   const markdownPath = getUserContextMarkdownPath(normalizedUserId);
@@ -270,6 +343,7 @@ export async function initUserSession({
     requestCount: contextRecord.requestCount,
     storageBackend,
     connectedExchanges,
+    balanceSnapshots: balanceMyData,
     updatedAt,
   });
 
@@ -288,6 +362,7 @@ export async function initUserSession({
     requestCount: contextRecord.requestCount,
     storageBackend,
     connectedExchanges,
+    balanceSnapshots: balanceMyData,
     updatedAt,
   });
   await fs.writeFile(markdownPath, markdownContent, 'utf8');

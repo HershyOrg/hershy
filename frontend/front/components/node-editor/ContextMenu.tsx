@@ -68,21 +68,21 @@ export function ContextMenu({
       icon: Group,
       onClick: onGroup,
       show: canGroup,
-      className: "text-emerald-600 hover:bg-emerald-50",
+      className: "text-emerald-600 hover:bg-emerald-50 dark:text-emerald-300 dark:hover:bg-emerald-400/10",
     },
     {
       label: "AI로 블록 설명 생성",
       icon: Sparkles,
       onClick: onAiExplain,
       show: canGroup, // If multiple items are selected (which enables group), also enable AI Explain
-      className: "text-indigo-600 hover:bg-indigo-50",
+      className: "text-indigo-600 hover:bg-indigo-50 dark:text-indigo-300 dark:hover:bg-indigo-400/10",
     },
     {
       label: "선택 항목 묶어서 숨기기 (Tab)",
       icon: Combine,
       onClick: onHideNodes,
       show: !!onHideNodes && canGroup,
-      className: "text-purple-600 hover:bg-purple-50",
+      className: "text-purple-600 hover:bg-purple-50 dark:text-purple-300 dark:hover:bg-purple-400/10",
     },
     { divider: true, show: canGroup },
     {
@@ -90,14 +90,14 @@ export function ContextMenu({
       icon: Combine,
       onClick: onMerge,
       show: canMerge,
-      className: "text-blue-600 hover:bg-blue-50",
+      className: "text-blue-600 hover:bg-blue-50 dark:text-blue-300 dark:hover:bg-blue-400/10",
     },
     {
       label: "Unmerge Functions",
       icon: Split,
       onClick: onUnmerge,
       show: canUnmerge,
-      className: "text-orange-600 hover:bg-orange-50",
+      className: "text-orange-600 hover:bg-orange-50 dark:text-orange-300 dark:hover:bg-orange-400/10",
     },
     { divider: true, show: (canMerge || canUnmerge) && (onCopy || onDelete) },
     {
@@ -105,14 +105,14 @@ export function ContextMenu({
       icon: Copy,
       onClick: onCopy,
       show: !!onCopy,
-      className: "text-gray-700 hover:bg-gray-100",
+      className: "text-gray-700 hover:bg-gray-100 dark:text-slate-300 dark:hover:bg-slate-800",
     },
     {
       label: "Paste",
       icon: Clipboard,
       onClick: onPaste,
       show: !!onPaste,
-      className: "text-gray-700 hover:bg-gray-100",
+      className: "text-gray-700 hover:bg-gray-100 dark:text-slate-300 dark:hover:bg-slate-800",
     },
     { divider: true, show: onDelete && (onCopy || onPaste) },
     {
@@ -120,7 +120,7 @@ export function ContextMenu({
       icon: Trash2,
       onClick: onDelete,
       show: !!onDelete,
-      className: "text-red-600 hover:bg-red-50",
+      className: "text-red-600 hover:bg-red-50 dark:text-rose-300 dark:hover:bg-rose-400/10",
     },
   ];
 
@@ -131,7 +131,7 @@ export function ContextMenu({
   return (
     <div
       ref={menuRef}
-      className="fixed z-[100] min-w-[180px] bg-white rounded-lg shadow-xl border border-gray-200 py-1 overflow-hidden"
+      className="fixed z-[100] min-w-[180px] overflow-hidden rounded-lg border border-gray-200 bg-white py-1 shadow-xl dark:border-slate-700 dark:bg-slate-950 dark:shadow-[0_18px_48px_rgba(0,0,0,0.42)]"
       style={{
         left: x,
         top: y,
@@ -139,7 +139,7 @@ export function ContextMenu({
     >
       {visibleItems.map((item, index) => {
         if ("divider" in item && item.divider) {
-          return <div key={`divider-${index}`} className="h-px bg-gray-200 my-1" />;
+          return <div key={`divider-${index}`} className="my-1 h-px bg-gray-200 dark:bg-slate-800" />;
         }
 
         const Icon = item.icon;

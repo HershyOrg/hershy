@@ -78,6 +78,7 @@ func Validate(graph StrategyGraph) []string {
 	}
 
 	blockTypeByID := make(map[string]string, len(graph.Blocks))
+	blockConfigByID := make(map[string]map[string]interface{}, len(graph.Blocks))
 	blockIDs := make([]string, 0, len(graph.Blocks))
 	triggerConditionByID := make(map[string]string)
 	for i, b := range graph.Blocks {
@@ -117,6 +118,7 @@ func Validate(graph StrategyGraph) []string {
 		}
 
 		blockTypeByID[b.ID] = b.Type
+		blockConfigByID[b.ID] = b.Config
 		blockIDs = append(blockIDs, b.ID)
 	}
 
@@ -309,7 +311,7 @@ func Validate(graph StrategyGraph) []string {
 			if actionInFromTrigger[id] == 0 {
 				issues = append(issues, fmt.Sprintf("block %q (action) has no incoming trigger-action", id))
 			}
-			if actionInFromInput[id] == 0 {
+			if actionInFromInput[id] == 0 && !isCheckEffectActionConfig(blockConfigByID[id]) {
 				issues = append(issues, fmt.Sprintf("block %q (action) has no incoming action-input (streaming/normal data)", id))
 			}
 		case "monitoring":
@@ -408,6 +410,19 @@ func asString(v interface{}) (string, bool) {
 		return "", false
 	}
 	return s, true
+}
+
+func isCheckEffectActionConfig(config map[string]interface{}) bool {
+	if config == nil {
+		return false
+	}
+	if checkContextFrom, ok := asString(config["checkContextFrom"]); ok && strings.TrimSpace(checkContextFrom) != "" {
+		return true
+	}
+	if effectRole, ok := asString(config["effectRole"]); ok && strings.TrimSpace(effectRole) == "effect" {
+		return true
+	}
+	return false
 }
 
 func conditionMentionsID(condition, id string) bool {

@@ -20,9 +20,18 @@ export type IndicatorCondition = Record<string, unknown> & {
   label?: string;
 }
 
+export type ChartComparisonValue = Record<string, unknown> & {
+  id: string;
+  label?: string;
+  value: number;
+  color?: string;
+  enabled?: boolean;
+}
+
 export type NodeChartPoint = {
   time: number;
   value: number;
+  volume?: number;
 }
 
 export type RuntimeArtifactData = {
@@ -48,6 +57,8 @@ export type FunctionNodeData = Record<string, unknown> & RuntimeArtifactData & {
   outputDescription?: string;
   condition?: IndicatorCondition;
   conditionMet?: boolean;
+  showChartComparison?: boolean;
+  chartComparisonValues?: ChartComparisonValue[];
   isExpanded?: boolean;
   viewMode?: ViewMode;
 }
@@ -202,6 +213,8 @@ export type MonitoringNodeData = Record<string, unknown> & {
   label: string;
   format: "logs" | "values" | "chart";
   condition?: IndicatorCondition;
+  showChartComparison?: boolean;
+  chartComparisonValues?: ChartComparisonValue[];
   // Store what is selected from the connected node
   selectedVariables: string[]; // Could be block IDs or log output keys
 }

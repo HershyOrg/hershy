@@ -4,6 +4,7 @@ import { memo, useCallback, useMemo } from "react";
 import { Handle, NodeProps, Position, useEdges, useNodes, useReactFlow } from "@xyflow/react";
 import type {
   BlockData,
+  ChartComparisonValue,
   IndicatorCondition,
   MonitoringNode as MonitoringNodeType,
   MonitoringNodeData,
@@ -11,11 +12,13 @@ import type {
 import {
   MetricChart,
   buildMetricSeries,
+  createChartComparisonValue,
   evaluateCondition,
   getConditionLabel,
+  normalizeChartComparisonValues,
 } from "./MetricChart";
 import { cn } from "@/lib/utils";
-import { Activity, BarChart3, Eye, ListFilter, TerminalSquare, Zap } from "lucide-react";
+import { Activity, BarChart3, Eye, EyeOff, ListFilter, Plus, TerminalSquare, X, Zap } from "lucide-react";
 
 const COMPARE_COLORS = ["#2563eb", "#f97316", "#8b5cf6", "#0f766e", "#dc2626"];
 
@@ -91,6 +94,19 @@ function MonitoringNodeComponent({ id, data, selected }: NodeProps<MonitoringNod
     () => data.condition ?? getDefaultCondition(primaryVariable?.name || "value"),
     [data.condition, primaryVariable?.name],
   );
+  const showChartComparison = data.showChartComparison !== false;
+  const chartComparisonValues = useMemo(
+    () => normalizeChartComparisonValues(data.chartComparisonValues),
+    [data.chartComparisonValues],
+  );
+  const visibleCompareSeries = useMemo(
+    () => (showChartComparison ? compareSeries : []),
+    [compareSeries, showChartComparison],
+  );
+  const visibleChartComparisonValues = useMemo(
+    () => showChartComparison ? chartComparisonValues.filter((item) => item.enabled !== false) : [],
+    [chartComparisonValues, showChartComparison],
+  );
   const latestValue = primarySeries[primarySeries.length - 1]?.value ?? 0;
   const conditionMet = evaluateCondition(latestValue, condition);
 
@@ -108,6 +124,38 @@ function MonitoringNodeComponent({ id, data, selected }: NodeProps<MonitoringNod
   const toggleFormat = useCallback(() => {
     updateNodeData({ format: data.format === "chart" ? "logs" : "chart" });
   }, [data.format, updateNodeData]);
+
+  const toggleChartComparison = useCallback(() => {
+    updateNodeData({ showChartComparison: !showChartComparison });
+  }, [showChartComparison, updateNodeData]);
+
+  const handleAddChartComparisonValue = useCallback(() => {
+    const next = createChartComparisonValue(chartComparisonValues.length + 1, Number(condition.threshold) + chartComparisonValues.length + 1);
+    updateNodeData({
+      showChartComparison: true,
+      chartComparisonValues: [...chartComparisonValues, next],
+    });
+  }, [chartComparisonValues, condition.threshold, updateNodeData]);
+
+  const handleUpdateChartComparisonValue = useCallback(
+    (lineId: string, patch: Partial<ChartComparisonValue>) => {
+      updateNodeData({
+        chartComparisonValues: chartComparisonValues.map((item) =>
+          item.id === lineId ? { ...item, ...patch } : item,
+        ),
+      });
+    },
+    [chartComparisonValues, updateNodeData],
+  );
+
+  const handleRemoveChartComparisonValue = useCallback(
+    (lineId: string) => {
+      updateNodeData({
+        chartComparisonValues: chartComparisonValues.filter((item) => item.id !== lineId),
+      });
+    },
+    [chartComparisonValues, updateNodeData],
+  );
 
   const openTerminal = useCallback(() => {
     window.dispatchEvent(
@@ -193,9 +241,13 @@ function MonitoringNodeComponent({ id, data, selected }: NodeProps<MonitoringNod
                   {primaryVariable.nodeLabel}.{primaryVariable.name}
                 </div>
                 <div className="truncate text-[11px] text-slate-500">
-                  {compareSeries.length > 0
-                    ? `${compareSeries.length + 1} indicators compared`
-                    : primaryVariable.description || "single indicator view"}
+                  {!showChartComparison
+                    ? "차트 비교 표시 꺼짐"
+                    : compareSeries.length > 0
+                      ? `${compareSeries.length + 1} indicators · 기준값 ${chartComparisonValues.length + 1}개`
+                      : chartComparisonValues.length > 0
+                        ? `기준값 ${chartComparisonValues.length + 1}개`
+                        : primaryVariable.description || "single indicator view"}
                 </div>
               </div>
               <div
@@ -222,8 +274,9 @@ function MonitoringNodeComponent({ id, data, selected }: NodeProps<MonitoringNod
               <div className="h-[210px] overflow-hidden rounded-md border border-slate-800">
                 <MetricChart
                   series={primarySeries}
-                  compareSeries={compareSeries}
-                  condition={condition}
+                  compareSeries={visibleCompareSeries}
+                  condition={showChartComparison ? condition : undefined}
+                  comparisonValues={visibleChartComparisonValues}
                   height={210}
                   backgroundColor="#020617"
                   baseColor="#22c55e"
@@ -233,32 +286,94 @@ function MonitoringNodeComponent({ id, data, selected }: NodeProps<MonitoringNod
               </div>
             )}
 
-            <div className="mt-3 grid grid-cols-[1fr_64px_84px] gap-2">
-              <input
-                value={condition.metric ?? primaryVariable.name}
-                onChange={(event) => handleConditionChange({ metric: event.target.value })}
-                className="rounded-md border border-slate-700 bg-slate-900 px-2 py-1 text-xs text-slate-200 outline-none focus:border-emerald-500"
-              />
-              <select
-                value={condition.operator}
-                onChange={(event) =>
-                  handleConditionChange({
-                    operator: event.target.value as IndicatorCondition["operator"],
-                  })
-                }
-                className="rounded-md border border-slate-700 bg-slate-900 px-2 py-1 text-xs text-slate-200 outline-none focus:border-emerald-500"
-              >
-                <option value=">">&gt;</option>
-                <option value=">=">&gt;=</option>
-                <option value="<">&lt;</option>
-                <option value="<=">&lt;=</option>
-              </select>
-              <input
-                type="number"
-                value={condition.threshold}
-                onChange={(event) => handleConditionChange({ threshold: Number(event.target.value) })}
-                className="rounded-md border border-slate-700 bg-slate-900 px-2 py-1 text-xs text-slate-200 outline-none focus:border-emerald-500"
-              />
+            <div className="mt-3 space-y-2">
+              <div className="grid grid-cols-[minmax(0,1fr)_64px_84px_28px_28px] gap-2">
+                <input
+                  value={condition.metric ?? primaryVariable.name}
+                  onChange={(event) => handleConditionChange({ metric: event.target.value })}
+                  className="min-w-0 rounded-md border border-slate-700 bg-slate-900 px-2 py-1 text-xs text-slate-200 outline-none focus:border-emerald-500"
+                />
+                <select
+                  value={condition.operator}
+                  onChange={(event) =>
+                    handleConditionChange({
+                      operator: event.target.value as IndicatorCondition["operator"],
+                    })
+                  }
+                  className="rounded-md border border-slate-700 bg-slate-900 px-2 py-1 text-xs text-slate-200 outline-none focus:border-emerald-500"
+                >
+                  <option value=">">&gt;</option>
+                  <option value=">=">&gt;=</option>
+                  <option value="<">&lt;</option>
+                  <option value="<=">&lt;=</option>
+                </select>
+                <input
+                  type="number"
+                  value={condition.threshold}
+                  onChange={(event) => handleConditionChange({ threshold: Number(event.target.value) })}
+                  className="rounded-md border border-slate-700 bg-slate-900 px-2 py-1 text-xs text-slate-200 outline-none focus:border-emerald-500"
+                />
+                <button
+                  onClick={toggleChartComparison}
+                  className={cn(
+                    "inline-flex h-7 w-7 items-center justify-center rounded-md border text-xs transition-colors",
+                    showChartComparison
+                      ? "border-emerald-500/40 bg-emerald-500/10 text-emerald-300"
+                      : "border-slate-700 bg-slate-900 text-slate-500 hover:bg-slate-800",
+                  )}
+                  title={showChartComparison ? "비교값 차트 표시 끄기" : "비교값 차트 표시 켜기"}
+                  aria-pressed={showChartComparison}
+                >
+                  {showChartComparison ? <Eye className="h-3.5 w-3.5" /> : <EyeOff className="h-3.5 w-3.5" />}
+                </button>
+                <button
+                  onClick={handleAddChartComparisonValue}
+                  className="inline-flex h-7 w-7 items-center justify-center rounded-md border border-emerald-500/40 bg-emerald-500/10 text-emerald-300 transition-colors hover:bg-emerald-500/20"
+                  title="차트 비교값 추가"
+                >
+                  <Plus className="h-3.5 w-3.5" />
+                </button>
+              </div>
+
+              {chartComparisonValues.map((item) => (
+                <div
+                  key={item.id}
+                  className="grid grid-cols-[minmax(0,1fr)_84px_28px_28px] gap-2"
+                >
+                  <input
+                    value={item.label ?? ""}
+                    onChange={(event) => handleUpdateChartComparisonValue(item.id, { label: event.target.value })}
+                    className="min-w-0 rounded-md border border-slate-700 bg-slate-900 px-2 py-1 text-xs text-slate-200 outline-none focus:border-emerald-500"
+                    placeholder="비교값 이름"
+                  />
+                  <input
+                    type="number"
+                    value={item.value}
+                    onChange={(event) => handleUpdateChartComparisonValue(item.id, { value: Number(event.target.value) })}
+                    className="rounded-md border border-slate-700 bg-slate-900 px-2 py-1 text-xs text-slate-200 outline-none focus:border-emerald-500"
+                  />
+                  <button
+                    onClick={() => handleUpdateChartComparisonValue(item.id, { enabled: item.enabled === false })}
+                    className={cn(
+                      "inline-flex h-7 w-7 items-center justify-center rounded-md border text-xs transition-colors",
+                      item.enabled !== false
+                        ? "border-emerald-500/40 bg-emerald-500/10 text-emerald-300"
+                        : "border-slate-700 bg-slate-900 text-slate-500 hover:bg-slate-800",
+                    )}
+                    title={item.enabled !== false ? "이 비교값 숨기기" : "이 비교값 표시"}
+                    aria-pressed={item.enabled !== false}
+                  >
+                    {item.enabled !== false ? <Eye className="h-3.5 w-3.5" /> : <EyeOff className="h-3.5 w-3.5" />}
+                  </button>
+                  <button
+                    onClick={() => handleRemoveChartComparisonValue(item.id)}
+                    className="inline-flex h-7 w-7 items-center justify-center rounded-md border border-rose-500/40 bg-rose-500/10 text-rose-300 transition-colors hover:bg-rose-500/20"
+                    title="차트 비교값 삭제"
+                  >
+                    <X className="h-3.5 w-3.5" />
+                  </button>
+                </div>
+              ))}
             </div>
           </>
         ) : (

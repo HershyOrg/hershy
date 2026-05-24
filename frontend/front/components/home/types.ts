@@ -44,6 +44,51 @@ export type ExchangeConnection = {
   credentials?: ExchangeConnectionCredentials;
 };
 
+export type BalanceMyDataAsset = {
+  asset: string;
+  free?: string;
+  locked?: string;
+  total?: string;
+  available?: string;
+  valueUsd?: number;
+  availableUsd?: number;
+  walletBalance?: string;
+  marginBalance?: string;
+  unrealizedPnl?: string;
+  sourceField?: string;
+};
+
+export type BalanceMyDataSnapshot = {
+  id: string;
+  exchangeId?: string;
+  connectionId?: string;
+  exchangeName?: string;
+  exchange?: string;
+  market?: string;
+  accountType?: string;
+  source?: string;
+  updatedAt?: string;
+  assets?: BalanceMyDataAsset[];
+  totals?: {
+    assetCount?: number;
+    totalValueUsd?: number;
+    totalAvailableUsd?: number;
+    stableAvailableUsd?: number;
+  };
+  spendable?: {
+    preferredAsset?: string;
+    preferredAvailable?: string;
+    preferredAvailableUsd?: number;
+    totalStableAvailableUsd?: number;
+    stableAssets?: Array<{
+      asset: string;
+      available: string;
+      availableUsd?: number;
+    }>;
+    policy?: string;
+  };
+};
+
 export type ExchangeFormState = {
   id: string;
   name: string;

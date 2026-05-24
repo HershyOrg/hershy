@@ -34,22 +34,45 @@ type EasyStrategyGraphProps = {
   onSaveCurrentBlock?: (node: EasyViewNode) => void;
 };
 
-const EDGE_STYLE: Record<EasyEdgeKind, { stroke: string; dash?: string }> = {
-  sequence: { stroke: "#007aff" },
-  condition: { stroke: "#34c759", dash: "7 6" },
-  data: { stroke: "#8e8e93", dash: "8 7" },
-  risk: { stroke: "#ff3b30", dash: "7 6" },
+const EDGE_PATH_STYLE: Record<EasyEdgeKind, { dash?: string; width: number }> = {
+  sequence: { width: 3.2 },
+  condition: { dash: "8 6", width: 3.1 },
+  data: { dash: "3 7", width: 3 },
+  risk: { dash: "8 6", width: 3.2 },
 };
 
+const EDGE_LABEL_COLORS = [
+  "var(--easy-edge-label-0)",
+  "var(--easy-edge-label-1)",
+  "var(--easy-edge-label-2)",
+  "var(--easy-edge-label-3)",
+  "var(--easy-edge-label-4)",
+  "var(--easy-edge-label-5)",
+  "var(--easy-edge-label-6)",
+] as const;
+
+const SHARED_PIPELINE_EDGE_COLOR = "var(--easy-edge-shared-pipeline, #ef4444)";
+
 const KIND_STYLE: Record<EasyViewNode["kind"], string> = {
-  start: "border-white/80 bg-white/[0.88] text-blue-600",
-  stream: "border-white/80 bg-white/[0.88] text-sky-600",
-  condition: "border-white/80 bg-white/[0.88] text-emerald-600",
-  cex: "border-white/80 bg-white/[0.9] text-blue-600",
-  dex: "border-white/80 bg-white/[0.9] text-cyan-600",
-  monitor: "border-white/80 bg-white/[0.88] text-blue-600",
-  risk: "border-white/80 bg-white/[0.88] text-rose-600",
-  end: "border-white/80 bg-white/[0.88] text-rose-600",
+  start: "border-white/80 bg-white/[0.88] text-blue-600 dark:border-slate-700/80 dark:bg-slate-900/[0.88] dark:text-sky-300",
+  stream: "border-white/80 bg-white/[0.88] text-sky-600 dark:border-slate-700/80 dark:bg-slate-900/[0.88] dark:text-cyan-300",
+  condition: "border-white/80 bg-white/[0.88] text-emerald-600 dark:border-slate-700/80 dark:bg-slate-900/[0.88] dark:text-emerald-300",
+  cex: "border-white/80 bg-white/[0.9] text-blue-600 dark:border-slate-700/80 dark:bg-slate-900/[0.9] dark:text-blue-300",
+  dex: "border-white/80 bg-white/[0.9] text-cyan-600 dark:border-slate-700/80 dark:bg-slate-900/[0.9] dark:text-cyan-300",
+  monitor: "border-white/80 bg-white/[0.88] text-blue-600 dark:border-slate-700/80 dark:bg-slate-900/[0.88] dark:text-blue-300",
+  risk: "border-white/80 bg-white/[0.88] text-rose-600 dark:border-slate-700/80 dark:bg-slate-900/[0.88] dark:text-rose-300",
+  end: "border-white/80 bg-white/[0.88] text-rose-600 dark:border-slate-700/80 dark:bg-slate-900/[0.88] dark:text-rose-300",
+};
+
+const KIND_ACCENT: Record<EasyViewNode["kind"], string> = {
+  start: "bg-blue-500",
+  stream: "bg-sky-500",
+  condition: "bg-amber-500",
+  cex: "bg-emerald-500",
+  dex: "bg-cyan-500",
+  monitor: "bg-blue-500",
+  risk: "bg-rose-500",
+  end: "bg-rose-500",
 };
 
 function NodeIcon({ kind }: { kind: EasyViewNode["kind"] }) {
@@ -77,11 +100,11 @@ function StatusBadge({ status }: { status: EasyViewNode["status"] }) {
     <span
       className={cn(
         "rounded-full px-2.5 py-1 text-[10px] font-black",
-        status === "running" && "bg-emerald-500/10 text-emerald-700",
-        status === "watching" && "bg-blue-500/10 text-blue-700",
-        status === "complete" && "bg-slate-900/[0.06] text-slate-700",
-        status === "blocked" && "bg-rose-500/10 text-rose-700",
-        status === "ready" && "bg-white/70 text-slate-500 shadow-sm ring-1 ring-slate-200/70",
+        status === "running" && "bg-emerald-500/10 text-emerald-700 dark:bg-emerald-400/10 dark:text-emerald-300",
+        status === "watching" && "bg-blue-500/10 text-blue-700 dark:bg-blue-400/10 dark:text-blue-300",
+        status === "complete" && "bg-slate-900/[0.06] text-slate-700 dark:bg-white/[0.08] dark:text-slate-300",
+        status === "blocked" && "bg-rose-500/10 text-rose-700 dark:bg-rose-400/10 dark:text-rose-300",
+        status === "ready" && "bg-white/70 text-slate-500 shadow-sm ring-1 ring-slate-200/70 dark:bg-slate-800/80 dark:text-slate-300 dark:ring-slate-700/80",
       )}
     >
       {label}
@@ -119,10 +142,43 @@ function getEdgeLabelText(label?: string) {
   return EDGE_LABEL_TEXT[label.toLowerCase()] ?? label;
 }
 
+function hashEdgeLabel(label: string) {
+  let hash = 0;
+  for (const char of label) {
+    hash = (hash * 31 + char.charCodeAt(0)) >>> 0;
+  }
+  return hash;
+}
+
+function getEdgeColorIndex(edge: { label?: string; kind: EasyEdgeKind }) {
+  const label = getEdgeLabelText(edge.label) || edge.kind;
+  return hashEdgeLabel(label) % EDGE_LABEL_COLORS.length;
+}
+
+function getEdgeStyle(edge: { label?: string; kind: EasyEdgeKind; sharedDataPipeline?: boolean }) {
+  const pathStyle = EDGE_PATH_STYLE[edge.kind];
+  if (edge.sharedDataPipeline) {
+    return {
+      ...pathStyle,
+      width: Math.max(pathStyle.width, 4.2),
+      colorIndex: -1,
+      stroke: SHARED_PIPELINE_EDGE_COLOR,
+      markerId: "easy-arrow-shared-pipeline",
+    };
+  }
+  const colorIndex = getEdgeColorIndex(edge);
+  return {
+    ...pathStyle,
+    colorIndex,
+    stroke: EDGE_LABEL_COLORS[colorIndex],
+    markerId: `easy-arrow-label-${colorIndex}`,
+  };
+}
+
 function getNodeVisualHeight(node: EasyViewNode) {
   if (node.kind === "stream" && node.chart) return 134;
-  if (node.kind === "condition" || node.kind === "risk") return 56;
-  return 82;
+  if (node.kind === "condition" || node.kind === "risk") return 72;
+  return 104;
 }
 
 function getMeasuredNodeWidth(node: MeasuredEasyViewNode) {
@@ -142,6 +198,18 @@ function getNodeKindLabel(kind?: EasyViewNode["kind"]) {
   if (kind === "risk") return "리스크 기준";
   if (kind === "start") return "시작";
   return "완료";
+}
+
+function getNodeFrontDescription(node: EasyViewNode) {
+  return node.conditionText || node.description || node.roleDescription || node.subtitle;
+}
+
+function getNodeParamChips(node: EasyViewNode) {
+  if (!isEasyViewParamEditable(node)) return [];
+  return node.params
+    .filter((param) => !param.readonly && param.value)
+    .slice(0, 2)
+    .map((param) => `${param.label} ${param.value}${param.unit ? ` ${param.unit}` : ""}`);
 }
 
 function getNodeBox(node: MeasuredEasyViewNode, padding = 10): Box {
@@ -336,8 +404,8 @@ function buildEdgeLabelPlacements(model: MeasuredEasyViewModel) {
     const target = nodeById.get(edge.target);
     if (!label || !source || !target) continue;
 
-    const width = clamp(label.length * 11 + 22, 46, 106);
-    const height = 22;
+	    const width = clamp(label.length * 9 + 20, 42, 142);
+	    const height = 18;
     const routePoints = getEasyViewEdgeRoutePoints(source, target, model.nodes, edge, model.edges);
     let bestPlacement: EdgeLabelPlacement | null = null;
     let bestScore = Number.POSITIVE_INFINITY;
@@ -398,19 +466,19 @@ function StreamMiniChart({ node }: { node: EasyViewNode }) {
   const fields = chart.fields.length > 0 ? chart.fields : ["price", "volume"];
 
   return (
-    <div className="mt-2 rounded-2xl border border-white/80 bg-white/70 p-2 shadow-inner">
-      <div className="mb-1 flex items-center justify-between gap-2 text-[9px] font-bold text-slate-500">
+    <div className="mt-2 rounded-2xl border border-white/80 bg-white/70 p-2 shadow-inner dark:border-slate-700/70 dark:bg-slate-950/45">
+      <div className="mb-1 flex items-center justify-between gap-2 text-[9px] font-bold text-slate-500 dark:text-slate-400">
         <span className="truncate">{chart.title}</span>
-        {chart.highlight ? <span className="shrink-0 text-sky-600">{chart.highlight}</span> : null}
+        {chart.highlight ? <span className="shrink-0 text-sky-600 dark:text-sky-300">{chart.highlight}</span> : null}
       </div>
       <svg viewBox="0 0 160 42" className="h-11 w-full overflow-visible">
-        <path d="M 8 9 H 152 M 8 22 H 152 M 8 35 H 152" stroke="#e2e8f0" strokeWidth="1" />
-        <polyline points={points} fill="none" stroke="#0ea5e9" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round" />
-        <circle cx="152" cy={lastY} r="3.2" fill="#0ea5e9" />
+        <path d="M 8 9 H 152 M 8 22 H 152 M 8 35 H 152" stroke="currentColor" className="text-slate-200 dark:text-slate-700" strokeWidth="1" />
+        <polyline points={points} fill="none" stroke="currentColor" className="text-sky-500 dark:text-sky-300" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round" />
+        <circle cx="152" cy={lastY} r="3.2" fill="currentColor" className="text-sky-500 dark:text-sky-300" />
       </svg>
       <div className="mt-1 flex min-w-0 gap-1 overflow-hidden">
         {fields.slice(0, 3).map((field) => (
-          <span key={field} className="truncate rounded-full bg-sky-500/10 px-1.5 py-0.5 text-[9px] font-bold text-sky-700">
+          <span key={field} className="truncate rounded-full bg-sky-500/10 px-1.5 py-0.5 text-[9px] font-bold text-sky-700 dark:bg-sky-400/10 dark:text-sky-300">
             {field}
           </span>
         ))}
@@ -558,30 +626,31 @@ export function EasyStrategyGraph({ model, toolbar, onSaveCurrentBlock }: EasySt
     () => model.edges.filter((edge) => edge.target === selectedNode?.id),
     [model.edges, selectedNode?.id],
   );
-  const selectedOutgoing = useMemo(
-    () => model.edges.filter((edge) => edge.source === selectedNode?.id),
-    [model.edges, selectedNode?.id],
-  );
-  const focusedNodeIds = useMemo(() => {
-    if (!focusedNodeId) return new Set<string>();
-    const ids = new Set<string>([focusedNodeId]);
-    model.edges.forEach((edge) => {
-      if (edge.source === focusedNodeId || edge.target === focusedNodeId) {
-        ids.add(edge.source);
-        ids.add(edge.target);
-      }
-    });
-    return ids;
-  }, [focusedNodeId, model.edges]);
-  const focusedEdgeIds = useMemo(() => {
-    if (!focusedNodeId) return new Set<string>();
-    return new Set(
-      model.edges
-        .filter((edge) => edge.source === focusedNodeId || edge.target === focusedNodeId)
-        .map((edge) => edge.id),
-    );
-  }, [focusedNodeId, model.edges]);
-  const isFocusActive = Boolean(focusedNodeId);
+	  const selectedOutgoing = useMemo(
+	    () => model.edges.filter((edge) => edge.source === selectedNode?.id),
+	    [model.edges, selectedNode?.id],
+	  );
+	  const activePathNodeId = focusedNodeId ?? selectedNodeId;
+	  const focusedNodeIds = useMemo(() => {
+	    if (!activePathNodeId) return new Set<string>();
+	    const ids = new Set<string>([activePathNodeId]);
+	    model.edges.forEach((edge) => {
+	      if (edge.source === activePathNodeId || edge.target === activePathNodeId) {
+	        ids.add(edge.source);
+	        ids.add(edge.target);
+	      }
+	    });
+	    return ids;
+	  }, [activePathNodeId, model.edges]);
+	  const focusedEdgeIds = useMemo(() => {
+	    if (!activePathNodeId) return new Set<string>();
+	    return new Set(
+	      model.edges
+	        .filter((edge) => edge.source === activePathNodeId || edge.target === activePathNodeId)
+	        .map((edge) => edge.id),
+	    );
+	  }, [activePathNodeId, model.edges]);
+	  const isFocusActive = Boolean(activePathNodeId);
   const incomingSummary = selectedIncoming.length > 0
     ? selectedIncoming.map((edge) => `${nodeTitleById.get(edge.source) ?? edge.source} (${getEdgeLabelText(edge.label) || edge.kind})`).join(", ")
     : "이전 블록 없음";
@@ -596,55 +665,55 @@ export function EasyStrategyGraph({ model, toolbar, onSaveCurrentBlock }: EasySt
 
   if (model.nodes.length === 0) {
     return (
-      <div className="grid h-full min-h-0 grid-rows-[minmax(420px,1fr)_clamp(154px,22vh,220px)]">
-        <div className="relative overflow-auto border-b border-white/70 bg-[radial-gradient(circle_at_top_left,rgba(255,255,255,0.95),transparent_34rem),linear-gradient(135deg,#f8fafc_0%,#eef4fb_45%,#e9eef5_100%)]">
+      <div className="easy-strategy-graph grid h-full min-h-0 grid-rows-[minmax(420px,1fr)_clamp(154px,22vh,220px)]">
+        <div className="relative overflow-auto border-b border-white/70 bg-[radial-gradient(circle_at_top_left,rgba(255,255,255,0.95),transparent_34rem),linear-gradient(135deg,#f8fafc_0%,#eef4fb_45%,#e9eef5_100%)] dark:border-slate-800/80 dark:bg-[radial-gradient(circle_at_top_left,rgba(59,130,246,0.18),transparent_32rem),linear-gradient(135deg,#020617_0%,#0f172a_52%,#111827_100%)]">
           {toolbar ? <div className="absolute left-3 top-2 z-20">{toolbar}</div> : null}
           <div className="flex h-full min-h-[420px] items-center justify-center p-6">
-            <div className="w-full max-w-xl rounded-[32px] border border-white/80 bg-white/[0.82] p-7 text-center shadow-[0_30px_90px_rgba(15,23,42,0.12)] backdrop-blur-2xl">
-              <div className="mx-auto flex h-14 w-14 items-center justify-center rounded-[20px] bg-blue-500/10 text-blue-600 shadow-inner">
+            <div className="w-full max-w-xl rounded-[32px] border border-white/80 bg-white/[0.82] p-7 text-center shadow-[0_30px_90px_rgba(15,23,42,0.12)] backdrop-blur-2xl dark:border-slate-700/80 dark:bg-slate-900/[0.82] dark:shadow-[0_30px_90px_rgba(0,0,0,0.38)]">
+              <div className="mx-auto flex h-14 w-14 items-center justify-center rounded-[20px] bg-blue-500/10 text-blue-600 shadow-inner dark:bg-sky-400/10 dark:text-sky-300">
                 <Rocket className="h-7 w-7" />
               </div>
-              <h3 className="mt-4 text-lg font-black text-slate-950">아직 쉬운 보기에 올라온 전략이 없습니다</h3>
-              <p className="mt-2 text-sm leading-6 text-slate-600">
+              <h3 className="mt-4 text-lg font-black text-slate-950 dark:text-slate-50">아직 쉬운 보기에 올라온 전략이 없습니다</h3>
+              <p className="mt-2 text-sm leading-6 text-slate-600 dark:text-slate-300">
                 AI에게 전략을 요청하거나 추천 템플릿을 선택하면 거래소 연결을 바탕으로 블록과 간선이 여기 생성됩니다.
               </p>
               <div className="mt-5 grid gap-2 text-left sm:grid-cols-3">
-                <div className="rounded-3xl border border-white/80 bg-white/70 px-3 py-3 shadow-[0_12px_32px_rgba(15,23,42,0.06)]">
-                  <div className="flex items-center gap-2 text-sm font-black text-blue-900">
+                <div className="rounded-3xl border border-white/80 bg-white/70 px-3 py-3 shadow-[0_12px_32px_rgba(15,23,42,0.06)] dark:border-slate-700/70 dark:bg-slate-800/65">
+                  <div className="flex items-center gap-2 text-sm font-black text-blue-900 dark:text-blue-200">
                     <PlayCircle className="h-4 w-4" />
                     AI로 시작
                   </div>
-                  <p className="mt-1 text-xs leading-5 text-slate-600">자연어로 전략을 설명하면 쉬운 보기와 코드가 함께 만들어집니다.</p>
+                  <p className="mt-1 text-xs leading-5 text-slate-600 dark:text-slate-300">자연어로 전략을 설명하면 쉬운 보기와 코드가 함께 만들어집니다.</p>
                 </div>
-                <div className="rounded-3xl border border-white/80 bg-white/70 px-3 py-3 shadow-[0_12px_32px_rgba(15,23,42,0.06)]">
-                  <div className="flex items-center gap-2 text-sm font-black text-sky-900">
+                <div className="rounded-3xl border border-white/80 bg-white/70 px-3 py-3 shadow-[0_12px_32px_rgba(15,23,42,0.06)] dark:border-slate-700/70 dark:bg-slate-800/65">
+                  <div className="flex items-center gap-2 text-sm font-black text-sky-900 dark:text-sky-200">
                     <SlidersHorizontal className="h-4 w-4" />
                     템플릿 선택
                   </div>
-                  <p className="mt-1 text-xs leading-5 text-slate-600">추천 템플릿으로 빠르게 시작한 뒤 파라미터만 조정할 수 있습니다.</p>
+                  <p className="mt-1 text-xs leading-5 text-slate-600 dark:text-slate-300">추천 템플릿으로 빠르게 시작한 뒤 파라미터만 조정할 수 있습니다.</p>
                 </div>
-                <div className="rounded-3xl border border-white/80 bg-white/70 px-3 py-3 shadow-[0_12px_32px_rgba(15,23,42,0.06)]">
-                  <div className="flex items-center gap-2 text-sm font-black text-emerald-900">
+                <div className="rounded-3xl border border-white/80 bg-white/70 px-3 py-3 shadow-[0_12px_32px_rgba(15,23,42,0.06)] dark:border-slate-700/70 dark:bg-slate-800/65">
+                  <div className="flex items-center gap-2 text-sm font-black text-emerald-900 dark:text-emerald-200">
                     <BarChart3 className="h-4 w-4" />
                     생성 후 검증
                   </div>
-                  <p className="mt-1 text-xs leading-5 text-slate-600">전략이 만들어지면 쉬운 보기에서 백테스트와 드라이런 흐름까지 이어집니다.</p>
+                  <p className="mt-1 text-xs leading-5 text-slate-600 dark:text-slate-300">전략이 만들어지면 쉬운 보기에서 백테스트와 드라이런 흐름까지 이어집니다.</p>
                 </div>
               </div>
             </div>
           </div>
         </div>
 
-        <div className="grid min-h-0 grid-cols-[minmax(160px,220px)_minmax(0,1fr)] bg-white/[0.78] backdrop-blur-2xl">
-          <div className="border-r border-white/70 p-3">
-            <div className="text-xs font-bold text-slate-600">다음 단계</div>
+        <div className="grid min-h-0 grid-cols-[minmax(160px,220px)_minmax(0,1fr)] bg-white/[0.78] backdrop-blur-2xl dark:bg-slate-950/86">
+          <div className="border-r border-white/70 p-3 dark:border-slate-800/80">
+            <div className="text-xs font-bold text-slate-600 dark:text-slate-400">다음 단계</div>
             <div className="mt-2 grid gap-2">
               {[
                 "거래소 연결 상태 확인",
                 "AI 전략 생성 또는 추천 템플릿 선택",
                 "생성 후 파라미터 조정",
               ].map((step) => (
-                <div key={step} className="rounded-2xl border border-white/80 bg-white/70 px-3 py-2 text-xs font-semibold text-slate-700 shadow-sm">
+                <div key={step} className="rounded-2xl border border-white/80 bg-white/70 px-3 py-2 text-xs font-semibold text-slate-700 shadow-sm dark:border-slate-700/70 dark:bg-slate-900/70 dark:text-slate-300">
                   {step}
                 </div>
               ))}
@@ -652,9 +721,9 @@ export function EasyStrategyGraph({ model, toolbar, onSaveCurrentBlock }: EasySt
           </div>
 
           <div className="flex items-center justify-center p-6">
-            <div className="max-w-lg rounded-[28px] border border-dashed border-slate-300/80 bg-white/70 px-6 py-5 text-center shadow-sm">
-              <div className="text-sm font-black text-slate-900">전략이 생성되면 여기서 블록 개요와 파라미터를 볼 수 있습니다.</div>
-              <p className="mt-2 text-xs leading-5 text-slate-600">
+            <div className="max-w-lg rounded-[28px] border border-dashed border-slate-300/80 bg-white/70 px-6 py-5 text-center shadow-sm dark:border-slate-700/80 dark:bg-slate-900/70">
+              <div className="text-sm font-black text-slate-900 dark:text-slate-100">전략이 생성되면 여기서 블록 개요와 파라미터를 볼 수 있습니다.</div>
+              <p className="mt-2 text-xs leading-5 text-slate-600 dark:text-slate-400">
                 쉬운 보기에서는 실행 파라미터를 빠르게 조정하고, 구조를 바꾸고 싶을 때만 고급 보기로 넘어가면 됩니다.
               </p>
             </div>
@@ -665,8 +734,8 @@ export function EasyStrategyGraph({ model, toolbar, onSaveCurrentBlock }: EasySt
   }
 
   return (
-    <div className="grid h-full min-h-0 grid-rows-[minmax(420px,1fr)_clamp(154px,22vh,220px)]">
-      <div className="relative overflow-auto border-b border-white/70 bg-[radial-gradient(circle_at_top_left,rgba(255,255,255,0.95),transparent_34rem),linear-gradient(135deg,#f8fafc_0%,#eef4fb_45%,#e9eef5_100%)]">
+    <div className="easy-strategy-graph grid h-full min-h-0 grid-rows-[minmax(420px,1fr)_clamp(154px,22vh,220px)]">
+      <div className="relative overflow-auto border-b border-white/70 bg-[radial-gradient(circle_at_top_left,rgba(255,255,255,0.95),transparent_34rem),linear-gradient(135deg,#f8fafc_0%,#eef4fb_45%,#e9eef5_100%)] dark:border-slate-800/80 dark:bg-[radial-gradient(circle_at_top_left,rgba(56,189,248,0.16),transparent_34rem),radial-gradient(circle_at_bottom_right,rgba(16,185,129,0.1),transparent_30rem),linear-gradient(135deg,#020617_0%,#0f172a_48%,#111827_100%)]">
         {toolbar ? <div className="absolute left-3 top-2 z-20">{toolbar}</div> : null}
         <div
           className="relative h-full min-h-[420px] min-w-full"
@@ -680,47 +749,49 @@ export function EasyStrategyGraph({ model, toolbar, onSaveCurrentBlock }: EasySt
               preserveAspectRatio="xMinYMin meet"
             >
               <defs>
-                {Object.entries(EDGE_STYLE).map(([kind, style]) => (
+                {EDGE_LABEL_COLORS.map((stroke, index) => (
                   <marker
-                    key={kind}
-                    id={`easy-arrow-${kind}`}
-                    viewBox="0 0 14 14"
-                    refX="0"
-                    refY="7"
-                    markerWidth="14"
-                    markerHeight="14"
+                    key={stroke}
+                    id={`easy-arrow-label-${index}`}
+                    viewBox="0 0 12 12"
+                    refX="10"
+                    refY="6"
+                    markerWidth="12"
+                    markerHeight="12"
                     markerUnits="userSpaceOnUse"
                     orient="auto"
                   >
-                    <path d="M 0 0 L 14 7 L 0 14 z" fill={style.stroke} />
+                    <path d="M 1 1 L 11 6 L 1 11 L 4.1 6 z" fill={stroke} />
                   </marker>
                 ))}
+                <marker
+                  id="easy-arrow-shared-pipeline"
+                  viewBox="0 0 12 12"
+                  refX="10"
+                  refY="6"
+                  markerWidth="12"
+                  markerHeight="12"
+                  markerUnits="userSpaceOnUse"
+                  orient="auto"
+                >
+                  <path d="M 1 1 L 11 6 L 1 11 L 4.1 6 z" fill={SHARED_PIPELINE_EDGE_COLOR} />
+                </marker>
               </defs>
               {measuredModel.edges.map((edge) => {
                 const source = measuredModel.nodes.find((node) => node.id === edge.source);
                 const target = measuredModel.nodes.find((node) => node.id === edge.target);
                 if (!source || !target) return null;
-                const style = EDGE_STYLE[edge.kind];
+                const style = getEdgeStyle(edge);
                 const routePoints = getEasyViewEdgeRoutePoints(source, target, measuredModel.nodes, edge, measuredModel.edges);
                 const labelPlacement = edgeLabelPlacements.get(edge.id);
                 const splitRoute = labelPlacement ? splitRouteAtLabel(routePoints, labelPlacement) : null;
                 const isFocusedEdge = focusedEdgeIds.has(edge.id);
                 const isDimmedEdge = isFocusActive && !isFocusedEdge;
-                const edgeOpacity = isDimmedEdge ? 0.13 : 1;
-                const edgeStrokeWidth = isFocusedEdge ? 4.8 : 3.2;
+	                const edgeOpacity = isDimmedEdge ? 0.1 : 1;
+	                const edgeStrokeWidth = isFocusedEdge ? style.width + 1.9 : style.width;
+                const startPoint = routePoints[0];
                 return (
                   <g key={edge.id} opacity={edgeOpacity}>
-                    {isFocusedEdge ? (
-                      <path
-                        d={roundedPathFromPoints(routePoints)}
-                        fill="none"
-                        stroke={style.stroke}
-                        strokeWidth="10"
-                        strokeLinecap="round"
-                        strokeLinejoin="round"
-                        opacity="0.22"
-                      />
-                    ) : null}
                     {splitRoute ? (
                       <>
                         <path
@@ -729,7 +800,7 @@ export function EasyStrategyGraph({ model, toolbar, onSaveCurrentBlock }: EasySt
                           stroke={style.stroke}
                           strokeWidth={edgeStrokeWidth}
                           strokeDasharray={style.dash}
-                          strokeLinecap="butt"
+                          strokeLinecap="round"
                           strokeLinejoin="round"
                         />
                         <path
@@ -738,23 +809,35 @@ export function EasyStrategyGraph({ model, toolbar, onSaveCurrentBlock }: EasySt
                           stroke={style.stroke}
                           strokeWidth={edgeStrokeWidth}
                           strokeDasharray={style.dash}
-                          strokeLinecap="butt"
+                          strokeLinecap="round"
                           strokeLinejoin="round"
-                          markerEnd={`url(#easy-arrow-${edge.kind})`}
+                          markerEnd={`url(#${style.markerId})`}
                         />
                       </>
                     ) : (
-                      <path
-                        d={roundedPathFromPoints(routePoints)}
-                        fill="none"
-                        stroke={style.stroke}
-                        strokeWidth={edgeStrokeWidth}
-                        strokeDasharray={style.dash}
-                        strokeLinecap="butt"
-                        strokeLinejoin="round"
-                        markerEnd={`url(#easy-arrow-${edge.kind})`}
-                      />
+                      <>
+                        <path
+                          d={roundedPathFromPoints(routePoints)}
+                          fill="none"
+                          stroke={style.stroke}
+                          strokeWidth={edgeStrokeWidth}
+                          strokeDasharray={style.dash}
+                          strokeLinecap="round"
+                          strokeLinejoin="round"
+                          markerEnd={`url(#${style.markerId})`}
+                        />
+                      </>
                     )}
+                    {startPoint ? (
+                      <circle
+                        cx={startPoint.x}
+                        cy={startPoint.y}
+                        r={isFocusedEdge ? 4.6 : 3.3}
+                        fill={style.stroke}
+                        stroke="var(--easy-edge-dot-ring)"
+                        strokeWidth="2.2"
+                      />
+                    ) : null}
                   </g>
                 );
               })}
@@ -764,38 +847,46 @@ export function EasyStrategyGraph({ model, toolbar, onSaveCurrentBlock }: EasySt
           {hasMeasuredAllNodes ? measuredModel.edges.map((edge) => {
             const labelPlacement = edgeLabelPlacements.get(edge.id);
             if (!labelPlacement) return null;
-            const style = EDGE_STYLE[edge.kind];
+            const style = getEdgeStyle(edge);
             const isDimmedLabel = isFocusActive && !focusedEdgeIds.has(edge.id);
             return (
               <div
-                key={`label-${edge.id}`}
-                className="pointer-events-none absolute z-10 inline-flex items-center justify-center rounded-full border bg-white/85 text-[10px] font-black text-slate-600 shadow-[0_10px_28px_rgba(15,23,42,0.10)] backdrop-blur-xl"
-                style={{
-                  left: labelPlacement.x - labelPlacement.width / 2,
-                  top: labelPlacement.y - labelPlacement.height / 2,
-                  width: labelPlacement.width,
-                  height: labelPlacement.height,
-                  borderColor: `${style.stroke}52`,
-                  opacity: isDimmedLabel ? 0.18 : 1,
-                }}
-              >
-                {labelPlacement.label}
-              </div>
+	                key={`label-${edge.id}`}
+	                className={cn(
+	                  "pointer-events-none absolute z-10 inline-flex items-center justify-center rounded-md border border-white/80 bg-white/80 px-1.5 text-[10px] font-bold text-slate-600 shadow-[0_6px_18px_rgba(15,23,42,0.08)] backdrop-blur-md dark:border-slate-700/70 dark:bg-slate-950/80 dark:text-slate-300",
+	                  edge.sharedDataPipeline && "border-rose-200 bg-rose-50/90 text-rose-700 dark:border-rose-400/35 dark:bg-rose-400/10 dark:text-rose-200",
+	                  focusedEdgeIds.has(edge.id) && "z-20 bg-white text-slate-950 shadow-[0_10px_26px_rgba(15,23,42,0.15)] dark:bg-slate-900 dark:text-slate-50",
+	                )}
+	                style={{
+	                  left: labelPlacement.x - labelPlacement.width / 2,
+	                  top: labelPlacement.y - labelPlacement.height / 2,
+	                  width: labelPlacement.width,
+	                  height: labelPlacement.height,
+	                  opacity: isDimmedLabel ? 0.18 : 1,
+	                  textOrientation: "mixed",
+	                  writingMode: "horizontal-tb",
+	                }}
+	              >
+	                <span className="mr-1 h-1 w-1 shrink-0 rounded-full" style={{ backgroundColor: style.stroke }} />
+	                <span className="whitespace-nowrap leading-none">{labelPlacement.label}</span>
+	              </div>
             );
           }) : null}
 
-          <div className="absolute left-8 top-[84px] z-20 rounded-full border border-white/80 bg-white/85 px-3 py-1 text-[11px] font-black text-emerald-700 shadow-[0_12px_30px_rgba(15,23,42,0.10)] backdrop-blur-xl">
+          <div className="absolute left-8 top-[84px] z-20 rounded-full border border-white/80 bg-white/85 px-3 py-1 text-[11px] font-black text-emerald-700 shadow-[0_12px_30px_rgba(15,23,42,0.10)] backdrop-blur-xl dark:border-emerald-400/30 dark:bg-slate-950/75 dark:text-emerald-300">
             시작
           </div>
 
-          {model.nodes.map((node) => {
-            const isSelected = selectedNodeId === node.id;
-            const isFocusedNode = focusedNodeId === node.id;
-            const isFocusRelated = !isFocusActive || focusedNodeIds.has(node.id);
-            const isAbstracted = Boolean(node.isAbstracted || (node.sourceBlockIds?.length ?? 0) > 1);
-            const isCompact = !isAbstracted && (node.kind === "condition" || node.kind === "risk");
-            return (
-              <button
+	          {model.nodes.map((node) => {
+	            const isSelected = selectedNodeId === node.id;
+	            const isFocusedNode = focusedNodeId === node.id;
+	            const isFocusRelated = !isFocusActive || focusedNodeIds.has(node.id);
+	            const isAbstracted = Boolean(node.isAbstracted || (node.sourceBlockIds?.length ?? 0) > 1);
+	            const isCompact = !isAbstracted && (node.kind === "condition" || node.kind === "risk");
+	            const frontDescription = getNodeFrontDescription(node);
+	            const paramChips = getNodeParamChips(node);
+	            return (
+	              <button
                 key={node.id}
                 ref={(element) => registerNodeElement(node.id, element)}
                 data-easy-node-id={node.id}
@@ -805,60 +896,59 @@ export function EasyStrategyGraph({ model, toolbar, onSaveCurrentBlock }: EasySt
                   setSelectedNodeId(node.id);
                   setFocusedNodeId(node.id);
                   setDetailTab("overview");
-                }}
-                className={cn(
-                  "absolute z-20 rounded-[26px] border text-left shadow-[0_18px_52px_rgba(15,23,42,0.10)] backdrop-blur-2xl transition-all hover:-translate-y-1 hover:shadow-[0_26px_70px_rgba(15,23,42,0.14)]",
-                  isCompact ? "px-3 py-2.5" : "p-3.5",
-                  KIND_STYLE[node.kind],
-                  isSelected && "border-blue-300 ring-[6px] ring-blue-500/10",
-                  isFocusedNode && "z-30 ring-[6px] ring-blue-500/15 shadow-[0_30px_80px_rgba(0,122,255,0.18)]",
-                  isFocusActive && !isFocusRelated && "opacity-25 grayscale",
-                )}
+	                }}
+	                className={cn(
+	                  "absolute z-20 overflow-hidden rounded-2xl border text-left shadow-[0_16px_46px_rgba(15,23,42,0.09)] backdrop-blur-2xl transition-all hover:-translate-y-1 hover:shadow-[0_24px_64px_rgba(15,23,42,0.14)]",
+	                  isCompact ? "px-3 py-3" : "px-3.5 py-3.5",
+	                  KIND_STYLE[node.kind],
+	                  isSelected && "border-blue-300 ring-[6px] ring-blue-500/10",
+	                  isFocusedNode && "z-30 ring-[6px] ring-blue-500/15 shadow-[0_30px_80px_rgba(0,122,255,0.18)]",
+	                  isFocusActive && !isFocusRelated && "opacity-[0.22] grayscale",
+	                )}
                 style={{
                   left: node.x,
                   top: node.y,
                   width: node.w,
                   minHeight: getNodeVisualHeight(node),
-                  filter: isFocusedNode ? "drop-shadow(0 0 18px rgba(0, 122, 255, 0.24))" : undefined,
-                }}
-              >
-                <div className="flex items-start justify-between gap-2">
-                  <div className="flex min-w-0 items-center gap-2">
-                    {!isCompact ? <NodeIcon kind={node.kind} /> : null}
-                    <div className="min-w-0">
-                      <div className={cn("truncate font-black text-slate-900", isCompact ? "text-[11px]" : "text-xs")}>
-                        {node.title}
-                      </div>
-                      <div className="truncate text-[11px] text-slate-500">{node.subtitle}</div>
-                    </div>
-                  </div>
-                  {!isCompact ? (
-                    <span className="rounded-full bg-slate-900/[0.05] px-2 py-0.5 text-[10px] font-bold text-slate-500">
-                      {node.index}
-                    </span>
-                  ) : null}
-                </div>
-                {!isCompact ? (
-                  <div className="mt-2 flex items-center justify-between">
-                    {node.kind === "start" ? (
-                      <div className="flex items-center gap-1 rounded-full bg-amber-500/10 px-2 py-1 text-[9px] font-bold text-amber-700">
-                        <RefreshCw className="h-2.5 w-2.5 animate-spin" /> 무한 루프 주기
-                      </div>
-                    ) : (
-                      <StatusBadge status={node.status} />
-                    )}
-                    <span className={cn("text-[10px] font-bold", node.editableInEasyView ? "text-blue-600" : "text-slate-400")}>
-                      {isAbstracted ? `요약 ${node.sourceBlockIds?.length ?? 1}` : node.editableInEasyView ? "파라미터" : "읽기 전용"}
-                    </span>
-                  </div>
-                ) : null}
-                {!isCompact && isAbstracted ? (
-                  <div className="mt-2 overflow-hidden text-[11px] font-medium leading-4 text-slate-600 [display:-webkit-box] [-webkit-box-orient:vertical] [-webkit-line-clamp:2]">
-                    {node.description}
-                  </div>
-                ) : null}
-                {node.kind === "stream" ? <StreamMiniChart node={node} /> : null}
-              </button>
+	                  filter: isFocusedNode ? "drop-shadow(0 0 18px rgba(0, 122, 255, 0.24))" : undefined,
+	                }}
+	              >
+	                <span className={cn("absolute inset-x-0 top-0 h-1", KIND_ACCENT[node.kind])} />
+	                <div className="flex items-start gap-2.5">
+	                  <span className="mt-0.5 flex h-7 w-7 shrink-0 items-center justify-center rounded-xl bg-slate-900/[0.045] dark:bg-white/[0.07]">
+	                    <NodeIcon kind={node.kind} />
+	                  </span>
+	                  <div className="min-w-0 flex-1">
+	                    <div className={cn("truncate font-black text-slate-950 dark:text-slate-50", isCompact ? "text-[11px]" : "text-xs")}>
+	                      {node.title}
+	                    </div>
+	                    <div className="mt-0.5 overflow-hidden text-[11px] font-medium leading-4 text-slate-600 [display:-webkit-box] [-webkit-box-orient:vertical] [-webkit-line-clamp:1] dark:text-slate-300">
+	                      {frontDescription}
+	                    </div>
+	                  </div>
+	                </div>
+	                <div className="mt-2 flex min-w-0 items-center gap-1.5 overflow-hidden">
+	                  {node.kind === "start" ? (
+	                    <span className="inline-flex h-5 shrink-0 items-center gap-1 rounded-full bg-amber-500/10 px-2 text-[9px] font-bold text-amber-700 dark:text-amber-300">
+	                      <RefreshCw className="h-2.5 w-2.5 animate-spin" />
+	                      주기
+	                    </span>
+	                  ) : (
+	                    <StatusBadge status={node.status} />
+	                  )}
+	                  {isAbstracted ? (
+	                    <span className="inline-flex h-5 shrink-0 items-center rounded-full bg-slate-900/[0.05] px-2 text-[9px] font-bold text-slate-500 dark:bg-white/[0.07] dark:text-slate-400">
+	                      요약 {node.sourceBlockIds?.length ?? 1}
+	                    </span>
+	                  ) : null}
+	                  {paramChips.map((chip) => (
+	                    <span key={chip} className="min-w-0 truncate rounded-full bg-blue-500/10 px-2 py-1 text-[9px] font-bold text-blue-700 dark:bg-blue-400/10 dark:text-blue-300">
+	                      {chip}
+	                    </span>
+	                  ))}
+	                </div>
+	                {node.kind === "stream" ? <StreamMiniChart node={node} /> : null}
+	              </button>
             );
           })}
 
@@ -875,11 +965,11 @@ export function EasyStrategyGraph({ model, toolbar, onSaveCurrentBlock }: EasySt
                   key={action.label}
                   type="button"
                   className={cn(
-                    "inline-flex h-11 items-center justify-center gap-2 rounded-2xl border bg-white/85 text-sm font-black shadow-[0_14px_36px_rgba(15,23,42,0.10)] backdrop-blur-xl transition hover:-translate-y-0.5 hover:bg-white",
-                    action.tone === "blue" && "border-blue-200 text-blue-700",
-                    action.tone === "slate" && "border-slate-200 text-slate-700",
-                    action.tone === "cyan" && "border-cyan-200 text-cyan-700",
-                    action.tone === "emerald" && "border-emerald-200 text-emerald-700",
+                    "inline-flex h-11 items-center justify-center gap-2 rounded-2xl border bg-white/85 text-sm font-black shadow-[0_14px_36px_rgba(15,23,42,0.10)] backdrop-blur-xl transition hover:-translate-y-0.5 hover:bg-white dark:bg-slate-950/75 dark:shadow-[0_14px_36px_rgba(0,0,0,0.28)] dark:hover:bg-slate-900",
+                    action.tone === "blue" && "border-blue-200 text-blue-700 dark:border-blue-400/30 dark:text-blue-300",
+                    action.tone === "slate" && "border-slate-200 text-slate-700 dark:border-slate-700 dark:text-slate-300",
+                    action.tone === "cyan" && "border-cyan-200 text-cyan-700 dark:border-cyan-400/30 dark:text-cyan-300",
+                    action.tone === "emerald" && "border-emerald-200 text-emerald-700 dark:border-emerald-400/30 dark:text-emerald-300",
                   )}
                 >
                   <Icon className="h-4 w-4" />
@@ -891,33 +981,36 @@ export function EasyStrategyGraph({ model, toolbar, onSaveCurrentBlock }: EasySt
         </div>
       </div>
 
-      <div className="grid min-h-0 grid-cols-[minmax(160px,220px)_minmax(0,1fr)] bg-white/[0.78] backdrop-blur-2xl">
-        <div className="border-r border-white/70 p-2.5">
-          <div className="mb-2 text-xs font-bold text-slate-600">쉬운 보기에서 수정 가능</div>
+      <div className="grid min-h-0 grid-cols-[minmax(160px,220px)_minmax(0,1fr)] bg-white/[0.78] backdrop-blur-2xl dark:bg-slate-950/86">
+        <div className="border-r border-white/70 p-2.5 dark:border-slate-800/80">
+          <div className="mb-2 text-xs font-bold text-slate-600 dark:text-slate-400">쉬운 보기에서 수정 가능</div>
           <div className="grid gap-1.5">
             {editableNodes.map((node) => (
               <button
                 key={node.id}
                 type="button"
-                onClick={() => {
-                  setSelectedNodeId(node.id);
-                  setDetailTab("params");
-                }}
+	                onClick={() => {
+	                  setSelectedNodeId(node.id);
+	                  setFocusedNodeId(node.id);
+	                  setDetailTab("params");
+	                }}
                 className={cn(
                   "rounded-2xl border p-2.5 text-left text-xs shadow-sm transition",
-                  selectedNodeId === node.id ? "border-blue-200 bg-blue-500/10 text-blue-800" : "border-white/80 bg-white/70 hover:bg-white",
+                  selectedNodeId === node.id
+                    ? "border-blue-200 bg-blue-500/10 text-blue-800 dark:border-blue-400/30 dark:bg-blue-400/10 dark:text-blue-200"
+                    : "border-white/80 bg-white/70 hover:bg-white dark:border-slate-700/70 dark:bg-slate-900/70 dark:hover:bg-slate-900",
                 )}
               >
-                <div className="font-black text-slate-900">{node.title}</div>
-                <div className="mt-0.5 truncate text-[11px] text-slate-500">{node.subtitle}</div>
+                <div className="font-black text-slate-900 dark:text-slate-100">{node.title}</div>
+                <div className="mt-0.5 truncate text-[11px] text-slate-500 dark:text-slate-400">{node.subtitle}</div>
               </button>
             ))}
           </div>
         </div>
 
         <div className="min-w-0">
-          <div className="flex h-12 items-center justify-between border-b border-white/70 px-3">
-            <div className="flex rounded-full bg-slate-900/[0.05] p-1">
+          <div className="flex h-12 items-center justify-between border-b border-white/70 px-3 dark:border-slate-800/80">
+            <div className="flex rounded-full bg-slate-900/[0.05] p-1 dark:bg-white/[0.06]">
               {[
                 { id: "overview", label: "개요" },
                 { id: "params", label: "파라미터" },
@@ -929,7 +1022,7 @@ export function EasyStrategyGraph({ model, toolbar, onSaveCurrentBlock }: EasySt
                   onClick={() => setDetailTab(tab.id as DetailTab)}
                   className={cn(
                     "h-8 rounded-full px-3 text-xs font-bold transition",
-                    detailTab === tab.id ? "bg-white text-blue-700 shadow-sm" : "text-slate-500 hover:text-slate-800",
+                    detailTab === tab.id ? "bg-white text-blue-700 shadow-sm dark:bg-slate-800 dark:text-blue-300" : "text-slate-500 hover:text-slate-800 dark:text-slate-400 dark:hover:text-slate-200",
                   )}
                 >
                   {tab.label}
@@ -942,13 +1035,13 @@ export function EasyStrategyGraph({ model, toolbar, onSaveCurrentBlock }: EasySt
                   type="button"
                   onClick={handleSaveCurrentBlock}
                   disabled={!selectedNode}
-                  className="inline-flex h-8 items-center gap-1.5 rounded-full bg-slate-950 px-3 text-[11px] font-black text-white shadow-sm transition hover:bg-slate-800 disabled:cursor-not-allowed disabled:bg-slate-300"
+                  className="inline-flex h-8 items-center gap-1.5 rounded-full bg-slate-950 px-3 text-[11px] font-black text-white shadow-sm transition hover:bg-slate-800 disabled:cursor-not-allowed disabled:bg-slate-300 dark:bg-slate-100 dark:text-slate-950 dark:hover:bg-white dark:disabled:bg-slate-700 dark:disabled:text-slate-400"
                 >
                   <Save className="h-3.5 w-3.5 text-emerald-300" />
                   현재 블록 저장
                 </button>
               ) : null}
-              <div className="hidden items-center gap-1 rounded-full bg-white/70 px-2.5 py-1.5 text-[10px] font-bold text-slate-500 shadow-sm md:flex">
+              <div className="hidden items-center gap-1 rounded-full bg-white/70 px-2.5 py-1.5 text-[10px] font-bold text-slate-500 shadow-sm md:flex dark:bg-slate-900/80 dark:text-slate-400">
                 <Code2 className="h-3 w-3" />
                 코드에서 생성됨
               </div>
@@ -965,41 +1058,41 @@ export function EasyStrategyGraph({ model, toolbar, onSaveCurrentBlock }: EasySt
                     : "grid-cols-[minmax(180px,1fr)_minmax(260px,1.65fr)_minmax(220px,1.1fr)]",
                 )}
               >
-                <div className="rounded-2xl border border-white/80 bg-white/70 p-3 shadow-sm">
+                <div className="rounded-2xl border border-white/80 bg-white/70 p-3 shadow-sm dark:border-slate-700/70 dark:bg-slate-900/70">
                   <div className="flex items-center justify-between gap-2">
-                    <div className="text-xs font-bold text-slate-500">선택 블록</div>
+                    <div className="text-xs font-bold text-slate-500 dark:text-slate-400">선택 블록</div>
                     {selectedNode ? <StatusBadge status={selectedNode.status} /> : null}
                   </div>
-                  <div className="mt-2 text-sm font-black text-slate-900">{selectedNode?.title}</div>
-                  <div className="mt-1 text-[11px] font-bold text-blue-600">{getNodeKindLabel(selectedNode?.kind)}</div>
-                  <p className="mt-2 text-xs leading-5 text-slate-600">{selectedNode?.description}</p>
+                  <div className="mt-2 text-sm font-black text-slate-900 dark:text-slate-100">{selectedNode?.title}</div>
+                  <div className="mt-1 text-[11px] font-bold text-blue-600 dark:text-blue-300">{getNodeKindLabel(selectedNode?.kind)}</div>
+                  <p className="mt-2 text-xs leading-5 text-slate-600 dark:text-slate-300">{selectedNode?.description}</p>
                 </div>
-                <div className="rounded-2xl border border-white/80 bg-white/70 p-3 shadow-sm">
-                  <div className="text-xs font-bold text-slate-500">이 전략에서 하는 일</div>
-                  <p className="mt-2 text-xs leading-5 text-slate-600">
+                <div className="rounded-2xl border border-white/80 bg-white/70 p-3 shadow-sm dark:border-slate-700/70 dark:bg-slate-900/70">
+                  <div className="text-xs font-bold text-slate-500 dark:text-slate-400">이 전략에서 하는 일</div>
+                  <p className="mt-2 text-xs leading-5 text-slate-600 dark:text-slate-300">
                     {selectedNode?.roleDescription ?? selectedNode?.description ?? "선택한 블록의 전략 내 역할을 표시합니다."}
                   </p>
-                  <div className="mt-3 rounded-xl bg-slate-900/[0.04] px-2.5 py-2 text-[11px] font-semibold leading-5 text-slate-600">
+                  <div className="mt-3 rounded-xl bg-slate-900/[0.04] px-2.5 py-2 text-[11px] font-semibold leading-5 text-slate-600 dark:bg-white/[0.06] dark:text-slate-300">
                     이전: {incomingSummary}
                   </div>
-                  <div className="mt-1.5 rounded-xl bg-slate-900/[0.04] px-2.5 py-2 text-[11px] font-semibold leading-5 text-slate-600">
+                  <div className="mt-1.5 rounded-xl bg-slate-900/[0.04] px-2.5 py-2 text-[11px] font-semibold leading-5 text-slate-600 dark:bg-white/[0.06] dark:text-slate-300">
                     다음: {outgoingSummary}
                   </div>
                 </div>
                 {showTradingCriterion ? (
-                  <div className="rounded-2xl border border-white/80 bg-white/70 p-3 shadow-sm">
-                    <div className="text-xs font-bold text-slate-500">매매 기준</div>
-                    <p className="mt-2 text-xs leading-5 text-slate-600">
+                  <div className="rounded-2xl border border-white/80 bg-white/70 p-3 shadow-sm dark:border-slate-700/70 dark:bg-slate-900/70">
+                    <div className="text-xs font-bold text-slate-500 dark:text-slate-400">매매 기준</div>
+                    <p className="mt-2 text-xs leading-5 text-slate-600 dark:text-slate-300">
                       {selectedNode?.conditionText || "연결된 매매 기준이 충족될 때 실행됩니다."}
                     </p>
                   </div>
                 ) : null}
-                <div className="rounded-2xl border border-white/80 bg-white/70 p-3 shadow-sm">
-                  <div className="text-xs font-bold text-slate-500">입출력</div>
-                  <p className="mt-2 text-xs leading-5 text-slate-600">
+                <div className="rounded-2xl border border-white/80 bg-white/70 p-3 shadow-sm dark:border-slate-700/70 dark:bg-slate-900/70">
+                  <div className="text-xs font-bold text-slate-500 dark:text-slate-400">입출력</div>
+                  <p className="mt-2 text-xs leading-5 text-slate-600 dark:text-slate-300">
                     {selectedNode?.inputSummary ?? "받는 입력: 연결된 이전 블록"}
                   </p>
-                  <p className="mt-2 text-xs leading-5 text-slate-600">
+                  <p className="mt-2 text-xs leading-5 text-slate-600 dark:text-slate-300">
                     {selectedNode?.outputSummary ?? "내보내는 값: 연결된 다음 블록"}
                   </p>
                 </div>
@@ -1013,7 +1106,7 @@ export function EasyStrategyGraph({ model, toolbar, onSaveCurrentBlock }: EasySt
                     const key = `${selectedNode.id}:${param.key}`;
                     return (
                       <label key={param.key} className="block">
-                        <div className="mb-1 text-xs font-bold text-slate-700">{param.label}</div>
+                        <div className="mb-1 text-xs font-bold text-slate-700 dark:text-slate-300">{param.label}</div>
                         {param.options ? (
                           <select
                             value={paramValues[key] ?? param.value}
@@ -1021,7 +1114,7 @@ export function EasyStrategyGraph({ model, toolbar, onSaveCurrentBlock }: EasySt
                               setParamValues((prev) => ({ ...prev, [key]: event.target.value }))
                             }
                             disabled={param.readonly}
-                            className="h-10 w-full rounded-xl border border-slate-200 bg-white/85 px-2 text-sm font-semibold outline-none focus:border-blue-300 disabled:bg-slate-100 disabled:text-slate-500"
+                            className="h-10 w-full rounded-xl border border-slate-200 bg-white/85 px-2 text-sm font-semibold outline-none focus:border-blue-300 disabled:bg-slate-100 disabled:text-slate-500 dark:border-slate-700 dark:bg-slate-900/85 dark:text-slate-100 dark:focus:border-blue-400 dark:disabled:bg-slate-800 dark:disabled:text-slate-500"
                           >
                             {param.options.map((option) => (
                               <option key={option} value={option}>
@@ -1030,7 +1123,7 @@ export function EasyStrategyGraph({ model, toolbar, onSaveCurrentBlock }: EasySt
                             ))}
                           </select>
                         ) : (
-                          <div className={`flex h-10 rounded-xl border border-slate-200 bg-white/85 ${param.readonly ? "bg-slate-100" : ""}`}>
+                          <div className={`flex h-10 rounded-xl border border-slate-200 bg-white/85 dark:border-slate-700 dark:bg-slate-900/85 ${param.readonly ? "bg-slate-100 dark:bg-slate-800" : ""}`}>
                             <input
                               value={paramValues[key] ?? param.value}
                               onChange={(event) =>
@@ -1038,22 +1131,22 @@ export function EasyStrategyGraph({ model, toolbar, onSaveCurrentBlock }: EasySt
                               }
                               readOnly={param.readonly}
                               disabled={param.readonly}
-                              className="min-w-0 flex-1 rounded-l-xl px-2 text-sm font-semibold outline-none focus:ring-1 focus:ring-blue-300 disabled:bg-slate-100 disabled:text-slate-500"
+                              className="min-w-0 flex-1 rounded-l-xl bg-transparent px-2 text-sm font-semibold outline-none focus:ring-1 focus:ring-blue-300 disabled:bg-slate-100 disabled:text-slate-500 dark:text-slate-100 dark:focus:ring-blue-400 dark:disabled:bg-slate-800 dark:disabled:text-slate-500"
                             />
                             {param.unit ? (
-                              <span className="inline-flex items-center border-l border-slate-200 px-2 text-xs font-bold text-slate-400">
+                              <span className="inline-flex items-center border-l border-slate-200 px-2 text-xs font-bold text-slate-400 dark:border-slate-700 dark:text-slate-500">
                                 {param.unit}
                               </span>
                             ) : null}
                           </div>
                         )}
-                        <div className="mt-1 truncate text-[11px] text-slate-500">{param.helper}</div>
+                        <div className="mt-1 truncate text-[11px] text-slate-500 dark:text-slate-400">{param.helper}</div>
                       </label>
                     );
                   })}
                 </div>
               ) : (
-                <div className="flex h-full items-center justify-center rounded-2xl border border-dashed border-slate-300 bg-white/70 px-4 text-center text-sm font-semibold text-slate-500">
+                <div className="flex h-full items-center justify-center rounded-2xl border border-dashed border-slate-300 bg-white/70 px-4 text-center text-sm font-semibold text-slate-500 dark:border-slate-700 dark:bg-slate-900/70 dark:text-slate-400">
                   이 블록은 파이프라인 구조에 속합니다. 쉬운 보기에서는 CEX/DEX 실행 파라미터만 조절하고, 구조 변경은 고급 보기에서 합니다.
                 </div>
               )

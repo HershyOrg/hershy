@@ -6,7 +6,24 @@
     "dev": "NODE_ENV=development node server.mjs",
     "build": "next build",
     "start": "NODE_ENV=production node server.mjs",
-    "lint": "eslint ."
+    "lint": "eslint .",
+    "evm:protocol-ingest": "node --no-warnings scripts/evm-protocol-knowledge.mjs ingest",
+    "evm:protocol-search": "node --no-warnings scripts/evm-protocol-knowledge.mjs search",
+    "evm:protocol-alerts": "node --no-warnings scripts/evm-protocol-knowledge.mjs alerts",
+    "kg:migrate": "node scripts/protocol-kg-agent.mjs migrate",
+    "kg:enqueue": "node scripts/protocol-kg-agent.mjs enqueue",
+    "kg:loop": "node scripts/protocol-kg-agent.mjs loop",
+    "kg:ingest": "node scripts/protocol-kg-agent.mjs ingest",
+    "kg:search": "node scripts/protocol-kg-agent.mjs search",
+    "kg:history": "node scripts/protocol-kg-agent.mjs history",
+    "kg:embed-backfill": "node scripts/protocol-kg-agent.mjs embed-backfill",
+    "kg:embedding-index": "node scripts/protocol-kg-agent.mjs embedding-index",
+    "strategy:workflow-plan": "node scripts/strategy-workflow-planner.mjs",
+    "strategy:agent-loop": "node scripts/agentic-strategy-loop.mjs",
+    "strategy:trace": "node scripts/agentic-workflow-trace.mjs",
+    "protocols:top100": "node scripts/build-defillama-top-protocols.mjs",
+    "protocols:base-top100": "node scripts/build-defillama-top-protocols.mjs --chain Base",
+    "protocols:import-registry": "node scripts/import-protocol-registry.mjs"
   },
   "dependencies": {
     "@hookform/resolvers": "^3.9.1",
@@ -54,6 +71,7 @@
     "lucide-react": "^0.564.0",
     "next": "16.2.0",
     "next-themes": "^0.4.6",
+    "pg": "^8.21.0",
     "react": "19.2.4",
     "react-day-picker": "9.13.2",
     "react-dom": "19.2.4",
@@ -64,6 +82,7 @@
     "sonner": "^1.7.1",
     "tailwind-merge": "^3.3.1",
     "vaul": "^1.1.2",
+    "viem": "^2.50.4",
     "zod": "^3.24.1"
   },
   "devDependencies": {

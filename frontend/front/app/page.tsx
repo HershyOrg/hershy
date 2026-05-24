@@ -3,21 +3,24 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type FormEvent } from "react";
 import {
   BarChart3,
+  ChevronLeft,
   ChevronRight,
   Clock3,
   Coins,
   FileCode2,
-  Network,
+  Moon,
   PlayCircle,
   Rocket,
   RotateCcw,
   Save,
   SlidersHorizontal,
   Sparkles,
+  Sun,
   WalletCards,
   X,
   Zap,
 } from "lucide-react";
+import { useTheme } from "next-themes";
 import { ExchangeLibraryModal } from "@/components/home/ExchangeLibraryModal";
 import { PageRightRail } from "@/components/home/PageRightRail";
 import { PortfolioWorkspace } from "@/components/home/PortfolioWorkspace";
@@ -43,6 +46,7 @@ import {
 import { StatusBadge } from "@/components/home/shared";
 import type {
   AgentActivity,
+  BalanceMyDataSnapshot,
   ExchangeConnection,
   ExchangeFormState,
   MarketRow,
@@ -120,12 +124,30 @@ type PersistedStrategyBuilderState = {
   agentSteps: string[];
 };
 
+const START_GUIDE_COMPLETED_STORAGE_PREFIX = "hershy-start-guide-completed";
+
 function isWorkspaceNavId(value: string): value is WorkspaceView {
   return value === "create" || value === "library" || value === "portfolio";
 }
 
 function canUseBrowserStorage() {
   return typeof window !== "undefined" && Boolean(window.localStorage);
+}
+
+const DEPRECATED_XRP_SEED_PATTERN = /XRPUSDT|XRPUSDT\.P|\bXRP\b/i;
+
+function getStartGuideStorageKey(userId: string) {
+  return `${START_GUIDE_COMPLETED_STORAGE_PREFIX}:${userId || "guest"}`;
+}
+
+function readStartGuideCompleted(userId: string) {
+  if (!canUseBrowserStorage()) return false;
+  return window.localStorage.getItem(getStartGuideStorageKey(userId)) === "1";
+}
+
+function writeStartGuideCompleted(userId: string) {
+  if (!canUseBrowserStorage()) return;
+  window.localStorage.setItem(getStartGuideStorageKey(userId), "1");
 }
 
 function collectAdvancedNodeText(node: AdvancedGraphModel["nodes"][number]) {
@@ -738,6 +760,10 @@ function readPersistedStrategyBuilderState(): PersistedStrategyBuilderState | nu
   try {
     const raw = window.localStorage.getItem(STRATEGY_BUILDER_STORAGE_KEY);
     if (!raw) return null;
+    if (DEPRECATED_XRP_SEED_PATTERN.test(raw)) {
+      window.localStorage.removeItem(STRATEGY_BUILDER_STORAGE_KEY);
+      return null;
+    }
 
     const parsed = JSON.parse(raw) as Partial<PersistedStrategyBuilderState>;
     if (parsed.version !== 1 || !isEasyViewModel(parsed.easyViewModel)) return null;
@@ -772,10 +798,10 @@ function readPersistedStrategyBuilderState(): PersistedStrategyBuilderState | nu
       programCode: restoredProgramCode,
       easyViewModel: parsed.easyViewModel,
       advancedGraphModel,
-      lastSyncedAdvancedGraphSignature: advancedGraphModel
-        ? createAdvancedGraphSignature(advancedGraphModel)
-        : typeof parsed.lastSyncedAdvancedGraphSignature === "string"
-          ? parsed.lastSyncedAdvancedGraphSignature
+      lastSyncedAdvancedGraphSignature: typeof parsed.lastSyncedAdvancedGraphSignature === "string"
+        ? parsed.lastSyncedAdvancedGraphSignature
+        : advancedGraphModel
+          ? createAdvancedGraphSignature(advancedGraphModel)
           : "",
       aiSummary: restoredAiSummary,
       agentSteps: restoredAgentSteps,
@@ -899,6 +925,9 @@ function formatAIRuntimeResult(validation: unknown, runtime: unknown) {
   const compileCommand = typeof runtimeObj?.compileCommand === "string" ? runtimeObj.compileCommand : "";
   const strategyPath = typeof runtimeObj?.strategyPath === "string" ? runtimeObj.strategyPath : "";
   const mainGoPath = typeof runtimeObj?.mainGoPath === "string" ? runtimeObj.mainGoPath : "";
+  const staticAnalysisConsistency = runtimeObj?.staticAnalysisConsistency && typeof runtimeObj.staticAnalysisConsistency === "object"
+    ? runtimeObj.staticAnalysisConsistency as Record<string, unknown>
+    : null;
   const hostProgram = runtimeObj?.hostProgram && typeof runtimeObj.hostProgram === "object"
     ? runtimeObj.hostProgram as Record<string, unknown>
     : null;
@@ -909,6 +938,12 @@ function formatAIRuntimeResult(validation: unknown, runtime: unknown) {
   }
   if (strategyPath) lines.push(`전략 JSON: ${strategyPath}`);
   if (mainGoPath) lines.push(`생성 Hershy Go 코드: ${mainGoPath}`);
+  if (staticAnalysisConsistency?.ok === true) {
+    const analyzed = staticAnalysisConsistency.analyzed && typeof staticAnalysisConsistency.analyzed === "object"
+      ? staticAnalysisConsistency.analyzed as Record<string, unknown>
+      : {};
+    lines.push(`정적분석: generated_strategy.go와 UI graph 일치 (${analyzed.blocks ?? "?"} blocks / ${analyzed.connections ?? "?"} edges)`);
+  }
   if (validateCommand) lines.push(`검증 명령: ${validateCommand}`);
   if (codegenCommand) lines.push(`코드 생성 명령: ${codegenCommand}`);
   if (compileCommand) lines.push(`컴파일 확인: ${compileCommand}`);
@@ -988,6 +1023,71 @@ function formatAILogicErrorLog(value: unknown) {
   return lines.length > 0 ? `\n\n${lines.join("\n")}` : "";
 }
 
+function formatAgenticWorkflowTrace(data: Record<string, any>) {
+  const persistence = data.persistence && typeof data.persistence === "object" ? data.persistence as Record<string, unknown> : null;
+  const evidenceBundle = data.evidenceBundle && typeof data.evidenceBundle === "object" ? data.evidenceBundle as Record<string, any> : {};
+  const workflowPlan = data.workflowPlan && typeof data.workflowPlan === "object" ? data.workflowPlan as Record<string, any> : {};
+  const webSources = Array.isArray(evidenceBundle.webSources) ? evidenceBundle.webSources : [];
+  const apiSources = Array.isArray(evidenceBundle.apiSources) ? evidenceBundle.apiSources : [];
+  const kgChunks = Array.isArray(evidenceBundle.chunks) ? evidenceBundle.chunks : [];
+  const contractAnalyses = Array.isArray(evidenceBundle.contractAnalyses) ? evidenceBundle.contractAnalyses : [];
+  const labels = Array.isArray(workflowPlan.adaptiveLabels) ? workflowPlan.adaptiveLabels : Array.isArray(evidenceBundle.adaptiveLabels) ? evidenceBundle.adaptiveLabels : [];
+  const selectedAlgorithm = workflowPlan.selectedAlgorithm && typeof workflowPlan.selectedAlgorithm === "object"
+    ? workflowPlan.selectedAlgorithm as Record<string, unknown>
+    : null;
+  const executionDomain = workflowPlan.executionDomain && typeof workflowPlan.executionDomain === "object"
+    ? workflowPlan.executionDomain as Record<string, unknown>
+    : null;
+  const labelText = labels
+    .map((label: unknown) => {
+      if (typeof label === "string") return label;
+      if (!label || typeof label !== "object") return "";
+      const record = label as Record<string, unknown>;
+      return typeof record.label === "string" ? record.label : "";
+    })
+    .filter(Boolean)
+    .slice(0, 10)
+    .join(", ");
+  const runId = typeof persistence?.runID === "string" ? persistence.runID : "";
+  const lines = [
+    "Agentic 검색 루프",
+    selectedAlgorithm?.id ? `algorithm: ${selectedAlgorithm.id}` : "",
+    executionDomain?.id ? `domain: ${executionDomain.id}` : "",
+    `evidence: KG ${kgChunks.length}개 / web ${webSources.length}개 / API-docs ${apiSources.length}개 / AI contract analysis ${contractAnalyses.length}개`,
+    `labels: ${labels.length}${labelText ? ` (${labelText})` : ""}`,
+    runId ? `trace: npm run strategy:trace -- show --run-id ${runId}` : "",
+  ].filter(Boolean);
+  return lines.length > 0 ? `\n\n${lines.join("\n")}` : "";
+}
+
+function stripAISummaryPrefix(value: string) {
+  return value.replace(/^AI\s*요약\s*[:：]\s*/i, "").trim();
+}
+
+function formatStrategyAISummary(data: Record<string, any> | null | undefined, fallbackSummary = "") {
+  const payload =
+    data?.strategyAISummary && typeof data.strategyAISummary === "object"
+      ? data.strategyAISummary as Record<string, any>
+      : data?.strategy?.metadata?.strategyAISummary && typeof data.strategy.metadata.strategyAISummary === "object"
+        ? data.strategy.metadata.strategyAISummary as Record<string, any>
+        : null;
+  const summaryText = typeof payload?.summaryText === "string" ? payload.summaryText.trim() : "";
+  const keyPoints = Array.isArray(payload?.keyPoints)
+    ? payload.keyPoints.map((item) => String(item).trim()).filter(Boolean).slice(0, 3)
+    : [];
+  const readiness = typeof payload?.executionReadinessText === "string" ? payload.executionReadinessText.trim() : "";
+  const riskNotes = Array.isArray(payload?.riskNotes)
+    ? payload.riskNotes.map((item) => String(item).trim()).filter(Boolean).slice(0, 2)
+    : [];
+  const lines = [
+    summaryText || stripAISummaryPrefix(fallbackSummary),
+    ...keyPoints.map((item) => `- ${item}`),
+    readiness ? `실행 준비: ${readiness}` : "",
+    ...riskNotes.map((item) => `주의: ${item}`),
+  ].filter(Boolean);
+  return `AI 요약: ${lines.join("\n") || "전략 요약을 준비하지 못했습니다."}`;
+}
+
 function normalizeAgentActivities(value: unknown): AgentActivity[] {
   if (!Array.isArray(value)) return [];
   return value
@@ -1044,11 +1144,15 @@ function parseAgentEventBuffer(buffer: string) {
 }
 
 export default function Page() {
+  const { resolvedTheme, setTheme } = useTheme();
+  const [isThemeMounted, setIsThemeMounted] = useState(false);
   const [isHistoryOpen, setIsHistoryOpen] = useState(false);
   const [openTabs, setOpenTabs] = useState<string[]>([]);
   const [activeTabId, setActiveTabId] = useState<string | null>(null);
   const [snapshots, setSnapshots] = useState<HistorySnapshot[]>([]);
   const [activeWorkspace, setActiveWorkspace] = useState<WorkspaceView>("create");
+  const [isLeftPanelCollapsed, setIsLeftPanelCollapsed] = useState(false);
+  const [isRightPanelCollapsed, setIsRightPanelCollapsed] = useState(false);
   const [mainView, setMainView] = useState<MainView>("easy");
   const [detailTab, setDetailTab] = useState<DetailTab>("params");
   const [selectedBlockId, setSelectedBlockId] = useState("spot-buy");
@@ -1058,22 +1162,25 @@ export default function Page() {
   const [marketUpdatedAt, setMarketUpdatedAt] = useState("");
   const [marketWarning, setMarketWarning] = useState("");
   const [exchangeConnections, setExchangeConnections] = useState<ExchangeConnection[]>(EXCHANGE_CONNECTIONS);
+  const [balanceSnapshots, setBalanceSnapshots] = useState<BalanceMyDataSnapshot[]>([]);
+  const [syncingBalanceConnectionId, setSyncingBalanceConnectionId] = useState("");
   const [exchangeForm, setExchangeForm] = useState<ExchangeFormState>(createEmptyExchangeForm);
   const [isSavingExchange, setIsSavingExchange] = useState(false);
   const [isTestingExchangeAuth, setIsTestingExchangeAuth] = useState(false);
   const [exchangeAuthMarket] = useState<"spot" | "futures">("spot");
   const [exchangeAuthMessage, setExchangeAuthMessage] = useState("");
   const [exchangeFormError, setExchangeFormError] = useState("");
+  const [clientUserId, setClientUserId] = useState("");
   const [clientUserName, setClientUserName] = useState("Guest");
   const [isPersonalLoggedIn, setIsPersonalLoggedIn] = useState(false);
   const [loginInput, setLoginInput] = useState("");
   const [loginError, setLoginError] = useState("");
-  const [guideDone, setGuideDone] = useState<Set<number>>(new Set([0]));
+  const [guideDone, setGuideDone] = useState<Set<number>>(new Set());
+  const [isGuideCompleted, setIsGuideCompleted] = useState(false);
   const [isGuideOpen, setIsGuideOpen] = useState(false);
   const [isExchangeLibraryOpen, setIsExchangeLibraryOpen] = useState(false);
   const [isUserSettingsOpen, setIsUserSettingsOpen] = useState(false);
   const [guideStep, setGuideStep] = useState(0);
-  const [isSummarizing, setIsSummarizing] = useState(false);
   const [isAgentRunning, setIsAgentRunning] = useState(false);
   const [isTemplatePanelOpen, setIsTemplatePanelOpen] = useState(false);
   const [templatePanelMode, setTemplatePanelMode] = useState<"compact" | "expanded">("compact");
@@ -1109,10 +1216,14 @@ export default function Page() {
   });
   const templatePanelCloseTimer = useRef<number | null>(null);
   const agentAbortControllerRef = useRef<AbortController | null>(null);
+  const codexStrategyInboxIdRef = useRef("");
+  const codexStrategyInboxErrorIdRef = useRef("");
   const strategyPersistenceReadyRef = useRef(false);
   const isRestoringStrategyStateRef = useRef(false);
   const switchToEasyAfterAdvancedSaveRef = useRef(false);
+  const suppressNextHistorySnapshotSavedRef = useRef(false);
   const programCodeRequestRef = useRef("");
+  const isDarkMode = isThemeMounted && resolvedTheme === "dark";
   const connectedExchangeCount = exchangeConnections.filter((item) => item.status === "연결됨").length;
   const selectedExchange = exchangeConnections.find((item) => item.id === exchangeTab) ?? exchangeConnections[0];
   const hasExchangeExecutionUrl = Boolean(
@@ -1146,41 +1257,81 @@ export default function Page() {
     hasResolvableBinanceCredentialPair,
   );
   const isCreateWorkspace = activeWorkspace === "create";
-  const generatedStrategyGraph = useMemo(() => parseStrategyGraphCode(generatedCode), [generatedCode]);
-  const generatedStrategyGraphSignature = useMemo(
-    () => (generatedStrategyGraph ? stableStringify(generatedStrategyGraph) : ""),
-    [generatedStrategyGraph],
+  const activeSnapshot = useMemo(
+    () => snapshots.find((snapshot) => snapshot.id === activeTabId) ?? null,
+    [activeTabId, snapshots],
   );
-  const codeViewContent = programCode || generatedCode;
-  const codeViewTitle = programCode
+  const activeAdvancedGraph = useMemo<AdvancedGraphModel | null>(
+    () => activeSnapshot && activeSnapshot.nodes.length > 0
+      ? { nodes: activeSnapshot.nodes as AdvancedGraphModel["nodes"], edges: activeSnapshot.edges as AdvancedGraphModel["edges"] }
+      : advancedGraphModel,
+    [activeSnapshot, advancedGraphModel],
+  );
+  const activeAdvancedGraphSignature = useMemo(
+    () => createAdvancedGraphSignature(activeAdvancedGraph),
+    [activeAdvancedGraph],
+  );
+  const generatedStrategyGraph = useMemo(() => parseStrategyGraphCode(generatedCode), [generatedCode]);
+  const activeAdvancedStrategyGraph = useMemo(() => {
+    if (!activeAdvancedGraph?.nodes.some((node) => node.type !== "groupNode")) return null;
+    try {
+      return advancedGraphToStrategyGraph(
+        activeAdvancedGraph,
+        activeSnapshot?.name || easyViewModel.title || "고급 보기 전략",
+      );
+    } catch {
+      return null;
+    }
+  }, [activeAdvancedGraph, activeSnapshot?.name, easyViewModel.title]);
+  const activeAdvancedGraphCode = useMemo(
+    () => activeAdvancedStrategyGraph ? strategyGraphToCode(activeAdvancedStrategyGraph) : "",
+    [activeAdvancedStrategyGraph],
+  );
+  const codeViewStrategyGraph = activeAdvancedStrategyGraph ?? generatedStrategyGraph;
+  const codeViewStrategyGraphSignature = useMemo(
+    () => (codeViewStrategyGraph ? stableStringify(codeViewStrategyGraph) : ""),
+    [codeViewStrategyGraph],
+  );
+  const codeViewProgramSignature = codeViewStrategyGraphSignature;
+  const hasProgramCodeForCodeView = Boolean(
+    programCode.trim() &&
+    codeViewProgramSignature &&
+    programCodeRequestRef.current === codeViewProgramSignature,
+  );
+  const codeViewContent = hasProgramCodeForCodeView ? programCode : activeAdvancedGraphCode || generatedCode;
+  const codeViewTitle = hasProgramCodeForCodeView
     ? "Hershy generated_strategy.go"
-    : generatedStrategyGraph
-      ? "Hershy Strategy Graph"
-      : "Hershy Strategy Code";
+    : activeAdvancedStrategyGraph
+      ? "Advanced View Strategy Graph"
+      : generatedStrategyGraph
+        ? "Hershy Strategy Graph"
+        : "Hershy Strategy Code";
   const codeViewStatus = isGeneratingProgramCode
     ? "generating program"
-    : programCode
+    : hasProgramCodeForCodeView
       ? "program"
-      : generatedStrategyGraph
-        ? "graph"
-        : "source";
+      : activeAdvancedStrategyGraph
+        ? "advanced graph"
+        : generatedStrategyGraph
+          ? "graph"
+          : "source";
 
   const generateRuntimeProgramCode = useCallback(
     async (options?: { force?: boolean }) => {
-      if (!generatedStrategyGraph || isGeneratingProgramCode) return false;
-      if (programCode.trim() && !options?.force) return true;
-      if (generatedStrategyGraphSignature && programCodeRequestRef.current === generatedStrategyGraphSignature && !options?.force) {
+      if (!codeViewStrategyGraph || isGeneratingProgramCode) return false;
+      if (hasProgramCodeForCodeView && !options?.force) return true;
+      if (codeViewProgramSignature && programCodeRequestRef.current === codeViewProgramSignature && !options?.force) {
         return false;
       }
 
-      programCodeRequestRef.current = generatedStrategyGraphSignature;
+      programCodeRequestRef.current = codeViewProgramSignature;
       setIsGeneratingProgramCode(true);
       setProgramCodeError("");
       try {
         const response = await fetch("/api/strategy/runtime-artifacts", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ strategy: generatedStrategyGraph }),
+          body: JSON.stringify({ strategy: codeViewStrategyGraph }),
         });
         const payload = await response.json().catch(() => null);
         if (!response.ok) {
@@ -1202,7 +1353,12 @@ export default function Page() {
         setIsGeneratingProgramCode(false);
       }
     },
-    [generatedStrategyGraph, generatedStrategyGraphSignature, isGeneratingProgramCode, programCode],
+    [
+      codeViewStrategyGraph,
+      codeViewProgramSignature,
+      hasProgramCodeForCodeView,
+      isGeneratingProgramCode,
+    ],
   );
 
   const loadMarketOverview = useCallback(async () => {
@@ -1236,18 +1392,83 @@ export default function Page() {
     }
   }, [exchangeTab]);
 
+  const loadBalanceMyData = useCallback(async () => {
+    try {
+      const response = await fetch("/api/mydata/balances", {
+        cache: "no-store",
+        headers: withUserContextHeaders(),
+      });
+      const data = await response.json().catch(() => null);
+      if (!response.ok) throw new Error(String(data?.message || "잔고 마이데이터를 불러오지 못했습니다."));
+      setBalanceSnapshots(Array.isArray(data?.snapshots) ? data.snapshots as BalanceMyDataSnapshot[] : []);
+    } catch {
+      setBalanceSnapshots([]);
+    }
+  }, []);
+
+  const syncExchangeBalance = useCallback(async (connectionId: string, market: "spot" | "futures" = "spot") => {
+    if (!connectionId) return;
+    setSyncingBalanceConnectionId(connectionId);
+    setExchangeAuthMessage("");
+    try {
+      const response = await fetch(`/api/exchange-connections/${encodeURIComponent(connectionId)}/balances/sync`, {
+        method: "POST",
+        headers: withUserContextHeaders({ "Content-Type": "application/json" }),
+        body: JSON.stringify(withUserContextPayload({ market })),
+      });
+      const data = await response.json().catch(() => null);
+      if (!response.ok) throw new Error(String(data?.message || "잔고 동기화 실패"));
+      if (Array.isArray(data?.connections)) {
+        setExchangeConnections(data.connections as ExchangeConnection[]);
+      }
+      if (Array.isArray(data?.balanceSnapshots)) {
+        setBalanceSnapshots(data.balanceSnapshots as BalanceMyDataSnapshot[]);
+      } else if (data?.balanceSnapshot) {
+        setBalanceSnapshots((prev) => [
+          ...prev.filter((snapshot) => `${snapshot.connectionId || snapshot.exchangeId}:${snapshot.market || snapshot.accountType || "spot"}` !== `${connectionId}:${market}`),
+          data.balanceSnapshot as BalanceMyDataSnapshot,
+        ]);
+      }
+      const snapshot = data?.balanceSnapshot as BalanceMyDataSnapshot | undefined;
+      const preferredAsset = snapshot?.spendable?.preferredAsset || "잔고";
+      const preferredAvailable = snapshot?.spendable?.preferredAvailable || "";
+      setExchangeAuthMessage(
+        preferredAvailable
+          ? `${preferredAsset} ${preferredAvailable} 사용 가능 · 마이데이터 동기화 완료`
+          : "잔고 마이데이터 동기화 완료",
+      );
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "잔고 동기화 실패";
+      setExchangeAuthMessage(message);
+      setAgentMessages((prev) => [...prev, { role: "ai", text: message }]);
+    } finally {
+      setSyncingBalanceConnectionId("");
+    }
+  }, []);
+
   const handlePersonalLogin = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     setLoginError("");
     try {
       const profile = loginClientUser(loginInput);
+      const hasCompletedStartGuide = readStartGuideCompleted(profile.userId);
+      setClientUserId(profile.userId);
       setClientUserName(profile.displayName);
       setIsPersonalLoggedIn(profile.isLoggedIn);
+      setIsGuideCompleted(hasCompletedStartGuide);
       setIsUserSettingsOpen(false);
       setExchangeForm(createEmptyExchangeForm());
       setExchangeAuthMessage(`${profile.displayName} 계정으로 전환했습니다.`);
       setExchangeFormError("");
+      if (!hasCompletedStartGuide) {
+        setGuideDone(new Set());
+        setGuideStep(0);
+        setIsGuideOpen(true);
+      } else {
+        setIsGuideOpen(false);
+      }
       await loadExchangeConnections();
+      await loadBalanceMyData();
     } catch {
       setLoginError("이름이나 이메일을 입력해 주세요.");
     }
@@ -1255,15 +1476,20 @@ export default function Page() {
 
   const handlePersonalLogout = async () => {
     const profile = logoutClientUser();
+    setClientUserId(profile.userId);
     setClientUserName(profile.displayName);
     setIsPersonalLoggedIn(profile.isLoggedIn);
     setLoginInput("");
     setLoginError("");
+    setGuideDone(new Set());
+    setIsGuideCompleted(false);
+    setIsGuideOpen(false);
     setIsUserSettingsOpen(false);
     setExchangeForm(createEmptyExchangeForm());
     setExchangeAuthMessage("게스트 세션으로 전환했습니다.");
     setExchangeFormError("");
     await loadExchangeConnections();
+    await loadBalanceMyData();
   };
 
   const openUserSettings = () => {
@@ -1366,8 +1592,14 @@ export default function Page() {
       if (Array.isArray(data?.connections)) {
         setExchangeConnections(data.connections as ExchangeConnection[]);
       }
+      if (Array.isArray(data?.balanceSnapshots)) {
+        setBalanceSnapshots(data.balanceSnapshots as BalanceMyDataSnapshot[]);
+      }
+      const snapshot = data?.balanceSnapshot as BalanceMyDataSnapshot | undefined;
+      const preferredAsset = snapshot?.spendable?.preferredAsset;
+      const preferredAvailable = snapshot?.spendable?.preferredAvailable;
       setExchangeAuthMessage(
-        `${exchangeAuthMarket === "futures" ? "Futures" : "Spot"} HMAC 서명 요청 성공${data?.account?.accountType ? ` · ${data.account.accountType}` : ""}`,
+        `${exchangeAuthMarket === "futures" ? "Futures" : "Spot"} 잔고 동기화 성공${preferredAsset && preferredAvailable ? ` · ${preferredAsset} ${preferredAvailable} 사용 가능` : data?.account?.accountType ? ` · ${data.account.accountType}` : ""}`,
       );
     } catch (error) {
       const message = error instanceof Error ? error.message : "Binance 서명 테스트 실패";
@@ -1379,10 +1611,22 @@ export default function Page() {
   };
 
   useEffect(() => {
+    setIsThemeMounted(true);
+  }, []);
+
+  useEffect(() => {
     const profile = getClientUserProfile();
+    const hasCompletedStartGuide = readStartGuideCompleted(profile.userId);
+    setClientUserId(profile.userId);
     setClientUserName(profile.displayName);
     setIsPersonalLoggedIn(profile.isLoggedIn);
+    setIsGuideCompleted(hasCompletedStartGuide);
     setLoginInput(profile.isLoggedIn ? profile.displayName : "");
+    if (profile.isLoggedIn && !hasCompletedStartGuide) {
+      setGuideDone(new Set());
+      setGuideStep(0);
+      setIsGuideOpen(true);
+    }
   }, []);
 
   useEffect(() => {
@@ -1399,7 +1643,6 @@ export default function Page() {
     setOpenTabs(historyStore.getOpenTabs());
     setActiveTabId(historyStore.getActiveId());
     setSnapshots(historyStore.getSnapshots());
-    setIsGuideOpen(false);
 
     const unsubHistory = historyStore.subscribe(() => {
       setOpenTabs(historyStore.getOpenTabs());
@@ -1472,32 +1715,29 @@ export default function Page() {
 
   useEffect(() => {
     void loadExchangeConnections();
+    void loadBalanceMyData();
     void loadMarketOverview();
     const timer = window.setInterval(() => {
       void loadMarketOverview();
     }, 30_000);
     return () => window.clearInterval(timer);
-  }, [loadExchangeConnections, loadMarketOverview]);
+  }, [loadBalanceMyData, loadExchangeConnections, loadMarketOverview]);
 
   useEffect(() => {
-    if (mainView !== "code" || programCode.trim() || !generatedStrategyGraph) return;
-    void generateRuntimeProgramCode();
-  }, [generateRuntimeProgramCode, generatedStrategyGraph, mainView, programCode]);
+    if (!codeViewStrategyGraph || !codeViewStrategyGraphSignature || hasProgramCodeForCodeView) return;
+    const delayMs = mainView === "advanced" || mainView === "code" ? 450 : 1400;
+    const timer = window.setTimeout(() => {
+      void generateRuntimeProgramCode();
+    }, delayMs);
+    return () => window.clearTimeout(timer);
+  }, [
+    codeViewStrategyGraph,
+    codeViewStrategyGraphSignature,
+    generateRuntimeProgramCode,
+    hasProgramCodeForCodeView,
+    mainView,
+  ]);
 
-  const activeSnapshot = useMemo(
-    () => snapshots.find((snapshot) => snapshot.id === activeTabId) ?? null,
-    [activeTabId, snapshots],
-  );
-  const activeAdvancedGraph = useMemo<AdvancedGraphModel | null>(
-    () => activeSnapshot && activeSnapshot.nodes.length > 0
-      ? { nodes: activeSnapshot.nodes as AdvancedGraphModel["nodes"], edges: activeSnapshot.edges as AdvancedGraphModel["edges"] }
-      : advancedGraphModel,
-    [activeSnapshot, advancedGraphModel],
-  );
-  const activeAdvancedGraphSignature = useMemo(
-    () => createAdvancedGraphSignature(activeAdvancedGraph),
-    [activeAdvancedGraph],
-  );
   const hasUnsyncedAdvancedChanges = Boolean(
     activeAdvancedGraphSignature &&
     activeAdvancedGraphSignature !== lastSyncedAdvancedGraphSignature,
@@ -1509,19 +1749,8 @@ export default function Page() {
   );
   const SelectedBlockIcon = selectedBlock.icon;
 
-  const guideProgress = guideDone.size;
-  const visibleAgentActivities = useMemo(
-    () => agentActivities.length > 0
-      ? agentActivities
-      : agentSteps.map((step, index) => ({
-        id: `static-agent-step-${index}`,
-        status: "idle",
-        stage: "local",
-        label: step,
-      })),
-    [agentActivities, agentSteps],
-  );
-
+  const guideProgress = Math.min(guideDone.size, GUIDE_ITEMS.length);
+  const shouldShowStartGuide = isPersonalLoggedIn && !isGuideCompleted;
   const handleSave = () => {
     window.dispatchEvent(new CustomEvent("saveHistorySnapshot"));
   };
@@ -1599,44 +1828,37 @@ export default function Page() {
 
   const handleConfirmAdvancedSaveForEasyView = () => {
     setIsAdvancedSyncPromptOpen(false);
-    switchToEasyAfterAdvancedSaveRef.current = true;
+    const graph = activeAdvancedGraph;
+    switchToEasyAfterAdvancedSaveRef.current = false;
+    suppressNextHistorySnapshotSavedRef.current = Boolean(graph);
     window.dispatchEvent(new CustomEvent("saveHistorySnapshot"));
+    window.setTimeout(() => {
+      suppressNextHistorySnapshotSavedRef.current = false;
+    }, 0);
 
-    if (!activeSnapshot && activeAdvancedGraph) {
-      const nextSignature = createAdvancedGraphSignature(activeAdvancedGraph);
-      const handled = nextSignature === lastSyncedAdvancedGraphSignature
-        ? syncEasyViewParamsFromAdvancedGraph(activeAdvancedGraph, {
-          strategyName: easyViewModel.title,
-          switchToEasy: true,
-        })
-        : regenerateEasyViewFromAdvancedGraph(activeAdvancedGraph, {
-          strategyName: easyViewModel.title,
-          switchToEasy: true,
-          source: "tab-switch",
-        });
-      if (handled) switchToEasyAfterAdvancedSaveRef.current = false;
+    if (!graph) return;
+
+    const strategyName = activeSnapshot?.name || easyViewModel.title;
+    const nextSignature = createAdvancedGraphSignature(graph);
+    if (nextSignature === lastSyncedAdvancedGraphSignature) {
+      syncEasyViewParamsFromAdvancedGraph(graph, {
+        strategyName,
+        switchToEasy: true,
+      });
+      return;
     }
+
+    regenerateEasyViewFromAdvancedGraph(graph, {
+      strategyName,
+      switchToEasy: true,
+      source: "tab-switch",
+    });
   };
 
   const handleSkipAdvancedSaveForEasyView = () => {
     setIsAdvancedSyncPromptOpen(false);
     switchToEasyAfterAdvancedSaveRef.current = false;
     setMainView("easy");
-  };
-
-  const handleAutoLayout = () => {
-    window.dispatchEvent(new CustomEvent("runAutoLayout"));
-  };
-
-  const handleAiSummary = () => {
-    setIsSummarizing(true);
-    window.setTimeout(() => {
-      const blockNames = easyViewModel.nodes.map((block) => block.title).join(" -> ");
-      setAiSummary(
-        `AI 요약: 현재 쉬운 보기는 생성된 코드에서 ${blockNames} 순서로 추출한 요약입니다. 파이프라인 구조는 고급 보기에서 편집하고, 쉬운 보기에서는 CEX/DEX 실행 파라미터만 조절합니다.`,
-      );
-      setIsSummarizing(false);
-    }, 650);
   };
 
   const syncEasyViewParamsFromAdvancedGraph = useCallback(
@@ -1648,6 +1870,7 @@ export default function Page() {
       const signature = createAdvancedGraphSignature(graph);
 
       setGeneratedCode(strategyGraphToCode(strategyGraph));
+      programCodeRequestRef.current = "";
       setProgramCode("");
       setEasyViewModel((current) => syncEasyViewActionParams(current, graph));
       setAdvancedGraphModel(graph);
@@ -1733,6 +1956,7 @@ export default function Page() {
         );
 
         setGeneratedCode(result.code);
+        programCodeRequestRef.current = "";
         setProgramCode("");
         setEasyViewModel(result.easyView);
         setAdvancedGraphModel(graph);
@@ -1954,8 +2178,10 @@ export default function Page() {
           throw new Error(`AI 응답에 아직 안전 구조가 부족합니다: ${remainingIssues.map((issue) => issue.title).join(", ")}`);
         }
 
+        const nextProgramCode = extractRuntimeProgramCode(data.runtime);
         setGeneratedCode(result.code);
-        setProgramCode(extractRuntimeProgramCode(data.runtime));
+        programCodeRequestRef.current = nextProgramCode ? createAdvancedGraphSignature(advancedGraph) : "";
+        setProgramCode(nextProgramCode);
         setEasyViewModel(result.easyView);
         setAdvancedGraphModel(advancedGraph);
         setAdvancedGraphVersion((version) => version + 1);
@@ -2000,7 +2226,6 @@ export default function Page() {
             },
           }),
         );
-        window.dispatchEvent(new CustomEvent("runAutoLayout"));
 
         setAgentMessages((prev) => [
           ...prev,
@@ -2115,6 +2340,10 @@ export default function Page() {
 
   useEffect(() => {
     const handleHistorySnapshotSaved = (event: Event) => {
+      if (suppressNextHistorySnapshotSavedRef.current) {
+        suppressNextHistorySnapshotSavedRef.current = false;
+        return;
+      }
       const snapshot = (event as CustomEvent<HistorySnapshot>).detail;
       if (!snapshot || !Array.isArray(snapshot.nodes) || snapshot.nodes.length === 0) return;
 
@@ -2163,19 +2392,36 @@ export default function Page() {
     }, 500);
   };
 
+  const completeStartGuide = useCallback(() => {
+    if (clientUserId) {
+      writeStartGuideCompleted(clientUserId);
+    }
+    setGuideDone(new Set(GUIDE_ITEMS.map((_, index) => index)));
+    setIsGuideCompleted(true);
+    setIsGuideOpen(false);
+  }, [clientUserId]);
+
   const handleGuideNext = () => {
-    setGuideDone((prev) => new Set([...prev, guideStep]));
+    setGuideDone((prev) => {
+      const next = new Set(prev);
+      for (let index = 0; index <= guideStep; index += 1) {
+        next.add(index);
+      }
+      return next;
+    });
     if (guideStep >= GUIDE_ITEMS.length - 1) {
-      window.localStorage.setItem("thirdeye-guide-dismissed", "1");
-      setIsGuideOpen(false);
+      completeStartGuide();
       return;
     }
     setGuideStep((current) => Math.min(current + 1, GUIDE_ITEMS.length - 1));
   };
 
   const handleCloseGuide = () => {
-    window.localStorage.setItem("thirdeye-guide-dismissed", "1");
     setIsGuideOpen(false);
+  };
+
+  const handleDismissGuide = () => {
+    completeStartGuide();
   };
 
   const runRemoteAgentPrompt = async (prompt: string, visiblePrompt = prompt) => {
@@ -2197,10 +2443,6 @@ export default function Page() {
     agentAbortControllerRef.current = controller;
 
     try {
-      if (connectedExchangeCount === 0) {
-        throw new Error("전략 생성 전에 거래소 연결 탭에서 유효한 REST API URL 또는 RPC URL을 하나 이상 저장해야 합니다.");
-      }
-
       const appendAgentActivity = (rawActivity: unknown) => {
         const activity = normalizeAgentActivities([rawActivity])[0];
         if (!activity) return;
@@ -2211,12 +2453,31 @@ export default function Page() {
         });
       };
 
-      const response = await fetch("/api/ai/strategy-draft-stream", {
+      appendAgentActivity({
+        id: "agentic-intent",
+        status: "running",
+        stage: "intent",
+        label: "프롬프트 해석 및 동적 라벨 준비",
+        timestamp: new Date().toISOString(),
+      });
+      appendAgentActivity({
+        id: "agentic-research",
+        status: "running",
+        stage: "research",
+        label: "웹/KG/API 검색 루프 실행",
+        timestamp: new Date().toISOString(),
+      });
+
+      const response = await fetch("/api/ai/agentic-strategy-loop", {
         method: "POST",
         headers: withUserContextHeaders({ "Content-Type": "application/json" }),
         signal: controller.signal,
         body: JSON.stringify(withUserContextPayload({
           prompt,
+          validate: true,
+          web_search: true,
+          fetch_web_pages: true,
+          contract_reasoning: true,
           current_strategy: {
             code: generatedCode,
             easy_view: {
@@ -2238,52 +2499,26 @@ export default function Page() {
           `${String(errorData?.message || errorData?.error || `AI API 요청 실패 (${response.status})`)}${formatAILogicErrorLog(errorData?.logicErrorLog)}`,
         );
       }
-      if (!response.body) {
-        throw new Error("AI 에이전트 진행 스트림을 열 수 없습니다.");
-      }
-
-      const reader = response.body.getReader();
-      const decoder = new TextDecoder();
-      let buffer = "";
-      let data: any = null;
-      let streamError = "";
-
-      while (true) {
-        const { value, done } = await reader.read();
-        if (value) {
-          buffer += decoder.decode(value, { stream: !done });
-          const parsed = parseAgentEventBuffer(buffer);
-          buffer = parsed.remainder;
-          for (const item of parsed.events) {
-            if (item.event === "progress" || item.event === "done") {
-              appendAgentActivity(item.data);
-            } else if (item.event === "result") {
-              data = item.data;
-            } else if (item.event === "error") {
-              const payload = item.data && typeof item.data === "object" ? item.data as Record<string, unknown> : {};
-              streamError = `${typeof payload.message === "string" ? payload.message : "AI 에이전트 스트림 오류"}${formatAILogicErrorLog(payload.logicErrorLog)}`;
-              appendAgentActivity(item.data);
-            }
-          }
-        }
-        if (done) break;
-      }
-
-      if (buffer.trim()) {
-        for (const item of parseAgentEventBuffer(`${buffer}\n\n`).events) {
-          if (item.event === "progress" || item.event === "done") appendAgentActivity(item.data);
-          if (item.event === "result") data = item.data;
-          if (item.event === "error") {
-            const payload = item.data && typeof item.data === "object" ? item.data as Record<string, unknown> : {};
-            streamError = `${typeof payload.message === "string" ? payload.message : "AI 에이전트 스트림 오류"}${formatAILogicErrorLog(payload.logicErrorLog)}`;
-            appendAgentActivity(item.data);
-          }
-        }
-      }
-
-      if (streamError) {
-        throw new Error(streamError);
-      }
+      const data = await response.json();
+      appendAgentActivity({
+        id: "agentic-research",
+        status: "done",
+        stage: "research",
+        label: "웹/KG/API 검색 루프 완료",
+        timestamp: new Date().toISOString(),
+      });
+      appendAgentActivity({
+        id: "agentic-trace",
+        status: "done",
+        stage: "trace",
+        label: "Evidence / Label / Adapter trace 저장",
+        timestamp: new Date().toISOString(),
+        detail: {
+          runID: data?.persistence?.runID,
+          evidence: data?.evidenceBundle?.chunks?.length || 0,
+          labels: data?.workflowPlan?.adaptiveLabels?.length || 0,
+        },
+      });
       if (!data?.strategy?.blocks || !data?.strategy?.connections) {
         throw new Error("AI 응답에 strategy graph가 없습니다.");
       }
@@ -2299,14 +2534,16 @@ export default function Page() {
       if (!advancedGraph || advancedGraph.nodes.length === 0) {
         throw new Error("고급 전략 그래프가 완성되지 않았습니다.");
       }
+      const nextProgramCode = extractRuntimeProgramCode(data.runtime);
       setGeneratedCode(result.code);
-      setProgramCode(extractRuntimeProgramCode(data.runtime));
+      programCodeRequestRef.current = nextProgramCode ? createAdvancedGraphSignature(advancedGraph) : "";
+      setProgramCode(nextProgramCode);
       setEasyViewModel(result.easyView);
       setAdvancedGraphModel(advancedGraph);
       setAdvancedGraphVersion((version) => version + 1);
       setLastSyncedAdvancedGraphSignature(createAdvancedGraphSignature(advancedGraph));
       setAgentSteps(result.steps);
-      setAiSummary(`AI 요약: ${result.easyView.summary}`);
+      setAiSummary(formatStrategyAISummary(data, result.easyView.summary));
       setGuideDone((prev) => new Set([...prev, 1]));
       setMainView("easy");
 
@@ -2325,13 +2562,12 @@ export default function Page() {
           },
         })
       );
-      window.dispatchEvent(new CustomEvent("runAutoLayout"));
 
       setAgentMessages((prev) => [
         ...prev,
         {
           role: "ai",
-          text: `${data.message || "AI strategy draft generated"}\nprovider: ${data.providers?.strategy || data.providers?.orchestrator || "unknown"} / model: ${data.model || data.models?.strategy || "unknown"}\n\n${result.easyView.title} 전략 그래프를 생성했습니다.\n고급 보기 노드 ${advancedGraph.nodes.filter((node) => node.type !== "groupNode").length}개 / 간선 ${advancedGraph.edges.length}개를 로드했습니다.${formatAIRuntimeResult(data.validation, data.runtime)}${formatAIReasoningTrace(data.reasoning)}`,
+          text: `${data.message || "Agentic strategy workflow generated"}\n\n${formatStrategyAISummary(data, result.easyView.summary)}`,
         },
       ]);
     } catch (error) {
@@ -2365,8 +2601,8 @@ export default function Page() {
           text: isExchangeSetupError
             ? `AI 에이전트를 실행하지 않았습니다: ${message}\n\nWebSocket/WSS 시세 URL만으로는 부족합니다. 거래소 연결 탭에서 실행 가능한 REST API URL 또는 RPC URL을 저장해야 합니다.`
             : isTimeout
-              ? `AI 에이전트 응답 실패: ${message}\n\n요청 시간이 길어져 중단되었습니다. 서버의 DEEPSEEK_TIMEOUT_SEC 또는 AI_STRATEGY_DEEPSEEK_TIMEOUT_SEC 값을 늘린 뒤 다시 시도하세요. 로컬 데모로 대체하지 않았습니다.`
-              : `AI 에이전트 응답 실패: ${message}\n\n로컬 데모로 대체하지 않았습니다. 서버의 AI_PROVIDER, API 키, provider 응답 상태를 확인하세요.`,
+              ? `AI 에이전트 응답 실패: ${message}\n\n요청 시간이 길어져 중단되었습니다. 웹 검색, KG 검색, validator 환경을 확인한 뒤 다시 시도하세요. 로컬 데모로 대체하지 않았습니다.`
+              : `AI 에이전트 응답 실패: ${message}\n\n로컬 데모로 대체하지 않았습니다. 서버의 KG_DATABASE_URL/DATABASE_URL, 웹 검색 provider, validator 상태를 확인하세요.`,
         },
       ]);
     } finally {
@@ -2383,18 +2619,158 @@ export default function Page() {
     await runRemoteAgentPrompt(agentPrompt.trim());
   };
 
+  useEffect(() => {
+    let stopped = false;
+
+    const loadCodexStrategyInbox = async () => {
+      if (stopped || isAgentRunning) return;
+      try {
+        const response = await fetch("/api/codex/strategy-inbox?consume=true", { cache: "no-store" });
+        if (!response.ok) return;
+        const payload = await response.json().catch(() => null);
+        if (!payload?.hasStrategy || !payload?.result?.strategy) return;
+        const inboxId = typeof payload.id === "string" ? payload.id : "";
+        if (!inboxId || codexStrategyInboxIdRef.current === inboxId) return;
+
+        const data = payload.result;
+        const shouldReplaceExisting = payload.replaceExisting === true || data.replaceExisting === true;
+        const prompt = typeof payload.prompt === "string" && payload.prompt.trim()
+          ? payload.prompt.trim()
+          : typeof data.prompt === "string"
+            ? data.prompt
+            : "Codex generated strategy";
+        let result: EasyViewAgentResult;
+        let advancedGraph: NonNullable<EasyViewAgentResult["advancedGraph"]>;
+        try {
+          result = runEasyViewGraphAgentLoop(data.strategy, prompt);
+          if (!result.advancedGraph || result.advancedGraph.nodes.length === 0) {
+            throw new Error("Codex 전략을 고급 보기 그래프로 변환하지 못했습니다.");
+          }
+          advancedGraph = result.advancedGraph;
+        } catch (error) {
+          if (codexStrategyInboxErrorIdRef.current !== inboxId) {
+            codexStrategyInboxErrorIdRef.current = inboxId;
+            const message = error instanceof Error ? error.message : "알 수 없는 변환 오류";
+            setAgentActivities((prev) => [
+              ...prev,
+              {
+                id: `codex-inbox-error-${inboxId}`,
+                status: "error",
+                stage: "strategy-load-error",
+                label: "Codex 전략을 UI 그래프로 변환하지 못했습니다.",
+                timestamp: new Date().toISOString(),
+                detail: { inboxId, error: message },
+              },
+            ]);
+            setAgentMessages((prev) => [
+              ...prev,
+              {
+                role: "ai",
+                text: `Codex 전략 로드 실패: ${message}\n\n하네스는 AI 리서치/랭킹 루프가 아니라 실제 트레이딩 로직 그래프만 UI 시퀀스로 받습니다.`,
+              },
+            ]);
+          }
+          return;
+        }
+        codexStrategyInboxIdRef.current = inboxId;
+        codexStrategyInboxErrorIdRef.current = "";
+
+        const nextProgramCode = extractRuntimeProgramCode(data.runtime);
+        setGeneratedCode(result.code);
+        programCodeRequestRef.current = nextProgramCode ? createAdvancedGraphSignature(advancedGraph) : "";
+        setProgramCode(nextProgramCode);
+        setEasyViewModel(result.easyView);
+        setAdvancedGraphModel(advancedGraph);
+        setAdvancedGraphVersion((version) => version + 1);
+        setLastSyncedAdvancedGraphSignature(createAdvancedGraphSignature(advancedGraph));
+        setAgentSteps(result.steps);
+        setAiSummary(formatStrategyAISummary(data, result.easyView.summary));
+        setMainView("easy");
+        setActiveWorkspace("create");
+
+        if (shouldReplaceExisting) {
+          if (canUseBrowserStorage()) {
+            window.localStorage.removeItem(STRATEGY_BUILDER_STORAGE_KEY);
+          }
+          const existingSnapshotIds = historyStore.getSnapshots().map((snapshot) => snapshot.id);
+          if (existingSnapshotIds.length > 0) {
+            historyStore.deleteSnapshots(existingSnapshotIds);
+          }
+          historyStore.createEmptyStrategy(null, result.easyView.title);
+        } else if (!historyStore.getActiveId()) {
+          historyStore.createEmptyStrategy(null, result.easyView.title);
+        } else {
+          historyStore.updateSnapshotName(historyStore.getActiveId()!, result.easyView.title);
+        }
+        historyStore.updateActiveSnapshot(advancedGraph.nodes, advancedGraph.edges);
+        window.dispatchEvent(new CustomEvent("loadSnapshot", { detail: { nodes: advancedGraph.nodes, edges: advancedGraph.edges } }));
+        setAgentActivities([]);
+        const strategySummaryText = formatStrategyAISummary(data, result.easyView.summary);
+        setAgentMessages((prev) => [
+          ...prev,
+          {
+            role: "ai",
+            text: `${payload.message || "Codex generated strategy"}\n\n${strategySummaryText}`,
+          },
+        ]);
+      } catch {
+        // The inbox is a local Codex bridge; polling should stay quiet if it is unavailable.
+      }
+    };
+
+    void loadCodexStrategyInbox();
+    const timer = window.setInterval(loadCodexStrategyInbox, 3000);
+    return () => {
+      stopped = true;
+      window.clearInterval(timer);
+    };
+  }, [isAgentRunning]);
+
   return (
-    <div className="flex h-screen w-full overflow-hidden bg-slate-50 text-slate-950">
-      <aside className="hidden w-[164px] shrink-0 flex-col border-r border-slate-200 bg-white lg:flex">
-        <div className="flex h-[52px] items-center gap-2 border-b border-slate-200 px-3">
-          <div className="relative flex h-8 w-8 items-center justify-center rounded-lg border border-orange-300 bg-orange-50">
-            <Zap className="h-5 w-5 text-orange-600" />
-            <span className="absolute inset-1 rounded-full border border-red-500/50" />
-          </div>
-          <div className="min-w-0 text-lg font-black tracking-tight">ThirdEye</div>
+    <div className="flex h-screen w-full overflow-hidden bg-slate-50 text-slate-950 dark:bg-slate-950 dark:text-slate-100">
+      <aside
+        className={cn(
+          "hidden shrink-0 flex-col border-r border-slate-200 bg-white transition-[width] duration-200 lg:flex dark:border-slate-800 dark:bg-slate-950",
+          isLeftPanelCollapsed ? "w-[52px]" : "w-[164px]",
+        )}
+      >
+        <div
+          className={cn(
+            "flex h-[52px] items-center border-b border-slate-200 dark:border-slate-800",
+            isLeftPanelCollapsed ? "justify-center px-1" : "gap-2 px-3",
+          )}
+        >
+          {isLeftPanelCollapsed ? (
+            <button
+              type="button"
+              onClick={() => setIsLeftPanelCollapsed(false)}
+              aria-label="왼쪽 패널 펼치기"
+              title="왼쪽 패널 펼치기"
+              className="inline-flex h-9 w-9 items-center justify-center rounded-lg border border-slate-200 bg-white text-slate-600 transition-colors hover:bg-slate-50 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-300 dark:hover:bg-slate-800"
+            >
+              <ChevronRight className="h-4 w-4" />
+            </button>
+          ) : (
+            <>
+              <div className="relative flex h-8 w-8 items-center justify-center rounded-lg border border-orange-300 bg-orange-50 dark:border-orange-400/30 dark:bg-orange-400/10">
+                <Zap className="h-5 w-5 text-orange-600" />
+                <span className="absolute inset-1 rounded-full border border-red-500/50" />
+              </div>
+              <div className="min-w-0 flex-1 truncate text-lg font-black tracking-tight">ThirdEye</div>
+              <button
+                type="button"
+                onClick={() => setIsLeftPanelCollapsed(true)}
+                aria-label="왼쪽 패널 접기"
+                title="왼쪽 패널 접기"
+                className="inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-md text-slate-500 transition-colors hover:bg-slate-100 hover:text-slate-800 dark:text-slate-400 dark:hover:bg-slate-900 dark:hover:text-slate-100"
+              >
+                <ChevronLeft className="h-4 w-4" />
+              </button>
+            </>
+          )}
         </div>
 
-        <nav className="flex-1 space-y-1 overflow-y-auto px-2 py-3">
+        <nav className={cn("flex-1 space-y-1 overflow-y-auto py-3", isLeftPanelCollapsed ? "px-1.5" : "px-2")}>
           {NAV_ITEMS.map((item) => {
             const Icon = item.icon;
             const workspaceId = isWorkspaceNavId(item.id) ? item.id : null;
@@ -2405,17 +2781,18 @@ export default function Page() {
                 key={item.id}
                 type="button"
                 onClick={workspaceId ? () => setActiveWorkspace(workspaceId) : undefined}
-                title={isInteractive ? undefined : "준비 중"}
+                title={isInteractive ? item.label : `${item.label} · 준비 중`}
                 className={cn(
-                  "flex h-10 w-full items-center gap-2 rounded-lg px-2.5 text-[13px] font-semibold text-slate-700 transition-colors hover:bg-slate-100",
+                  "flex h-10 w-full items-center rounded-lg text-[13px] font-semibold text-slate-700 transition-colors hover:bg-slate-100 dark:text-slate-300 dark:hover:bg-slate-900",
+                  isLeftPanelCollapsed ? "justify-center px-0" : "gap-2 px-2.5",
                   !isInteractive && "cursor-default opacity-55 hover:bg-transparent",
                   isActive && "bg-violet-600 text-white shadow-sm hover:bg-violet-600",
                 )}
               >
                 <Icon className="h-4 w-4 shrink-0" />
-                <span className="truncate">{item.label}</span>
-                {!isInteractive ? (
-                  <span className="ml-auto rounded-full bg-slate-100 px-1.5 py-0.5 text-[9px] font-bold text-slate-500">
+                {!isLeftPanelCollapsed ? <span className="truncate">{item.label}</span> : null}
+                {!isLeftPanelCollapsed && !isInteractive ? (
+                  <span className="ml-auto rounded-full bg-slate-100 px-1.5 py-0.5 text-[9px] font-bold text-slate-500 dark:bg-slate-800 dark:text-slate-400">
                     soon
                   </span>
                 ) : null}
@@ -2424,9 +2801,48 @@ export default function Page() {
           })}
         </nav>
 
-        <div className="space-y-3 border-t border-slate-200 p-2.5">
-          <section className="rounded-lg border border-slate-200 bg-white p-2.5">
-            <div className="mb-2 text-xs font-bold text-slate-700">거래소 연결</div>
+        {isLeftPanelCollapsed ? (
+          <div className="grid gap-2 border-t border-slate-200 px-1.5 py-2.5 dark:border-slate-800">
+            <button
+              type="button"
+              onClick={() => setIsExchangeLibraryOpen(true)}
+              aria-label="거래소 연결 관리"
+              title="거래소 연결 관리"
+              className={cn(
+                "relative inline-flex h-9 w-9 items-center justify-center rounded-lg border transition-colors",
+                connectedExchangeCount > 0
+                  ? "border-emerald-200 bg-emerald-50 text-emerald-700 dark:border-emerald-400/25 dark:bg-emerald-400/10 dark:text-emerald-300"
+                  : "border-slate-200 bg-white text-slate-600 hover:bg-slate-50 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-300 dark:hover:bg-slate-800",
+              )}
+            >
+              <Coins className="h-4 w-4" />
+              {connectedExchangeCount > 0 ? (
+                <span className="absolute right-1 top-1 h-1.5 w-1.5 rounded-full bg-emerald-500" />
+              ) : null}
+            </button>
+            <button
+              type="button"
+              onClick={openUserSettings}
+              aria-label="유저 설정"
+              title="유저 설정"
+              className="inline-flex h-9 w-9 items-center justify-center rounded-lg border border-violet-200 bg-violet-50 text-[11px] font-black text-violet-700 transition-colors hover:bg-violet-100 dark:border-violet-400/30 dark:bg-violet-400/10 dark:text-violet-200 dark:hover:bg-violet-400/15"
+            >
+              {isPersonalLoggedIn ? clientUserName.slice(0, 1).toUpperCase() : "G"}
+            </button>
+            <button
+              type="button"
+              onClick={() => setIsLeftPanelCollapsed(false)}
+              aria-label="플랜 패널 펼치기"
+              title={`Plan: ${planTier}`}
+              className="inline-flex h-9 w-9 items-center justify-center rounded-lg border border-violet-200 bg-white text-violet-700 transition-colors hover:bg-violet-50 dark:border-violet-400/30 dark:bg-slate-900 dark:text-violet-200 dark:hover:bg-violet-400/10"
+            >
+              <Sparkles className="h-4 w-4" />
+            </button>
+          </div>
+        ) : (
+        <div className="space-y-3 border-t border-slate-200 p-2.5 dark:border-slate-800">
+          <section className="rounded-lg border border-slate-200 bg-white p-2.5 dark:border-slate-800 dark:bg-slate-900/70">
+            <div className="mb-2 text-xs font-bold text-slate-700 dark:text-slate-300">거래소 연결</div>
             <div className="mb-2 grid grid-cols-2 gap-1">
               {exchangeConnections.map((exchange) => (
                 <button
@@ -2436,8 +2852,8 @@ export default function Page() {
                   className={cn(
                     "rounded-md border px-1.5 py-1 text-[10px] font-bold capitalize",
                     exchangeTab === exchange.id
-                      ? "border-violet-300 bg-violet-50 text-violet-700"
-                      : "border-slate-200 text-slate-500",
+                      ? "border-violet-300 bg-violet-50 text-violet-700 dark:border-violet-400/40 dark:bg-violet-400/10 dark:text-violet-200"
+                      : "border-slate-200 text-slate-500 dark:border-slate-700 dark:text-slate-400",
                   )}
                 >
                   {exchange.id}
@@ -2451,30 +2867,30 @@ export default function Page() {
                   {selectedExchange?.name ?? "거래소 연결 필요"}
                   {connectedExchangeCount > 0 ? ` (${connectedExchangeCount})` : ""}
                 </div>
-                <div className={cn("text-[11px] font-semibold", selectedExchange?.status === "연결됨" ? "text-emerald-600" : "text-slate-500")}>
+                <div className={cn("text-[11px] font-semibold", selectedExchange?.status === "연결됨" ? "text-emerald-600 dark:text-emerald-300" : "text-slate-500 dark:text-slate-400")}>
                   ● {selectedExchange?.status ?? "대기"}
                 </div>
               </div>
             </div>
             {selectedExchange?.rpcUrl || selectedExchange?.apiUrl || selectedExchange?.wsUrl ? (
-              <div className="mt-2 rounded bg-emerald-50 px-2 py-1 text-[10px] font-semibold text-emerald-700">
+              <div className="mt-2 rounded bg-emerald-50 px-2 py-1 text-[10px] font-semibold text-emerald-700 dark:bg-emerald-400/10 dark:text-emerald-300">
                 API/RPC URL 저장됨
               </div>
             ) : null}
             <button
               type="button"
               onClick={openUserSettings}
-              className="mt-2 flex w-full items-center gap-2 rounded-lg border border-violet-200 bg-violet-50 px-2 py-2 text-left transition-colors hover:bg-violet-100"
+              className="mt-2 flex w-full items-center gap-2 rounded-lg border border-violet-200 bg-violet-50 px-2 py-2 text-left transition-colors hover:bg-violet-100 dark:border-violet-400/30 dark:bg-violet-400/10 dark:hover:bg-violet-400/15"
             >
               <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-violet-600 text-[11px] font-black text-white">
                 {isPersonalLoggedIn ? clientUserName.slice(0, 1).toUpperCase() : "G"}
               </div>
               <div className="min-w-0 flex-1">
-                <div className="text-[10px] font-bold text-violet-700">유저 설정</div>
-                <div className="truncate text-[11px] font-black text-violet-950">
+                <div className="text-[10px] font-bold text-violet-700 dark:text-violet-300">유저 설정</div>
+                <div className="truncate text-[11px] font-black text-violet-950 dark:text-violet-100">
                   {isPersonalLoggedIn ? clientUserName : "Guest"}
                 </div>
-                <div className="mt-0.5 text-[9px] font-semibold text-violet-500">
+                <div className="mt-0.5 text-[9px] font-semibold text-violet-500 dark:text-violet-300/80">
                   {isPersonalLoggedIn ? "내 거래소 연결 사용 중" : "설정하면 개인 연결로 저장"}
                 </div>
               </div>
@@ -2483,14 +2899,14 @@ export default function Page() {
             <button
               type="button"
               onClick={() => setIsExchangeLibraryOpen(true)}
-              className="mt-2 h-8 w-full rounded-lg border border-slate-200 bg-slate-50 text-xs font-bold text-slate-700 hover:bg-white"
+              className="mt-2 h-8 w-full rounded-lg border border-slate-200 bg-slate-50 text-xs font-bold text-slate-700 hover:bg-white dark:border-slate-700 dark:bg-slate-800 dark:text-slate-300 dark:hover:bg-slate-700"
             >
               거래소 연결 관리
             </button>
           </section>
 
-          <section className="rounded-lg border border-violet-200 bg-violet-50 p-2.5">
-            <div className="mb-2 flex items-center gap-2 text-xs font-bold text-violet-800">
+          <section className="rounded-lg border border-violet-200 bg-violet-50 p-2.5 dark:border-violet-400/30 dark:bg-violet-400/10">
+            <div className="mb-2 flex items-center gap-2 text-xs font-bold text-violet-800 dark:text-violet-200">
               <Sparkles className="h-4 w-4" />
               Plan
             </div>
@@ -2503,26 +2919,27 @@ export default function Page() {
                   className={cn(
                     "rounded-md border px-1 py-1 text-[10px] font-bold uppercase",
                     planTier === tier
-                      ? "border-violet-400 bg-white text-violet-700"
-                      : "border-violet-100 bg-violet-100/60 text-violet-400",
+                      ? "border-violet-400 bg-white text-violet-700 dark:bg-slate-950 dark:text-violet-200"
+                      : "border-violet-100 bg-violet-100/60 text-violet-400 dark:border-violet-400/20 dark:bg-violet-400/10 dark:text-violet-300/70",
                   )}
                 >
                   {tier}
                 </button>
               ))}
             </div>
-            <div className="text-[11px] text-violet-700">만료일 2026-06-30</div>
-            <button className="mt-2 h-8 w-full rounded-lg border border-violet-300 bg-white text-xs font-bold text-violet-700">
+            <div className="text-[11px] text-violet-700 dark:text-violet-300">만료일 2026-06-30</div>
+            <button className="mt-2 h-8 w-full rounded-lg border border-violet-300 bg-white text-xs font-bold text-violet-700 dark:border-violet-400/30 dark:bg-slate-950 dark:text-violet-200">
               플랜 관리
             </button>
           </section>
         </div>
+        )}
       </aside>
 
       <div className="flex min-w-0 flex-1 flex-col">
-        <header className="flex h-[52px] shrink-0 items-center justify-between border-b border-slate-200 bg-white px-3">
+        <header className="flex h-[52px] shrink-0 items-center justify-between border-b border-slate-200 bg-white px-3 dark:border-slate-800 dark:bg-slate-950">
           {isCreateWorkspace ? (
-            <div className="flex min-w-0 overflow-x-auto rounded-lg border border-slate-200 bg-slate-50 p-1">
+            <div className="flex min-w-0 overflow-x-auto rounded-lg border border-slate-200 bg-slate-50 p-1 dark:border-slate-800 dark:bg-slate-900">
               {MAIN_VIEW_TABS.map((tab) => {
                 const Icon = tab.icon;
                 return (
@@ -2532,7 +2949,7 @@ export default function Page() {
                     onClick={() => handleMainViewChange(tab.id)}
                     className={cn(
                       "inline-flex h-9 shrink-0 items-center gap-1.5 rounded-md px-3 text-xs font-bold",
-                      mainView === tab.id ? "bg-violet-600 text-white shadow-sm" : "text-slate-600 hover:bg-white",
+                      mainView === tab.id ? "bg-violet-600 text-white shadow-sm" : "text-slate-600 hover:bg-white dark:text-slate-300 dark:hover:bg-slate-800",
                     )}
                   >
                     <Icon className="h-3.5 w-3.5" />
@@ -2543,10 +2960,10 @@ export default function Page() {
             </div>
           ) : (
             <div className="min-w-0">
-              <div className="text-[11px] font-bold uppercase tracking-[0.18em] text-slate-500">
+              <div className="text-[11px] font-bold uppercase tracking-[0.18em] text-slate-500 dark:text-slate-400">
                 {activeWorkspace === "portfolio" ? "Portfolio" : "Strategy Library"}
               </div>
-              <div className="truncate text-sm font-black text-slate-950">
+              <div className="truncate text-sm font-black text-slate-950 dark:text-slate-100">
                 {activeWorkspace === "portfolio"
                   ? "거래소별 자산과 가용 자금을 추적합니다"
                   : "저장한 전략 템플릿을 Git 스타일로 관리합니다"}
@@ -2557,22 +2974,23 @@ export default function Page() {
           <div className="flex items-center gap-2">
             <button
               type="button"
+              onClick={() => setTheme(isDarkMode ? "light" : "dark")}
+              className="inline-flex h-9 items-center gap-2 rounded-lg border border-slate-200 bg-white px-3 text-sm font-semibold text-slate-700 transition-colors hover:bg-slate-50 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200 dark:hover:bg-slate-800"
+              title={isDarkMode ? "라이트 모드로 전환" : "다크 모드로 전환"}
+            >
+              {isDarkMode ? <Sun className="h-4 w-4 text-amber-300" /> : <Moon className="h-4 w-4 text-slate-600" />}
+              <span className="hidden sm:inline">{isDarkMode ? "라이트" : "다크"}</span>
+            </button>
+            <button
+              type="button"
               onClick={() => setIsExchangeLibraryOpen(true)}
-              className="inline-flex h-9 items-center gap-2 rounded-lg border border-slate-200 bg-white px-3 text-sm font-semibold text-slate-700 hover:bg-slate-50 lg:hidden"
+              className="inline-flex h-9 items-center gap-2 rounded-lg border border-slate-200 bg-white px-3 text-sm font-semibold text-slate-700 hover:bg-slate-50 lg:hidden dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200 dark:hover:bg-slate-800"
             >
               <Coins className="h-4 w-4 text-amber-600" />
               거래소
             </button>
             {isCreateWorkspace ? (
               <>
-                <button
-                  type="button"
-                  onClick={handleAutoLayout}
-                  className="inline-flex h-9 items-center gap-2 rounded-lg border border-slate-200 bg-white px-3 text-sm font-semibold text-slate-700 hover:bg-slate-50"
-                >
-                  <Network className="h-4 w-4 text-violet-600" />
-                  Auto Layout
-                </button>
                 <button
                   type="button"
                   onClick={handleSave}
@@ -2586,7 +3004,7 @@ export default function Page() {
               <button
                 type="button"
                 onClick={() => setIsExchangeLibraryOpen(true)}
-                className="inline-flex h-9 items-center gap-2 rounded-lg bg-slate-950 px-4 text-sm font-bold text-white shadow-sm hover:bg-slate-800"
+                className="inline-flex h-9 items-center gap-2 rounded-lg bg-slate-950 px-4 text-sm font-bold text-white shadow-sm hover:bg-slate-800 dark:bg-slate-100 dark:text-slate-950 dark:hover:bg-white"
               >
                 <Coins className="h-4 w-4 text-amber-300" />
                 거래소 연결 관리
@@ -2596,7 +3014,7 @@ export default function Page() {
                 <button
                   type="button"
                   onClick={() => setIsHistoryOpen(true)}
-                  className="inline-flex h-9 items-center gap-2 rounded-lg border border-slate-200 bg-white px-3 text-sm font-semibold text-slate-700 hover:bg-slate-50"
+                  className="inline-flex h-9 items-center gap-2 rounded-lg border border-slate-200 bg-white px-3 text-sm font-semibold text-slate-700 hover:bg-slate-50 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200 dark:hover:bg-slate-800"
                 >
                   <Clock3 className="h-4 w-4 text-cyan-600" />
                   히스토리
@@ -2604,14 +3022,14 @@ export default function Page() {
                 <button
                   type="button"
                   onClick={handleCreateBranchDraft}
-                  className="inline-flex h-9 items-center gap-2 rounded-lg border border-slate-200 bg-white px-3 text-sm font-semibold text-slate-700 hover:bg-slate-50"
+                  className="inline-flex h-9 items-center gap-2 rounded-lg border border-slate-200 bg-white px-3 text-sm font-semibold text-slate-700 hover:bg-slate-50 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200 dark:hover:bg-slate-800"
                 >
                   브랜치
                 </button>
                 <button
                   type="button"
                   onClick={handleSaveTemplateVersion}
-                  className="inline-flex h-9 items-center gap-2 rounded-lg bg-slate-950 px-4 text-sm font-bold text-white shadow-sm hover:bg-slate-800"
+                  className="inline-flex h-9 items-center gap-2 rounded-lg bg-slate-950 px-4 text-sm font-bold text-white shadow-sm hover:bg-slate-800 dark:bg-slate-100 dark:text-slate-950 dark:hover:bg-white"
                 >
                   <Save className="h-4 w-4" />
                   버전 저장
@@ -2624,12 +3042,16 @@ export default function Page() {
         <main
           className={cn(
             "grid min-h-0 flex-1 overflow-hidden",
-            isCreateWorkspace ? "grid-cols-1 xl:grid-cols-[minmax(0,1fr)_clamp(246px,20vw,320px)]" : "grid-cols-1",
+            isCreateWorkspace
+              ? isRightPanelCollapsed
+                ? "grid-cols-1 xl:grid-cols-[minmax(0,1fr)_52px]"
+                : "grid-cols-1 xl:grid-cols-[minmax(0,1fr)_clamp(246px,20vw,320px)]"
+              : "grid-cols-1",
           )}
         >
           <section className="flex min-w-0 flex-col overflow-hidden">
             {isCreateWorkspace ? (
-              <div className="relative min-h-0 flex-1 overflow-hidden bg-slate-50">
+              <div className="relative min-h-0 flex-1 overflow-hidden bg-slate-50 dark:bg-slate-950">
               {mainView === "easy" ? (
                 <EasyStrategyGraph model={easyViewModel} onSaveCurrentBlock={handleSaveCurrentEasyBlock} />
               ) : null}
@@ -2933,14 +3355,14 @@ export default function Page() {
                     <div className="flex items-center gap-2 text-sm font-bold text-slate-100">
                       <FileCode2 className="h-4 w-4 text-emerald-400" />
                       {codeViewTitle}
-                      <span className={cn("rounded-full px-2 py-0.5 text-[10px] font-black", programCode ? "bg-emerald-500/15 text-emerald-300" : "bg-amber-500/15 text-amber-300")}>
+                      <span className={cn("rounded-full px-2 py-0.5 text-[10px] font-black", hasProgramCodeForCodeView ? "bg-emerald-500/15 text-emerald-300" : "bg-amber-500/15 text-amber-300")}>
                         {codeViewStatus}
                       </span>
                     </div>
                     <button
                       type="button"
                       onClick={() => void generateRuntimeProgramCode({ force: true })}
-                      disabled={!generatedStrategyGraph || isGeneratingProgramCode}
+                      disabled={!codeViewStrategyGraph || isGeneratingProgramCode}
                       className="rounded-lg border border-slate-700 px-3 py-1.5 text-xs font-bold text-slate-300 disabled:cursor-not-allowed disabled:opacity-50"
                     >
                       {isGeneratingProgramCode ? "생성 중" : "Hershy Go 생성"}
@@ -2960,8 +3382,11 @@ export default function Page() {
             ) : activeWorkspace === "portfolio" ? (
               <PortfolioWorkspace
                 exchangeConnections={exchangeConnections}
+                balanceSnapshots={balanceSnapshots}
                 marketRows={marketRows}
                 strategyCount={snapshots.length}
+                syncingBalanceConnectionId={syncingBalanceConnectionId}
+                onSyncBalance={syncExchangeBalance}
                 onManageExchanges={() => setIsExchangeLibraryOpen(true)}
               />
             ) : (
@@ -2984,16 +3409,11 @@ export default function Page() {
               marketUpdatedAt={marketUpdatedAt}
               marketWarning={marketWarning}
               marketRows={marketRows}
-              easyViewModel={easyViewModel}
-              aiSummary={aiSummary}
-              activeSnapshot={activeSnapshot}
-              isSummarizing={isSummarizing}
-              onAiSummary={handleAiSummary}
               isAgentRunning={isAgentRunning}
               onCancelAgentRun={handleCancelAgentRun}
-              connectedExchangeCount={connectedExchangeCount}
-              visibleAgentActivities={visibleAgentActivities}
+              strategySummary={stripAISummaryPrefix(aiSummary)}
               programCode={programCode}
+              showGuide={shouldShowStartGuide}
               guideItems={GUIDE_ITEMS}
               guideDone={guideDone}
               onOpenGuide={() => setIsGuideOpen(true)}
@@ -3001,6 +3421,8 @@ export default function Page() {
                 setGuideStep(index);
                 setIsGuideOpen(true);
               }}
+              isCollapsed={isRightPanelCollapsed}
+              onToggleCollapsed={() => setIsRightPanelCollapsed((value) => !value)}
             />
           ) : null}
         </main>
@@ -3178,7 +3600,7 @@ export default function Page() {
             <div className="flex items-center justify-between border-t border-slate-200 px-5 py-4">
               <button
                 type="button"
-                onClick={handleCloseGuide}
+                onClick={handleDismissGuide}
                 className="text-sm font-bold text-slate-500 hover:text-slate-800"
               >
                 다시 보지 않기
@@ -3222,13 +3644,13 @@ export default function Page() {
             templatePanelMode === "expanded" ? "w-[520px]" : "w-[440px]",
           )}
         >
-          <section className="rounded-2xl border border-slate-200 bg-white shadow-2xl">
-            <div className="flex items-center justify-between border-b border-slate-200 px-4 py-3">
+          <section className="rounded-2xl border border-slate-200 bg-white shadow-2xl dark:border-slate-800 dark:bg-slate-950 dark:shadow-[0_24px_80px_rgba(0,0,0,0.48)]">
+            <div className="flex items-center justify-between border-b border-slate-200 px-4 py-3 dark:border-slate-800">
               <div>
-                <div className="text-[11px] font-bold uppercase tracking-wide text-violet-600">
+                <div className="text-[11px] font-bold uppercase tracking-wide text-violet-600 dark:text-violet-300">
                   AI 전략 템플릿
                 </div>
-                <div className="text-sm font-black text-slate-950">
+                <div className="text-sm font-black text-slate-950 dark:text-slate-100">
                   빠른 추천과 직접 입력
                 </div>
               </div>
@@ -3238,7 +3660,7 @@ export default function Page() {
                   onClick={() =>
                     setTemplatePanelMode((mode) => (mode === "compact" ? "expanded" : "compact"))
                   }
-                  className="rounded-lg border border-slate-200 px-2 py-1 text-xs font-bold text-slate-600 hover:bg-slate-50"
+                  className="rounded-lg border border-slate-200 px-2 py-1 text-xs font-bold text-slate-600 hover:bg-slate-50 dark:border-slate-700 dark:text-slate-300 dark:hover:bg-slate-900"
                 >
                   {templatePanelMode === "compact" ? "확장" : "간소화"}
                 </button>
@@ -3247,7 +3669,7 @@ export default function Page() {
 
             <div className="p-3">
               <div className="mb-3">
-                <div className="mb-2 text-xs font-black text-slate-700">빠른 추천</div>
+                <div className="mb-2 text-xs font-black text-slate-700 dark:text-slate-300">빠른 추천</div>
                 <div
                   className={cn(
                     "grid gap-2",
@@ -3261,17 +3683,17 @@ export default function Page() {
                         type="button"
                         onClick={() => handleTemplateSelect(template)}
                         className={cn(
-                          "rounded-xl border border-slate-200 bg-slate-50 p-3 text-left transition-colors hover:border-violet-300 hover:bg-violet-50",
+                          "rounded-xl border border-slate-200 bg-slate-50 p-3 text-left transition-colors hover:border-violet-300 hover:bg-violet-50 dark:border-slate-800 dark:bg-slate-900 dark:hover:border-violet-400/40 dark:hover:bg-violet-400/10",
                           templatePanelMode === "compact" && "px-2 py-2",
                         )}
                       >
                         <div className="flex items-start justify-between gap-2">
                           <div className="min-w-0">
-                            <div className="truncate text-xs font-black text-slate-900">{template.title}</div>
+                            <div className="truncate text-xs font-black text-slate-900 dark:text-slate-100">{template.title}</div>
                             {templatePanelMode === "expanded" ? (
-                              <p className="mt-1 text-xs leading-5 text-slate-600">{template.summary}</p>
+                              <p className="mt-1 text-xs leading-5 text-slate-600 dark:text-slate-300">{template.summary}</p>
                             ) : (
-                              <div className="mt-1 truncate text-[10px] text-slate-500">{template.tags.join(" · ")}</div>
+                              <div className="mt-1 truncate text-[10px] text-slate-500 dark:text-slate-400">{template.tags.join(" · ")}</div>
                             )}
                           </div>
                           {templatePanelMode === "expanded" ? (
@@ -3281,7 +3703,7 @@ export default function Page() {
                         {templatePanelMode === "expanded" ? (
                           <div className="mt-2 flex flex-wrap gap-1">
                             {template.tags.map((tag) => (
-                              <span key={tag} className="rounded-full bg-slate-100 px-2 py-0.5 text-[10px] font-bold text-slate-600">
+                              <span key={tag} className="rounded-full bg-slate-100 px-2 py-0.5 text-[10px] font-bold text-slate-600 dark:bg-slate-800 dark:text-slate-300">
                                 {tag}
                               </span>
                             ))}
@@ -3293,13 +3715,13 @@ export default function Page() {
                 </div>
               </div>
 
-              <div className="mb-3 max-h-44 space-y-2 overflow-y-auto rounded-xl border border-slate-200 bg-slate-50 p-2">
+              <div className="mb-3 max-h-44 space-y-2 overflow-y-auto rounded-xl border border-slate-200 bg-slate-50 p-2 dark:border-slate-800 dark:bg-slate-900">
                 {agentMessages.map((message, index) => (
                   <div
                     key={`${message.role}-${index}`}
                     className={cn(
                       "whitespace-pre-wrap rounded-lg px-3 py-2 text-xs leading-5",
-                      message.role === "user" ? "ml-8 bg-violet-600 text-white" : "mr-8 bg-white text-slate-700",
+                      message.role === "user" ? "ml-8 bg-violet-600 text-white" : "mr-8 bg-white text-slate-700 dark:bg-slate-800 dark:text-slate-200",
                     )}
                   >
                     {message.text}
@@ -3318,7 +3740,7 @@ export default function Page() {
                   value={agentPrompt}
                   onChange={(event) => setAgentPrompt(event.target.value)}
                   rows={3}
-                  className="w-full resize-none rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm outline-none placeholder:text-slate-400 focus:border-violet-300"
+                  className="w-full resize-none rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm outline-none placeholder:text-slate-400 focus:border-violet-300 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100 dark:placeholder:text-slate-500 dark:focus:border-violet-400"
                   placeholder="예) BTC 20MA 돌파와 거래량 증가를 기준으로 진입하고, 1.2% 트레일링 스톱을 넣어줘"
                 />
                 <button
@@ -3333,7 +3755,7 @@ export default function Page() {
                   <button
                     type="button"
                     onClick={handleCancelAgentRun}
-                    className="inline-flex h-9 w-full items-center justify-center rounded-lg border border-violet-200 bg-white text-sm font-bold text-violet-700 transition-colors hover:bg-violet-50"
+                    className="inline-flex h-9 w-full items-center justify-center rounded-lg border border-violet-200 bg-white text-sm font-bold text-violet-700 transition-colors hover:bg-violet-50 dark:border-violet-400/30 dark:bg-slate-900 dark:text-violet-200 dark:hover:bg-violet-400/10"
                   >
                     현재 생성 중단
                   </button>

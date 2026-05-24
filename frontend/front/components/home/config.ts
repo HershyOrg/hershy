@@ -84,9 +84,9 @@ export const STRATEGY_BLOCKS: StrategyBlock[] = [
   {
     id: "spot-buy",
     index: 3,
-    title: "XRP 현물 매수",
+    title: "BTC 현물 매수",
     subtitle: "가격차 진입 조건 충족",
-    description: "현물 XRP를 매수해 차익거래의 롱 포지션을 만듭니다.",
+    description: "현물 BTC를 매수해 차익거래의 롱 포지션을 만듭니다.",
     status: "watching",
     kind: "trade",
     x: 320,
@@ -103,7 +103,7 @@ export const STRATEGY_BLOCKS: StrategyBlock[] = [
   {
     id: "future-short",
     index: 4,
-    title: "XRP 선물 숏",
+    title: "BTC 선물 숏",
     subtitle: "헤지 포지션 실행",
     description: "동일 규모의 선물 숏을 열어 가격 방향 리스크를 상쇄합니다.",
     status: "watching",
@@ -177,8 +177,8 @@ export const STRATEGY_BLOCKS: StrategyBlock[] = [
 export const MARKET_ROWS: MarketRow[] = [
   { symbol: "BTCUSDT", price: "67,245.8", change: "+1.24%", tone: "up", icon: "₿" },
   { symbol: "ETHUSDT", price: "3,285.6", change: "+0.82%", tone: "up", icon: "Ξ" },
-  { symbol: "XRPUSDT", price: "0.5321", change: "+0.45%", tone: "up", icon: "X" },
-  { symbol: "XRPUSDT.P", price: "0.5303", change: "-0.05%", tone: "down", icon: "P" },
+  { symbol: "SOLUSDT", price: "152.4", change: "+0.45%", tone: "up", icon: "S" },
+  { symbol: "BNBUSDT", price: "610.2", change: "-0.05%", tone: "down", icon: "B" },
 ];
 
 export const EXCHANGE_CONNECTIONS: ExchangeConnection[] = DEFAULT_EXCHANGE_CONNECTIONS as ExchangeConnection[];
@@ -236,9 +236,9 @@ export const MAIN_VIEW_TABS = [
   { id: "code" as const, label: "코드 보기", icon: Code2 },
 ];
 
-export const STRATEGY_CODE = `strategy "XRP 현물-선물 가격차" {
-  stream spot = binance.spot("XRPUSDT")
-  stream perp = binance.perp("XRPUSDT.P")
+export const STRATEGY_CODE = `strategy "BTC 현물-선물 가격차" {
+  stream spot = binance.spot("BTCUSDT")
+  stream perp = binance.perp("BTCUSDT.P")
 
   basis = (perp.price - spot.price) / spot.price * 100
 

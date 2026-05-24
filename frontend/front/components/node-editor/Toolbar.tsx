@@ -57,7 +57,7 @@ export function Toolbar({ onAddNode, onDeleteSelected, onUndo, onRedo, onToggleT
   }, [fitView]);
 
   return (
-    <div className="flex items-center gap-2 bg-white/95 backdrop-blur-sm rounded-lg shadow-md p-2 border border-gray-200">
+    <div className="flex items-center gap-2 rounded-lg border border-gray-200 bg-white/95 p-2 shadow-md backdrop-blur-sm dark:border-slate-700 dark:bg-slate-900/92">
       {/* Add Node Dropdown */}
       <DropdownMenu>
         <DropdownMenuTrigger asChild>
@@ -110,7 +110,7 @@ export function Toolbar({ onAddNode, onDeleteSelected, onUndo, onRedo, onToggleT
         </DropdownMenuContent>
       </DropdownMenu>
 
-      <div className="w-px h-6 bg-gray-200" />
+      <div className="h-6 w-px bg-gray-200 dark:bg-slate-700" />
 
       {/* Quick Add Triggers */}
       <div className="flex items-center gap-1">
@@ -123,7 +123,7 @@ export function Toolbar({ onAddNode, onDeleteSelected, onUndo, onRedo, onToggleT
         >
           <BarChart3 className="w-4 h-4 text-emerald-500" />
         </Button>
-        <div className="w-px h-4 bg-gray-300" />
+        <div className="h-4 w-px bg-gray-300 dark:bg-slate-700" />
         <Button
           variant="ghost"
           size="sm"
@@ -142,7 +142,7 @@ export function Toolbar({ onAddNode, onDeleteSelected, onUndo, onRedo, onToggleT
         >
           <MousePointer2 className="w-4 h-4 text-gray-700" />
         </Button>
-        <div className="w-px h-4 bg-gray-300" />
+        <div className="h-4 w-px bg-gray-300 dark:bg-slate-700" />
         <Button
           variant="ghost"
           size="sm"
@@ -170,7 +170,7 @@ export function Toolbar({ onAddNode, onDeleteSelected, onUndo, onRedo, onToggleT
         >
           <Clock className="w-4 h-4 text-purple-500" />
         </Button>
-        <div className="w-px h-4 bg-gray-300" />
+        <div className="h-4 w-px bg-gray-300 dark:bg-slate-700" />
         <Button
           variant="ghost"
           size="sm"
@@ -191,7 +191,7 @@ export function Toolbar({ onAddNode, onDeleteSelected, onUndo, onRedo, onToggleT
         </Button>
       </div>
 
-      <div className="w-px h-6 bg-gray-200" />
+      <div className="h-6 w-px bg-gray-200 dark:bg-slate-700" />
 
       {/* Undo/Redo Controls */}
       <div className="flex items-center gap-1">
@@ -215,7 +215,7 @@ export function Toolbar({ onAddNode, onDeleteSelected, onUndo, onRedo, onToggleT
         </Button>
       </div>
 
-      <div className="w-px h-6 bg-gray-200" />
+      <div className="h-6 w-px bg-gray-200 dark:bg-slate-700" />
 
       {/* Zoom Controls */}
       <div className="flex items-center gap-1">
@@ -230,7 +230,7 @@ export function Toolbar({ onAddNode, onDeleteSelected, onUndo, onRedo, onToggleT
         </Button>
       </div>
 
-      <div className="w-px h-6 bg-gray-200" />
+      <div className="h-6 w-px bg-gray-200 dark:bg-slate-700" />
 
       {/* Auto Layout */}
       {onLayout && (
@@ -238,14 +238,14 @@ export function Toolbar({ onAddNode, onDeleteSelected, onUndo, onRedo, onToggleT
           <Button
             variant="ghost"
             size="sm"
-            className="px-2 h-8 text-blue-600 hover:text-blue-700 hover:bg-blue-50 flex items-center gap-1.5"
+            className="flex h-8 items-center gap-1.5 px-2 text-blue-600 hover:bg-blue-50 hover:text-blue-700 dark:text-blue-300 dark:hover:bg-blue-400/10 dark:hover:text-blue-200"
             onClick={onLayout}
             title="자동 정렬"
           >
             <Network className="w-4 h-4" />
             <span className="text-xs font-medium">자동 정렬</span>
           </Button>
-          <div className="w-px h-6 bg-gray-200" />
+          <div className="h-6 w-px bg-gray-200 dark:bg-slate-700" />
         </>
       )}
 
@@ -253,19 +253,19 @@ export function Toolbar({ onAddNode, onDeleteSelected, onUndo, onRedo, onToggleT
       <Button
         variant="ghost"
         size="icon"
-        className="w-8 h-8 text-red-500 hover:text-red-600 hover:bg-red-50"
+        className="h-8 w-8 text-red-500 hover:bg-red-50 hover:text-red-600 dark:text-rose-300 dark:hover:bg-rose-400/10 dark:hover:text-rose-200"
         onClick={onDeleteSelected}
         title="Delete Selected"
       >
         <Trash2 className="w-4 h-4" />
       </Button>
 
-      <div className="w-px h-6 bg-gray-200" />
+      <div className="h-6 w-px bg-gray-200 dark:bg-slate-700" />
 
       <Button
         variant="outline"
         size="sm"
-        className="h-8 gap-1.5 text-indigo-600 border-indigo-200 hover:bg-indigo-50"
+        className="h-8 gap-1.5 border-indigo-200 text-indigo-600 hover:bg-indigo-50 dark:border-indigo-400/30 dark:text-indigo-300 dark:hover:bg-indigo-400/10"
         onClick={() => window.dispatchEvent(new CustomEvent("saveHistorySnapshot"))}
         title="현재 상태를 새로운 탬플릿 분기로 저장합니다."
       >
@@ -273,13 +273,13 @@ export function Toolbar({ onAddNode, onDeleteSelected, onUndo, onRedo, onToggleT
         <span className="text-xs font-semibold">저장하기</span>
       </Button>
 
-      <div className="w-px h-6 bg-gray-200" />
+      <div className="h-6 w-px bg-gray-200 dark:bg-slate-700" />
 
       {/* Toggle Terminal */}
       <Button
         variant="outline"
         size="icon"
-        className="w-8 h-8 text-emerald-600 border-emerald-200 hover:bg-emerald-50"
+        className="h-8 w-8 border-emerald-200 text-emerald-600 hover:bg-emerald-50 dark:border-emerald-400/30 dark:text-emerald-300 dark:hover:bg-emerald-400/10"
         onClick={onToggleTerminal}
         title="Toggle Terminal"
       >

@@ -24,6 +24,9 @@ interface BlockItem {
 export type CodeEditorData = Record<string, unknown> & {
   label: string;
   code: string;
+  language?: string;
+  readOnly?: boolean;
+  isRuntimeArtifact?: boolean;
   blocks: BlockItem[];
 }
 
@@ -34,6 +37,9 @@ function CodeEditorNodeComponent({
 }: NodeProps<import("@xyflow/react").Node<CodeEditorData>>) {
   const { setNodes } = useReactFlow();
   const [isExpanded, setIsExpanded] = useState(false);
+  const language = typeof data.language === "string" ? data.language : "javascript";
+  const isReadOnly = Boolean(data.readOnly);
+  const isRuntimeArtifact = Boolean(data.isRuntimeArtifact);
 
   const handleCodeChange = useCallback(
     (value: string | undefined) => {
@@ -95,14 +101,30 @@ function CodeEditorNodeComponent({
   return (
     <div
       className={cn(
-        "bg-[#2d2225] rounded-lg overflow-hidden shadow-xl border border-[#4d4245]",
+        "overflow-hidden rounded-lg border shadow-xl",
+        isRuntimeArtifact
+          ? "border-emerald-500/45 bg-slate-950"
+          : "border-[#4d4245] bg-[#2d2225]",
         selected ? "ring-2 ring-blue-400" : "",
-        isExpanded ? "w-[600px]" : "w-[400px]"
+        isExpanded ? "w-[720px]" : "w-[430px]"
       )}
     >
       {/* Top bar with node label and input blocks */}
-      <div className="flex items-center gap-2 px-3 py-2 bg-[#3d3235] border-b border-[#4d4245]">
-        <span className="text-xs text-gray-400 font-mono">node_</span>
+      <div className={cn(
+        "flex items-center gap-2 border-b px-3 py-2",
+        isRuntimeArtifact ? "border-emerald-500/25 bg-emerald-500/10" : "border-[#4d4245] bg-[#3d3235]",
+      )}>
+        <span className={cn(
+          "truncate text-xs font-bold",
+          isRuntimeArtifact ? "text-emerald-200" : "text-gray-400",
+        )}>
+          {data.label || "Code"}
+        </span>
+        {isReadOnly ? (
+          <span className="rounded-full border border-emerald-400/25 px-1.5 py-0.5 text-[9px] font-black uppercase text-emerald-300">
+            runtime
+          </span>
+        ) : null}
         <div className="flex gap-1 ml-auto">
           {data.blocks?.slice(0, 2).map((block) => (
             <span
@@ -116,7 +138,7 @@ function CodeEditorNodeComponent({
       </div>
 
       {/* Function header with handles */}
-      <div className="relative flex items-center justify-between px-3 py-2 bg-[#3d3235]/50 border-b border-[#4d4245]">
+      <div className="relative flex items-center justify-between border-b border-[#4d4245] bg-[#3d3235]/50 px-3 py-2">
         <Handle
           type="target"
           position={Position.Left}
@@ -124,7 +146,9 @@ function CodeEditorNodeComponent({
           className="!w-2.5 !h-2.5 !bg-gray-400 !border-gray-500"
           style={{ left: -5 }}
         />
-        <span className="text-sm text-gray-300 font-mono">* function() *</span>
+        <span className="text-sm text-gray-300 font-mono">
+          {isRuntimeArtifact ? "generated_strategy.go" : "* function() *"}
+        </span>
         <Handle
           type="source"
           position={Position.Right}
@@ -138,7 +162,7 @@ function CodeEditorNodeComponent({
       <div
         className={cn(
           "relative",
-          isExpanded ? "h-[400px]" : "h-[250px]"
+          isExpanded ? "h-[520px]" : "h-[320px]"
         )}
       >
         {/* Editor toolbar */}
@@ -165,10 +189,10 @@ function CodeEditorNodeComponent({
 
         <MonacoEditor
           height="100%"
-          language="javascript"
+          language={language}
           theme="vs-dark"
           value={data.code}
-          onChange={handleCodeChange}
+          onChange={isReadOnly ? undefined : handleCodeChange}
           options={{
             minimap: { enabled: false },
             fontSize: 13,
@@ -177,6 +201,7 @@ function CodeEditorNodeComponent({
             wordWrap: "on",
             tabSize: 2,
             automaticLayout: true,
+            readOnly: isReadOnly,
             padding: { top: 8, bottom: 8 },
             renderLineHighlight: "line",
             cursorBlinking: "smooth",

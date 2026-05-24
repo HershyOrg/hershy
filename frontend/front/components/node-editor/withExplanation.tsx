@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from "react";
-import { NodeProps, useReactFlow } from "@xyflow/react";
+import { useReactFlow } from "@xyflow/react";
 import { Info, X, Edit2, Check, Sparkles } from "lucide-react";
 
 // 그룹(시퀀스)인지 개별 단위 노드인지에 따라 설명을 구분해서 생성합니다.
@@ -107,18 +107,18 @@ export function withExplanation(WrappedComponent: React.ComponentType<any>) {
 
         {/* 2. 말풍선 팝업 패널 */}
         {showPopup && (
-          <div className="absolute top-1/2 left-full -translate-y-1/2 translate-x-4 w-[340px] bg-white/95 backdrop-blur-sm border border-slate-200/80 rounded-xl shadow-xl z-[120] p-4 text-sm pointer-events-auto nodrag nowheel cursor-default">
-            <div className="absolute top-1/2 -left-2 -translate-y-1/2 border-y-[6px] border-y-transparent border-r-[8px] border-r-white" />
+          <div className="absolute top-1/2 left-full z-[120] w-[340px] -translate-y-1/2 translate-x-4 cursor-default rounded-xl border border-slate-200/80 bg-white/95 p-4 text-sm shadow-xl backdrop-blur-sm pointer-events-auto nodrag nowheel dark:border-slate-700/80 dark:bg-slate-950/95 dark:shadow-[0_18px_48px_rgba(0,0,0,0.42)]">
+            <div className="absolute top-1/2 -left-2 -translate-y-1/2 border-y-[6px] border-r-[8px] border-y-transparent border-r-white dark:border-r-slate-950" />
             
             <div className="flex items-center justify-between mb-2">
-              <h4 className="font-bold text-slate-800 text-xs text-indigo-700 bg-indigo-50 px-2 py-1 rounded-md max-w-[140px] truncate">
+              <h4 className="max-w-[140px] truncate rounded-md bg-indigo-50 px-2 py-1 text-xs font-bold text-indigo-700 dark:bg-indigo-400/10 dark:text-indigo-200">
                 {isGroup ? `[시퀀스] ${label}` : `[노드] ${label}`}
               </h4>
               <div className="flex items-center gap-1">
                 {isGroup && !isEditing && (
                   <button
                     onClick={handleAiSummary}
-                    className="flex items-center gap-1 text-[10px] bg-indigo-100 text-indigo-600 hover:bg-indigo-200 px-1.5 py-1 rounded transition-colors"
+                    className="flex items-center gap-1 rounded bg-indigo-100 px-1.5 py-1 text-[10px] text-indigo-600 transition-colors hover:bg-indigo-200 dark:bg-indigo-400/10 dark:text-indigo-200 dark:hover:bg-indigo-400/20"
                   >
                     <Sparkles className="w-3 h-3" />
                     <span>AI 요약</span>
@@ -131,7 +131,7 @@ export function withExplanation(WrappedComponent: React.ComponentType<any>) {
                       setEditText(explanation);
                       setIsEditing(true);
                     }}
-                    className="text-slate-400 hover:text-slate-700 hover:bg-slate-100 p-1 rounded transition-colors"
+                    className="rounded p-1 text-slate-400 transition-colors hover:bg-slate-100 hover:text-slate-700 dark:hover:bg-slate-800 dark:hover:text-slate-200"
                   >
                     <Edit2 className="w-3.5 h-3.5" />
                   </button>
@@ -139,7 +139,7 @@ export function withExplanation(WrappedComponent: React.ComponentType<any>) {
                 {isEditing && (
                   <button
                     onClick={handleSave}
-                    className="text-green-500 hover:text-green-700 hover:bg-green-50 p-1 rounded transition-colors"
+                    className="rounded p-1 text-green-500 transition-colors hover:bg-green-50 hover:text-green-700 dark:text-green-300 dark:hover:bg-green-400/10 dark:hover:text-green-200"
                   >
                     <Check className="w-4 h-4" />
                   </button>
@@ -152,7 +152,7 @@ export function withExplanation(WrappedComponent: React.ComponentType<any>) {
                       setManualShow(false);
                       setIsEditing(false);
                     }}
-                    className="text-slate-400 hover:text-slate-700 hover:bg-slate-100 p-1 rounded transition-colors ml-1"
+                    className="ml-1 rounded p-1 text-slate-400 transition-colors hover:bg-slate-100 hover:text-slate-700 dark:hover:bg-slate-800 dark:hover:text-slate-200"
                   >
                     <X className="w-4 h-4" />
                   </button>
@@ -165,11 +165,11 @@ export function withExplanation(WrappedComponent: React.ComponentType<any>) {
                 value={editText}
                 onChange={(e) => setEditText(e.target.value)}
                 onClick={(e) => e.stopPropagation()}
-                className="w-full text-[13px] p-2 border border-slate-300 rounded focus:outline-none focus:border-indigo-500 resize-none h-32"
+                className="h-32 w-full resize-none rounded border border-slate-300 p-2 text-[13px] focus:border-indigo-500 focus:outline-none dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100 dark:focus:border-indigo-400"
                 autoFocus
               />
             ) : (
-              <p className="text-slate-600 leading-relaxed text-[13px] whitespace-pre-wrap word-break flex flex-col gap-2">
+              <p className="flex flex-col gap-2 whitespace-pre-wrap text-[13px] leading-relaxed text-slate-600 word-break dark:text-slate-300">
                 {explanation}
               </p>
             )}

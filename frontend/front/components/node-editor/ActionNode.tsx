@@ -238,7 +238,7 @@ function ActionNodeComponent({ id, data, selected }: NodeProps) {
   };
 
   const renderInputBlocks = () => {
-    if (!typedData.inputBlocks || typedData.inputBlocks.length === 0) return null;
+    const inputBlocks = typedData.inputBlocks ?? [];
     return (
       <div className={cn(
         "p-2 border-b grid gap-1",
@@ -247,8 +247,15 @@ function ActionNodeComponent({ id, data, selected }: NodeProps) {
         <div className={cn(
           "text-[10px] font-semibold uppercase mb-1",
           isCEX ? "text-amber-700" : "text-cyan-700"
-        )}>Input Blocks</div>
-        {typedData.inputBlocks.map((block) => {
+        )}>Input Blocks <span className="font-normal opacity-70">(blocks only)</span></div>
+        {inputBlocks.length === 0 ? (
+          <div className={cn(
+            "text-xs italic",
+            isCEX ? "text-amber-400" : "text-cyan-400"
+          )}>
+            No input parameters
+          </div>
+        ) : inputBlocks.map((block) => {
           const connectedInfos = getConnectedSourceInfo(block.id);
           const dragName = connectedInfos.length > 0 ? connectedInfos[0] ?? block.name : block.name;
           
@@ -308,7 +315,7 @@ function ActionNodeComponent({ id, data, selected }: NodeProps) {
           )}
         >
           <Plus className="w-3 h-3" />
-          Add Input Block
+          Add Block
         </button>
       </div>
     );
@@ -795,102 +802,6 @@ function ActionNodeComponent({ id, data, selected }: NodeProps) {
           </div>
         </div>
       )}
-
-      {/* Input Parameters Section */}
-      <div className={cn(
-        "p-3 border-b",
-        isCEX ? "border-amber-200 bg-amber-100/50" : "border-cyan-200 bg-cyan-100/50"
-      )}>
-        <div className={cn(
-          "text-[10px] font-semibold mb-2 uppercase tracking-wide",
-          isCEX ? "text-amber-700" : "text-cyan-700"
-        )}>
-          Input Blocks <span className="font-normal opacity-70">(blocks only)</span>
-        </div>
-        <div className="space-y-1.5">
-          {typedData.inputBlocks.length === 0 ? (
-            <div className={cn(
-              "text-xs italic",
-              isCEX ? "text-amber-400" : "text-cyan-400"
-            )}>
-              No input parameters
-            </div>
-          ) : (
-            typedData.inputBlocks.map((block) => {
-              return (
-                <div
-                  key={block.id}
-                  data-connect-target-node={id}
-                  data-connect-target-handle={`${id}-input-${block.id}-in`}
-                  className="relative group bg-white rounded px-2 py-1.5 border border-current"
-                  style={{ borderColor: isCEX ? "#fbbf24" : "#22d3ee" }}
-                >
-                  <Handle
-                    type="target"
-                    position={Position.Left}
-                    id={`${id}-input-${block.id}-in`}
-                    className={cn(
-                      "!w-2 !h-2",
-                      isCEX ? "!bg-amber-400 !border-amber-500" : "!bg-cyan-400 !border-cyan-500"
-                    )}
-                    style={{ left: -9 }}
-                  />
-                  <input
-                    type="text"
-                    value={block.name}
-                    onChange={(e) => handleBlockChange("input", block.id, { name: e.target.value })}
-                    className={cn(
-                      "w-full bg-transparent text-xs font-semibold outline-none placeholder:text-gray-400",
-                      isCEX 
-                        ? "text-amber-800"
-                        : "text-cyan-800"
-                    )}
-                    placeholder="블록 이름"
-                  />
-                  <input
-                    type="text"
-                    value={block.description ?? ""}
-                    onChange={(e) =>
-                      handleBlockChange("input", block.id, { description: e.target.value })
-                    }
-                    className={cn(
-                      "mt-0.5 w-full bg-transparent text-[11px] outline-none placeholder:text-gray-400",
-                      isCEX ? "text-amber-600" : "text-cyan-600"
-                    )}
-                    placeholder="블록 설명 한 줄"
-                  />
-                  {block.connectedFrom ? (
-                    <div className={cn(
-                      "mt-1 truncate rounded bg-white/70 px-1.5 py-0.5 text-[10px] font-semibold",
-                      isCEX ? "text-amber-700" : "text-cyan-700"
-                    )}>
-                      {String(block.connectedFrom)}
-                    </div>
-                  ) : null}
-                  <button
-                    onClick={() => handleRemoveInputBlock(block.id)}
-                    className="absolute right-4 top-1.5 opacity-0 group-hover:opacity-100 p-0.5 hover:bg-red-50 rounded transition-opacity"
-                  >
-                    <X className="w-3 h-3 text-red-500" />
-                  </button>
-                </div>
-              );
-            })
-          )}
-          <button
-            onClick={handleAddInputBlock}
-            className={cn(
-              "w-full px-2 py-1 text-[10px] flex items-center justify-center gap-1 rounded border border-dashed transition-colors",
-              isCEX 
-                ? "text-amber-600 hover:text-amber-700 hover:bg-amber-100 border-amber-300" 
-                : "text-cyan-600 hover:text-cyan-700 hover:bg-cyan-100 border-cyan-300"
-            )}
-          >
-            <Plus className="w-3 h-3" />
-            Add Block
-          </button>
-        </div>
-      </div>
 
       {/* Output Section */}
       <div className="p-3">
