@@ -1,0 +1,3488 @@
+{
+  "generatedAt": "2026-05-22T15:08:15.635Z",
+  "selection": {
+    "limit": 100,
+    "ranking": "current_tvl_desc",
+    "excludedCategories": [
+      "Block Builders",
+      "CEX",
+      "Chain",
+      "DAO Service Provider",
+      "Domains",
+      "Foundation",
+      "Gaming",
+      "Interface",
+      "Luck Games",
+      "Meme",
+      "Physical TCG",
+      "Ponzi",
+      "Security Extension",
+      "Services",
+      "Telegram Bot",
+      "Wallets"
+    ],
+    "manualReviewRequired": true
+  },
+  "source": {
+    "provider": "defillama",
+    "endpoint": "https://api.llama.fi/protocols",
+    "totalFetched": 7555
+  },
+  "protocols": [
+    {
+      "rank": 1,
+      "name": "Lido",
+      "slug": "lido",
+      "category": "Liquid Staking",
+      "tvl": 18847953911.50035,
+      "primaryChain": "Ethereum",
+      "chains": [
+        "Ethereum",
+        "Solana",
+        "Moonbeam",
+        "Moonriver",
+        "Terra"
+      ],
+      "chainTvls": {
+        "Terra": 0,
+        "Ethereum": 18843593050.718918,
+        "Moonbeam": 37809.05127317254,
+        "Moonriver": 12302.939546273423,
+        "Solana": 4310748.790613297
+      },
+      "url": "https://lido.fi/",
+      "twitter": "LidoFinance",
+      "symbol": "LDO",
+      "defillamaId": "182",
+      "source": {
+        "provider": "defillama",
+        "endpoint": "https://api.llama.fi/protocols"
+      },
+      "addressResearchStatus": "pending",
+      "ingestStatus": "not_ready_missing_verified_deployment_addresses",
+      "notes": "Selected by current DeFiLlama TVL ranking after excluding non-DeFi or non-contract-first categories. Verify official deployment addresses before ingest."
+    },
+    {
+      "rank": 2,
+      "name": "SSV Network",
+      "slug": "ssv-network",
+      "category": "Staking Pool",
+      "tvl": 15554617776.996073,
+      "primaryChain": "Ethereum",
+      "chains": [
+        "Ethereum"
+      ],
+      "chainTvls": {
+        "Ethereum": 15554617776.996073
+      },
+      "url": "https://ssv.network/",
+      "twitter": "ssv_network",
+      "symbol": "SSV",
+      "defillamaId": "6359",
+      "source": {
+        "provider": "defillama",
+        "endpoint": "https://api.llama.fi/protocols"
+      },
+      "addressResearchStatus": "pending",
+      "ingestStatus": "not_ready_missing_verified_deployment_addresses",
+      "notes": "Selected by current DeFiLlama TVL ranking after excluding non-DeFi or non-contract-first categories. Verify official deployment addresses before ingest."
+    },
+    {
+      "rank": 3,
+      "name": "Aave V3",
+      "slug": "aave-v3",
+      "category": "Lending",
+      "tvl": 13655438421.29996,
+      "primaryChain": "Ethereum",
+      "chains": [
+        "Ethereum",
+        "Plasma",
+        "Arbitrum",
+        "Base",
+        "Avalanche",
+        "Binance",
+        "Polygon",
+        "Mantle",
+        "MegaETH",
+        "X Layer",
+        "xDai",
+        "Optimism",
+        "Linea",
+        "Sonic",
+        "Celo",
+        "Scroll",
+        "zkSync Era",
+        "Metis",
+        "Soneium",
+        "Fantom",
+        "Harmony"
+      ],
+      "chainTvls": {
+        "Sonic-borrowed": 5094770.039682945,
+        "Base-borrowed": 305222912.0264117,
+        "Plasma-borrowed": 960070867.0958126,
+        "Fantom-borrowed": 1054.3229480384919,
+        "Base": 413427360.890354,
+        "Avalanche-borrowed": 195605573.3751915,
+        "Fantom": 4332.11830360092,
+        "Ethereum-borrowed": 8086686029.32708,
+        "Arbitrum-borrowed": 357595867.2288932,
+        "Linea": 15045987.592816645,
+        "Mantle-borrowed": 243390208.9633435,
+        "Optimism-borrowed": 32845106.51577105,
+        "Linea-borrowed": 12287889.918287449,
+        "Soneium-borrowed": 57674.79530081553,
+        "Ethereum": 11071128370.523878,
+        "xDai-borrowed": 27371635.892765906,
+        "Harmony-borrowed": 322330.9928467261,
+        "Sonic": 11786424.563533425,
+        "Arbitrum": 451292075.2386974,
+        "Polygon-borrowed": 56667248.475651376,
+        "MegaETH-borrowed": 424942600.372847,
+        "Polygon": 127637249.7590187,
+        "Binance": 168908514.40217435,
+        "Metis-borrowed": 39299.55911794622,
+        "Binance-borrowed": 72497055.09678452,
+        "Scroll-borrowed": 1255879.7614050102,
+        "Celo-borrowed": 2790642.938421428,
+        "X Layer-borrowed": 5328376.0645637885,
+        "Soneium": 223021.5938406656,
+        "X Layer": 65409734.62222203,
+        "Avalanche": 332273684.0860715,
+        "Plasma": 633748038.2360953,
+        "Celo": 7720860.212868305,
+        "MegaETH": 120204068.93283638,
+        "xDai": 55200979.41498265,
+        "Metis": 342689.7664245528,
+        "Scroll": 2322742.0520106126,
+        "zkSync Era-borrowed": 340689.20175463386,
+        "Harmony": 0,
+        "zkSync Era": 1260360.3582416596,
+        "Optimism": 49993509.72414313,
+        "Mantle": 127508417.21144542,
+        "borrowed": 10790413711.964882
+      },
+      "url": "https://aave.com",
+      "twitter": "aave",
+      "symbol": "AAVE",
+      "defillamaId": "1599",
+      "source": {
+        "provider": "defillama",
+        "endpoint": "https://api.llama.fi/protocols"
+      },
+      "addressResearchStatus": "pending",
+      "ingestStatus": "not_ready_missing_verified_deployment_addresses",
+      "notes": "Selected by current DeFiLlama TVL ranking after excluding non-DeFi or non-contract-first categories. Verify official deployment addresses before ingest."
+    },
+    {
+      "rank": 4,
+      "name": "WBTC",
+      "slug": "wbtc",
+      "category": "Bridge",
+      "tvl": 8815201217.277029,
+      "primaryChain": "Bitcoin",
+      "chains": [
+        "Bitcoin"
+      ],
+      "chainTvls": {
+        "Bitcoin": 8815201217.277029
+      },
+      "url": "https://wbtc.network/",
+      "twitter": "WrappedBTC",
+      "symbol": "-",
+      "defillamaId": "2",
+      "source": {
+        "provider": "defillama",
+        "endpoint": "https://api.llama.fi/protocols"
+      },
+      "addressResearchStatus": "pending",
+      "ingestStatus": "not_ready_missing_verified_deployment_addresses",
+      "notes": "Selected by current DeFiLlama TVL ranking after excluding non-DeFi or non-contract-first categories. Verify official deployment addresses before ingest."
+    },
+    {
+      "rank": 5,
+      "name": "Binance staked ETH",
+      "slug": "binance-staked-eth",
+      "category": "Liquid Staking",
+      "tvl": 7860072438.449596,
+      "primaryChain": "Ethereum",
+      "chains": [
+        "Ethereum",
+        "Binance"
+      ],
+      "chainTvls": {
+        "Ethereum": 7415001954.710516,
+        "Binance": 445070483.7390807
+      },
+      "url": "https://www.binance.com/en/wbeth",
+      "twitter": "binance",
+      "symbol": "-",
+      "defillamaId": "2914",
+      "source": {
+        "provider": "defillama",
+        "endpoint": "https://api.llama.fi/protocols"
+      },
+      "addressResearchStatus": "pending",
+      "ingestStatus": "not_ready_missing_verified_deployment_addresses",
+      "notes": "Selected by current DeFiLlama TVL ranking after excluding non-DeFi or non-contract-first categories. Verify official deployment addresses before ingest."
+    },
+    {
+      "rank": 6,
+      "name": "Morpho Blue",
+      "slug": "morpho-blue",
+      "category": "Lending",
+      "tvl": 7386436180.49769,
+      "primaryChain": "Ethereum",
+      "chains": [
+        "Ethereum",
+        "Base",
+        "Hyperliquid L1",
+        "Monad",
+        "Katana",
+        "Arbitrum",
+        "Flare",
+        "Sei",
+        "World Chain",
+        "Optimism",
+        "Plume Mainnet",
+        "Polygon",
+        "Citrea",
+        "Etherlink",
+        "Hemi",
+        "Unichain",
+        "Tempo",
+        "Celo",
+        "Abstract",
+        "TAC",
+        "Stable",
+        "Klaytn",
+        "Lisk",
+        "Soneium",
+        "Scroll",
+        "Corn",
+        "Fraxtal",
+        "Sonic",
+        "Binance",
+        "Botanix",
+        "Ink",
+        "Zircuit",
+        "xDai",
+        "Bitlayer",
+        "Linea",
+        "Mode"
+      ],
+      "chainTvls": {
+        "Zircuit": 0,
+        "Zircuit-borrowed": 0,
+        "xDai-borrowed": 0,
+        "Optimism-borrowed": 4635337.213042807,
+        "xDai": 0,
+        "Fraxtal-borrowed": 211.17469355973003,
+        "Soneium-borrowed": 18884.317703835022,
+        "Sei-borrowed": 20192266.362013977,
+        "Hemi-borrowed": 291.8158087948528,
+        "Sonic-borrowed": 15.210100345110444,
+        "Stable-borrowed": 3511329.2742968323,
+        "Botanix-borrowed": 1.1020064503597418,
+        "Scroll-borrowed": 1.122454462250285,
+        "Etherlink-borrowed": 2045593.7525814478,
+        "Optimism": 9403450.198126212,
+        "Celo-borrowed": 58832.60884228669,
+        "Bitlayer": 0,
+        "Linea-borrowed": 0,
+        "Bitlayer-borrowed": 0,
+        "Klaytn-borrowed": 8720.117993403406,
+        "Fraxtal": 327.87338880398,
+        "Mode-borrowed": 0,
+        "Hemi": 2581538.4794988288,
+        "Linea": 0,
+        "Binance-borrowed": 8.386678965079572,
+        "Scroll": 5483.043365190329,
+        "Ink-borrowed": 0.8996895525186235,
+        "Mode": 0,
+        "Corn-borrowed": 0.26834614117364286,
+        "Citrea-borrowed": 1315032.2752819504,
+        "Soneium": 93320.35301758257,
+        "Stable": 371595.1269074872,
+        "World Chain-borrowed": 8626593.37047049,
+        "Sonic": 83.83834492852705,
+        "Botanix": 18.552123108491372,
+        "Corn": 4692.303440834032,
+        "Celo": 1000846.2254655984,
+        "Klaytn": 260960.38157573884,
+        "World Chain": 19262446.55546342,
+        "Ink": 13.615714469522338,
+        "Binance": 78.75985276796716,
+        "Unichain-borrowed": 1194248.17444556,
+        "Etherlink": 3545970.4409608794,
+        "Citrea": 3630226.940491046,
+        "Lisk-borrowed": 12890.976318236882,
+        "Lisk": 145581.1369911243,
+        "Katana-borrowed": 58827255.0182262,
+        "Unichain": 2373640.505822221,
+        "Tempo-borrowed": 6757.12412128311,
+        "Abstract-borrowed": 125928.9375373664,
+        "Plume Mainnet-borrowed": 4900022.5168642895,
+        "Katana": 132814088.78307347,
+        "Tempo": 2024737.0877945183,
+        "Sei": 30620423.126163445,
+        "Hyperliquid L1-borrowed": 114923776.4951764,
+        "TAC-borrowed": 311834.7181182375,
+        "Flare-borrowed": 18749373.255746648,
+        "Arbitrum-borrowed": 42260511.861254506,
+        "Plume Mainnet": 8388766.835027723,
+        "Hyperliquid L1": 321849890.69180113,
+        "TAC": 551730.258091415,
+        "Arbitrum": 55597951.55049049,
+        "Abstract": 830126.1281252168,
+        "Flare": 46691840.208509505,
+        "Monad-borrowed": 98769646.66831441,
+        "Polygon-borrowed": 1800995.1820665293,
+        "Monad": 154887354.67338097,
+        "Polygon": 8082553.017122012,
+        "Ethereum-borrowed": 2101231280.6144373,
+        "Ethereum": 3816567870.260658,
+        "Base-borrowed": 1485537892.0765798,
+        "Base": 2859171762.9151444,
+        "borrowed": 3911581678.9608197
+      },
+      "url": "https://app.morpho.org",
+      "twitter": "Morpho",
+      "symbol": "MORPHO",
+      "defillamaId": "4025",
+      "source": {
+        "provider": "defillama",
+        "endpoint": "https://api.llama.fi/protocols"
+      },
+      "addressResearchStatus": "pending",
+      "ingestStatus": "not_ready_missing_verified_deployment_addresses",
+      "notes": "Selected by current DeFiLlama TVL ranking after excluding non-DeFi or non-contract-first categories. Verify official deployment addresses before ingest."
+    },
+    {
+      "rank": 7,
+      "name": "EigenCloud",
+      "slug": "eigencloud",
+      "category": "Restaking",
+      "tvl": 6681185915.136579,
+      "primaryChain": "Ethereum",
+      "chains": [
+        "Ethereum"
+      ],
+      "chainTvls": {
+        "Ethereum-staking": 62250149.98114273,
+        "Ethereum": 6681185915.136579,
+        "staking": 62250149.98114273
+      },
+      "url": "https://www.eigencloud.xyz",
+      "twitter": "eigencloud",
+      "symbol": "EIGEN",
+      "defillamaId": "3107",
+      "source": {
+        "provider": "defillama",
+        "endpoint": "https://api.llama.fi/protocols"
+      },
+      "addressResearchStatus": "pending",
+      "ingestStatus": "not_ready_missing_verified_deployment_addresses",
+      "notes": "Selected by current DeFiLlama TVL ranking after excluding non-DeFi or non-contract-first categories. Verify official deployment addresses before ingest."
+    },
+    {
+      "rank": 8,
+      "name": "Coinbase Bridge",
+      "slug": "coinbase-bridge",
+      "category": "Bridge",
+      "tvl": 6270497025.082912,
+      "primaryChain": "Bitcoin",
+      "chains": [
+        "Bitcoin",
+        "Ripple",
+        "Doge",
+        "Cardano",
+        "Litecoin"
+      ],
+      "chainTvls": {
+        "Cardano": 799212.4800066762,
+        "Litecoin": 664760.3975464876,
+        "Bitcoin": 6264686331.836233,
+        "Ripple": 3193035.474330344,
+        "Doge": 1153684.8947962367
+      },
+      "url": "https://www.coinbase.com/",
+      "twitter": "coinbase",
+      "symbol": "-",
+      "defillamaId": "5810",
+      "source": {
+        "provider": "defillama",
+        "endpoint": "https://api.llama.fi/protocols"
+      },
+      "addressResearchStatus": "pending",
+      "ingestStatus": "not_ready_missing_verified_deployment_addresses",
+      "notes": "Selected by current DeFiLlama TVL ranking after excluding non-DeFi or non-contract-first categories. Verify official deployment addresses before ingest."
+    },
+    {
+      "rank": 9,
+      "name": "Sky Lending",
+      "slug": "sky-lending",
+      "category": "CDP",
+      "tvl": 5682733404.494066,
+      "primaryChain": "Ethereum",
+      "chains": [
+        "Ethereum"
+      ],
+      "chainTvls": {
+        "Ethereum-staking": 715213340.8709111,
+        "Ethereum": 5682733404.494066,
+        "staking": 715213340.8709111
+      },
+      "url": "https://app.sky.money/",
+      "twitter": "SkyEcosystem",
+      "symbol": "SKY",
+      "defillamaId": "118",
+      "source": {
+        "provider": "defillama",
+        "endpoint": "https://api.llama.fi/protocols"
+      },
+      "addressResearchStatus": "pending",
+      "ingestStatus": "not_ready_missing_verified_deployment_addresses",
+      "notes": "Selected by current DeFiLlama TVL ranking after excluding non-DeFi or non-contract-first categories. Verify official deployment addresses before ingest."
+    },
+    {
+      "rank": 10,
+      "name": "Hyperliquid Bridge",
+      "slug": "hyperliquid-bridge",
+      "category": "Bridge",
+      "tvl": 5329749097.155989,
+      "primaryChain": "Arbitrum",
+      "chains": [
+        "Arbitrum",
+        "Hyperliquid L1"
+      ],
+      "chainTvls": {
+        "Arbitrum": 4066701353.4885683,
+        "Hyperliquid L1": 1263047743.6674209
+      },
+      "url": "https://app.hyperliquid.xyz",
+      "twitter": "HyperliquidX",
+      "symbol": "HYPE",
+      "defillamaId": "4481",
+      "source": {
+        "provider": "defillama",
+        "endpoint": "https://api.llama.fi/protocols"
+      },
+      "addressResearchStatus": "pending",
+      "ingestStatus": "not_ready_missing_verified_deployment_addresses",
+      "notes": "Selected by current DeFiLlama TVL ranking after excluding non-DeFi or non-contract-first categories. Verify official deployment addresses before ingest."
+    },
+    {
+      "rank": 11,
+      "name": "Binance Bitcoin",
+      "slug": "binance-bitcoin",
+      "category": "Bridge",
+      "tvl": 5264332972.177445,
+      "primaryChain": "Bitcoin",
+      "chains": [
+        "Bitcoin"
+      ],
+      "chainTvls": {
+        "Bitcoin": 5264332972.177445
+      },
+      "url": "https://www.binance.com/en/collateral-btokens",
+      "twitter": "binance",
+      "symbol": "-",
+      "defillamaId": "5033",
+      "source": {
+        "provider": "defillama",
+        "endpoint": "https://api.llama.fi/protocols"
+      },
+      "addressResearchStatus": "pending",
+      "ingestStatus": "not_ready_missing_verified_deployment_addresses",
+      "notes": "Selected by current DeFiLlama TVL ranking after excluding non-DeFi or non-contract-first categories. Verify official deployment addresses before ingest."
+    },
+    {
+      "rank": 12,
+      "name": "ether.fi Stake",
+      "slug": "ether.fi-stake",
+      "category": "Liquid Restaking",
+      "tvl": 4627208174.216145,
+      "primaryChain": "Ethereum",
+      "chains": [
+        "Ethereum",
+        "Base",
+        "Arbitrum"
+      ],
+      "chainTvls": {
+        "Ethereum-staking": 32914544.866742466,
+        "Base-staking": 0,
+        "Arbitrum-staking": 1245000.140185482,
+        "Ethereum": 4627208174.216145,
+        "staking": 34159545.006927945
+      },
+      "url": "https://www.ether.fi/refer/04bb2542",
+      "twitter": "ether_fi",
+      "symbol": "ETHFI",
+      "defillamaId": "2626",
+      "source": {
+        "provider": "defillama",
+        "endpoint": "https://api.llama.fi/protocols"
+      },
+      "addressResearchStatus": "pending",
+      "ingestStatus": "not_ready_missing_verified_deployment_addresses",
+      "notes": "Selected by current DeFiLlama TVL ranking after excluding non-DeFi or non-contract-first categories. Verify official deployment addresses before ingest."
+    },
+    {
+      "rank": 13,
+      "name": "Ethena USDe",
+      "slug": "ethena-usde",
+      "category": "Basis Trading",
+      "tvl": 4441894113.177633,
+      "primaryChain": "Ethereum",
+      "chains": [
+        "Ethereum"
+      ],
+      "chainTvls": {
+        "Ethereum": 4441894113.177633
+      },
+      "url": "https://www.app.ethena.fi/join/3y20d",
+      "twitter": "ethena_labs",
+      "symbol": "ENA",
+      "defillamaId": "4133",
+      "source": {
+        "provider": "defillama",
+        "endpoint": "https://api.llama.fi/protocols"
+      },
+      "addressResearchStatus": "pending",
+      "ingestStatus": "not_ready_missing_verified_deployment_addresses",
+      "notes": "Selected by current DeFiLlama TVL ranking after excluding non-DeFi or non-contract-first categories. Verify official deployment addresses before ingest."
+    },
+    {
+      "rank": 14,
+      "name": "Babylon Protocol",
+      "slug": "babylon-protocol",
+      "category": "Restaking",
+      "tvl": 3990731473.8771305,
+      "primaryChain": "Bitcoin",
+      "chains": [
+        "Bitcoin"
+      ],
+      "chainTvls": {
+        "Bitcoin": 3990731473.8771305
+      },
+      "url": "https://babylonlabs.io",
+      "twitter": "babylonlabs_io",
+      "symbol": "BABY",
+      "defillamaId": "5258",
+      "source": {
+        "provider": "defillama",
+        "endpoint": "https://api.llama.fi/protocols"
+      },
+      "addressResearchStatus": "pending",
+      "ingestStatus": "not_ready_missing_verified_deployment_addresses",
+      "notes": "Selected by current DeFiLlama TVL ranking after excluding non-DeFi or non-contract-first categories. Verify official deployment addresses before ingest."
+    },
+    {
+      "rank": 15,
+      "name": "USDT0",
+      "slug": "usdt0",
+      "category": "Bridge",
+      "tvl": 3612074443.6390934,
+      "primaryChain": "Ethereum",
+      "chains": [
+        "Ethereum"
+      ],
+      "chainTvls": {
+        "Ethereum": 3612074443.6390934
+      },
+      "url": "https://usdt0.to",
+      "twitter": "USDT0_to",
+      "symbol": "-",
+      "defillamaId": "5901",
+      "source": {
+        "provider": "defillama",
+        "endpoint": "https://api.llama.fi/protocols"
+      },
+      "addressResearchStatus": "pending",
+      "ingestStatus": "not_ready_missing_verified_deployment_addresses",
+      "notes": "Selected by current DeFiLlama TVL ranking after excluding non-DeFi or non-contract-first categories. Verify official deployment addresses before ingest."
+    },
+    {
+      "rank": 16,
+      "name": "JustLend",
+      "slug": "justlend",
+      "category": "Lending",
+      "tvl": 3559216990.1704435,
+      "primaryChain": "Tron",
+      "chains": [
+        "Tron"
+      ],
+      "chainTvls": {
+        "Tron-borrowed": 178730482.35990682,
+        "Tron": 3559216990.1704435,
+        "borrowed": 178730482.35990682
+      },
+      "url": "https://justlend.just.network",
+      "twitter": "DeFi_JUST",
+      "symbol": "JST",
+      "defillamaId": "494",
+      "source": {
+        "provider": "defillama",
+        "endpoint": "https://api.llama.fi/protocols"
+      },
+      "addressResearchStatus": "pending",
+      "ingestStatus": "not_ready_missing_verified_deployment_addresses",
+      "notes": "Selected by current DeFiLlama TVL ranking after excluding non-DeFi or non-contract-first categories. Verify official deployment addresses before ingest."
+    },
+    {
+      "rank": 17,
+      "name": "SparkLend",
+      "slug": "sparklend",
+      "category": "Lending",
+      "tvl": 3309248990.024334,
+      "primaryChain": "Ethereum",
+      "chains": [
+        "Ethereum",
+        "xDai"
+      ],
+      "chainTvls": {
+        "Ethereum-staking": 16323059.791556427,
+        "Ethereum": 3308824549.3412733,
+        "Ethereum-borrowed": 1647513667.0667124,
+        "xDai": 424440.6830605633,
+        "xDai-borrowed": 170916.53802210832,
+        "staking": 16323059.791556427,
+        "borrowed": 1647684583.6047344
+      },
+      "url": "https://app.spark.fi/points/KNQ5HD",
+      "twitter": "sparkdotfi",
+      "symbol": "SPK",
+      "defillamaId": "2929",
+      "source": {
+        "provider": "defillama",
+        "endpoint": "https://api.llama.fi/protocols"
+      },
+      "addressResearchStatus": "pending",
+      "ingestStatus": "not_ready_missing_verified_deployment_addresses",
+      "notes": "Selected by current DeFiLlama TVL ranking after excluding non-DeFi or non-contract-first categories. Verify official deployment addresses before ingest."
+    },
+    {
+      "rank": 18,
+      "name": "Arbitrum Bridge",
+      "slug": "arbitrum-bridge",
+      "category": "Canonical Bridge",
+      "tvl": 3228830099.0929704,
+      "primaryChain": "Ethereum",
+      "chains": [
+        "Ethereum"
+      ],
+      "chainTvls": {
+        "Ethereum": 3228830099.0929704
+      },
+      "url": "https://portal.arbitrum.io/bridge",
+      "twitter": "arbitrum",
+      "symbol": "ARB",
+      "defillamaId": "3777",
+      "source": {
+        "provider": "defillama",
+        "endpoint": "https://api.llama.fi/protocols"
+      },
+      "addressResearchStatus": "pending",
+      "ingestStatus": "not_ready_missing_verified_deployment_addresses",
+      "notes": "Selected by current DeFiLlama TVL ranking after excluding non-DeFi or non-contract-first categories. Verify official deployment addresses before ingest."
+    },
+    {
+      "rank": 19,
+      "name": "Tether Gold",
+      "slug": "tether-gold",
+      "category": "RWA",
+      "tvl": 3217548033.5475297,
+      "primaryChain": "Ethereum",
+      "chains": [
+        "Ethereum",
+        "Monad",
+        "Plasma",
+        "Avalanche",
+        "Arbitrum",
+        "Celo",
+        "Ink",
+        "Polygon"
+      ],
+      "chainTvls": {
+        "Ethereum": 3191557616.086149,
+        "Avalanche": 3404434.5424977047,
+        "Polygon": 12024.689891163975,
+        "Arbitrum": 444904.3091760894,
+        "Ink": 20223.894736591268,
+        "Monad": 15166512.95323998,
+        "Plasma": 6590716.194006703,
+        "Celo": 351600.87783199514
+      },
+      "url": "https://gold.tether.to/",
+      "twitter": "tethergold",
+      "symbol": "XAUt",
+      "defillamaId": "4863",
+      "source": {
+        "provider": "defillama",
+        "endpoint": "https://api.llama.fi/protocols"
+      },
+      "addressResearchStatus": "pending",
+      "ingestStatus": "not_ready_missing_verified_deployment_addresses",
+      "notes": "Selected by current DeFiLlama TVL ranking after excluding non-DeFi or non-contract-first categories. Verify official deployment addresses before ingest."
+    },
+    {
+      "rank": 20,
+      "name": "BlackRock BUIDL",
+      "slug": "blackrock-buidl",
+      "category": "RWA",
+      "tvl": 3075848630.300449,
+      "primaryChain": "Ethereum",
+      "chains": [
+        "Ethereum",
+        "Avalanche",
+        "Solana",
+        "Aptos",
+        "Binance",
+        "Optimism",
+        "Arbitrum",
+        "Polygon"
+      ],
+      "chainTvls": {
+        "Ethereum": 1091102746.710449,
+        "Polygon": 14158540.31,
+        "Optimism": 26169160.85,
+        "Binance": 110122581.94,
+        "Avalanche": 624812314.89,
+        "Aptos": 581096288.03,
+        "Solana": 602869756.46,
+        "Arbitrum": 25517241.11
+      },
+      "url": "https://securitize.io/",
+      "twitter": "BlackRock",
+      "symbol": "BUIDL",
+      "defillamaId": "4853",
+      "source": {
+        "provider": "defillama",
+        "endpoint": "https://api.llama.fi/protocols"
+      },
+      "addressResearchStatus": "pending",
+      "ingestStatus": "not_ready_missing_verified_deployment_addresses",
+      "notes": "Selected by current DeFiLlama TVL ranking after excluding non-DeFi or non-contract-first categories. Verify official deployment addresses before ingest."
+    },
+    {
+      "rank": 21,
+      "name": "Circle USYC",
+      "slug": "circle-usyc",
+      "category": "RWA",
+      "tvl": 2985476933.2019,
+      "primaryChain": "Binance",
+      "chains": [
+        "Binance",
+        "Ethereum",
+        "Near",
+        "Noble"
+      ],
+      "chainTvls": {
+        "Ethereum": 119567935.99415193,
+        "Noble": 0.00012496831179098478,
+        "Binance": 2863106869.524451,
+        "Near": 2802127.683172114
+      },
+      "url": "https://www.circle.com/usyc",
+      "twitter": "circle",
+      "symbol": "-",
+      "defillamaId": "3698",
+      "source": {
+        "provider": "defillama",
+        "endpoint": "https://api.llama.fi/protocols"
+      },
+      "addressResearchStatus": "pending",
+      "ingestStatus": "not_ready_missing_verified_deployment_addresses",
+      "notes": "Selected by current DeFiLlama TVL ranking after excluding non-DeFi or non-contract-first categories. Verify official deployment addresses before ingest."
+    },
+    {
+      "rank": 22,
+      "name": "Spark Liquidity Layer",
+      "slug": "spark-liquidity-layer",
+      "category": "Onchain Capital Allocator",
+      "tvl": 2774343405.5147653,
+      "primaryChain": "Ethereum",
+      "chains": [
+        "Ethereum",
+        "Base",
+        "Optimism",
+        "Arbitrum",
+        "Unichain",
+        "Avalanche"
+      ],
+      "chainTvls": {
+        "Avalanche": 0.15491197684836266,
+        "Arbitrum": 14997066.00350563,
+        "Optimism": 14997094.798695195,
+        "Base": 20099343.241879478,
+        "Unichain": 14989140.377656741,
+        "Ethereum": 2709260760.938116
+      },
+      "url": "https://app.spark.fi/points/KNQ5HD",
+      "twitter": "sparkdotfi",
+      "symbol": "SPK",
+      "defillamaId": "5989",
+      "source": {
+        "provider": "defillama",
+        "endpoint": "https://api.llama.fi/protocols"
+      },
+      "addressResearchStatus": "pending",
+      "ingestStatus": "not_ready_missing_verified_deployment_addresses",
+      "notes": "Selected by current DeFiLlama TVL ranking after excluding non-DeFi or non-contract-first categories. Verify official deployment addresses before ingest."
+    },
+    {
+      "rank": 23,
+      "name": "Base Bridge",
+      "slug": "base-bridge",
+      "category": "Canonical Bridge",
+      "tvl": 2726600920.6952825,
+      "primaryChain": "Ethereum",
+      "chains": [
+        "Ethereum"
+      ],
+      "chainTvls": {
+        "Ethereum": 2726600920.6952825
+      },
+      "url": "https://docs.base.org/base-chain/network-information/bridges-mainnet",
+      "twitter": "BuildOnBase",
+      "symbol": "-",
+      "defillamaId": "3780",
+      "source": {
+        "provider": "defillama",
+        "endpoint": "https://api.llama.fi/protocols"
+      },
+      "addressResearchStatus": "pending",
+      "ingestStatus": "not_ready_missing_verified_deployment_addresses",
+      "notes": "Selected by current DeFiLlama TVL ranking after excluding non-DeFi or non-contract-first categories. Verify official deployment addresses before ingest."
+    },
+    {
+      "rank": 24,
+      "name": "Ondo Yield Assets",
+      "slug": "ondo-yield-assets",
+      "category": "RWA",
+      "tvl": 2681171244.6696415,
+      "primaryChain": "Ethereum",
+      "chains": [
+        "Ethereum",
+        "Plume Mainnet",
+        "Ripple",
+        "Sei",
+        "Solana",
+        "Stellar",
+        "Mantle",
+        "Sui",
+        "Noble",
+        "Aptos",
+        "Arbitrum",
+        "Polygon"
+      ],
+      "chainTvls": {
+        "Solana": 179827859.75129494,
+        "Sui": 23011652.465331603,
+        "Aptos": 7717137.6335098175,
+        "Ethereum": 1246434049.7202952,
+        "Noble": 15072993.11723783,
+        "Ripple": 293889579.09456235,
+        "Polygon": 0,
+        "Stellar": 123498272.99538723,
+        "Arbitrum": 5560670.17405249,
+        "Plume Mainnet": 501914448.89498234,
+        "Sei": 254967644.84396258,
+        "Mantle": 29276935.97902508
+      },
+      "url": "https://ondo.finance",
+      "twitter": "OndoFinance",
+      "symbol": "ONDO",
+      "defillamaId": "2542",
+      "source": {
+        "provider": "defillama",
+        "endpoint": "https://api.llama.fi/protocols"
+      },
+      "addressResearchStatus": "pending",
+      "ingestStatus": "not_ready_missing_verified_deployment_addresses",
+      "notes": "Selected by current DeFiLlama TVL ranking after excluding non-DeFi or non-contract-first categories. Verify official deployment addresses before ingest."
+    },
+    {
+      "rank": 25,
+      "name": "Grove Finance",
+      "slug": "grove-finance",
+      "category": "Onchain Capital Allocator",
+      "tvl": 2624095043.2945433,
+      "primaryChain": "Ethereum",
+      "chains": [
+        "Ethereum",
+        "Avalanche",
+        "Base",
+        "Plume Mainnet"
+      ],
+      "chainTvls": {
+        "Base": 79004432.05016358,
+        "Avalanche": 258838250,
+        "Plume Mainnet": 32721852.261413686,
+        "Ethereum": 2253530508.982966
+      },
+      "url": "https://data.grove.finance/",
+      "twitter": "grovedotfinance",
+      "symbol": "-",
+      "defillamaId": "7583",
+      "source": {
+        "provider": "defillama",
+        "endpoint": "https://api.llama.fi/protocols"
+      },
+      "addressResearchStatus": "pending",
+      "ingestStatus": "not_ready_missing_verified_deployment_addresses",
+      "notes": "Selected by current DeFiLlama TVL ranking after excluding non-DeFi or non-contract-first categories. Verify official deployment addresses before ingest."
+    },
+    {
+      "rank": 26,
+      "name": "JustCryptos",
+      "slug": "justcryptos",
+      "category": "Bridge",
+      "tvl": 2403641999.8,
+      "primaryChain": "Tron",
+      "chains": [
+        "Tron"
+      ],
+      "chainTvls": {
+        "Tron": 2403641999.8
+      },
+      "url": "https://just.network/token",
+      "twitter": "DeFi_JUST",
+      "symbol": "JST",
+      "defillamaId": "694",
+      "source": {
+        "provider": "defillama",
+        "endpoint": "https://api.llama.fi/protocols"
+      },
+      "addressResearchStatus": "pending",
+      "ingestStatus": "not_ready_missing_verified_deployment_addresses",
+      "notes": "Selected by current DeFiLlama TVL ranking after excluding non-DeFi or non-contract-first categories. Verify official deployment addresses before ingest."
+    },
+    {
+      "rank": 27,
+      "name": "Spark Savings",
+      "slug": "spark-savings",
+      "category": "Yield",
+      "tvl": 2205910373.199582,
+      "primaryChain": "Ethereum",
+      "chains": [
+        "Ethereum",
+        "Arbitrum",
+        "Avalanche",
+        "Base",
+        "Optimism",
+        "Unichain"
+      ],
+      "chainTvls": {
+        "Base": 10115370.9104623,
+        "Arbitrum": 126076084.7491405,
+        "Unichain": 160980.86049987268,
+        "Ethereum": 2034523595.1187294,
+        "Optimism": 6803454.504450677,
+        "Avalanche": 28230887.056299224
+      },
+      "url": "https://data.spark.fi/savings/",
+      "twitter": "sparkdotfi",
+      "symbol": "SPK",
+      "defillamaId": "6716",
+      "source": {
+        "provider": "defillama",
+        "endpoint": "https://api.llama.fi/protocols"
+      },
+      "addressResearchStatus": "pending",
+      "ingestStatus": "not_ready_missing_verified_deployment_addresses",
+      "notes": "Selected by current DeFiLlama TVL ranking after excluding non-DeFi or non-contract-first categories. Verify official deployment addresses before ingest."
+    },
+    {
+      "rank": 28,
+      "name": "Steakhouse Financial",
+      "slug": "steakhouse-financial",
+      "category": "Risk Curators",
+      "tvl": 2144869766.5225232,
+      "primaryChain": "Base",
+      "chains": [
+        "Base",
+        "Ethereum",
+        "Monad",
+        "Solana",
+        "Katana",
+        "Arbitrum",
+        "Polygon",
+        "Corn",
+        "Unichain"
+      ],
+      "chainTvls": {
+        "Katana": 32781197.29220787,
+        "Polygon": 330674.2037619896,
+        "Corn": 20726.70414277857,
+        "Unichain": 0,
+        "Monad": 68125116.58019969,
+        "Arbitrum": 32300373.230398826,
+        "Ethereum": 850678595.5639582,
+        "Solana": 39434370.73506946,
+        "Base": 1121198712.2127843
+      },
+      "url": "",
+      "twitter": "SteakhouseFi",
+      "symbol": "-",
+      "defillamaId": "6212",
+      "source": {
+        "provider": "defillama",
+        "endpoint": "https://api.llama.fi/protocols"
+      },
+      "addressResearchStatus": "pending",
+      "ingestStatus": "not_ready_missing_verified_deployment_addresses",
+      "notes": "Selected by current DeFiLlama TVL ranking after excluding non-DeFi or non-contract-first categories. Verify official deployment addresses before ingest."
+    },
+    {
+      "rank": 29,
+      "name": "Paxos Gold",
+      "slug": "paxos-gold",
+      "category": "RWA",
+      "tvl": 2122378614.8342462,
+      "primaryChain": "Ethereum",
+      "chains": [
+        "Ethereum"
+      ],
+      "chainTvls": {
+        "Ethereum": 2122378614.8342462
+      },
+      "url": "https://paxos.com/paxgold/",
+      "twitter": "Paxos",
+      "symbol": "PAXG",
+      "defillamaId": "4862",
+      "source": {
+        "provider": "defillama",
+        "endpoint": "https://api.llama.fi/protocols"
+      },
+      "addressResearchStatus": "pending",
+      "ingestStatus": "not_ready_missing_verified_deployment_addresses",
+      "notes": "Selected by current DeFiLlama TVL ranking after excluding non-DeFi or non-contract-first categories. Verify official deployment addresses before ingest."
+    },
+    {
+      "rank": 30,
+      "name": "Portal",
+      "slug": "portal",
+      "category": "Bridge",
+      "tvl": 1974627929.1725256,
+      "primaryChain": "Ethereum",
+      "chains": [
+        "Ethereum",
+        "Solana",
+        "Binance",
+        "Algorand",
+        "Polygon",
+        "Near",
+        "Base",
+        "Avalanche",
+        "Arbitrum",
+        "Optimism",
+        "Moonbeam",
+        "Celo",
+        "Klaytn",
+        "Terra",
+        "Oasis",
+        "Aurora",
+        "Fantom",
+        "Karura",
+        "Acala",
+        "Terra2",
+        "Injective",
+        "Sui",
+        "Aptos",
+        "XPLA"
+      ],
+      "chainTvls": {
+        "Terra": 0,
+        "Oasis": 0,
+        "Aurora": 0,
+        "Fantom": 0,
+        "Karura": 0,
+        "Acala": 0,
+        "Terra2": 0,
+        "Injective": 0,
+        "Sui": 0,
+        "Aptos": 0,
+        "XPLA": 0,
+        "Optimism": 164963.23144712622,
+        "Moonbeam": 156588.88919006442,
+        "Polygon": 5001716.654117663,
+        "Arbitrum": 1962820.6322643734,
+        "Celo": 27467.26666137987,
+        "Near": 4959101.845385858,
+        "Klaytn": 12.460386058993265,
+        "Algorand": 22822219.77989566,
+        "Binance": 59360082.483278416,
+        "Ethereum": 1810605265.315234,
+        "Base": 3422418.365284312,
+        "Solana": 63070773.22542969,
+        "Avalanche": 3074499.0239509814
+      },
+      "url": "https://portalbridge.com",
+      "twitter": "portalbridge_",
+      "symbol": "W",
+      "defillamaId": "1541",
+      "source": {
+        "provider": "defillama",
+        "endpoint": "https://api.llama.fi/protocols"
+      },
+      "addressResearchStatus": "pending",
+      "ingestStatus": "not_ready_missing_verified_deployment_addresses",
+      "notes": "Selected by current DeFiLlama TVL ranking after excluding non-DeFi or non-contract-first categories. Verify official deployment addresses before ingest."
+    },
+    {
+      "rank": 31,
+      "name": "Maple",
+      "slug": "maple",
+      "category": "Lending",
+      "tvl": 1968737128.6964397,
+      "primaryChain": "Ethereum",
+      "chains": [
+        "Ethereum",
+        "Solana"
+      ],
+      "chainTvls": {
+        "Solana": 0,
+        "Ethereum-staking": 46953430.38070002,
+        "Ethereum": 1968737128.6964397,
+        "Ethereum-borrowed": 1782972313.9637132,
+        "staking": 46953430.38070002,
+        "borrowed": 1782972313.9637132
+      },
+      "url": "https://www.maple.finance",
+      "twitter": "maplefinance",
+      "symbol": "SYRUP",
+      "defillamaId": "587",
+      "source": {
+        "provider": "defillama",
+        "endpoint": "https://api.llama.fi/protocols"
+      },
+      "addressResearchStatus": "pending",
+      "ingestStatus": "not_ready_missing_verified_deployment_addresses",
+      "notes": "Selected by current DeFiLlama TVL ranking after excluding non-DeFi or non-contract-first categories. Verify official deployment addresses before ingest."
+    },
+    {
+      "rank": 32,
+      "name": "PancakeSwap AMM",
+      "slug": "pancakeswap-amm",
+      "category": "Dexs",
+      "tvl": 1788988789.8538792,
+      "primaryChain": "Binance",
+      "chains": [
+        "Binance",
+        "Ethereum",
+        "Aptos",
+        "zkSync Era",
+        "Op_Bnb",
+        "Base",
+        "Arbitrum",
+        "Linea",
+        "Polygon zkEVM",
+        "Monad"
+      ],
+      "chainTvls": {
+        "Binance": 1783864945.1040318,
+        "Ethereum-staking": 5338.811830497784,
+        "Linea": 8853.393257412887,
+        "Polygon zkEVM": 2928.3367130273123,
+        "Arbitrum-staking": 4421.656938680046,
+        "zkSync Era-staking": 1831.1233825571378,
+        "Arbitrum": 166855.20360088308,
+        "zkSync Era": 985350.488560557,
+        "Ethereum": 1783631.6325035181,
+        "Base": 395866.5187676623,
+        "Monad": 812.7132079044993,
+        "Binance-staking": 36484161.35633794,
+        "Op_Bnb": 715701.4323223208,
+        "Aptos": 1063845.030914324,
+        "staking": 36495752.94848967
+      },
+      "url": "https://pancakeswap.finance/",
+      "twitter": "PancakeSwap",
+      "symbol": "CAKE",
+      "defillamaId": "194",
+      "source": {
+        "provider": "defillama",
+        "endpoint": "https://api.llama.fi/protocols"
+      },
+      "addressResearchStatus": "pending",
+      "ingestStatus": "not_ready_missing_verified_deployment_addresses",
+      "notes": "Selected by current DeFiLlama TVL ranking after excluding non-DeFi or non-contract-first categories. Verify official deployment addresses before ingest."
+    },
+    {
+      "rank": 33,
+      "name": "Uniswap V3",
+      "slug": "uniswap-v3",
+      "category": "Dexs",
+      "tvl": 1757319756.5310316,
+      "primaryChain": "Ethereum",
+      "chains": [
+        "Ethereum",
+        "Base",
+        "Arbitrum",
+        "Binance",
+        "Polygon",
+        "Optimism",
+        "X Layer",
+        "xDai",
+        "Plasma",
+        "Celo",
+        "Avalanche",
+        "Monad",
+        "RSK",
+        "0G",
+        "Nibiru",
+        "World Chain",
+        "XDC",
+        "Unichain",
+        "zkSync Era",
+        "Filecoin",
+        "Boba",
+        "Etherlink",
+        "Mantle",
+        "Goat",
+        "BOB",
+        "Telos",
+        "Lens",
+        "Sonic",
+        "Redbelly",
+        "Hemi",
+        "Linea",
+        "Scroll",
+        "Sei",
+        "Blast",
+        "Taiko",
+        "Lisk",
+        "Corn",
+        "Polygon zkEVM",
+        "Moonbeam",
+        "Manta",
+        "LightLink",
+        "Tempo",
+        "Saga"
+      ],
+      "chainTvls": {
+        "Saga": 0,
+        "XDC": 1008322.277684096,
+        "Moonbeam": 613.165922177234,
+        "Hemi": 26921.39764427598,
+        "Lisk": 6610.6206746260705,
+        "Polygon zkEVM": 762.2503138350745,
+        "Sonic": 82551.36887880968,
+        "Boba": 415390.1505030761,
+        "Tempo": 49.58093313347981,
+        "Etherlink": 361834.96324947046,
+        "0G": 2781657.436553765,
+        "Scroll": 22930.653800240525,
+        "Corn": 1400.1361065119756,
+        "Taiko": 7117.321554205125,
+        "Manta": 174.57833473351232,
+        "Goat": 273944.1558427434,
+        "Telos": 134964.54251734074,
+        "Linea": 23709.29747348485,
+        "RSK": 3261145.9036861314,
+        "BOB": 211941.0914510512,
+        "Nibiru": 2753287.6172671346,
+        "Lens": 134153.3570273528,
+        "Optimism": 12594321.746245615,
+        "Mantle": 276413.7619986658,
+        "Filecoin": 435476.9317920804,
+        "Celo": 4938410.664968319,
+        "Sei": 18724.83031807752,
+        "xDai": 10583057.568688408,
+        "zkSync Era": 515199.06598773116,
+        "X Layer": 12418121.4475048,
+        "Plasma": 9011625.015036494,
+        "World Chain": 1603864.8342287142,
+        "LightLink": 80.70132195550194,
+        "Binance": 95919178.87027757,
+        "Avalanche": 4105513.9804070652,
+        "Polygon": 33580112.34809146,
+        "Redbelly": 39246.00983526907,
+        "Monad": 3501979.3317711623,
+        "Ethereum": 1024069375.8008572,
+        "Blast": 15834.803751377614,
+        "Arbitrum": 206691888.20370972,
+        "Unichain": 627021.5451121212,
+        "Base": 324864827.2017096
+      },
+      "url": "https://app.uniswap.org/",
+      "twitter": "Uniswap",
+      "symbol": "UNI",
+      "defillamaId": "2198",
+      "source": {
+        "provider": "defillama",
+        "endpoint": "https://api.llama.fi/protocols"
+      },
+      "addressResearchStatus": "pending",
+      "ingestStatus": "not_ready_missing_verified_deployment_addresses",
+      "notes": "Selected by current DeFiLlama TVL ranking after excluding non-DeFi or non-contract-first categories. Verify official deployment addresses before ingest."
+    },
+    {
+      "rank": 34,
+      "name": "Curve DEX",
+      "slug": "curve-dex",
+      "category": "Dexs",
+      "tvl": 1661722877.5181732,
+      "primaryChain": "Ethereum",
+      "chains": [
+        "Ethereum",
+        "Arbitrum",
+        "Base",
+        "Fraxtal",
+        "Etherlink",
+        "Monad",
+        "Polygon",
+        "Plasma",
+        "Avalanche",
+        "X Layer",
+        "TAC",
+        "xDai",
+        "Optimism",
+        "Hyperliquid L1",
+        "XDC",
+        "Binance",
+        "Kava",
+        "Unichain",
+        "Ink",
+        "Taiko",
+        "Celo",
+        "Plume Mainnet",
+        "Sonic",
+        "Fantom",
+        "Aurora",
+        "Moonbeam",
+        "Corn",
+        "Stable",
+        "Harmony",
+        "Mantle"
+      ],
+      "chainTvls": {
+        "Harmony": 0,
+        "Ethereum-staking": 205193859.9206152,
+        "Stable": 591.2633090356798,
+        "Corn": 820.501193632154,
+        "X Layer": 3000185.702105087,
+        "Celo": 277426.353591754,
+        "Etherlink": 10655905.663605232,
+        "TAC": 1764837.1589849158,
+        "Taiko": 279782.92392125336,
+        "Base": 14718576.35556902,
+        "Plasma": 4001906.7644443754,
+        "Fantom": 23384.35623455824,
+        "Aurora": 17360.243222954763,
+        "Mantle": 0,
+        "Plume Mainnet": 254818.79923569568,
+        "Monad": 9778909.249969196,
+        "Ink": 282213.99676538154,
+        "Binance": 1000393.4308980553,
+        "XDC": 1400459.9088477283,
+        "Moonbeam": 6807.336191151936,
+        "Optimism": 1570339.489769882,
+        "Kava": 988323.0104436576,
+        "Arbitrum": 18924598.352878947,
+        "Hyperliquid L1": 1510871.852851815,
+        "Ethereum": 1566366284.0227256,
+        "xDai": 1623828.4745234158,
+        "Sonic": 225405.45241191483,
+        "Fraxtal": 13291822.385388337,
+        "Unichain": 641580.3138627763,
+        "Polygon": 6057515.499239029,
+        "Avalanche": 3057928.655988963,
+        "staking": 205193859.9206152
+      },
+      "url": "https://curve.finance",
+      "twitter": "CurveFinance",
+      "symbol": "CRV",
+      "defillamaId": "3",
+      "source": {
+        "provider": "defillama",
+        "endpoint": "https://api.llama.fi/protocols"
+      },
+      "addressResearchStatus": "pending",
+      "ingestStatus": "not_ready_missing_verified_deployment_addresses",
+      "notes": "Selected by current DeFiLlama TVL ranking after excluding non-DeFi or non-contract-first categories. Verify official deployment addresses before ingest."
+    },
+    {
+      "rank": 35,
+      "name": "Sentora",
+      "slug": "sentora",
+      "category": "Risk Curators",
+      "tvl": 1651122129.8178253,
+      "primaryChain": "Ethereum",
+      "chains": [
+        "Ethereum",
+        "Solana",
+        "Ink"
+      ],
+      "chainTvls": {
+        "Ink": 10870508.99180131,
+        "Solana": 451546450.5132433,
+        "Ethereum": 1188705170.3127806
+      },
+      "url": "https://sentora.com/",
+      "twitter": "SentoraHQ",
+      "symbol": "-",
+      "defillamaId": "6807",
+      "source": {
+        "provider": "defillama",
+        "endpoint": "https://api.llama.fi/protocols"
+      },
+      "addressResearchStatus": "pending",
+      "ingestStatus": "not_ready_missing_verified_deployment_addresses",
+      "notes": "Selected by current DeFiLlama TVL ranking after excluding non-DeFi or non-contract-first categories. Verify official deployment addresses before ingest."
+    },
+    {
+      "rank": 36,
+      "name": "Falcon Finance",
+      "slug": "falcon-finance",
+      "category": "Basis Trading",
+      "tvl": 1615836349.8188448,
+      "primaryChain": "Ethereum",
+      "chains": [
+        "Ethereum"
+      ],
+      "chainTvls": {
+        "Ethereum": 1615836349.8188448
+      },
+      "url": "https://app.falcon.finance?r=ecf7be7f48d1ce67467fc040bcc1abd5",
+      "twitter": "falconstable",
+      "symbol": "FF",
+      "defillamaId": "6790",
+      "source": {
+        "provider": "defillama",
+        "endpoint": "https://api.llama.fi/protocols"
+      },
+      "addressResearchStatus": "pending",
+      "ingestStatus": "not_ready_missing_verified_deployment_addresses",
+      "notes": "Selected by current DeFiLlama TVL ranking after excluding non-DeFi or non-contract-first categories. Verify official deployment addresses before ingest."
+    },
+    {
+      "rank": 37,
+      "name": "Pendle",
+      "slug": "pendle",
+      "category": "Yield",
+      "tvl": 1589490336.9824321,
+      "primaryChain": "Ethereum",
+      "chains": [
+        "Ethereum",
+        "Plasma",
+        "Arbitrum",
+        "Hyperliquid L1",
+        "Base",
+        "Binance",
+        "Sonic",
+        "Mantle",
+        "Avalanche",
+        "Optimism",
+        "Berachain"
+      ],
+      "chainTvls": {
+        "Ethereum-staking": 186796620.0970408,
+        "Ethereum-pool2": 240345.8827784208,
+        "Avalanche-pool2": 690314.6780104914,
+        "Avalanche": 53600.56739712893,
+        "Optimism": 18435.362592886784,
+        "Sonic": 901021.6557042474,
+        "Berachain": 16932.202847837732,
+        "Hyperliquid L1": 19639544.204235367,
+        "Plasma": 233291138.64478797,
+        "Mantle": 153750.04474615352,
+        "Base": 13919464.615458995,
+        "Arbitrum": 193071904.898908,
+        "Ethereum": 1115106174.170908,
+        "Binance": 13318370.61484554,
+        "staking": 186796620.0970408,
+        "pool2": 930660.5607889122
+      },
+      "url": "https://pendle.finance/",
+      "twitter": "pendle_fi",
+      "symbol": "PENDLE",
+      "defillamaId": "382",
+      "source": {
+        "provider": "defillama",
+        "endpoint": "https://api.llama.fi/protocols"
+      },
+      "addressResearchStatus": "pending",
+      "ingestStatus": "not_ready_missing_verified_deployment_addresses",
+      "notes": "Selected by current DeFiLlama TVL ranking after excluding non-DeFi or non-contract-first categories. Verify official deployment addresses before ingest."
+    },
+    {
+      "rank": 38,
+      "name": "Centrifuge Protocol",
+      "slug": "centrifuge-protocol",
+      "category": "RWA",
+      "tvl": 1479523113.6762156,
+      "primaryChain": "Ethereum",
+      "chains": [
+        "Ethereum",
+        "Avalanche",
+        "Plume Mainnet",
+        "Pharos",
+        "Monad",
+        "Base",
+        "Binance",
+        "Optimism",
+        "Arbitrum",
+        "Hyperliquid L1"
+      ],
+      "chainTvls": {
+        "Monad": 14991733.177884145,
+        "Hyperliquid L1": 0,
+        "Base": 7034628.001854967,
+        "Optimism": 198969.98762098685,
+        "Ethereum": 1148987803.6548378,
+        "Binance": 1012641.9089038253,
+        "Plume Mainnet": 33411497.94900092,
+        "Pharos": 15035674.551483432,
+        "Avalanche": 258789332.73483175,
+        "Arbitrum": 60831.70979794837
+      },
+      "url": "https://centrifuge.io",
+      "twitter": "centrifuge",
+      "symbol": "CFG",
+      "defillamaId": "5948",
+      "source": {
+        "provider": "defillama",
+        "endpoint": "https://api.llama.fi/protocols"
+      },
+      "addressResearchStatus": "pending",
+      "ingestStatus": "not_ready_missing_verified_deployment_addresses",
+      "notes": "Selected by current DeFiLlama TVL ranking after excluding non-DeFi or non-contract-first categories. Verify official deployment addresses before ingest."
+    },
+    {
+      "rank": 39,
+      "name": "Gauntlet",
+      "slug": "gauntlet",
+      "category": "Risk Curators",
+      "tvl": 1445778318.9462376,
+      "primaryChain": "Binance",
+      "chains": [
+        "Binance",
+        "Ethereum",
+        "Base",
+        "Katana",
+        "Solana",
+        "Optimism",
+        "Arbitrum",
+        "Polygon",
+        "Hyperliquid L1",
+        "Unichain",
+        "Stable",
+        "Tempo"
+      ],
+      "chainTvls": {
+        "Stable": 0,
+        "Polygon": 5447966.755537179,
+        "Binance": 539087705.3320775,
+        "Hyperliquid L1": 2315053.418068804,
+        "Katana": 29841784.127992697,
+        "Unichain": 1898878.858463908,
+        "Solana": 17865041.846703988,
+        "Tempo": 0,
+        "Arbitrum": 5806390.694032531,
+        "Ethereum": 449257781.02697176,
+        "Optimism": 5893241.470632426,
+        "Base": 388364475.41575694
+      },
+      "url": "https://www.gauntlet.xyz",
+      "twitter": "gauntlet_xyz",
+      "symbol": "-",
+      "defillamaId": "6202",
+      "source": {
+        "provider": "defillama",
+        "endpoint": "https://api.llama.fi/protocols"
+      },
+      "addressResearchStatus": "pending",
+      "ingestStatus": "not_ready_missing_verified_deployment_addresses",
+      "notes": "Selected by current DeFiLlama TVL ranking after excluding non-DeFi or non-contract-first categories. Verify official deployment addresses before ingest."
+    },
+    {
+      "rank": 40,
+      "name": "USDD",
+      "slug": "usdd",
+      "category": "CDP",
+      "tvl": 1427177048.256715,
+      "primaryChain": "Tron",
+      "chains": [
+        "Tron",
+        "Ethereum",
+        "Binance"
+      ],
+      "chainTvls": {
+        "Ethereum": 63603844.584324524,
+        "Binance": 18201053.9556402,
+        "Tron": 1345372149.7167504
+      },
+      "url": "https://usdd.io/",
+      "twitter": "usddio",
+      "symbol": "-",
+      "defillamaId": "5898",
+      "source": {
+        "provider": "defillama",
+        "endpoint": "https://api.llama.fi/protocols"
+      },
+      "addressResearchStatus": "pending",
+      "ingestStatus": "not_ready_missing_verified_deployment_addresses",
+      "notes": "Selected by current DeFiLlama TVL ranking after excluding non-DeFi or non-contract-first categories. Verify official deployment addresses before ingest."
+    },
+    {
+      "rank": 41,
+      "name": "Figure Markets Exchange",
+      "slug": "figure-markets-exchange",
+      "category": "OTC Marketplace",
+      "tvl": 1421925195.6915147,
+      "primaryChain": "Provenance",
+      "chains": [
+        "Provenance"
+      ],
+      "chainTvls": {
+        "Provenance": 1421925195.6915147
+      },
+      "url": "https://www.figuremarkets.com/crypto-exchange/",
+      "twitter": "figuremarkets",
+      "symbol": "-",
+      "defillamaId": "6491",
+      "source": {
+        "provider": "defillama",
+        "endpoint": "https://api.llama.fi/protocols"
+      },
+      "addressResearchStatus": "pending",
+      "ingestStatus": "not_ready_missing_verified_deployment_addresses",
+      "notes": "Selected by current DeFiLlama TVL ranking after excluding non-DeFi or non-contract-first categories. Verify official deployment addresses before ingest."
+    },
+    {
+      "rank": 42,
+      "name": "Kamino Lend",
+      "slug": "kamino-lend",
+      "category": "Lending",
+      "tvl": 1405482042.7848833,
+      "primaryChain": "Solana",
+      "chains": [
+        "Solana"
+      ],
+      "chainTvls": {
+        "Solana-borrowed": 1180991976.5485477,
+        "Solana": 1405482042.7848833,
+        "borrowed": 1180991976.5485477
+      },
+      "url": "https://kamino.com/",
+      "twitter": "Kamino",
+      "symbol": "KMNO",
+      "defillamaId": "3770",
+      "source": {
+        "provider": "defillama",
+        "endpoint": "https://api.llama.fi/protocols"
+      },
+      "addressResearchStatus": "pending",
+      "ingestStatus": "not_ready_missing_verified_deployment_addresses",
+      "notes": "Selected by current DeFiLlama TVL ranking after excluding non-DeFi or non-contract-first categories. Verify official deployment addresses before ingest."
+    },
+    {
+      "rank": 43,
+      "name": "Kelp",
+      "slug": "kelp",
+      "category": "Liquid Restaking",
+      "tvl": 1392266666.945556,
+      "primaryChain": "Ethereum",
+      "chains": [
+        "Ethereum",
+        "Arbitrum",
+        "Optimism",
+        "Manta",
+        "Mode",
+        "Blast",
+        "Scroll",
+        "Base",
+        "Linea",
+        "X Layer",
+        "zkSync Era",
+        "Zircuit",
+        "Swellchain",
+        "Hemi",
+        "Berachain",
+        "Sonic"
+      ],
+      "chainTvls": {
+        "Arbitrum": 0,
+        "Optimism": 0,
+        "Manta": 0,
+        "Mode": 0,
+        "Blast": 0,
+        "Scroll": 0,
+        "Base": 0,
+        "Linea": 0,
+        "X Layer": 0,
+        "zkSync Era": 0,
+        "Zircuit": 0,
+        "Swellchain": 0,
+        "Hemi": 0,
+        "Berachain": 0,
+        "Sonic": 0,
+        "Ethereum": 1392266666.945556
+      },
+      "url": "https://kelpdao.xyz/restake/?utm_source=0x798fF1e6D7AFd28c333eE6eBe03125d30ec6eF10",
+      "twitter": "KelpDAO",
+      "symbol": "-",
+      "defillamaId": "3946",
+      "source": {
+        "provider": "defillama",
+        "endpoint": "https://api.llama.fi/protocols"
+      },
+      "addressResearchStatus": "pending",
+      "ingestStatus": "not_ready_missing_verified_deployment_addresses",
+      "notes": "Selected by current DeFiLlama TVL ranking after excluding non-DeFi or non-contract-first categories. Verify official deployment addresses before ingest."
+    },
+    {
+      "rank": 44,
+      "name": "Spiko",
+      "slug": "spiko",
+      "category": "RWA",
+      "tvl": 1242709992.8991408,
+      "primaryChain": "Stellar",
+      "chains": [
+        "Stellar",
+        "Arbitrum",
+        "Polygon",
+        "Ethereum",
+        "Starknet",
+        "Base",
+        "Etherlink"
+      ],
+      "chainTvls": {
+        "Ethereum": 82108122.78928396,
+        "Polygon": 107585228.2330809,
+        "Etherlink": 9289410.32346178,
+        "Base": 23982949.45487998,
+        "Arbitrum": 412652859.44075716,
+        "Starknet": 32767837.509918943,
+        "Stellar": 574323585.1477582
+      },
+      "url": "https://www.spiko.io/",
+      "twitter": "Spiko_finance",
+      "symbol": "-",
+      "defillamaId": "4980",
+      "source": {
+        "provider": "defillama",
+        "endpoint": "https://api.llama.fi/protocols"
+      },
+      "addressResearchStatus": "pending",
+      "ingestStatus": "not_ready_missing_verified_deployment_addresses",
+      "notes": "Selected by current DeFiLlama TVL ranking after excluding non-DeFi or non-contract-first categories. Verify official deployment addresses before ingest."
+    },
+    {
+      "rank": 45,
+      "name": "Sanctum Validator LSTs",
+      "slug": "sanctum-validator-lsts",
+      "category": "Liquid Staking",
+      "tvl": 1233296425.6577718,
+      "primaryChain": "Solana",
+      "chains": [
+        "Solana"
+      ],
+      "chainTvls": {
+        "Solana": 1233296425.6577718
+      },
+      "url": "https://www.sanctum.so",
+      "twitter": "sanctumso",
+      "symbol": "CLOUD",
+      "defillamaId": "4371",
+      "source": {
+        "provider": "defillama",
+        "endpoint": "https://api.llama.fi/protocols"
+      },
+      "addressResearchStatus": "pending",
+      "ingestStatus": "not_ready_missing_verified_deployment_addresses",
+      "notes": "Selected by current DeFiLlama TVL ranking after excluding non-DeFi or non-contract-first categories. Verify official deployment addresses before ingest."
+    },
+    {
+      "rank": 46,
+      "name": "Compound V3",
+      "slug": "compound-v3",
+      "category": "Lending",
+      "tvl": 1223444383.0580444,
+      "primaryChain": "Ethereum",
+      "chains": [
+        "Ethereum",
+        "Arbitrum",
+        "Base",
+        "Optimism",
+        "Polygon",
+        "Mantle",
+        "Unichain",
+        "Ronin",
+        "Scroll"
+      ],
+      "chainTvls": {
+        "Base-borrowed": 12791361.833556456,
+        "Arbitrum-borrowed": 28382173.40015115,
+        "Ethereum-borrowed": 534697464.58869815,
+        "Optimism-borrowed": 5714057.212113247,
+        "Polygon-borrowed": 2781004.7614942463,
+        "Scroll-borrowed": 18859.091454362835,
+        "Ronin-borrowed": 18179.82206701508,
+        "Unichain-borrowed": 673692.7297721569,
+        "Mantle-borrowed": 1327554.6880393135,
+        "Base": 24518212.774167515,
+        "Ronin": 142466.31715949424,
+        "Scroll": 121761.57278663709,
+        "Ethereum": 1101183435.058456,
+        "Unichain": 1188771.78344142,
+        "Arbitrum": 72774379.32752249,
+        "Optimism": 12711927.63655215,
+        "Mantle": 4212274.491237509,
+        "Polygon": 6591154.096721328,
+        "borrowed": 586404348.1273463
+      },
+      "url": "https://v3-app.compound.finance/",
+      "twitter": "compoundfinance",
+      "symbol": "COMP",
+      "defillamaId": "2088",
+      "source": {
+        "provider": "defillama",
+        "endpoint": "https://api.llama.fi/protocols"
+      },
+      "addressResearchStatus": "pending",
+      "ingestStatus": "not_ready_missing_verified_deployment_addresses",
+      "notes": "Selected by current DeFiLlama TVL ranking after excluding non-DeFi or non-contract-first categories. Verify official deployment addresses before ingest."
+    },
+    {
+      "rank": 47,
+      "name": "Venus Core Pool",
+      "slug": "venus-core-pool",
+      "category": "Lending",
+      "tvl": 1178621908.0229719,
+      "primaryChain": "Binance",
+      "chains": [
+        "Binance",
+        "Ethereum",
+        "Arbitrum",
+        "zkSync Era",
+        "Unichain",
+        "Base",
+        "Optimism",
+        "Op_Bnb"
+      ],
+      "chainTvls": {
+        "Optimism-borrowed": 2910.1572849598247,
+        "Base-borrowed": 5062.9962324884145,
+        "Base": 39107.639409040865,
+        "Ethereum": 3344793.56453788,
+        "Ethereum-borrowed": 1186949.9107796396,
+        "Arbitrum": 1855151.43997695,
+        "Optimism": 6829.986768097847,
+        "zkSync Era": 777220.4758283396,
+        "Arbitrum-borrowed": 557890.3220246814,
+        "Unichain-borrowed": 24582.553603822667,
+        "Op_Bnb-borrowed": 656.3437242675788,
+        "Op_Bnb": 663.8682318551616,
+        "zkSync Era-borrowed": 692431.1640825758,
+        "Unichain": 45570.38359208237,
+        "Binance-borrowed": 454171345.3768953,
+        "Binance": 1172552570.6646276,
+        "borrowed": 456641828.82462776
+      },
+      "url": "https://app.venus.io/#/core-pool",
+      "twitter": "VenusProtocol",
+      "symbol": "XVS",
+      "defillamaId": "212",
+      "source": {
+        "provider": "defillama",
+        "endpoint": "https://api.llama.fi/protocols"
+      },
+      "addressResearchStatus": "pending",
+      "ingestStatus": "not_ready_missing_verified_deployment_addresses",
+      "notes": "Selected by current DeFiLlama TVL ranking after excluding non-DeFi or non-contract-first categories. Verify official deployment addresses before ingest."
+    },
+    {
+      "rank": 48,
+      "name": "Ethena USDtb",
+      "slug": "ethena-usdtb",
+      "category": "RWA",
+      "tvl": 1080502490.3566973,
+      "primaryChain": "Ethereum",
+      "chains": [
+        "Ethereum"
+      ],
+      "chainTvls": {
+        "Ethereum": 1080502490.3566973
+      },
+      "url": "https://usdtb.money",
+      "twitter": "ethena_labs",
+      "symbol": "ENA",
+      "defillamaId": "5506",
+      "source": {
+        "provider": "defillama",
+        "endpoint": "https://api.llama.fi/protocols"
+      },
+      "addressResearchStatus": "pending",
+      "ingestStatus": "not_ready_missing_verified_deployment_addresses",
+      "notes": "Selected by current DeFiLlama TVL ranking after excluding non-DeFi or non-contract-first categories. Verify official deployment addresses before ingest."
+    },
+    {
+      "rank": 49,
+      "name": "Ondo Global Markets",
+      "slug": "ondo-global-markets",
+      "category": "RWA",
+      "tvl": 1058287053.2864264,
+      "primaryChain": "Ethereum",
+      "chains": [
+        "Ethereum",
+        "Binance",
+        "Solana"
+      ],
+      "chainTvls": {
+        "Ethereum": 529611375.71975636,
+        "Binance": 499724673.70801014,
+        "Solana": 28951003.85865983
+      },
+      "url": "https://ondo.finance",
+      "twitter": "OndoFinance",
+      "symbol": "ONDO",
+      "defillamaId": "6650",
+      "source": {
+        "provider": "defillama",
+        "endpoint": "https://api.llama.fi/protocols"
+      },
+      "addressResearchStatus": "pending",
+      "ingestStatus": "not_ready_missing_verified_deployment_addresses",
+      "notes": "Selected by current DeFiLlama TVL ranking after excluding non-DeFi or non-contract-first categories. Verify official deployment addresses before ingest."
+    },
+    {
+      "rank": 50,
+      "name": "Kinetiq kHYPE",
+      "slug": "kinetiq-khype",
+      "category": "Liquid Staking",
+      "tvl": 1053303838.284301,
+      "primaryChain": "Hyperliquid L1",
+      "chains": [
+        "Hyperliquid L1"
+      ],
+      "chainTvls": {
+        "Hyperliquid L1-staking": 19693581.363249056,
+        "Hyperliquid L1": 1053303838.284301,
+        "staking": 19693581.363249056
+      },
+      "url": "https://kinetiq.xyz/stake",
+      "twitter": "kinetiq_xyz",
+      "symbol": "-",
+      "defillamaId": "6447",
+      "source": {
+        "provider": "defillama",
+        "endpoint": "https://api.llama.fi/protocols"
+      },
+      "addressResearchStatus": "pending",
+      "ingestStatus": "not_ready_missing_verified_deployment_addresses",
+      "notes": "Selected by current DeFiLlama TVL ranking after excluding non-DeFi or non-contract-first categories. Verify official deployment addresses before ingest."
+    },
+    {
+      "rank": 51,
+      "name": "Jupiter Lend",
+      "slug": "jupiter-lend",
+      "category": "Lending",
+      "tvl": 1051866653.1851555,
+      "primaryChain": "Solana",
+      "chains": [
+        "Solana"
+      ],
+      "chainTvls": {
+        "Solana-borrowed": 935282367.4326776,
+        "Solana": 1051866653.1851555,
+        "borrowed": 935282367.4326776
+      },
+      "url": "https://jup.ag/?ref=f6y1ryr2snn3",
+      "twitter": "JupiterExchange",
+      "symbol": "JUP",
+      "defillamaId": "6600",
+      "source": {
+        "provider": "defillama",
+        "endpoint": "https://api.llama.fi/protocols"
+      },
+      "addressResearchStatus": "pending",
+      "ingestStatus": "not_ready_missing_verified_deployment_addresses",
+      "notes": "Selected by current DeFiLlama TVL ranking after excluding non-DeFi or non-contract-first categories. Verify official deployment addresses before ingest."
+    },
+    {
+      "rank": 52,
+      "name": "Veda",
+      "slug": "veda",
+      "category": "Onchain Capital Allocator",
+      "tvl": 1043298670.3657568,
+      "primaryChain": "Ethereum",
+      "chains": [
+        "Ethereum",
+        "Ink",
+        "Optimism",
+        "Hyperliquid L1",
+        "Plasma",
+        "Base",
+        "Arbitrum",
+        "Sonic",
+        "Berachain",
+        "Binance",
+        "BOB",
+        "Scroll"
+      ],
+      "chainTvls": {
+        "Binance": 1039348.9284865108,
+        "Berachain": 1115401.4083967935,
+        "Base": 2406674.4961826787,
+        "Optimism": 143734848.3250651,
+        "Scroll": 34678.54746290346,
+        "Sonic": 1152469.4561441557,
+        "Ink": 241634850.8438208,
+        "Hyperliquid L1": 60684076.69593197,
+        "Plasma": 44883301.46892919,
+        "Arbitrum": 1565799.1680326972,
+        "Ethereum": 544860355.0153111,
+        "BOB": 186866.0119928648
+      },
+      "url": "https://veda.tech",
+      "twitter": "veda_labs",
+      "symbol": "-",
+      "defillamaId": "5825",
+      "source": {
+        "provider": "defillama",
+        "endpoint": "https://api.llama.fi/protocols"
+      },
+      "addressResearchStatus": "pending",
+      "ingestStatus": "not_ready_missing_verified_deployment_addresses",
+      "notes": "Selected by current DeFiLlama TVL ranking after excluding non-DeFi or non-contract-first categories. Verify official deployment addresses before ingest."
+    },
+    {
+      "rank": 53,
+      "name": "Raydium AMM",
+      "slug": "raydium-amm",
+      "category": "Dexs",
+      "tvl": 1026304806.9145708,
+      "primaryChain": "Solana",
+      "chains": [
+        "Solana"
+      ],
+      "chainTvls": {
+        "Solana-staking": 29412404.086003162,
+        "Solana": 1026304806.9145708,
+        "staking": 29412404.086003162
+      },
+      "url": "https://raydium.io",
+      "twitter": "RaydiumProtocol",
+      "symbol": "RAY",
+      "defillamaId": "214",
+      "source": {
+        "provider": "defillama",
+        "endpoint": "https://api.llama.fi/protocols"
+      },
+      "addressResearchStatus": "pending",
+      "ingestStatus": "not_ready_missing_verified_deployment_addresses",
+      "notes": "Selected by current DeFiLlama TVL ranking after excluding non-DeFi or non-contract-first categories. Verify official deployment addresses before ingest."
+    },
+    {
+      "rank": 54,
+      "name": "Concrete",
+      "slug": "concrete",
+      "category": "Onchain Capital Allocator",
+      "tvl": 966226637.9491212,
+      "primaryChain": "Ethereum",
+      "chains": [
+        "Ethereum",
+        "Stable",
+        "Berachain",
+        "Arbitrum",
+        "Katana"
+      ],
+      "chainTvls": {
+        "Berachain": 49291978.898964204,
+        "Arbitrum": 12952282.820134258,
+        "Stable": 70481000.28060596,
+        "Ethereum": 833500288.5625784,
+        "Katana": 1087.3868384331877
+      },
+      "url": "https://app.concrete.xyz",
+      "twitter": "ConcreteXYZ",
+      "symbol": "-",
+      "defillamaId": "5751",
+      "source": {
+        "provider": "defillama",
+        "endpoint": "https://api.llama.fi/protocols"
+      },
+      "addressResearchStatus": "pending",
+      "ingestStatus": "not_ready_missing_verified_deployment_addresses",
+      "notes": "Selected by current DeFiLlama TVL ranking after excluding non-DeFi or non-contract-first categories. Verify official deployment addresses before ingest."
+    },
+    {
+      "rank": 55,
+      "name": "Blockchain Capital",
+      "slug": "blockchain-capital",
+      "category": "RWA",
+      "tvl": 963514617.14,
+      "primaryChain": "zkSync Era",
+      "chains": [
+        "zkSync Era"
+      ],
+      "chainTvls": {
+        "zkSync Era": 963514617.14
+      },
+      "url": "https://www.blockchaincapital.com/",
+      "twitter": "blockchaincap",
+      "symbol": "BCAP",
+      "defillamaId": "6692",
+      "source": {
+        "provider": "defillama",
+        "endpoint": "https://api.llama.fi/protocols"
+      },
+      "addressResearchStatus": "pending",
+      "ingestStatus": "not_ready_missing_verified_deployment_addresses",
+      "notes": "Selected by current DeFiLlama TVL ranking after excluding non-DeFi or non-contract-first categories. Verify official deployment addresses before ingest."
+    },
+    {
+      "rank": 56,
+      "name": "WisdomTree",
+      "slug": "wisdomtree",
+      "category": "RWA",
+      "tvl": 961878554.0669601,
+      "primaryChain": "Ethereum",
+      "chains": [
+        "Ethereum",
+        "Stellar"
+      ],
+      "chainTvls": {
+        "Ethereum": 937604854.1761205,
+        "Stellar": 24273699.890839584
+      },
+      "url": "https://www.wisdomtreeprime.com/",
+      "twitter": "WisdomTreePrime",
+      "symbol": "-",
+      "defillamaId": "6516",
+      "source": {
+        "provider": "defillama",
+        "endpoint": "https://api.llama.fi/protocols"
+      },
+      "addressResearchStatus": "pending",
+      "ingestStatus": "not_ready_missing_verified_deployment_addresses",
+      "notes": "Selected by current DeFiLlama TVL ranking after excluding non-DeFi or non-contract-first categories. Verify official deployment addresses before ingest."
+    },
+    {
+      "rank": 57,
+      "name": "Binance Staked SOL",
+      "slug": "binance-staked-sol",
+      "category": "Liquid Staking",
+      "tvl": 954252957.0109079,
+      "primaryChain": "Solana",
+      "chains": [
+        "Solana"
+      ],
+      "chainTvls": {
+        "Solana": 954252957.0109079
+      },
+      "url": "https://www.binance.com/en/solana-staking",
+      "twitter": "binance",
+      "symbol": "-",
+      "defillamaId": "5135",
+      "source": {
+        "provider": "defillama",
+        "endpoint": "https://api.llama.fi/protocols"
+      },
+      "addressResearchStatus": "pending",
+      "ingestStatus": "not_ready_missing_verified_deployment_addresses",
+      "notes": "Selected by current DeFiLlama TVL ranking after excluding non-DeFi or non-contract-first categories. Verify official deployment addresses before ingest."
+    },
+    {
+      "rank": 58,
+      "name": "Anemoy Capital",
+      "slug": "anemoy-capital",
+      "category": "RWA",
+      "tvl": 938944661.1742704,
+      "primaryChain": "Ethereum",
+      "chains": [
+        "Ethereum",
+        "Celo",
+        "Base"
+      ],
+      "chainTvls": {
+        "Ethereum": 938944661.1742693,
+        "Base": 0,
+        "Celo": 0.00000110384940702416
+      },
+      "url": "https://www.anemoy.io",
+      "twitter": "anemoycapital",
+      "symbol": "-",
+      "defillamaId": "5481",
+      "source": {
+        "provider": "defillama",
+        "endpoint": "https://api.llama.fi/protocols"
+      },
+      "addressResearchStatus": "pending",
+      "ingestStatus": "not_ready_missing_verified_deployment_addresses",
+      "notes": "Selected by current DeFiLlama TVL ranking after excluding non-DeFi or non-contract-first categories. Verify official deployment addresses before ingest."
+    },
+    {
+      "rank": 59,
+      "name": "Uniswap V2",
+      "slug": "uniswap-v2",
+      "category": "Dexs",
+      "tvl": 907428977.4516691,
+      "primaryChain": "Ethereum",
+      "chains": [
+        "Ethereum",
+        "Base",
+        "Polygon",
+        "Arbitrum",
+        "Binance",
+        "Monad",
+        "Optimism",
+        "X Layer",
+        "Avalanche",
+        "Unichain",
+        "Tempo",
+        "Zora",
+        "Celo"
+      ],
+      "chainTvls": {
+        "Celo": 0,
+        "Tempo": 32610.157685973136,
+        "Zora": 17786.61634909226,
+        "Base": 104582632.67542636,
+        "Ethereum": 769598324.7007709,
+        "X Layer": 364656.4291472621,
+        "Binance": 2329396.1120982943,
+        "Arbitrum": 7422737.002710677,
+        "Avalanche": 124657.49928662782,
+        "Monad": 1066562.2009013928,
+        "Polygon": 21329811.648519397,
+        "Optimism": 450597.9029126919,
+        "Unichain": 109204.50586028388
+      },
+      "url": "https://app.uniswap.org/",
+      "twitter": "Uniswap",
+      "symbol": "UNI",
+      "defillamaId": "2197",
+      "source": {
+        "provider": "defillama",
+        "endpoint": "https://api.llama.fi/protocols"
+      },
+      "addressResearchStatus": "pending",
+      "ingestStatus": "not_ready_missing_verified_deployment_addresses",
+      "notes": "Selected by current DeFiLlama TVL ranking after excluding non-DeFi or non-contract-first categories. Verify official deployment addresses before ingest."
+    },
+    {
+      "rank": 60,
+      "name": "Fluid Lending",
+      "slug": "fluid-lending",
+      "category": "Lending",
+      "tvl": 866914153.7714181,
+      "primaryChain": "Ethereum",
+      "chains": [
+        "Ethereum",
+        "Arbitrum",
+        "Plasma",
+        "Base",
+        "Polygon"
+      ],
+      "chainTvls": {
+        "Ethereum-borrowed": 591267526.1887119,
+        "Base-borrowed": 18160134.862547256,
+        "Plasma-borrowed": 125969930.73768823,
+        "Base": 25674248.116489597,
+        "Ethereum": 529042358.7228151,
+        "Plasma": 124087225.01340416,
+        "Polygon-borrowed": 1989051.1006794036,
+        "Arbitrum-borrowed": 119549035.03781983,
+        "Arbitrum": 183570738.13718322,
+        "Polygon": 4539583.781526078,
+        "borrowed": 856935677.9274466
+      },
+      "url": "https://fluid.io/lending/1",
+      "twitter": "0xfluid",
+      "symbol": "-",
+      "defillamaId": "4167",
+      "source": {
+        "provider": "defillama",
+        "endpoint": "https://api.llama.fi/protocols"
+      },
+      "addressResearchStatus": "pending",
+      "ingestStatus": "not_ready_missing_verified_deployment_addresses",
+      "notes": "Selected by current DeFiLlama TVL ranking after excluding non-DeFi or non-contract-first categories. Verify official deployment addresses before ingest."
+    },
+    {
+      "rank": 61,
+      "name": "Jito Liquid Staking",
+      "slug": "jito-liquid-staking",
+      "category": "Liquid Staking",
+      "tvl": 853220637.3541615,
+      "primaryChain": "Solana",
+      "chains": [
+        "Solana"
+      ],
+      "chainTvls": {
+        "Solana": 853220637.3541615
+      },
+      "url": "https://jito.network",
+      "twitter": "jito_sol",
+      "symbol": "JTO",
+      "defillamaId": "2308",
+      "source": {
+        "provider": "defillama",
+        "endpoint": "https://api.llama.fi/protocols"
+      },
+      "addressResearchStatus": "pending",
+      "ingestStatus": "not_ready_missing_verified_deployment_addresses",
+      "notes": "Selected by current DeFiLlama TVL ranking after excluding non-DeFi or non-contract-first categories. Verify official deployment addresses before ingest."
+    },
+    {
+      "rank": 62,
+      "name": "Jupiter Staked SOL",
+      "slug": "jupiter-staked-sol",
+      "category": "Liquid Staking",
+      "tvl": 843085979.2042513,
+      "primaryChain": "Solana",
+      "chains": [
+        "Solana"
+      ],
+      "chainTvls": {
+        "Solana": 843085979.2042513
+      },
+      "url": "https://jup.ag/?ref=f6y1ryr2snn3",
+      "twitter": "JupiterExchange",
+      "symbol": "JUP",
+      "defillamaId": "4996",
+      "source": {
+        "provider": "defillama",
+        "endpoint": "https://api.llama.fi/protocols"
+      },
+      "addressResearchStatus": "pending",
+      "ingestStatus": "not_ready_missing_verified_deployment_addresses",
+      "notes": "Selected by current DeFiLlama TVL ranking after excluding non-DeFi or non-contract-first categories. Verify official deployment addresses before ingest."
+    },
+    {
+      "rank": 63,
+      "name": "Function FBTC",
+      "slug": "function-fbtc",
+      "category": "Bridge",
+      "tvl": 826833670.5624722,
+      "primaryChain": "Bitcoin",
+      "chains": [
+        "Bitcoin"
+      ],
+      "chainTvls": {
+        "Bitcoin": 826833670.5624722
+      },
+      "url": "https://www.fxn.xyz",
+      "twitter": "FunctionBTC",
+      "symbol": "-",
+      "defillamaId": "4947",
+      "source": {
+        "provider": "defillama",
+        "endpoint": "https://api.llama.fi/protocols"
+      },
+      "addressResearchStatus": "pending",
+      "ingestStatus": "not_ready_missing_verified_deployment_addresses",
+      "notes": "Selected by current DeFiLlama TVL ranking after excluding non-DeFi or non-contract-first categories. Verify official deployment addresses before ingest."
+    },
+    {
+      "rank": 64,
+      "name": "Superstate USTB",
+      "slug": "superstate-ustb",
+      "category": "RWA",
+      "tvl": 812157444.8463781,
+      "primaryChain": "Ethereum",
+      "chains": [
+        "Ethereum",
+        "Plume Mainnet",
+        "Solana"
+      ],
+      "chainTvls": {
+        "Ethereum": 799432215.5580263,
+        "Solana": 3209184.361442116,
+        "Plume Mainnet": 9516044.926909644
+      },
+      "url": "https://superstate.com/",
+      "twitter": "superstatefunds",
+      "symbol": "-",
+      "defillamaId": "4265",
+      "source": {
+        "provider": "defillama",
+        "endpoint": "https://api.llama.fi/protocols"
+      },
+      "addressResearchStatus": "pending",
+      "ingestStatus": "not_ready_missing_verified_deployment_addresses",
+      "notes": "Selected by current DeFiLlama TVL ranking after excluding non-DeFi or non-contract-first categories. Verify official deployment addresses before ingest."
+    },
+    {
+      "rank": 65,
+      "name": "StakeWise V2",
+      "slug": "stakewise-v2",
+      "category": "Liquid Staking",
+      "tvl": 764582080.6220655,
+      "primaryChain": "Ethereum",
+      "chains": [
+        "Ethereum",
+        "xDai"
+      ],
+      "chainTvls": {
+        "xDai": 1277612.6227960926,
+        "Ethereum": 763304467.9992695
+      },
+      "url": "https://stakewise.io/",
+      "twitter": "stakewise_io",
+      "symbol": "SWISE",
+      "defillamaId": "277",
+      "source": {
+        "provider": "defillama",
+        "endpoint": "https://api.llama.fi/protocols"
+      },
+      "addressResearchStatus": "pending",
+      "ingestStatus": "not_ready_missing_verified_deployment_addresses",
+      "notes": "Selected by current DeFiLlama TVL ranking after excluding non-DeFi or non-contract-first categories. Verify official deployment addresses before ingest."
+    },
+    {
+      "rank": 66,
+      "name": "Uniswap V4",
+      "slug": "uniswap-v4",
+      "category": "Dexs",
+      "tvl": 751786245.3851291,
+      "primaryChain": "Ethereum",
+      "chains": [
+        "Ethereum",
+        "Base",
+        "Arbitrum",
+        "Polygon",
+        "Binance",
+        "Unichain",
+        "Monad",
+        "Soneium",
+        "Optimism",
+        "Tempo",
+        "Avalanche",
+        "World Chain",
+        "X Layer",
+        "Blast",
+        "Ink",
+        "Zora"
+      ],
+      "chainTvls": {
+        "Ink": 3404.384767044614,
+        "Soneium": 2898526.002718496,
+        "X Layer": 381845.63463224925,
+        "Zora": 573.1777335337565,
+        "Tempo": 1141870.7620826303,
+        "World Chain": 435982.58049785404,
+        "Blast": 20924.81443275583,
+        "Polygon": 22230775.850283712,
+        "Unichain": 19217847.806922853,
+        "Monad": 16384622.122341564,
+        "Avalanche": 943628.9458683466,
+        "Arbitrum": 39845962.832781695,
+        "Optimism": 1806568.482425263,
+        "Ethereum": 565249104.0722214,
+        "Base": 59493737.13217944,
+        "Binance": 21730870.783240236
+      },
+      "url": "https://app.uniswap.org/",
+      "twitter": "Uniswap",
+      "symbol": "UNI",
+      "defillamaId": "5690",
+      "source": {
+        "provider": "defillama",
+        "endpoint": "https://api.llama.fi/protocols"
+      },
+      "addressResearchStatus": "pending",
+      "ingestStatus": "not_ready_missing_verified_deployment_addresses",
+      "notes": "Selected by current DeFiLlama TVL ranking after excluding non-DeFi or non-contract-first categories. Verify official deployment addresses before ingest."
+    },
+    {
+      "rank": 67,
+      "name": "Lombard LBTC",
+      "slug": "lombard-lbtc",
+      "category": "Restaked BTC",
+      "tvl": 751721060.9399284,
+      "primaryChain": "Bitcoin",
+      "chains": [
+        "Bitcoin",
+        "Ethereum"
+      ],
+      "chainTvls": {
+        "Ethereum": 0,
+        "Bitcoin": 751721060.9399284
+      },
+      "url": "https://www.lombard.finance/app/stake/?referrer=ssybnl",
+      "twitter": "Lombard_Finance",
+      "symbol": "BARD",
+      "defillamaId": "5097",
+      "source": {
+        "provider": "defillama",
+        "endpoint": "https://api.llama.fi/protocols"
+      },
+      "addressResearchStatus": "pending",
+      "ingestStatus": "not_ready_missing_verified_deployment_addresses",
+      "notes": "Selected by current DeFiLlama TVL ranking after excluding non-DeFi or non-contract-first categories. Verify official deployment addresses before ingest."
+    },
+    {
+      "rank": 68,
+      "name": "Liquid Collective",
+      "slug": "liquid-collective",
+      "category": "Liquid Staking",
+      "tvl": 749293412.275491,
+      "primaryChain": "Ethereum",
+      "chains": [
+        "Ethereum"
+      ],
+      "chainTvls": {
+        "Ethereum": 749293412.275491
+      },
+      "url": "https://liquidcollective.io",
+      "twitter": "liquid_col",
+      "symbol": "-",
+      "defillamaId": "3391",
+      "source": {
+        "provider": "defillama",
+        "endpoint": "https://api.llama.fi/protocols"
+      },
+      "addressResearchStatus": "pending",
+      "ingestStatus": "not_ready_missing_verified_deployment_addresses",
+      "notes": "Selected by current DeFiLlama TVL ranking after excluding non-DeFi or non-contract-first categories. Verify official deployment addresses before ingest."
+    },
+    {
+      "rank": 69,
+      "name": "Obol",
+      "slug": "obol",
+      "category": "Staking Pool",
+      "tvl": 689178906.9042438,
+      "primaryChain": "Ethereum",
+      "chains": [
+        "Ethereum"
+      ],
+      "chainTvls": {
+        "Ethereum-staking": 49702.6066261302,
+        "Ethereum": 689178906.9042438,
+        "staking": 49702.6066261302
+      },
+      "url": "https://obol.org/",
+      "twitter": "Obol_Collective",
+      "symbol": "OBOL",
+      "defillamaId": "6948",
+      "source": {
+        "provider": "defillama",
+        "endpoint": "https://api.llama.fi/protocols"
+      },
+      "addressResearchStatus": "pending",
+      "ingestStatus": "not_ready_missing_verified_deployment_addresses",
+      "notes": "Selected by current DeFiLlama TVL ranking after excluding non-DeFi or non-contract-first categories. Verify official deployment addresses before ingest."
+    },
+    {
+      "rank": 70,
+      "name": "Jupiter Perpetual Exchange",
+      "slug": "jupiter-perpetual-exchange",
+      "category": "Derivatives",
+      "tvl": 676350825.0539072,
+      "primaryChain": "Solana",
+      "chains": [
+        "Solana"
+      ],
+      "chainTvls": {
+        "Solana": 676350825.0539072
+      },
+      "url": "https://jup.ag/?ref=f6y1ryr2snn3",
+      "twitter": "JupiterExchange",
+      "symbol": "JUP",
+      "defillamaId": "4077",
+      "source": {
+        "provider": "defillama",
+        "endpoint": "https://api.llama.fi/protocols"
+      },
+      "addressResearchStatus": "pending",
+      "ingestStatus": "not_ready_missing_verified_deployment_addresses",
+      "notes": "Selected by current DeFiLlama TVL ranking after excluding non-DeFi or non-contract-first categories. Verify official deployment addresses before ingest."
+    },
+    {
+      "rank": 71,
+      "name": "DoubleZero Staked SOL",
+      "slug": "doublezero-staked-sol",
+      "category": "Liquid Staking",
+      "tvl": 621569093.3043827,
+      "primaryChain": "Solana",
+      "chains": [
+        "Solana"
+      ],
+      "chainTvls": {
+        "Solana": 621569093.3043827
+      },
+      "url": "https://doublezero.xyz/",
+      "twitter": "doublezero",
+      "symbol": "2Z",
+      "defillamaId": "6976",
+      "source": {
+        "provider": "defillama",
+        "endpoint": "https://api.llama.fi/protocols"
+      },
+      "addressResearchStatus": "pending",
+      "ingestStatus": "not_ready_missing_verified_deployment_addresses",
+      "notes": "Selected by current DeFiLlama TVL ranking after excluding non-DeFi or non-contract-first categories. Verify official deployment addresses before ingest."
+    },
+    {
+      "rank": 72,
+      "name": "Lista Lending",
+      "slug": "lista-lending",
+      "category": "Lending",
+      "tvl": 619678205.304407,
+      "primaryChain": "Binance",
+      "chains": [
+        "Binance",
+        "Ethereum"
+      ],
+      "chainTvls": {
+        "Ethereum-borrowed": 1012928.6603934468,
+        "Ethereum": 8040791.992201988,
+        "Binance-borrowed": 200351036.89499038,
+        "Binance": 611637413.312205,
+        "borrowed": 201363965.55538383
+      },
+      "url": "https://lista.org/lending",
+      "twitter": "LISTA_DAO",
+      "symbol": "LISTA",
+      "defillamaId": "6056",
+      "source": {
+        "provider": "defillama",
+        "endpoint": "https://api.llama.fi/protocols"
+      },
+      "addressResearchStatus": "pending",
+      "ingestStatus": "not_ready_missing_verified_deployment_addresses",
+      "notes": "Selected by current DeFiLlama TVL ranking after excluding non-DeFi or non-contract-first categories. Verify official deployment addresses before ingest."
+    },
+    {
+      "rank": 73,
+      "name": "Lista Liquid Staking",
+      "slug": "lista-liquid-staking",
+      "category": "Liquid Staking",
+      "tvl": 601900802.4073806,
+      "primaryChain": "Binance",
+      "chains": [
+        "Binance"
+      ],
+      "chainTvls": {
+        "Binance": 601900802.4073806
+      },
+      "url": "https://lista.org/",
+      "twitter": "LISTA_DAO",
+      "symbol": "LISTA",
+      "defillamaId": "3354",
+      "source": {
+        "provider": "defillama",
+        "endpoint": "https://api.llama.fi/protocols"
+      },
+      "addressResearchStatus": "pending",
+      "ingestStatus": "not_ready_missing_verified_deployment_addresses",
+      "notes": "Selected by current DeFiLlama TVL ranking after excluding non-DeFi or non-contract-first categories. Verify official deployment addresses before ingest."
+    },
+    {
+      "rank": 74,
+      "name": "Aster Bridge",
+      "slug": "aster-bridge",
+      "category": "Bridge",
+      "tvl": 597109729.8402919,
+      "primaryChain": "Binance",
+      "chains": [
+        "Binance",
+        "Ethereum",
+        "Arbitrum",
+        "Solana",
+        "Scroll"
+      ],
+      "chainTvls": {
+        "Binance-staking": 253473972.39407706,
+        "Solana": 18134048.48726247,
+        "Ethereum": 150221551.2096356,
+        "Binance": 383292980.94184047,
+        "Scroll": 7216.955344319047,
+        "Arbitrum": 45453932.246209025,
+        "staking": 253473972.39407706
+      },
+      "url": "https://www.asterdex.com/en/referral/c6eF10",
+      "twitter": "Aster_DEX",
+      "symbol": "-",
+      "defillamaId": "4847",
+      "source": {
+        "provider": "defillama",
+        "endpoint": "https://api.llama.fi/protocols"
+      },
+      "addressResearchStatus": "pending",
+      "ingestStatus": "not_ready_missing_verified_deployment_addresses",
+      "notes": "Selected by current DeFiLlama TVL ranking after excluding non-DeFi or non-contract-first categories. Verify official deployment addresses before ingest."
+    },
+    {
+      "rank": 75,
+      "name": "Convex Finance",
+      "slug": "convex-finance",
+      "category": "Yield",
+      "tvl": 590312995.173528,
+      "primaryChain": "Ethereum",
+      "chains": [
+        "Ethereum",
+        "Fraxtal",
+        "Arbitrum",
+        "Polygon"
+      ],
+      "chainTvls": {
+        "Ethereum-staking": 92450505.50400358,
+        "Polygon": 243964.2666244154,
+        "Fraxtal": 7430879.119974841,
+        "Arbitrum": 2341461.542836266,
+        "Ethereum": 580296690.2440925,
+        "staking": 92450505.50400358
+      },
+      "url": "https://www.convexfinance.com/",
+      "twitter": "ConvexFinance",
+      "symbol": "CVX",
+      "defillamaId": "319",
+      "source": {
+        "provider": "defillama",
+        "endpoint": "https://api.llama.fi/protocols"
+      },
+      "addressResearchStatus": "pending",
+      "ingestStatus": "not_ready_missing_verified_deployment_addresses",
+      "notes": "Selected by current DeFiLlama TVL ranking after excluding non-DeFi or non-contract-first categories. Verify official deployment addresses before ingest."
+    },
+    {
+      "rank": 76,
+      "name": "HyperLend Pooled",
+      "slug": "hyperlend-pooled",
+      "category": "Lending",
+      "tvl": 524953011.13152474,
+      "primaryChain": "Hyperliquid L1",
+      "chains": [
+        "Hyperliquid L1"
+      ],
+      "chainTvls": {
+        "Hyperliquid L1-staking": 1533880.769197175,
+        "Hyperliquid L1-borrowed": 253450262.69886976,
+        "Hyperliquid L1": 524953011.13152474,
+        "staking": 1533880.769197175,
+        "borrowed": 253450262.69886976
+      },
+      "url": "https://app.hyperlend.finance/?ref=DEFILLAMA",
+      "twitter": "hyperlendx",
+      "symbol": "HPL",
+      "defillamaId": "5940",
+      "source": {
+        "provider": "defillama",
+        "endpoint": "https://api.llama.fi/protocols"
+      },
+      "addressResearchStatus": "pending",
+      "ingestStatus": "not_ready_missing_verified_deployment_addresses",
+      "notes": "Selected by current DeFiLlama TVL ranking after excluding non-DeFi or non-contract-first categories. Verify official deployment addresses before ingest."
+    },
+    {
+      "rank": 77,
+      "name": "Tornado Cash",
+      "slug": "tornado-cash",
+      "category": "Privacy",
+      "tvl": 521681608.92373866,
+      "primaryChain": "Ethereum",
+      "chains": [
+        "Ethereum",
+        "Binance",
+        "Arbitrum",
+        "Avalanche",
+        "xDai",
+        "Polygon",
+        "EthereumClassic",
+        "Optimism"
+      ],
+      "chainTvls": {
+        "Ethereum": 470790061.7247857,
+        "Polygon": 43054.82860029798,
+        "Binance": 50199622.37194348,
+        "EthereumClassic": 31338.014041438866,
+        "Avalanche": 48119.70679308876,
+        "Arbitrum": 497998.404851862,
+        "xDai": 47085.14861162048,
+        "Optimism": 24328.724111284675
+      },
+      "url": "",
+      "twitter": "TornadoCash",
+      "symbol": "TORN",
+      "defillamaId": "148",
+      "source": {
+        "provider": "defillama",
+        "endpoint": "https://api.llama.fi/protocols"
+      },
+      "addressResearchStatus": "pending",
+      "ingestStatus": "not_ready_missing_verified_deployment_addresses",
+      "notes": "Selected by current DeFiLlama TVL ranking after excluding non-DeFi or non-contract-first categories. Verify official deployment addresses before ingest."
+    },
+    {
+      "rank": 78,
+      "name": "Optimism Bridge",
+      "slug": "optimism-bridge",
+      "category": "Canonical Bridge",
+      "tvl": 515551080.75825155,
+      "primaryChain": "Ethereum",
+      "chains": [
+        "Ethereum",
+        "Base",
+        "PGN"
+      ],
+      "chainTvls": {
+        "Base": 0,
+        "PGN": 0,
+        "Ethereum": 515551080.75825155
+      },
+      "url": "https://app.optimism.io/bridge/deposit",
+      "twitter": "optimismFND",
+      "symbol": "OP",
+      "defillamaId": "3784",
+      "source": {
+        "provider": "defillama",
+        "endpoint": "https://api.llama.fi/protocols"
+      },
+      "addressResearchStatus": "pending",
+      "ingestStatus": "not_ready_missing_verified_deployment_addresses",
+      "notes": "Selected by current DeFiLlama TVL ranking after excluding non-DeFi or non-contract-first categories. Verify official deployment addresses before ingest."
+    },
+    {
+      "rank": 79,
+      "name": "Lighter Bridge",
+      "slug": "lighter-bridge",
+      "category": "Bridge",
+      "tvl": 497806078.9273731,
+      "primaryChain": "Ethereum",
+      "chains": [
+        "Ethereum",
+        "Arbitrum"
+      ],
+      "chainTvls": {
+        "Arbitrum": 2029.5029620324492,
+        "Ethereum": 497804049.42441106
+      },
+      "url": "https://app.lighter.xyz/trade/ETH?referral=FHT1N8AYKHP4",
+      "twitter": "Lighter_xyz",
+      "symbol": "-",
+      "defillamaId": "6042",
+      "source": {
+        "provider": "defillama",
+        "endpoint": "https://api.llama.fi/protocols"
+      },
+      "addressResearchStatus": "pending",
+      "ingestStatus": "not_ready_missing_verified_deployment_addresses",
+      "notes": "Selected by current DeFiLlama TVL ranking after excluding non-DeFi or non-contract-first categories. Verify official deployment addresses before ingest."
+    },
+    {
+      "rank": 80,
+      "name": "SolvBTC",
+      "slug": "solvbtc",
+      "category": "Bridge",
+      "tvl": 489746481.00394106,
+      "primaryChain": "Bitcoin",
+      "chains": [
+        "Bitcoin",
+        "Ethereum",
+        "Binance",
+        "Solana",
+        "Base",
+        "Arbitrum",
+        "X Layer",
+        "Mantle",
+        "Polygon",
+        "Merlin",
+        "BOB",
+        "Avalanche"
+      ],
+      "chainTvls": {
+        "Polygon": 0,
+        "Merlin": 0,
+        "Ethereum": 4776464.541652709,
+        "Base": 334882.46391072473,
+        "BOB": 0,
+        "Arbitrum": 2000.10283783088,
+        "Mantle": 3.573408797992693,
+        "X Layer": 74.38283829852513,
+        "Binance": 4774479.691500181,
+        "Avalanche": 0,
+        "Solana": 2503640.220893862,
+        "Bitcoin": 477354936.0268987
+      },
+      "url": "https://app.solv.finance/solvbtc",
+      "twitter": "SolvProtocol",
+      "symbol": "SOLV",
+      "defillamaId": "4620",
+      "source": {
+        "provider": "defillama",
+        "endpoint": "https://api.llama.fi/protocols"
+      },
+      "addressResearchStatus": "pending",
+      "ingestStatus": "not_ready_missing_verified_deployment_addresses",
+      "notes": "Selected by current DeFiLlama TVL ranking after excluding non-DeFi or non-contract-first categories. Verify official deployment addresses before ingest."
+    },
+    {
+      "rank": 81,
+      "name": "mETH Protocol",
+      "slug": "meth-protocol",
+      "category": "Liquid Staking",
+      "tvl": 480932157.35572207,
+      "primaryChain": "Ethereum",
+      "chains": [
+        "Ethereum"
+      ],
+      "chainTvls": {
+        "Ethereum": 480932157.35572207
+      },
+      "url": "https://www.methprotocol.xyz/",
+      "twitter": "mETHProtocol",
+      "symbol": "COOK",
+      "defillamaId": "3882",
+      "source": {
+        "provider": "defillama",
+        "endpoint": "https://api.llama.fi/protocols"
+      },
+      "addressResearchStatus": "pending",
+      "ingestStatus": "not_ready_missing_verified_deployment_addresses",
+      "notes": "Selected by current DeFiLlama TVL ranking after excluding non-DeFi or non-contract-first categories. Verify official deployment addresses before ingest."
+    },
+    {
+      "rank": 82,
+      "name": "Symbiotic",
+      "slug": "symbiotic",
+      "category": "Restaking",
+      "tvl": 467519296.9072689,
+      "primaryChain": "Ethereum",
+      "chains": [
+        "Ethereum"
+      ],
+      "chainTvls": {
+        "Ethereum": 467519296.9072689
+      },
+      "url": "https://symbiotic.fi",
+      "twitter": "symbioticfi",
+      "symbol": "-",
+      "defillamaId": "4757",
+      "source": {
+        "provider": "defillama",
+        "endpoint": "https://api.llama.fi/protocols"
+      },
+      "addressResearchStatus": "pending",
+      "ingestStatus": "not_ready_missing_verified_deployment_addresses",
+      "notes": "Selected by current DeFiLlama TVL ranking after excluding non-DeFi or non-contract-first categories. Verify official deployment addresses before ingest."
+    },
+    {
+      "rank": 83,
+      "name": "Lorenzo enzoBTC",
+      "slug": "lorenzo-enzobtc",
+      "category": "Bridge",
+      "tvl": 461163456.8159598,
+      "primaryChain": "Bitcoin",
+      "chains": [
+        "Bitcoin"
+      ],
+      "chainTvls": {
+        "Bitcoin": 461163456.8159598
+      },
+      "url": "https://www.lorenzo-protocol.xyz",
+      "twitter": "LorenzoProtocol",
+      "symbol": "-",
+      "defillamaId": "5292",
+      "source": {
+        "provider": "defillama",
+        "endpoint": "https://api.llama.fi/protocols"
+      },
+      "addressResearchStatus": "pending",
+      "ingestStatus": "not_ready_missing_verified_deployment_addresses",
+      "notes": "Selected by current DeFiLlama TVL ranking after excluding non-DeFi or non-contract-first categories. Verify official deployment addresses before ingest."
+    },
+    {
+      "rank": 84,
+      "name": "Merlins Seal",
+      "slug": "merlins-seal",
+      "category": "Bridge",
+      "tvl": 457188333.0022671,
+      "primaryChain": "Bitcoin",
+      "chains": [
+        "Bitcoin",
+        "Ethereum",
+        "Zkfair",
+        "Arbitrum"
+      ],
+      "chainTvls": {
+        "Ethereum": 0,
+        "Zkfair": 0,
+        "Arbitrum": 0,
+        "Bitcoin": 457188333.0022671
+      },
+      "url": "https://merlinchain.io/bridge/staking",
+      "twitter": "MerlinLayer2",
+      "symbol": "MERL",
+      "defillamaId": "4124",
+      "source": {
+        "provider": "defillama",
+        "endpoint": "https://api.llama.fi/protocols"
+      },
+      "addressResearchStatus": "pending",
+      "ingestStatus": "not_ready_missing_verified_deployment_addresses",
+      "notes": "Selected by current DeFiLlama TVL ranking after excluding non-DeFi or non-contract-first categories. Verify official deployment addresses before ingest."
+    },
+    {
+      "rank": 85,
+      "name": "Rocket Pool",
+      "slug": "rocket-pool",
+      "category": "Liquid Staking",
+      "tvl": 448405619.3455862,
+      "primaryChain": "Ethereum",
+      "chains": [
+        "Ethereum"
+      ],
+      "chainTvls": {
+        "Ethereum-staking": 17922889.42917834,
+        "Ethereum": 448405619.3455862,
+        "staking": 17922889.42917834
+      },
+      "url": "https://rocketpool.net",
+      "twitter": "Rocket_Pool",
+      "symbol": "RPL",
+      "defillamaId": "900",
+      "source": {
+        "provider": "defillama",
+        "endpoint": "https://api.llama.fi/protocols"
+      },
+      "addressResearchStatus": "pending",
+      "ingestStatus": "not_ready_missing_verified_deployment_addresses",
+      "notes": "Selected by current DeFiLlama TVL ranking after excluding non-DeFi or non-contract-first categories. Verify official deployment addresses before ingest."
+    },
+    {
+      "rank": 86,
+      "name": "Polymarket International",
+      "slug": "polymarket-international",
+      "category": "Prediction Market",
+      "tvl": 447943334.45378387,
+      "primaryChain": "Polygon",
+      "chains": [
+        "Polygon"
+      ],
+      "chainTvls": {
+        "Polygon": 447943334.45378387
+      },
+      "url": "https://polymarket.com/?r=defillamareal",
+      "twitter": "Polymarket",
+      "symbol": "-",
+      "defillamaId": "711",
+      "source": {
+        "provider": "defillama",
+        "endpoint": "https://api.llama.fi/protocols"
+      },
+      "addressResearchStatus": "pending",
+      "ingestStatus": "not_ready_missing_verified_deployment_addresses",
+      "notes": "Selected by current DeFiLlama TVL ranking after excluding non-DeFi or non-contract-first categories. Verify official deployment addresses before ingest."
+    },
+    {
+      "rank": 87,
+      "name": "xStocks",
+      "slug": "xstocks",
+      "category": "RWA",
+      "tvl": 434692608.51153475,
+      "primaryChain": "Solana",
+      "chains": [
+        "Solana",
+        "Arbitrum"
+      ],
+      "chainTvls": {
+        "Arbitrum": 559.26857327394,
+        "Solana": 434692049.24296147
+      },
+      "url": "https://defi.xstocks.fi/points?ref=8QG15V04",
+      "twitter": "xStocksFi",
+      "symbol": "-",
+      "defillamaId": "6378",
+      "source": {
+        "provider": "defillama",
+        "endpoint": "https://api.llama.fi/protocols"
+      },
+      "addressResearchStatus": "pending",
+      "ingestStatus": "not_ready_missing_verified_deployment_addresses",
+      "notes": "Selected by current DeFiLlama TVL ranking after excluding non-DeFi or non-contract-first categories. Verify official deployment addresses before ingest."
+    },
+    {
+      "rank": 88,
+      "name": "Unit",
+      "slug": "unit",
+      "category": "Bridge",
+      "tvl": 434207465.64495176,
+      "primaryChain": "Bitcoin",
+      "chains": [
+        "Bitcoin",
+        "Ethereum",
+        "Solana",
+        "Plasma",
+        "Monad"
+      ],
+      "chainTvls": {
+        "Ethereum": 91219589.51997797,
+        "Plasma": 13155040.603386983,
+        "Monad": 3458751.0347523713,
+        "Solana": 64436413.275140755,
+        "Bitcoin": 261937671.21169367
+      },
+      "url": "https://hyperunit.xyz/deposit",
+      "twitter": "unitxyz",
+      "symbol": "-",
+      "defillamaId": "5788",
+      "source": {
+        "provider": "defillama",
+        "endpoint": "https://api.llama.fi/protocols"
+      },
+      "addressResearchStatus": "pending",
+      "ingestStatus": "not_ready_missing_verified_deployment_addresses",
+      "notes": "Selected by current DeFiLlama TVL ranking after excluding non-DeFi or non-contract-first categories. Verify official deployment addresses before ingest."
+    },
+    {
+      "rank": 89,
+      "name": "Avalon USDa",
+      "slug": "avalon-usda",
+      "category": "CDP",
+      "tvl": 415526561.2924749,
+      "primaryChain": "Binance",
+      "chains": [
+        "Binance",
+        "Ethereum",
+        "Klaytn",
+        "Berachain",
+        "Sonic",
+        "Mantle"
+      ],
+      "chainTvls": {
+        "Ethereum": 81002428.469657,
+        "Move": 147561682.2372031,
+        "Berachain": 76.417235356308,
+        "Mantle": 2.5187120773439116,
+        "Sonic": 42.546824129331604,
+        "Binance": 184669812.04215407,
+        "Klaytn": 2292517.0606892398
+      },
+      "url": "https://www.avalonfinance.xyz",
+      "twitter": "avalonfinance_",
+      "symbol": "-",
+      "defillamaId": "5312",
+      "source": {
+        "provider": "defillama",
+        "endpoint": "https://api.llama.fi/protocols"
+      },
+      "addressResearchStatus": "pending",
+      "ingestStatus": "not_ready_missing_verified_deployment_addresses",
+      "notes": "Selected by current DeFiLlama TVL ranking after excluding non-DeFi or non-contract-first categories. Verify official deployment addresses before ingest."
+    },
+    {
+      "rank": 90,
+      "name": "Quickswap Dex",
+      "slug": "quickswap-dex",
+      "category": "Dexs",
+      "tvl": 403635190.3045327,
+      "primaryChain": "Polygon",
+      "chains": [
+        "Polygon",
+        "Base"
+      ],
+      "chainTvls": {
+        "Polygon": 403529375.561815,
+        "Polygon-staking": 669291.6659473093,
+        "Base": 105814.74271768039,
+        "staking": 669291.6659473093
+      },
+      "url": "https://quickswap.exchange/",
+      "twitter": "QuickswapDEX",
+      "symbol": "QUICK",
+      "defillamaId": "306",
+      "source": {
+        "provider": "defillama",
+        "endpoint": "https://api.llama.fi/protocols"
+      },
+      "addressResearchStatus": "pending",
+      "ingestStatus": "not_ready_missing_verified_deployment_addresses",
+      "notes": "Selected by current DeFiLlama TVL ranking after excluding non-DeFi or non-contract-first categories. Verify official deployment addresses before ingest."
+    },
+    {
+      "rank": 91,
+      "name": "Lista CDP",
+      "slug": "lista-cdp",
+      "category": "CDP",
+      "tvl": 402635530.24698764,
+      "primaryChain": "Binance",
+      "chains": [
+        "Binance"
+      ],
+      "chainTvls": {
+        "Binance-staking": 1932718.020147694,
+        "Binance-pool2": 760218.7267627955,
+        "Binance": 402635530.24698764,
+        "staking": 1932718.020147694,
+        "pool2": 760218.7267627955
+      },
+      "url": "https://lista.org/",
+      "twitter": "LISTA_DAO",
+      "symbol": "LISTA",
+      "defillamaId": "2038",
+      "source": {
+        "provider": "defillama",
+        "endpoint": "https://api.llama.fi/protocols"
+      },
+      "addressResearchStatus": "pending",
+      "ingestStatus": "not_ready_missing_verified_deployment_addresses",
+      "notes": "Selected by current DeFiLlama TVL ranking after excluding non-DeFi or non-contract-first categories. Verify official deployment addresses before ingest."
+    },
+    {
+      "rank": 92,
+      "name": "Solstice USX",
+      "slug": "solstice-usx",
+      "category": "Basis Trading",
+      "tvl": 401197342.5356189,
+      "primaryChain": "Solana",
+      "chains": [
+        "Solana"
+      ],
+      "chainTvls": {
+        "Solana": 401197342.5356189
+      },
+      "url": "https://solstice.finance/",
+      "twitter": "solsticefi",
+      "symbol": "SLX",
+      "defillamaId": "6789",
+      "source": {
+        "provider": "defillama",
+        "endpoint": "https://api.llama.fi/protocols"
+      },
+      "addressResearchStatus": "pending",
+      "ingestStatus": "not_ready_missing_verified_deployment_addresses",
+      "notes": "Selected by current DeFiLlama TVL ranking after excluding non-DeFi or non-contract-first categories. Verify official deployment addresses before ingest."
+    },
+    {
+      "rank": 93,
+      "name": "Linea Bridge",
+      "slug": "linea-bridge",
+      "category": "Canonical Bridge",
+      "tvl": 392229623.08924675,
+      "primaryChain": "Ethereum",
+      "chains": [
+        "Ethereum"
+      ],
+      "chainTvls": {
+        "Ethereum": 392229623.08924675
+      },
+      "url": "https://bridge.linea.build",
+      "twitter": "LineaBuild",
+      "symbol": "-",
+      "defillamaId": "3781",
+      "source": {
+        "provider": "defillama",
+        "endpoint": "https://api.llama.fi/protocols"
+      },
+      "addressResearchStatus": "pending",
+      "ingestStatus": "not_ready_missing_verified_deployment_addresses",
+      "notes": "Selected by current DeFiLlama TVL ranking after excluding non-DeFi or non-contract-first categories. Verify official deployment addresses before ingest."
+    },
+    {
+      "rank": 94,
+      "name": "Multipli.fi",
+      "slug": "multipli.fi",
+      "category": "Yield",
+      "tvl": 380368763.56331235,
+      "primaryChain": "Ethereum",
+      "chains": [
+        "Ethereum",
+        "Base",
+        "Monad",
+        "Arbitrum",
+        "Binance",
+        "Avalanche"
+      ],
+      "chainTvls": {
+        "Binance": 2339571.164927202,
+        "Avalanche": 13310.818547970033,
+        "Ethereum": 181922255.5106455,
+        "Monad": 51609273.950907625,
+        "Arbitrum": 30155663.727540713,
+        "Base": 114328688.39074333
+      },
+      "url": "https://app.multipli.fi?referral_code=Y7YQDT",
+      "twitter": "multiplifi",
+      "symbol": "-",
+      "defillamaId": "5905",
+      "source": {
+        "provider": "defillama",
+        "endpoint": "https://api.llama.fi/protocols"
+      },
+      "addressResearchStatus": "pending",
+      "ingestStatus": "not_ready_missing_verified_deployment_addresses",
+      "notes": "Selected by current DeFiLlama TVL ranking after excluding non-DeFi or non-contract-first categories. Verify official deployment addresses before ingest."
+    },
+    {
+      "rank": 95,
+      "name": "tBTC",
+      "slug": "tbtc",
+      "category": "Decentralized BTC",
+      "tvl": 379690230.34834754,
+      "primaryChain": "Bitcoin",
+      "chains": [
+        "Bitcoin",
+        "Ethereum"
+      ],
+      "chainTvls": {
+        "Ethereum": 0,
+        "Bitcoin": 379690230.34834754
+      },
+      "url": "https://threshold.network/",
+      "twitter": "TheTNetwork",
+      "symbol": "T",
+      "defillamaId": "2535",
+      "source": {
+        "provider": "defillama",
+        "endpoint": "https://api.llama.fi/protocols"
+      },
+      "addressResearchStatus": "pending",
+      "ingestStatus": "not_ready_missing_verified_deployment_addresses",
+      "notes": "Selected by current DeFiLlama TVL ranking after excluding non-DeFi or non-contract-first categories. Verify official deployment addresses before ingest."
+    },
+    {
+      "rank": 96,
+      "name": "Lightning Network",
+      "slug": "lightning-network",
+      "category": "Payments",
+      "tvl": 377655919.91293347,
+      "primaryChain": "Bitcoin",
+      "chains": [
+        "Bitcoin"
+      ],
+      "chainTvls": {
+        "Bitcoin": 377655919.91293347
+      },
+      "url": "https://lightning.network/",
+      "twitter": "",
+      "symbol": "-",
+      "defillamaId": "231",
+      "source": {
+        "provider": "defillama",
+        "endpoint": "https://api.llama.fi/protocols"
+      },
+      "addressResearchStatus": "pending",
+      "ingestStatus": "not_ready_missing_verified_deployment_addresses",
+      "notes": "Selected by current DeFiLlama TVL ranking after excluding non-DeFi or non-contract-first categories. Verify official deployment addresses before ingest."
+    },
+    {
+      "rank": 97,
+      "name": "Hyperliquid HLP",
+      "slug": "hyperliquid-hlp",
+      "category": "Derivatives",
+      "tvl": 374266386.4731592,
+      "primaryChain": "Hyperliquid L1",
+      "chains": [
+        "Hyperliquid L1"
+      ],
+      "chainTvls": {
+        "Hyperliquid L1": 374266386.4731592
+      },
+      "url": "https://app.hyperliquid.xyz",
+      "twitter": "HyperliquidX",
+      "symbol": "HYPE",
+      "defillamaId": "5448",
+      "source": {
+        "provider": "defillama",
+        "endpoint": "https://api.llama.fi/protocols"
+      },
+      "addressResearchStatus": "pending",
+      "ingestStatus": "not_ready_missing_verified_deployment_addresses",
+      "notes": "Selected by current DeFiLlama TVL ranking after excluding non-DeFi or non-contract-first categories. Verify official deployment addresses before ingest."
+    },
+    {
+      "rank": 98,
+      "name": "Hastra",
+      "slug": "hastra",
+      "category": "RWA",
+      "tvl": 369561184.7309218,
+      "primaryChain": "Solana",
+      "chains": [
+        "Solana",
+        "Ethereum"
+      ],
+      "chainTvls": {
+        "Ethereum": 59515774.48329232,
+        "Solana": 310045410.24762946
+      },
+      "url": "https://hastra.io/",
+      "twitter": "HastraFi",
+      "symbol": "-",
+      "defillamaId": "7266",
+      "source": {
+        "provider": "defillama",
+        "endpoint": "https://api.llama.fi/protocols"
+      },
+      "addressResearchStatus": "pending",
+      "ingestStatus": "not_ready_missing_verified_deployment_addresses",
+      "notes": "Selected by current DeFiLlama TVL ranking after excluding non-DeFi or non-contract-first categories. Verify official deployment addresses before ingest."
+    },
+    {
+      "rank": 99,
+      "name": "BounceBit CeDeFi Yield",
+      "slug": "bouncebit-cedefi-yield",
+      "category": "Basis Trading",
+      "tvl": 364501757.396397,
+      "primaryChain": "BounceBit",
+      "chains": [
+        "BounceBit",
+        "Binance",
+        "Ethereum",
+        "Base",
+        "Solana"
+      ],
+      "chainTvls": {
+        "Base": 3504.26092231952,
+        "Solana": -65000.729324208536,
+        "Ethereum": 597981.7018933297,
+        "BounceBit": 259888259.3563598,
+        "Binance": 104077012.80654576
+      },
+      "url": "https://portal.bouncebit.io/",
+      "twitter": "bounce_bit",
+      "symbol": "-",
+      "defillamaId": "5450",
+      "source": {
+        "provider": "defillama",
+        "endpoint": "https://api.llama.fi/protocols"
+      },
+      "addressResearchStatus": "pending",
+      "ingestStatus": "not_ready_missing_verified_deployment_addresses",
+      "notes": "Selected by current DeFiLlama TVL ranking after excluding non-DeFi or non-contract-first categories. Verify official deployment addresses before ingest."
+    },
+    {
+      "rank": 100,
+      "name": "CIAN Yield Layer",
+      "slug": "cian-yield-layer",
+      "category": "Yield Aggregator",
+      "tvl": 362192340.934928,
+      "primaryChain": "Ethereum",
+      "chains": [
+        "Ethereum",
+        "Mantle",
+        "Arbitrum",
+        "Optimism",
+        "Base",
+        "Binance",
+        "Scroll"
+      ],
+      "chainTvls": {
+        "Scroll": 0,
+        "Base": 1186.7090095199635,
+        "Optimism": 11641.352616909156,
+        "Arbitrum": 1906819.6192945119,
+        "Binance": 943.8418326773024,
+        "Mantle": 161820100.79479632,
+        "Ethereum": 198451648.61737806
+      },
+      "url": "https://yieldlayer.cian.app/vaults/0xB13aa2d0345b0439b064f26B82D8dCf3f508775d?chainId=1&utm_source=TPFDZE",
+      "twitter": "CIAN_protocol",
+      "symbol": "-",
+      "defillamaId": "5376",
+      "source": {
+        "provider": "defillama",
+        "endpoint": "https://api.llama.fi/protocols"
+      },
+      "addressResearchStatus": "pending",
+      "ingestStatus": "not_ready_missing_verified_deployment_addresses",
+      "notes": "Selected by current DeFiLlama TVL ranking after excluding non-DeFi or non-contract-first categories. Verify official deployment addresses before ingest."
+    }
+  ]
+}

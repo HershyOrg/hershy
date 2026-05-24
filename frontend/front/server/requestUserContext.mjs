@@ -48,12 +48,14 @@ export function resolveRequestUserID(req) {
 export async function prepareStrategyUserContext({
   req,
   connectedExchangeConnections,
+  balanceSnapshots,
   source,
 }) {
   const userId = resolveRequestUserID(req);
   return initUserSession({
     userId,
     exchangeConnections: Array.isArray(connectedExchangeConnections) ? connectedExchangeConnections : [],
+    balanceSnapshots: Array.isArray(balanceSnapshots) ? balanceSnapshots : [],
     prompt: normalizeText(req?.body?.prompt),
     requestPath: normalizeText(req?.path),
     source: normalizeText(source) || 'strategy-ai',
@@ -74,6 +76,8 @@ export function buildUserContextPromptSection(userContext) {
         requestCount: metadata.requestCount,
         hasConnectedExchanges: metadata.hasConnectedExchanges,
         connectedExchangeCount: metadata.connectedExchangeCount,
+        hasBalanceMyData: metadata.hasBalanceMyData,
+        balanceSnapshotCount: metadata.balanceSnapshotCount,
         storageBackend: normalizeText(metadata.storageBackend),
         markdownPath: normalizeText(metadata.markdownPath),
       }),

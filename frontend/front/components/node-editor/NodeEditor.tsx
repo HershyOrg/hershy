@@ -24,6 +24,7 @@ import {
   useReactFlow,
   useUpdateNodeInternals,
   useNodesInitialized,
+  PanOnScrollMode,
 } from "@xyflow/react";
 import "@xyflow/react/dist/style.css";
 
@@ -39,6 +40,7 @@ import { MonitoringNode } from "./MonitoringNode";
 import { TerminalPanel } from "./TerminalPanel";
 import { GroupNode } from "./GroupNode";
 import { StreamingNode } from "./StreamingNode";
+import { CodeEditorNode } from "./CodeEditorNode";
 import { withExplanation } from "./withExplanation";
 import { getLayoutedElements } from "./layout";
 import { CustomEdge } from "./CustomEdge";
@@ -68,6 +70,7 @@ const nodeTypes: NodeTypes = {
   monitoringNode: withExplanation(MonitoringNode),
   groupNode: withExplanation(GroupNode),
   streamingNode: withExplanation(StreamingNode),
+  codeEditor: CodeEditorNode,
 };
 
 const edgeTypes: EdgeTypes = {
@@ -80,6 +83,7 @@ const defaultEdgeOptions = {
   type: "custom",
   animated: false,
   style: {
+    stroke: "var(--advanced-edge-default)",
     strokeWidth: 3,
   },
 };
@@ -152,8 +156,9 @@ function isAllowedEditorConnection(params: Pick<Connection, "source" | "target" 
   );
 }
 
-function isOutputBlockEdge(edge: Pick<Edge, "sourceHandle">) {
-  return isOutputBlockSourceHandle(edge.sourceHandle);
+function isOutputBlockEdge(edge: Pick<Edge, "sourceHandle" | "data">) {
+  return Boolean((edge.data as Record<string, unknown> | undefined)?.collapsedProxy === true) ||
+    isOutputBlockSourceHandle(edge.sourceHandle);
 }
 
 function getHandleBlockId(handle?: string | null, direction: "source" | "target" = "source") {
@@ -355,6 +360,7 @@ function getRuntimeSectionName(nodeType?: string) {
 function extractGeneratedProgramSnippet(programCode: string, node: Node) {
   const source = programCode.trim();
   if (!source || !node.id) return "";
+  if (node.type === "codeEditor" || node.id === RUNTIME_PROGRAM_NODE_ID) return "";
 
   const lines = source.split(/\r?\n/);
   const quotedId = escapeRegExp(JSON.stringify(node.id));
@@ -396,26 +402,91 @@ function extractGeneratedProgramSnippet(programCode: string, node: Node) {
   return snippets.join("\n");
 }
 
+function buildRuntimeProgramNode(programCode: string, existingNode: Node | undefined, graphNodes: Node[]): Node {
+  const topLevelNodes = graphNodes.filter((node) => !node.parentId && node.id !== RUNTIME_PROGRAM_NODE_ID);
+  const maxRight = topLevelNodes.reduce((max, node) => {
+    const width = typeof node.width === "number"
+      ? node.width
+      : typeof (node.style as Record<string, unknown> | undefined)?.width === "number"
+        ? Number((node.style as Record<string, unknown>).width)
+        : 360;
+    return Math.max(max, node.position.x + width);
+  }, 80);
+  const top = topLevelNodes.reduce((min, node) => Math.min(min, node.position.y), 80);
+
+  return {
+    id: RUNTIME_PROGRAM_NODE_ID,
+    type: "codeEditor",
+    position: existingNode?.position ?? { x: maxRight + 160, y: Number.isFinite(top) ? top : 80 },
+    data: {
+      ...((existingNode?.data ?? {}) as Record<string, unknown>),
+      label: "Hershy generated_strategy.go",
+      code: programCode,
+      language: "go",
+      readOnly: true,
+      isRuntimeArtifact: true,
+      blocks: [
+        { id: "program", name: "generated_strategy.go", type: "output" },
+      ],
+    },
+    style: {
+      ...(existingNode?.style ?? {}),
+      width: 430,
+      height: 360,
+    },
+  };
+}
+
 function enrichGraphWithRuntimeProgram(graph: NodeEditorInitialGraph, programCode = ""): NodeEditorInitialGraph {
-  if (!programCode.trim()) return graph;
+  const trimmedProgramCode = programCode.trim();
+  if (!trimmedProgramCode) return graph;
 
   let changed = false;
-  const nodes = graph.nodes.map((node) => {
-    if (node.type === "groupNode") return node;
-    const runtimeCode = extractGeneratedProgramSnippet(programCode, node);
-    if (!runtimeCode || (node.data as { runtimeCode?: string })?.runtimeCode === runtimeCode) return node;
+  const existingProgramNode = graph.nodes.find((node) => node.id === RUNTIME_PROGRAM_NODE_ID);
+  const nodes = graph.nodes
+    .filter((node) => node.id !== RUNTIME_PROGRAM_NODE_ID)
+    .map((node) => {
+      if (node.type === "groupNode") return node;
+      const runtimeCode = extractGeneratedProgramSnippet(trimmedProgramCode, node);
+      if (!runtimeCode || (node.data as { runtimeCode?: string })?.runtimeCode === runtimeCode) return node;
+      changed = true;
+      return {
+        ...node,
+        data: {
+          ...node.data,
+          runtimeCode,
+          runtimeCodeLabel: "generated_strategy.go",
+        },
+      };
+    });
+
+  if (!existingProgramNode || (existingProgramNode.data as { code?: string } | undefined)?.code !== trimmedProgramCode) {
     changed = true;
-    return {
-      ...node,
-      data: {
-        ...node.data,
-        runtimeCode,
-        runtimeCodeLabel: "generated_strategy.go",
-      },
-    };
-  });
+  }
+  nodes.push(buildRuntimeProgramNode(trimmedProgramCode, existingProgramNode, graph.nodes));
 
   return changed ? { ...graph, nodes } : graph;
+}
+
+function clearRuntimeProgramFromNodes(inputNodes: Node[]) {
+  let changed = false;
+  const nodes = inputNodes
+    .filter((node) => {
+      const remove = node.id === RUNTIME_PROGRAM_NODE_ID;
+      if (remove) changed = true;
+      return !remove;
+    })
+    .map((node) => {
+      const data = node.data as { runtimeCode?: string; runtimeCodeLabel?: string } | undefined;
+      if (!data?.runtimeCode && !data?.runtimeCodeLabel) return node;
+      changed = true;
+      const nextData = { ...(node.data as Record<string, unknown>) };
+      delete nextData.runtimeCode;
+      delete nextData.runtimeCodeLabel;
+      return { ...node, data: nextData };
+    });
+
+  return changed ? nodes : inputNodes;
 }
 
 function readNodeText(data: Record<string, unknown>, keys: string[]) {
@@ -819,24 +890,238 @@ function getClientPoint(event: MouseEvent | TouchEvent) {
 const SEQUENCE_GROUP_TRANSITION =
   "width 420ms cubic-bezier(0.22,1,0.36,1), height 420ms cubic-bezier(0.22,1,0.36,1), box-shadow 280ms ease";
 const SEQUENCE_LAYOUT_MOVE_DURATION_MS = 420;
+const RUNTIME_PROGRAM_NODE_ID = "hershy-generated-program";
+const FOCUS_NODE_TRANSITION = "opacity 140ms ease, filter 140ms ease";
+const FOCUS_NODE_FILTERS = new Set([
+  "drop-shadow(0 0 16px rgba(124, 58, 237, 0.42))",
+  "drop-shadow(0 0 10px rgba(59, 130, 246, 0.28))",
+  "grayscale(0.72) saturate(0.55)",
+]);
+const FOCUS_EDGE_FILTER = "drop-shadow(0 0 8px rgba(124, 58, 237, 0.72))";
 
 function isStrategySequenceGroup(node: Node) {
-  return node.type === "groupNode" && node.parentId === "g_strategy";
+  return node.type === "groupNode" && (node.data as any)?.styleType !== "solid";
+}
+
+function getSequenceBoundaryKind(sequenceId: string, nodesById: Map<string, Node>) {
+  const sequenceNode = nodesById.get(sequenceId);
+  const data = sequenceNode?.data as Record<string, unknown> | undefined;
+  const styleType = String(data?.styleType ?? "");
+  const sequenceType = String(data?.sequenceType ?? "").toLowerCase();
+  if (styleType === "pipeline" || sequenceType === "data-pipeline" || sequenceType === "pipeline" || data?.sharedDataPipeline === true) {
+    return "pipeline";
+  }
+  if (sequenceType === "monitoring") {
+    return "monitoring";
+  }
+  return "sequence";
+}
+
+function sequenceBoundaryCanCross(
+  sourceSequenceId: string,
+  targetSequenceId: string,
+  nodesById: Map<string, Node>,
+  edge?: Pick<Edge, "data">,
+) {
+  if (!sourceSequenceId || !targetSequenceId || sourceSequenceId === targetSequenceId) return true;
+  const data = edge?.data as Record<string, unknown> | undefined;
+  if (data?.sharedDataPipeline === true) return true;
+  const sourceKind = getSequenceBoundaryKind(sourceSequenceId, nodesById);
+  const targetKind = getSequenceBoundaryKind(targetSequenceId, nodesById);
+  return sourceKind === "pipeline" || targetKind === "pipeline" || sourceKind === "monitoring" || targetKind === "monitoring";
+}
+
+function nodeCanLiveInsidePipeline(node: Node) {
+  return node.type === "streamingNode" || node.type === "functionNode";
+}
+
+function clearFocusNodeStyle(node: Node): Node {
+  if (!node.style) return node;
+
+  const nextStyle = { ...node.style };
+  const maybeOpacity = nextStyle.opacity;
+
+  if (maybeOpacity === 0.22 || maybeOpacity === 1 || maybeOpacity === "0.22" || maybeOpacity === "1") {
+    delete nextStyle.opacity;
+  }
+
+  if (typeof nextStyle.filter === "string" && FOCUS_NODE_FILTERS.has(nextStyle.filter)) {
+    delete nextStyle.filter;
+  }
+
+  if (nextStyle.transition === FOCUS_NODE_TRANSITION) {
+    delete nextStyle.transition;
+  }
+
+  return { ...node, style: nextStyle };
+}
+
+function clearFocusEdgeStyle(edge: Edge): Edge {
+  if (!edge.style) return edge;
+
+  const nextStyle = { ...edge.style };
+  const maybeOpacity = nextStyle.opacity;
+
+  if (maybeOpacity === 0.1 || maybeOpacity === 1 || maybeOpacity === "0.1" || maybeOpacity === "1") {
+    delete nextStyle.opacity;
+  }
+
+  if (nextStyle.stroke === "#a78bfa" || nextStyle.stroke === "var(--advanced-edge-dim)") {
+    delete nextStyle.stroke;
+  }
+
+  if (
+    nextStyle.strokeWidth === 4.6 ||
+    nextStyle.strokeWidth === 1.6 ||
+    nextStyle.strokeWidth === "4.6" ||
+    nextStyle.strokeWidth === "1.6"
+  ) {
+    delete nextStyle.strokeWidth;
+  }
+
+  if (nextStyle.filter === FOCUS_EDGE_FILTER || nextStyle.filter === undefined) {
+    delete nextStyle.filter;
+  }
+
+  return { ...edge, style: nextStyle };
 }
 
 function isNodeInStrategyTree(node: Node, nodesById: Map<string, Node>) {
   let currentParentId = node.parentId;
 
   while (currentParentId) {
-    if (currentParentId === "g_strategy") return true;
-    currentParentId = nodesById.get(currentParentId)?.parentId;
+    const parentNode = nodesById.get(currentParentId);
+    if (parentNode?.type === "groupNode" && (parentNode.data as any)?.styleType === "solid") return true;
+    currentParentId = parentNode?.parentId;
   }
 
   return false;
 }
 
+function getSequenceAncestorId(nodeId: string | undefined | null, nodesById: Map<string, Node>) {
+  if (!nodeId) return "";
+  let currentNode = nodesById.get(nodeId);
+
+  while (currentNode?.parentId) {
+    const parentNode = nodesById.get(currentNode.parentId);
+    if (!parentNode) return "";
+    if (isStrategySequenceGroup(parentNode)) return parentNode.id;
+    currentNode = parentNode;
+  }
+
+  return "";
+}
+
+function getNodeTreeDepth(node: Node | undefined, nodesById: Map<string, Node>) {
+  let depth = 0;
+  let currentParentId = node?.parentId;
+
+  while (currentParentId) {
+    depth += 1;
+    currentParentId = nodesById.get(currentParentId)?.parentId;
+  }
+
+  return depth;
+}
+
+function pickDeepestStrategySequenceGroup(nodes: Node[], nodesById: Map<string, Node>) {
+  return nodes
+    .filter(isStrategySequenceGroup)
+    .sort((a, b) => getNodeTreeDepth(b, nodesById) - getNodeTreeDepth(a, nodesById))[0];
+}
+
+function edgeRespectsSequenceBoundary(edge: Edge, nodesById: Map<string, Node>) {
+  const sourceNode = nodesById.get(edge.source);
+  const targetNode = nodesById.get(edge.target);
+  if (!sourceNode || !targetNode) return false;
+  if (sourceNode.type === "groupNode" || targetNode.type === "groupNode") return true;
+
+  const sourceSequenceId = getSequenceAncestorId(edge.source, nodesById);
+  const targetSequenceId = getSequenceAncestorId(edge.target, nodesById);
+
+  if (sourceSequenceId && targetSequenceId) {
+    return sequenceBoundaryCanCross(sourceSequenceId, targetSequenceId, nodesById, edge);
+  }
+  return true;
+}
+
 function getCollectionSize(value: unknown) {
   return Array.isArray(value) ? value.length : 0;
+}
+
+function readNodeDimension(value: unknown) {
+  if (typeof value === "number" && Number.isFinite(value)) return value;
+  if (typeof value === "string") {
+    const parsed = Number.parseFloat(value);
+    if (Number.isFinite(parsed)) return parsed;
+  }
+  return 0;
+}
+
+function estimateEditorNodeSize(node: Node) {
+  const data = node.data as Record<string, unknown> | undefined;
+  const inputCount = Math.max(getCollectionSize(data?.inputBlocks), 1);
+  const outputCount = Math.max(getCollectionSize(data?.outputBlocks), 1);
+  const expanded = data?.isExpanded !== false && data?.isExpanded !== undefined;
+  const viewMode = String(data?.viewMode ?? "");
+
+  switch (node.type) {
+    case "actionNode":
+      return expanded
+        ? { width: 420, height: 560 + inputCount * 34 + outputCount * 28 }
+        : { width: 220, height: 118 + Math.max(0, inputCount - 1) * 16 };
+    case "functionNode":
+      return expanded
+        ? { width: 640, height: viewMode === "code" ? 650 : 590 + inputCount * 34 + outputCount * 34 }
+        : { width: 310, height: 282 + Math.min(inputCount, 2) * 14 + Math.min(outputCount, 2) * 14 };
+    case "streamingNode":
+      return data?.isExpanded === false
+        ? { width: 260, height: 172 + Math.min(outputCount, 4) * 42 }
+        : { width: 260, height: 520 + outputCount * 42 };
+    case "monitoringNode":
+      return { width: 420, height: 500 + Math.max(0, outputCount - 1) * 36 };
+    case "codeEditor":
+      return { width: 430, height: 360 };
+    case "branchNode":
+      return { width: 460, height: 180 };
+    case "timelineFrame":
+      return { width: 560, height: 380 };
+    case "clickTrigger":
+      return { width: 180, height: 184 };
+    case "timeTrigger":
+      return { width: 300, height: 170 };
+    case "groupNode":
+      return { width: 360, height: 220 };
+    default:
+      return { width: 320, height: 130 };
+  }
+}
+
+function getEditorNodeSize(node: Node) {
+  const style = node.style as Record<string, unknown> | undefined;
+  const measured = node.measured as { width?: number; height?: number } | undefined;
+  const estimate = estimateEditorNodeSize(node);
+  if (node.type === "groupNode") {
+    return {
+      width: readNodeDimension(style?.width) || readNodeDimension(measured?.width) || readNodeDimension(node.width) || estimate.width,
+      height: readNodeDimension(style?.height) || readNodeDimension(measured?.height) || readNodeDimension(node.height) || estimate.height,
+    };
+  }
+
+  return {
+    width: Math.max(
+      readNodeDimension(measured?.width),
+      readNodeDimension(style?.width),
+      readNodeDimension(node.width),
+      estimate.width,
+    ),
+    height: Math.max(
+      readNodeDimension(measured?.height),
+      readNodeDimension(style?.height),
+      readNodeDimension(node.height),
+      estimate.height,
+    ),
+  };
 }
 
 function buildStrategyContentRelayoutSignature(nodes: Node[]) {
@@ -858,6 +1143,9 @@ function buildStrategyContentRelayoutSignature(nodes: Node[]) {
         getCollectionSize(data.outputBlocks),
         getCollectionSize(data.branches),
         getCollectionSize(data.timelineItems),
+        Array.isArray(data.chartSeries) && data.chartSeries.length > 0 ? "chart" : "no-chart",
+        Math.round(readNodeDimension((node.measured as { width?: number; height?: number } | undefined)?.width)),
+        Math.round(readNodeDimension((node.measured as { width?: number; height?: number } | undefined)?.height)),
       ].join(":");
     })
     .sort()
@@ -888,6 +1176,8 @@ function collectDescendantIds(nodes: Node[], ancestorId: string) {
 }
 
 function applyParentContainmentRules(inputNodes: Node[]) {
+  const nodesById = new Map(inputNodes.map((node) => [node.id, node]));
+
   return inputNodes.map((node) => {
     if (!node.parentId) {
       return {
@@ -897,12 +1187,27 @@ function applyParentContainmentRules(inputNodes: Node[]) {
       };
     }
 
+    const parentNode = nodesById.get(node.parentId);
+    const shouldExpandParent = parentNode?.type === "groupNode";
+
     return {
       ...node,
       extent: "parent" as const,
-      expandParent: true,
+      expandParent: shouldExpandParent,
     };
   });
+}
+
+function readOriginalEdgeText(edge: Edge, key: string, fallback: string) {
+  const data = edge.data as Record<string, unknown> | undefined;
+  const value = data?.[key];
+  return typeof value === "string" && value ? value : fallback;
+}
+
+function readOriginalEdgeHandle(edge: Edge, key: string, fallback?: string | null) {
+  const data = edge.data as Record<string, unknown> | undefined;
+  const value = data?.[key];
+  return typeof value === "string" && value ? value : fallback;
 }
 
 function applySequenceCollapsedState(inputNodes: Node[], inputEdges: Edge[]) {
@@ -920,12 +1225,16 @@ function applySequenceCollapsedState(inputNodes: Node[], inputEdges: Edge[]) {
   });
 
   const hiddenNodeIds = new Set<string>();
+  const hiddenNodeToCollapsedGroupId = new Map<string, string>();
 
   decoratedNodes.forEach((node) => {
     if (!isStrategySequenceGroup(node)) return;
     if (!(node.data as any)?.isCollapsed) return;
 
-    collectDescendantIds(decoratedNodes, node.id).forEach((id) => hiddenNodeIds.add(id));
+    collectDescendantIds(decoratedNodes, node.id).forEach((id) => {
+      hiddenNodeIds.add(id);
+      hiddenNodeToCollapsedGroupId.set(id, node.id);
+    });
   });
 
   const nodes = decoratedNodes.map((node) => {
@@ -939,10 +1248,39 @@ function applySequenceCollapsedState(inputNodes: Node[], inputEdges: Edge[]) {
     };
   });
 
-  const edges = inputEdges.map((edge) => ({
-    ...edge,
-    hidden: hiddenNodeIds.has(edge.source) || hiddenNodeIds.has(edge.target),
-  }));
+  const nodesById = new Map(nodes.map((node) => [node.id, node]));
+  const edges = inputEdges
+    .map((edge) => {
+      const originalSource = readOriginalEdgeText(edge, "originalSource", edge.source);
+      const originalTarget = readOriginalEdgeText(edge, "originalTarget", edge.target);
+      const originalSourceHandle = readOriginalEdgeHandle(edge, "originalSourceHandle", edge.sourceHandle);
+      const originalTargetHandle = readOriginalEdgeHandle(edge, "originalTargetHandle", edge.targetHandle);
+      const sourceProxyGroupId = hiddenNodeToCollapsedGroupId.get(originalSource);
+      const targetProxyGroupId = hiddenNodeToCollapsedGroupId.get(originalTarget);
+      const source = sourceProxyGroupId ?? originalSource;
+      const target = targetProxyGroupId ?? originalTarget;
+      const collapsedProxy = Boolean(sourceProxyGroupId || targetProxyGroupId);
+      const displayEdge: Edge = {
+        ...edge,
+        source,
+        target,
+        sourceHandle: sourceProxyGroupId ? `${sourceProxyGroupId}-fsm-source` : originalSourceHandle,
+        targetHandle: targetProxyGroupId ? `${targetProxyGroupId}-fsm-target` : originalTargetHandle,
+        data: {
+          ...(edge.data as Record<string, unknown> | undefined),
+          originalSource,
+          originalTarget,
+          originalSourceHandle,
+          originalTargetHandle,
+          collapsedProxy,
+        },
+      };
+
+      return {
+        ...displayEdge,
+        hidden: source === target || !edgeRespectsSequenceBoundary(displayEdge, nodesById),
+      };
+    });
 
   return { nodes, edges };
 }
@@ -1301,6 +1639,7 @@ function NodeEditorInner({ initialGraph, initialGraphVersion = 0, programCode = 
   const sequenceLayoutAnimationTimerRef = useRef<number | null>(null);
   const sequenceRelayoutFrameRef = useRef<number | null>(null);
   const measuredSequenceRelayoutFrameRef = useRef<number | null>(null);
+  const containmentResizeFrameRef = useRef<number | null>(null);
   const connectionStartRef = useRef<OnConnectStartParams | null>(null);
   const [focusState, setFocusState] = useState<FocusState>({
     isActive: false,
@@ -1339,6 +1678,15 @@ function NodeEditorInner({ initialGraph, initialGraphVersion = 0, programCode = 
       setIsSequenceLayoutAnimating(false);
       sequenceLayoutAnimationTimerRef.current = null;
     }, SEQUENCE_LAYOUT_MOVE_DURATION_MS);
+  }, []);
+
+  const stopSequenceLayoutAnimation = useCallback(() => {
+    if (sequenceLayoutAnimationTimerRef.current !== null) {
+      window.clearTimeout(sequenceLayoutAnimationTimerRef.current);
+      sequenceLayoutAnimationTimerRef.current = null;
+    }
+
+    setIsSequenceLayoutAnimating(false);
   }, []);
 
   const applyMeasuredLayout = useCallback(
@@ -1413,11 +1761,13 @@ function NodeEditorInner({ initialGraph, initialGraphVersion = 0, programCode = 
   useEffect(() => {
     return () => {
       clearPendingSequenceRelayout();
-      if (sequenceLayoutAnimationTimerRef.current !== null) {
-        window.clearTimeout(sequenceLayoutAnimationTimerRef.current);
+      if (containmentResizeFrameRef.current !== null) {
+        window.cancelAnimationFrame(containmentResizeFrameRef.current);
+        containmentResizeFrameRef.current = null;
       }
+      stopSequenceLayoutAnimation();
     };
-  }, [clearPendingSequenceRelayout]);
+  }, [clearPendingSequenceRelayout, stopSequenceLayoutAnimation]);
 
   // Derive monitoring nodes data for the Terminal
   const monitoringNodesData = useMemo(() => {
@@ -1436,7 +1786,6 @@ function NodeEditorInner({ initialGraph, initialGraphVersion = 0, programCode = 
       .map((node) => {
         const data = node.data as StreamingNodeData;
         if (data.streamKind && data.streamKind !== "url") return null;
-        if (isSampleableStreamSource(data.url)) return null;
         const request = inferNodeChartRequest(node);
         return request ? { nodeId: node.id, ...request } : null;
       })
@@ -1529,10 +1878,14 @@ function NodeEditorInner({ initialGraph, initialGraphVersion = 0, programCode = 
             if (!response.ok) throw new Error(String(payload?.message || payload?.error || "chart fetch failed"));
             const series = Array.isArray(payload?.series)
               ? payload.series
-                .map((point: { time?: unknown; value?: unknown }) => ({
-                  time: Number(point.time),
-                  value: Number(point.value),
-                }))
+                .map((point: { time?: unknown; value?: unknown; volume?: unknown }) => {
+                  const volume = Number(point.volume);
+                  return {
+                    time: Number(point.time),
+                    value: Number(point.value),
+                    volume: Number.isFinite(volume) ? volume : undefined,
+                  };
+                })
                 .filter((point: NodeChartPoint) => Number.isFinite(point.time) && Number.isFinite(point.value))
               : [];
             return {
@@ -1606,8 +1959,10 @@ function NodeEditorInner({ initialGraph, initialGraphVersion = 0, programCode = 
     };
 
     void loadCharts();
+    const timer = window.setInterval(() => void loadCharts(), 15_000);
     return () => {
       cancelled = true;
+      window.clearInterval(timer);
     };
   }, [edges, marketChartRequestPayload, setNodes]);
 
@@ -1835,6 +2190,7 @@ function NodeEditorInner({ initialGraph, initialGraphVersion = 0, programCode = 
       nodes: runtimeGraph.nodes,
       edges: runtimeGraph.edges,
     });
+    initLayoutRunRef.current = true;
     isUndoRedoRef.current = true;
     setHistory([{ nodes: runtimeGraph.nodes, edges: runtimeGraph.edges }]);
     historyIndexRef.current = 0;
@@ -1843,7 +2199,10 @@ function NodeEditorInner({ initialGraph, initialGraphVersion = 0, programCode = 
   }, [applyMeasuredLayout, initialGraph, initialGraphVersion, programCode]);
 
   useEffect(() => {
-    if (!programCode.trim()) return;
+    if (!programCode.trim()) {
+      setNodes((currentNodes) => clearRuntimeProgramFromNodes(currentNodes));
+      return;
+    }
     setNodes((currentNodes) => {
       const enriched = enrichGraphWithRuntimeProgram({ nodes: currentNodes, edges }, programCode);
       return enriched.nodes;
@@ -1872,28 +2231,58 @@ function NodeEditorInner({ initialGraph, initialGraphVersion = 0, programCode = 
 
       let result = [...nodeList];
       sortedParentIds.forEach(parentId => {
+        const parentNode = result.find((node) => node.id === parentId);
+        if (!parentNode) return;
+
         const children = result.filter(n => n.parentId === parentId);
         if (children.length === 0) return;
 
         let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
         children.forEach(c => {
-          const w = Number(c.measured?.width ?? c.style?.width ?? 300);
-          const h = Number(c.measured?.height ?? c.style?.height ?? 120);
+          const { width: w, height: h } = getEditorNodeSize(c);
           minX = Math.min(minX, c.position.x);
           minY = Math.min(minY, c.position.y);
           maxX = Math.max(maxX, c.position.x + w);
           maxY = Math.max(maxY, c.position.y + h);
         });
 
-        const newW = (maxX - minX) + PADDING * 2;
-        const newH = (maxY - minY) + PADDING * 2;
+        const shiftX = Math.max(0, PADDING - minX);
+        const shiftY = Math.max(0, PADDING - minY);
+        const adjustedMaxX = maxX + shiftX;
+        const adjustedMaxY = maxY + shiftY;
+        const curW = readNodeDimension(parentNode.style?.width) || readNodeDimension(parentNode.width) || 400;
+        const curH = readNodeDimension(parentNode.style?.height) || readNodeDimension(parentNode.height) || 300;
+        const newW = Math.max(curW + shiftX, adjustedMaxX + PADDING);
+        const newH = Math.max(curH + shiftY, adjustedMaxY + PADDING);
 
         result = result.map(n => {
-          if (n.id !== parentId) return n;
-          const curW = Number(n.style?.width ?? 400);
-          const curH = Number(n.style?.height ?? 300);
-          if (newW <= curW && newH <= curH) return n; // only grow, never shrink
-          return { ...n, style: { ...n.style, width: Math.max(curW, newW), height: Math.max(curH, newH) } };
+          if (n.id === parentId) {
+            if (newW <= curW && newH <= curH && shiftX === 0 && shiftY === 0) return n; // only grow, never shrink
+            const width = Math.max(curW, newW);
+            const height = Math.max(curH, newH);
+            return {
+              ...n,
+              position: {
+                x: n.position.x - shiftX,
+                y: n.position.y - shiftY,
+              },
+              width,
+              height,
+              style: { ...n.style, width, height },
+            };
+          }
+
+          if (n.parentId === parentId && (shiftX > 0 || shiftY > 0)) {
+            return {
+              ...n,
+              position: {
+                x: n.position.x + shiftX,
+                y: n.position.y + shiftY,
+              },
+            };
+          }
+
+          return n;
         });
       });
 
@@ -1901,6 +2290,15 @@ function NodeEditorInner({ initialGraph, initialGraphVersion = 0, programCode = 
     },
     []
   );
+
+  const scheduleParentContainmentResize = useCallback(() => {
+    if (containmentResizeFrameRef.current !== null) return;
+
+    containmentResizeFrameRef.current = window.requestAnimationFrame(() => {
+      containmentResizeFrameRef.current = null;
+      setNodes((currentNodes) => resizeParentsToFitChildren(currentNodes));
+    });
+  }, [resizeParentsToFitChildren, setNodes]);
 
   // Terminal toggle listener from MonitoringNodes
   useEffect(() => {
@@ -1915,40 +2313,34 @@ function NodeEditorInner({ initialGraph, initialGraphVersion = 0, programCode = 
     return () => window.removeEventListener("toggleTerminal", handleToggleTerminal as EventListener);
   }, []);
 
-  // Calculate connected nodes and edges when focus changes
-  // Also handles timeline internal action output handles.
+  // Calculate connected nodes and edges when focus changes.
+  // A focused parent/group should keep every descendant block in the same focus set.
   const getConnectedInfo = useCallback((nodeId: string) => {
-    const connectedNodeIds: string[] = [];
-    const connectedEdgeIds: string[] = [];
+    const focusTreeNodeIds = new Set<string>([nodeId]);
+    collectDescendantIds(nodes, nodeId).forEach((id) => focusTreeNodeIds.add(id));
+
+    const connectedNodeIds = new Set<string>();
+    const connectedEdgeIds = new Set<string>();
+
+    focusTreeNodeIds.forEach((id) => {
+      if (id !== nodeId) connectedNodeIds.add(id);
+    });
 
     edges.forEach((edge) => {
-      // Direct connection to/from this node
-      if (edge.source === nodeId || edge.target === nodeId) {
-        connectedEdgeIds.push(edge.id);
-        if (edge.source === nodeId) {
-          connectedNodeIds.push(edge.target);
-        } else {
-          connectedNodeIds.push(edge.source);
-        }
-      }
-      // Check if edge comes from a timeline's internal action handle
-      // Handle format: ${timelineId}-block-${actionNodeId}-${blockId}-out
-      if (edge.sourceHandle?.startsWith(`${nodeId}-`) && edge.source === nodeId) {
-        connectedEdgeIds.push(edge.id);
-        connectedNodeIds.push(edge.target);
-      }
-      // Check if edge goes to a timeline's internal action handle
-      if (edge.targetHandle?.startsWith(`${nodeId}-`) && edge.target === nodeId) {
-        connectedEdgeIds.push(edge.id);
-        connectedNodeIds.push(edge.source);
-      }
+      const sourceInFocusTree = focusTreeNodeIds.has(edge.source);
+      const targetInFocusTree = focusTreeNodeIds.has(edge.target);
+      if (!sourceInFocusTree && !targetInFocusTree) return;
+
+      connectedEdgeIds.add(edge.id);
+      if (edge.source !== nodeId) connectedNodeIds.add(edge.source);
+      if (edge.target !== nodeId) connectedNodeIds.add(edge.target);
     });
 
     return {
-      connectedNodeIds: [...new Set(connectedNodeIds)],
-      connectedEdgeIds: [...new Set(connectedEdgeIds)],
+      connectedNodeIds: [...connectedNodeIds],
+      connectedEdgeIds: [...connectedEdgeIds],
     };
-  }, [edges]);
+  }, [edges, nodes]);
 
   // Listen for focus events from nodes
   useEffect(() => {
@@ -2152,7 +2544,7 @@ function NodeEditorInner({ initialGraph, initialGraphVersion = 0, programCode = 
             ...n,
             parentId: newGroupId,
             extent: "parent" as const,
-            expandParent: true,
+            expandParent: false,
             position: {
               x: abs.x - (minX - padding),
               y: abs.y - (minY - padding),
@@ -2522,17 +2914,27 @@ function NodeEditorInner({ initialGraph, initialGraphVersion = 0, programCode = 
     });
   }, []);
 
+  const handleNodeDragStart = useCallback(() => {
+    clearPendingSequenceRelayout();
+    stopSequenceLayoutAnimation();
+  }, [clearPendingSequenceRelayout, stopSequenceLayoutAnimation]);
+
   const handleNodeDrag = useCallback(
     (_event: React.MouseEvent, draggedNode: Node) => {
-      if (draggedNode.type !== "actionNode") return;
-      const timeline = getOverlappingTimeline(draggedNode);
-      window.dispatchEvent(
-        new CustomEvent("dragOverTimeline", {
-          detail: { timelineId: timeline?.id ?? null, dragging: !!timeline },
-        })
-      );
+      if (draggedNode.parentId || draggedNode.type === "groupNode") {
+        scheduleParentContainmentResize();
+      }
+
+      if (draggedNode.type === "actionNode") {
+        const timeline = getOverlappingTimeline(draggedNode);
+        window.dispatchEvent(
+          new CustomEvent("dragOverTimeline", {
+            detail: { timelineId: timeline?.id ?? null, dragging: !!timeline },
+          })
+        );
+      }
     },
-    [getOverlappingTimeline]
+    [getOverlappingTimeline, scheduleParentContainmentResize]
   );
 
   // Drop: when drag ends over a timeline or group, reparent accordingly
@@ -2611,6 +3013,16 @@ function NodeEditorInner({ initialGraph, initialGraphVersion = 0, programCode = 
 
         // Unparent if dropped outside all groups
         if (draggedNode.parentId && intersections.length === 0) {
+          const currentParent = allNodes.find((node) => node.id === draggedNode.parentId);
+          const isSequenceInsideStrategy =
+            draggedStyleType !== "solid" &&
+            currentParent?.type === "groupNode" &&
+            (currentParent.data as any)?.styleType === "solid";
+          if (isSequenceInsideStrategy) {
+            setNodes((nds) => resizeParentsToFitChildren(nds));
+            return;
+          }
+
           const draggedAbs = getAbsolutePosition(draggedNode.id);
           setNodes((nds) => nds.map(n => {
             if (n.id !== draggedNode.id) return n;
@@ -2620,16 +3032,21 @@ function NodeEditorInner({ initialGraph, initialGraphVersion = 0, programCode = 
         return;
       }
 
-      // 3. Non-groupNode drag: reparent into sequence on overlap
+      // 3. Non-groupNode drag: only reparent between sequence groups.
+      // Falling back to the solid strategy parent makes child blocks jump while
+      // users are simply arranging blocks inside a sequence.
       const intersections = getIntersectingNodes(draggedNode).filter(n => n.type === "groupNode");
+      const nodesById = new Map(allNodes.map((node) => [node.id, node]));
+      const currentDraggedNode = nodesById.get(draggedNode.id) ?? draggedNode;
+      const currentParentId = currentDraggedNode.parentId ?? draggedNode.parentId;
+      const target = pickDeepestStrategySequenceGroup(intersections, nodesById);
 
-      if (intersections.length > 0) {
-        // Prefer deepest group (innermost); for non-groupNodes prefer sequence over strategy
-        const target =
-          intersections.find(n => (n.data as any)?.styleType !== "solid") ??
-          intersections[intersections.length - 1];
-
-        if (draggedNode.parentId !== target.id) {
+      if (target) {
+        if ((target.data as any)?.styleType === "pipeline" && !nodeCanLiveInsidePipeline(currentDraggedNode)) {
+          setNodes((nds) => resizeParentsToFitChildren(nds));
+          return;
+        }
+        if (currentParentId !== target.id) {
           const draggedAbs = getAbsolutePosition(draggedNode.id);
           const targetAbs = getAbsolutePosition(target.id);
           setNodes((nds) => {
@@ -2639,7 +3056,7 @@ function NodeEditorInner({ initialGraph, initialGraphVersion = 0, programCode = 
                 ...n,
                 parentId: target.id,
                 extent: "parent" as const,
-                expandParent: true,
+                expandParent: false,
                 position: { x: draggedAbs.x - targetAbs.x, y: draggedAbs.y - targetAbs.y },
               };
             });
@@ -2649,15 +3066,11 @@ function NodeEditorInner({ initialGraph, initialGraphVersion = 0, programCode = 
           // Already in the right parent — still resize in case position changed
           setNodes((nds) => resizeParentsToFitChildren(nds));
         }
-      } else {
-        // Unparent if dropped outside
-        if (draggedNode.parentId) {
-          const draggedAbs = getAbsolutePosition(draggedNode.id);
-          setNodes((nds) => nds.map(n => {
-            if (n.id !== draggedNode.id) return n;
-            return { ...n, parentId: undefined, extent: undefined, expandParent: undefined, position: draggedAbs };
-          }));
-        }
+        return;
+      }
+
+      if (currentParentId) {
+        setNodes((nds) => resizeParentsToFitChildren(nds));
       }
     },
     [getOverlappingTimeline, setNodes, setEdges, getIntersectingNodes, getNodes, resizeParentsToFitChildren]
@@ -2691,6 +3104,12 @@ function NodeEditorInner({ initialGraph, initialGraphVersion = 0, programCode = 
 
       const targetNode = nodes.find((n) => n.id === normalizedParams.target);
       const sourceNode = nodes.find((n) => n.id === normalizedParams.source);
+      const nodesById = new Map(nodes.map((node) => [node.id, node]));
+      const sourceSequenceId = getSequenceAncestorId(normalizedParams.source, nodesById);
+      const targetSequenceId = getSequenceAncestorId(normalizedParams.target, nodesById);
+      if (!sequenceBoundaryCanCross(sourceSequenceId, targetSequenceId, nodesById)) {
+        return;
+      }
       let nextParams: Connection = { ...normalizedParams };
 
       const shouldUseAsInput = Boolean(
@@ -2751,8 +3170,8 @@ function NodeEditorInner({ initialGraph, initialGraphVersion = 0, programCode = 
       const newEdgeId = `e-${nextParams.source}-${nextParams.target}-${Date.now()}`;
       setEdges((eds) => addEdge({ ...nextParams, id: newEdgeId, type: edgeType, data: edgeData }, eds));
 
-      // ── Auto-reparent: if the OTHER end is inside a sequence (groupNode),
-      //    move the unparented node into that same sequence ─────────────────
+      // ── Auto-reparent: if one end is inside a sequence, keep the connected
+      //    node in that same sequence so edges never cross sequence boundaries.
       const getAbsPos = (id: string, nds: Node[]): { x: number; y: number } => {
         const n = nds.find(nd => nd.id === id);
         if (!n) return { x: 0, y: 0 };
@@ -2769,19 +3188,21 @@ function NodeEditorInner({ initialGraph, initialGraphVersion = 0, programCode = 
 
         // Only reparent non-groupNode nodes
         const candidates: Array<{ mover: Node; anchor: Node }> = [];
-        if (!src.parentId && tgt.parentId && src.type !== "groupNode") {
+        if (!sourceSequenceId && targetSequenceId && src.type !== "groupNode") {
           candidates.push({ mover: src, anchor: tgt });
-        } else if (!tgt.parentId && src.parentId && tgt.type !== "groupNode") {
+        } else if (!targetSequenceId && sourceSequenceId && tgt.type !== "groupNode") {
           candidates.push({ mover: tgt, anchor: src });
         }
 
         if (candidates.length === 0) return nds;
 
         const { mover, anchor } = candidates[0];
-        const targetParentId = anchor.parentId!;
+        const liveNodesById = new Map(nds.map((node) => [node.id, node]));
+        const targetParentId = getSequenceAncestorId(anchor.id, liveNodesById);
         const targetParent = nds.find(n => n.id === targetParentId);
         // Only reparent into sequence (dashed) group nodes, not strategy (solid)
         if (!targetParent || (targetParent.data as any)?.styleType === "solid") return nds;
+        if ((targetParent.data as any)?.styleType === "pipeline" && !nodeCanLiveInsidePipeline(mover)) return nds;
 
         const moverAbs = getAbsPos(mover.id, nds);
         const parentAbs = getAbsPos(targetParentId, nds);
@@ -2792,7 +3213,7 @@ function NodeEditorInner({ initialGraph, initialGraphVersion = 0, programCode = 
             ...n,
             parentId: targetParentId,
             extent: "parent" as const,
-            expandParent: true,
+            expandParent: false,
             position: {
               x: moverAbs.x - parentAbs.x,
               y: moverAbs.y - parentAbs.y,
@@ -2832,9 +3253,14 @@ function NodeEditorInner({ initialGraph, initialGraphVersion = 0, programCode = 
           ? normalizeConnectionDirection(connection as Connection)
           : null;
 
-      return Boolean(normalizedConnection && isAllowedEditorConnection(normalizedConnection));
+      if (!normalizedConnection || !isAllowedEditorConnection(normalizedConnection)) return false;
+
+      const nodesById = new Map(nodes.map((node) => [node.id, node]));
+      const sourceSequenceId = getSequenceAncestorId(normalizedConnection.source, nodesById);
+      const targetSequenceId = getSequenceAncestorId(normalizedConnection.target, nodesById);
+      return sequenceBoundaryCanCross(sourceSequenceId, targetSequenceId, nodesById);
     },
-    []
+    [nodes]
   );
 
   const onConnectStart = useCallback(
@@ -2934,6 +3360,8 @@ function NodeEditorInner({ initialGraph, initialGraphVersion = 0, programCode = 
                 operator: ">",
                 threshold: 108,
               },
+              showChartComparison: true,
+              chartComparisonValues: [],
               viewMode: "node",
             } satisfies FunctionNodeData,
           };
@@ -3056,6 +3484,8 @@ function NodeEditorInner({ initialGraph, initialGraphVersion = 0, programCode = 
               label: `Visual Monitor ${nodeIdRef.current}`,
               format: "chart",
               selectedVariables: [],
+              showChartComparison: true,
+              chartComparisonValues: [],
             } satisfies MonitoringNodeData,
           };
           break;
@@ -3234,6 +3664,7 @@ function NodeEditorInner({ initialGraph, initialGraphVersion = 0, programCode = 
         nodes: runtimeGraph.nodes,
         edges: runtimeGraph.edges,
       });
+      initLayoutRunRef.current = true;
       applyMeasuredLayout(runtimeGraph.nodes, runtimeGraph.edges);
     };
     const handleSaveSnapshot = () => {
@@ -3302,7 +3733,7 @@ function NodeEditorInner({ initialGraph, initialGraphVersion = 0, programCode = 
     };
 
     const applyFocusStyle = (node: Node): Node => {
-      if (!focusState.isActive) return node;
+      if (!focusState.isActive) return clearFocusNodeStyle(node);
 
       const isFocused = node.id === focusState.focusedNodeId;
       const isConnected = focusNodeIds.has(node.id);
@@ -3317,7 +3748,7 @@ function NodeEditorInner({ initialGraph, initialGraphVersion = 0, programCode = 
             : isConnected
               ? "drop-shadow(0 0 10px rgba(59, 130, 246, 0.28))"
               : "grayscale(0.72) saturate(0.55)",
-          transition: "opacity 140ms ease, filter 140ms ease",
+          transition: FOCUS_NODE_TRANSITION,
         },
       };
     };
@@ -3424,7 +3855,7 @@ function NodeEditorInner({ initialGraph, initialGraphVersion = 0, programCode = 
     };
 
     const applyFocusEdgeStyle = (edge: Edge): Edge => {
-      if (!focusState.isActive) return edge;
+      if (!focusState.isActive) return clearFocusEdgeStyle(edge);
       const isFocusedEdge = focusedEdgeIds.has(edge.id);
 
       if (isFocusedEdge) {
@@ -3432,7 +3863,7 @@ function NodeEditorInner({ initialGraph, initialGraphVersion = 0, programCode = 
           ...edge,
           style: {
             ...edge.style,
-            stroke: "#7c3aed",
+          stroke: "#a78bfa",
             strokeWidth: 4.6,
             opacity: 1,
             filter: "drop-shadow(0 0 8px rgba(124, 58, 237, 0.72))",
@@ -3447,7 +3878,7 @@ function NodeEditorInner({ initialGraph, initialGraphVersion = 0, programCode = 
         animated: false,
         style: {
           ...edge.style,
-          stroke: "#94a3b8",
+          stroke: "var(--advanced-edge-dim)",
           strokeWidth: 1.6,
           opacity: 0.1,
           filter: undefined,
@@ -3466,7 +3897,7 @@ function NodeEditorInner({ initialGraph, initialGraphVersion = 0, programCode = 
           ...edge,
           style: {
             ...edge.style,
-            stroke: "#3b82f6",
+            stroke: "#60a5fa",
             strokeWidth: 4,
             filter: "drop-shadow(0 0 6px rgba(59, 130, 246, 0.8))",
           },
@@ -3483,7 +3914,7 @@ function NodeEditorInner({ initialGraph, initialGraphVersion = 0, programCode = 
         ...edge,
         style: {
           ...edge.style,
-          stroke: "#9ca3af",
+          stroke: "var(--advanced-edge-muted)",
           strokeWidth: 2.2,
           opacity: 0.2,
         },
@@ -3493,13 +3924,14 @@ function NodeEditorInner({ initialGraph, initialGraphVersion = 0, programCode = 
   }, [edges, showFSMEdges, currentState, nodes, focusState]);
 
   return (
-    <div className="flex flex-col w-full h-full bg-[#1e1e1e] relative overflow-hidden">
+    <div className="flex h-full w-full flex-col overflow-hidden bg-slate-100 text-slate-950 dark:bg-slate-950 dark:text-slate-100">
 
 
       {/* React Flow Editor */}
       <div
         className={cn(
           "w-full flex-1 bg-gray-100 relative overflow-hidden",
+          "dark:bg-slate-950",
           isSequenceLayoutAnimating &&
           "[&_.react-flow__node]:transition-transform [&_.react-flow__node]:duration-[420ms] [&_.react-flow__node]:ease-[cubic-bezier(0.22,1,0.36,1)]",
         )}
@@ -3518,6 +3950,7 @@ function NodeEditorInner({ initialGraph, initialGraphVersion = 0, programCode = 
           onContextMenu={handleContextMenu}
           onPaneClick={handlePaneClick}
           onNodeClick={handleNodeClick}
+          onNodeDragStart={handleNodeDragStart}
           onNodeDrag={handleNodeDrag}
           onNodeDragStop={handleNodeDragStop}
           nodeTypes={nodeTypes}
@@ -3526,7 +3959,7 @@ function NodeEditorInner({ initialGraph, initialGraphVersion = 0, programCode = 
 	          connectionMode={ConnectionMode.Strict}
 	          connectionRadius={96}
 	          connectOnClick={!previewMode}
-	          connectionLineStyle={{ strokeWidth: 3, stroke: "#64748b" }}
+	          connectionLineStyle={{ strokeWidth: 3, stroke: "var(--advanced-flow-connection)" }}
 	          fitView
 	          nodesDraggable={!previewMode}
 	          nodesConnectable={!previewMode}
@@ -3534,10 +3967,13 @@ function NodeEditorInner({ initialGraph, initialGraphVersion = 0, programCode = 
 	          elementsSelectable={!previewMode}
 	          selectionMode={SelectionMode.Partial}
 	          selectionOnDrag={!previewMode}
-	          panOnScroll={false}
+	          zoomOnScroll={false}
+	          panOnScroll
+	          panOnScrollMode={PanOnScrollMode.Free}
+	          panOnScrollSpeed={0.9}
           selectNodesOnDrag={false}
           multiSelectionKeyCode="Shift"
-          className="advanced-node-editor-flow bg-gray-100"
+          className="advanced-node-editor-flow bg-gray-100 dark:bg-slate-950"
         >
 	          {!previewMode ? (
 	            <Panel position="top-left" className="z-30">
@@ -3551,10 +3987,11 @@ function NodeEditorInner({ initialGraph, initialGraphVersion = 0, programCode = 
 	              />
 	            </Panel>
 	          ) : null}
-          <Controls style={{ bottom: 90 }} position="bottom-right" className="bg-white/90 backdrop-blur-sm rounded-lg shadow-md z-30" />
+          <Controls style={{ bottom: 90 }} position="bottom-right" className="z-30 rounded-lg border border-slate-200 bg-white/90 shadow-md backdrop-blur-sm dark:border-slate-700 dark:bg-slate-900/90" />
           <MiniMap
             position="bottom-left"
-            className="bg-white/90 backdrop-blur-sm rounded-lg shadow-md z-30"
+            className="z-30 rounded-lg border border-slate-200 bg-white/90 shadow-md backdrop-blur-sm dark:border-slate-700 dark:bg-slate-900/90"
+            maskColor="var(--advanced-minimap-mask)"
             nodeColor={(node) => {
               switch (node.type) {
                 case "timeTrigger":
@@ -3582,7 +4019,7 @@ function NodeEditorInner({ initialGraph, initialGraphVersion = 0, programCode = 
             variant={BackgroundVariant.Dots}
             gap={20}
             size={1}
-            color="#d1d5db"
+            color="var(--advanced-flow-dots)"
           />
         </ReactFlow>
 

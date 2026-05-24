@@ -1,8 +1,8 @@
 "use client";
 
-import { memo, useCallback, useMemo } from "react";
+import { memo, useCallback, useEffect, useMemo } from "react";
 import type { ChangeEvent } from "react";
-import { Handle, Position, NodeProps, useReactFlow } from "@xyflow/react";
+import { Handle, Position, NodeProps, useReactFlow, useUpdateNodeInternals } from "@xyflow/react";
 import type { StreamingNodeData, BlockData, NodeChartPoint } from "./types";
 import { MetricChart } from "./MetricChart";
 import { cn } from "@/lib/utils";
@@ -38,8 +38,13 @@ function StreamingNodeComponent({
   selected,
 }: NodeProps<import("@xyflow/react").Node<StreamingNodeData>>) {
   const { setNodes } = useReactFlow();
+  const updateNodeInternals = useUpdateNodeInternals();
   const outputBlocks = useMemo(() => data.outputBlocks ?? [], [data.outputBlocks]);
   const isCompact = data.isExpanded === false;
+  const outputBlockSignature = useMemo(
+    () => outputBlocks.map((block) => block.id).join("|"),
+    [outputBlocks],
+  );
   const chartSeries = Array.isArray(data.chartSeries)
     ? (data.chartSeries as NodeChartPoint[])
       .map((point) => ({ time: point.time as any, value: point.value }))
@@ -47,6 +52,7 @@ function StreamingNodeComponent({
     : [];
   const chartSource = typeof data.chartSource === "string" ? data.chartSource : "";
   const chartWarning = typeof data.chartWarning === "string" ? data.chartWarning : "";
+  const chartUpdatedAt = typeof data.chartUpdatedAt === "string" ? data.chartUpdatedAt : "";
   const runtimeCode = typeof data.runtimeCode === "string" ? data.runtimeCode : "";
   const streamKind: StreamKind = data.streamKind ?? "url";
   const isEVMRPC = streamKind === "evm-rpc";
@@ -133,10 +139,19 @@ function StreamingNodeComponent({
   const sourceLabel = isEVMRPC ? "EVM RPC" : data.method === "WEBSOCKET" ? "WebSocket" : "Polling";
   const visibleBlocks = outputBlocks.slice(0, isCompact ? 4 : outputBlocks.length);
 
+  useEffect(() => {
+    const frame = window.requestAnimationFrame(() => updateNodeInternals(id));
+    const timer = window.setTimeout(() => updateNodeInternals(id), 80);
+    return () => {
+      window.cancelAnimationFrame(frame);
+      window.clearTimeout(timer);
+    };
+  }, [chartSeries.length, id, isCompact, outputBlockSignature, updateNodeInternals]);
+
   return (
     <div
       className={cn(
-        "w-[260px] overflow-hidden rounded-md border-2 bg-white shadow-sm transition-all",
+        "relative w-[260px] overflow-hidden rounded-md border-2 bg-white shadow-sm transition-all",
         selected ? "border-emerald-400 ring-2 ring-emerald-200" : "border-slate-200",
         data.isActive && "border-emerald-500"
       )}
@@ -146,15 +161,35 @@ function StreamingNodeComponent({
         position={Position.Left}
         id={`${id}-func-in`}
         className="!h-2.5 !w-2.5 !border-emerald-600 !bg-emerald-500"
-        style={{ left: -5, top: 24 }}
+        style={{ left: 5, top: 24 }}
       />
-      <Handle
-        type="source"
-        position={Position.Right}
-        id={`${id}-trigger-out`}
-        className="!h-2.5 !w-2.5 !border-emerald-700 !bg-emerald-600"
-        style={{ right: -5, top: 24 }}
-      />
+      {(!isCompact || outputBlocks.length === 0) ? (
+        <Handle
+          type="source"
+          position={Position.Right}
+          id={`${id}-trigger-out`}
+          className="!h-2.5 !w-2.5 !border-emerald-700 !bg-emerald-600"
+          style={{ right: 5, top: 24 }}
+        />
+      ) : null}
+      {isCompact && visibleBlocks.length > 0 ? (
+        <div
+          className="pointer-events-none absolute right-0 top-1/2 z-20 h-10 w-0 -translate-y-1/2"
+          aria-hidden="true"
+        >
+          <div className="absolute right-[-6px] top-1/2 h-3 w-3 -translate-y-1/2 rounded-full border-2 border-emerald-700 bg-emerald-500 shadow-[0_0_0_3px_rgba(16,185,129,0.16)]" />
+          {visibleBlocks.map((block) => (
+            <Handle
+              key={block.id}
+              type="source"
+              position={Position.Right}
+              id={`${id}-block-${block.id}-out`}
+              className="!h-3 !w-3 !border-emerald-700 !bg-emerald-500"
+              style={{ right: 6, top: "50%", opacity: 0 }}
+            />
+          ))}
+        </div>
+      ) : null}
 
       <div className="flex items-center gap-2 border-b border-emerald-100 bg-emerald-50 px-3 py-2">
         <Activity className="h-4 w-4 shrink-0 text-emerald-600" />
@@ -210,9 +245,17 @@ function StreamingNodeComponent({
             </span>
           </div>
           {chartSeries.length > 0 ? (
-            <div className="mt-2 h-[76px] overflow-hidden rounded border border-emerald-100 bg-white">
-              <MetricChart series={chartSeries.slice(-48)} compact height={76} baseColor="#059669" activeColor="#10b981" />
-            </div>
+          <div className="mt-2 h-[76px] overflow-hidden rounded border border-emerald-100 bg-white dark:border-emerald-400/20 dark:bg-slate-950">
+            <MetricChart
+              series={chartSeries.slice(-48)}
+              compact
+              height={76}
+              baseColor="#059669"
+              activeColor="#10b981"
+              source={chartSource}
+              updatedAt={chartUpdatedAt}
+            />
+          </div>
           ) : chartWarning ? (
             <div className="mt-2 rounded border border-amber-100 bg-amber-50 px-2 py-1 text-[10px] font-semibold text-amber-700">
               chart fetch failed
@@ -233,13 +276,6 @@ function StreamingNodeComponent({
                   <div className="truncate text-[10px] text-slate-500">
                     {block.description || "스트리밍 응답 필드"}
                   </div>
-                  <Handle
-                    type="source"
-                    position={Position.Right}
-                    id={`${id}-block-${block.id}-out`}
-                    className="!h-2.5 !w-2.5 !border-emerald-600 !bg-emerald-500"
-                    style={{ right: -8 }}
-                  />
                 </div>
               ))
             )}
@@ -377,20 +413,27 @@ function StreamingNodeComponent({
             />
           </label>
         </div>
-        <div className="mt-2 overflow-hidden rounded-md border border-emerald-100 bg-white">
-          <div className="flex items-center justify-between border-b border-emerald-100 px-2 py-1">
-            <span className="text-[10px] font-bold uppercase tracking-wide text-emerald-700">
-              Live chart
+        <div className="mt-2 overflow-hidden rounded-md border border-emerald-100 bg-white dark:border-emerald-400/20 dark:bg-slate-950">
+          <div className="flex items-center justify-between gap-2 border-b border-emerald-100 px-2 py-1 dark:border-emerald-400/20">
+            <span className="text-[10px] font-bold uppercase tracking-wide text-emerald-700 dark:text-emerald-300">
+              Live market chart
             </span>
-            <span className="truncate text-[10px] font-semibold text-slate-500">
-              {chartSource || data.chartSymbol || "시장 데이터 대기"}
+            <span className="truncate text-[10px] font-semibold text-slate-500 dark:text-slate-400">
+              {chartSource || data.chartSymbol || "URL 샘플링 대기"}
             </span>
           </div>
-          <div className="h-[118px]">
+          <div className="h-[156px]">
             {chartSeries.length > 0 ? (
-              <MetricChart series={chartSeries} compact height={118} baseColor="#059669" activeColor="#10b981" />
+              <MetricChart
+                series={chartSeries}
+                height={156}
+                baseColor="#059669"
+                activeColor="#10b981"
+                source={chartSource || data.chartSymbol}
+                updatedAt={chartUpdatedAt}
+              />
             ) : (
-              <div className="flex h-full items-center justify-center px-3 text-center text-[11px] font-semibold text-slate-400">
+              <div className="flex h-full items-center justify-center px-3 text-center text-[11px] font-semibold text-slate-400 dark:text-slate-500">
                 {chartWarning || "URL/WS 반환값에서 숫자 필드를 찾으면 차트를 표시합니다."}
               </div>
             )}
@@ -447,7 +490,7 @@ function StreamingNodeComponent({
                 position={Position.Right}
                 id={`${id}-block-${block.id}-out`}
                 className="!h-2.5 !w-2.5 !border-emerald-600 !bg-emerald-500"
-                style={{ right: -5 }}
+                style={{ right: 5 }}
               />
             </div>
           ))

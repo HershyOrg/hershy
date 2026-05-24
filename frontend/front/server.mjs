@@ -1,6 +1,6 @@
 import express from 'express';
 import * as crypto from 'node:crypto';
-import { execFile } from 'node:child_process';
+import { execFile, spawn } from 'node:child_process';
 import fsSync from 'node:fs';
 import fs from 'node:fs/promises';
 import os from 'node:os';
@@ -21,14 +21,22 @@ import {
   prepareStrategyUserContext,
   resolveRequestUserID,
 } from './server/requestUserContext.mjs';
+import {
+  buildStrategyWorkflowPromptSection,
+  inferStrategyWorkflow,
+} from './server/strategyWorkflowAlgorithms.mjs';
+import { persistAgenticWorkflowRun } from './server/agenticWorkflowPersistence.mjs';
+import { createMyDataStore } from './server/myDataStore.mjs';
 
 const execFileAsync = promisify(execFile);
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 const REPO_ROOT = path.resolve(__dirname, '..', '..');
 const STRATEGY_RUNNER_DIR = path.resolve(REPO_ROOT, 'examples/strategy-runner');
+const PYTHON_NATIVE_AGENT_LOOP_SCRIPT = path.join(__dirname, 'server', 'agentic_strategy_loop_py', 'native_langgraph.py');
 const LOCAL_STATE_DIR = path.resolve(__dirname, '.local');
 const AI_STRATEGY_LOGIC_ERROR_LOG_PATH = path.join(LOCAL_STATE_DIR, 'ai-strategy-logic-errors.jsonl');
+const CODEX_STRATEGY_INBOX_PATH = path.join(LOCAL_STATE_DIR, 'codex-strategy-inbox.json');
 const STRATEGY_RUNNER_RUNTIME_FILES = [
   'go.mod',
   'go.sum',
@@ -95,17 +103,37 @@ const exchangeConnectionManager = createExchangeConnectionManager({
   supportedExchangeConnectionIDs: SUPPORTED_EXCHANGE_CONNECTION_IDS,
   sanitizeUserContextID,
 });
+const myDataStore = createMyDataStore({
+  localStateDir: LOCAL_STATE_DIR,
+  sanitizeUserContextID,
+});
 
 const {
   buildConnectedExchangeContextForAI,
   getConnectedExchangeConnections,
   loadExchangeConnections,
   patchExchangeConnection,
+  readBinanceBalanceSnapshot,
   serializeExchangeConnection,
   serializeExchangeConnections,
-  testBinanceSignedConnection,
   upsertExchangeConnection,
 } = exchangeConnectionManager;
+const {
+  buildBalanceMyDataForAI,
+  readBalanceSnapshots,
+  upsertBalanceSnapshot,
+} = myDataStore;
+
+async function prepareRequestStrategyUserContext({ req, exchangeConnections, source }) {
+  const userId = resolveRequestUserID(req);
+  const balanceSnapshots = await readBalanceSnapshots(userId);
+  return prepareStrategyUserContext({
+    req,
+    connectedExchangeConnections: getConnectedExchangeConnections(exchangeConnections),
+    balanceSnapshots: buildBalanceMyDataForAI(balanceSnapshots),
+    source,
+  });
+}
 
 function stripEnvQuotes(value) {
   const trimmed = String(value || '').trim();
@@ -175,8 +203,8 @@ const ETHERSCAN_V2_ENDPOINT = 'https://api.etherscan.io/v2/api';
 const DEFAULT_MARKET_OVERVIEW_ROWS = [
   { symbol: 'BTCUSDT', icon: '₿', tone: 'up', price: '0.00', change: '+0.00%', source: 'Binance Spot' },
   { symbol: 'ETHUSDT', icon: 'Ξ', tone: 'up', price: '0.00', change: '+0.00%', source: 'Binance Spot' },
-  { symbol: 'XRPUSDT', icon: 'X', tone: 'up', price: '0.0000', change: '+0.00%', source: 'Binance Spot' },
-  { symbol: 'XRPUSDT.P', icon: 'P', tone: 'down', price: '0.0000', change: '+0.00%', source: 'Binance Futures' },
+  { symbol: 'SOLUSDT', icon: 'S', tone: 'up', price: '0.00', change: '+0.00%', source: 'Binance Spot' },
+  { symbol: 'BNBUSDT', icon: 'B', tone: 'up', price: '0.00', change: '+0.00%', source: 'Binance Spot' },
 ];
 
 const ORCHESTRATION_PLAN_SCHEMA = {
@@ -269,6 +297,19 @@ const STRATEGY_OVERVIEW_SCHEMA = {
         },
       },
     },
+    connections: {
+      type: 'array',
+      items: {
+        type: 'object',
+        required: ['id', 'label'],
+        properties: {
+          id: { type: 'string' },
+          fromId: { type: 'string' },
+          toId: { type: 'string' },
+          label: { type: 'string' },
+        },
+      },
+    },
   },
 };
 
@@ -319,6 +360,8 @@ const STRATEGY_GRAPH_SCHEMA = {
           kind: { type: 'string', enum: ['stream-monitor', 'trigger-action', 'trigger-input', 'action-input', 'data-flow', 'action-result'] },
           fromId: { type: 'string' },
           toId: { type: 'string' },
+          label: { type: 'string' },
+          easyLabel: { type: 'string' },
         },
       },
     },
@@ -393,6 +436,49 @@ app.post('/api/strategy/runtime-artifacts', express.json({ limit: '1mb' }), asyn
   }
 });
 
+app.get('/api/codex/strategy-inbox', async (req, res) => {
+  try {
+    if (!fsSync.existsSync(CODEX_STRATEGY_INBOX_PATH)) {
+      res.json({ hasStrategy: false });
+      return;
+    }
+    const payload = JSON.parse(await fs.readFile(CODEX_STRATEGY_INBOX_PATH, 'utf8'));
+    const consume = parseBoolText(req.query.consume);
+    if (consume === true && !payload.consumedAt) {
+      payload.consumedAt = new Date().toISOString();
+      await fs.writeFile(CODEX_STRATEGY_INBOX_PATH, `${JSON.stringify(payload, null, 2)}\n`, 'utf8');
+    }
+    res.json({ hasStrategy: Boolean(payload?.result?.strategy), ...payload });
+  } catch (error) {
+    sendError(res, 500, `codex strategy inbox read failed: ${error?.message || 'unknown error'}`);
+  }
+});
+
+app.post('/api/codex/strategy-inbox', express.json({ limit: '8mb' }), async (req, res) => {
+  try {
+    const body = normalizeObject(req.body) || {};
+    const result = normalizeObject(body.result) || body;
+    if (!normalizeObject(result.strategy) || !Array.isArray(result.strategy.blocks) || !Array.isArray(result.strategy.connections)) {
+      sendError(res, 400, 'strategy result with blocks and connections is required');
+      return;
+    }
+    const payload = {
+      id: crypto.randomUUID(),
+      prompt: normalizeText(body.prompt || result.prompt),
+      message: normalizeText(body.message) || 'Codex generated strategy',
+      createdAt: new Date().toISOString(),
+      consumedAt: null,
+      replaceExisting: body.replaceExisting === true || result.replaceExisting === true,
+      result,
+    };
+    await fs.mkdir(path.dirname(CODEX_STRATEGY_INBOX_PATH), { recursive: true });
+    await fs.writeFile(CODEX_STRATEGY_INBOX_PATH, `${JSON.stringify(payload, null, 2)}\n`, 'utf8');
+    res.json({ ok: true, id: payload.id, hasStrategy: true });
+  } catch (error) {
+    sendError(res, 500, `codex strategy inbox write failed: ${error?.message || 'unknown error'}`);
+  }
+});
+
 app.get('/api/exchange-connections', async (req, res) => {
   try {
     const userId = resolveRequestUserID(req);
@@ -431,7 +517,8 @@ app.post('/api/exchange-connections/:id/binance-auth-test', express.json({ limit
       return;
     }
 
-    const result = await testBinanceSignedConnection(connection, { market });
+    const result = await readBinanceBalanceSnapshot(connection, { market });
+    const savedBalance = await upsertBalanceSnapshot(userId, result.snapshot);
     const updated = await patchExchangeConnection(userId, connection.id, {
       credentials: {
         ...(connection.credentials || {}),
@@ -448,6 +535,8 @@ app.post('/api/exchange-connections/:id/binance-auth-test', express.json({ limit
       connection: serializeExchangeConnection(updated),
       connections: serializeExchangeConnections(await loadExchangeConnections(userId)),
       account: summarizeBinanceAccount(result.data, market),
+      balanceSnapshot: savedBalance.snapshot,
+      balanceSnapshots: savedBalance.snapshots,
       message: 'Binance HMAC signed request succeeded.',
     });
   } catch (error) {
@@ -471,6 +560,65 @@ app.post('/api/exchange-connections/:id/binance-auth-test', express.json({ limit
       }
     }
     sendError(res, 502, `binance signed request failed: ${error?.message || 'unknown error'}`);
+  }
+});
+
+app.get('/api/mydata/balances', async (req, res) => {
+  try {
+    const userId = resolveRequestUserID(req);
+    const snapshots = await readBalanceSnapshots(userId);
+    res.json({
+      ok: true,
+      userId,
+      snapshots,
+      aiContext: buildBalanceMyDataForAI(snapshots),
+    });
+  } catch (error) {
+    sendError(res, 500, `balance MyData load failed: ${error?.message || 'unknown error'}`);
+  }
+});
+
+app.post('/api/exchange-connections/:id/balances/sync', express.json({ limit: '128kb' }), async (req, res) => {
+  const userId = resolveRequestUserID(req);
+  try {
+    const connectionId = normalizeText(req.params.id);
+    const market = normalizeText(req.body?.market).toLowerCase() === 'futures' ? 'futures' : 'spot';
+    const connections = await loadExchangeConnections(userId);
+    const connection = connections.find((item) => item.id === connectionId);
+    if (!connection) {
+      sendError(res, 404, 'exchange connection not found');
+      return;
+    }
+    if (!/binance/i.test(`${connection.id} ${connection.name}`)) {
+      sendError(res, 400, 'balance sync is currently supported for Binance connections only');
+      return;
+    }
+
+    const result = await readBinanceBalanceSnapshot(connection, { market });
+    const savedBalance = await upsertBalanceSnapshot(userId, result.snapshot);
+    const updated = await patchExchangeConnection(userId, connection.id, {
+      credentials: {
+        ...(connection.credentials || {}),
+        authStatus: '검증됨',
+        authMarket: market,
+        lastAuthCheckAt: new Date().toISOString(),
+        lastAuthError: '',
+      },
+    });
+
+    res.json({
+      ok: true,
+      userId,
+      connection: serializeExchangeConnection(updated),
+      connections: serializeExchangeConnections(await loadExchangeConnections(userId)),
+      account: summarizeBinanceAccount(result.data, market),
+      balanceSnapshot: savedBalance.snapshot,
+      balanceSnapshots: savedBalance.snapshots,
+      aiContext: buildBalanceMyDataForAI(savedBalance.snapshots),
+      message: 'Binance balance MyData synced.',
+    });
+  } catch (error) {
+    sendError(res, 502, `balance sync failed: ${error?.message || 'unknown error'}`);
   }
 });
 
@@ -551,9 +699,9 @@ app.post('/api/ai/research', express.json({ limit: '2mb' }), async (req, res) =>
   );
   try {
     const exchangeConnections = await loadExchangeConnections(resolveRequestUserID(req));
-    const userContext = await prepareStrategyUserContext({
+    const userContext = await prepareRequestStrategyUserContext({
       req,
-      connectedExchangeConnections: getConnectedExchangeConnections(exchangeConnections),
+      exchangeConnections,
       source: 'ai-research',
     });
     const researched = await runResearchLayer({
@@ -588,9 +736,9 @@ app.post('/api/ai/strategy-compose', express.json({ limit: '2mb' }), async (req,
   const researchBundle = normalizeObject(req.body?.research_bundle);
   try {
     const exchangeConnections = await loadExchangeConnections(resolveRequestUserID(req));
-    const userContext = await prepareStrategyUserContext({
+    const userContext = await prepareRequestStrategyUserContext({
       req,
-      connectedExchangeConnections: getConnectedExchangeConnections(exchangeConnections),
+      exchangeConnections,
       source: 'ai-strategy-compose',
     });
     if (getConnectedExchangeConnections(exchangeConnections).length === 0) {
@@ -634,9 +782,9 @@ app.post('/api/ai/orchestrate-strategy', express.json({ limit: '2mb' }), async (
   );
   try {
     const exchangeConnections = await loadExchangeConnections(resolveRequestUserID(req));
-    const userContext = await prepareStrategyUserContext({
+    const userContext = await prepareRequestStrategyUserContext({
       req,
-      connectedExchangeConnections: getConnectedExchangeConnections(exchangeConnections),
+      exchangeConnections,
       source: 'ai-orchestrate-strategy',
     });
     if (getConnectedExchangeConnections(exchangeConnections).length === 0) {
@@ -668,6 +816,53 @@ app.post('/api/ai/orchestrate-strategy', express.json({ limit: '2mb' }), async (
   }
 });
 
+app.post('/api/ai/agentic-strategy-loop', express.json({ limit: '2mb' }), async (req, res) => {
+  const prompt = normalizeText(req.body?.prompt || req.body?.query);
+  if (!prompt) {
+    sendError(res, 400, 'prompt is required');
+    return;
+  }
+
+  try {
+    const assets = Array.isArray(req.body?.assets)
+      ? normalizeStringArray(req.body.assets)
+      : normalizeText(req.body?.assets)
+        .split(',')
+        .map((item) => item.trim())
+        .filter(Boolean);
+    const result = await runNativeAgenticStrategyLoop(prompt, {
+      chain: normalizeText(req.body?.chain),
+      assets,
+      riskProfile: normalizeText(req.body?.risk_profile || req.body?.riskProfile || req.body?.risk),
+      executionDomain: normalizeText(req.body?.execution_domain || req.body?.executionDomain || req.body?.domain),
+      searchLimit: req.body?.search_limit || req.body?.searchLimit || req.body?.limit,
+      webSearch: req.body?.web_search ?? req.body?.webSearch,
+      webSearchProvider: normalizeText(req.body?.web_search_provider || req.body?.webSearchProvider || req.body?.web_provider || req.body?.webProvider),
+      webResultLimit: req.body?.web_result_limit || req.body?.webResultLimit,
+      webQueryLimit: req.body?.web_query_limit || req.body?.webQueryLimit,
+      webQueries: req.body?.web_queries || req.body?.webQueries,
+      fetchWebPages: req.body?.fetch_web_pages ?? req.body?.fetchWebPages,
+      apiFetchLimit: req.body?.api_fetch_limit || req.body?.apiFetchLimit,
+      validate: req.body?.validate !== false,
+      validationTimeoutSeconds: req.body?.validation_timeout_seconds || req.body?.validationTimeoutSeconds,
+      embeddingProvider: normalizeText(req.body?.embedding_provider || req.body?.embeddingProvider || req.body?.provider),
+      embeddingModel: normalizeText(req.body?.embedding_model || req.body?.embeddingModel || req.body?.model),
+      embeddingDim: req.body?.embedding_dim || req.body?.embeddingDim || req.body?.dimensions,
+      ollamaBaseUrl: normalizeText(req.body?.ollama_base_url || req.body?.ollamaBaseUrl),
+      contractReasoning: req.body?.contract_reasoning ?? req.body?.contractReasoning,
+      contractReasoningChunkLimit: req.body?.contract_reasoning_chunk_limit || req.body?.contractReasoningChunkLimit,
+      rpcUrl: normalizeText(req.body?.rpc_url || req.body?.rpcUrl || req.body?.rpc),
+      websocketUrl: normalizeText(req.body?.websocket_url || req.body?.websocketUrl || req.body?.ws_url || req.body?.wsUrl || req.body?.wss_url || req.body?.wssUrl),
+    });
+    res.json({
+      ...result,
+      message: 'Agentic strategy workflow generated from algorithm plan and KG evidence',
+    });
+  } catch (error) {
+    sendAIFailure(res, error, 'agentic strategy loop failed');
+  }
+});
+
 app.post('/api/ai/strategy-draft', express.json({ limit: '2mb' }), async (req, res) => {
   const prompt = normalizeText(req.body?.prompt);
   if (!prompt) {
@@ -682,9 +877,9 @@ app.post('/api/ai/strategy-draft', express.json({ limit: '2mb' }), async (req, r
   );
   try {
     const exchangeConnections = await loadExchangeConnections(resolveRequestUserID(req));
-    const userContext = await prepareStrategyUserContext({
+    const userContext = await prepareRequestStrategyUserContext({
       req,
-      connectedExchangeConnections: getConnectedExchangeConnections(exchangeConnections),
+      exchangeConnections,
       source: 'ai-strategy-draft',
     });
     if (getConnectedExchangeConnections(exchangeConnections).length === 0) {
@@ -718,9 +913,9 @@ app.post('/api/ai/strategy-draft-stream', express.json({ limit: '2mb' }), async 
   );
   try {
     const exchangeConnections = await loadExchangeConnections(resolveRequestUserID(req));
-    const userContext = await prepareStrategyUserContext({
+    const userContext = await prepareRequestStrategyUserContext({
       req,
-      connectedExchangeConnections: getConnectedExchangeConnections(exchangeConnections),
+      exchangeConnections,
       source: 'ai-strategy-draft-stream',
     });
     if (getConnectedExchangeConnections(exchangeConnections).length === 0) {
@@ -875,6 +1070,69 @@ function normalizeBaseURL(raw) {
 
 function normalizeText(value) {
   return typeof value === 'string' ? value.trim() : '';
+}
+
+function resolveNativeAgentLoopPython() {
+  return normalizeText(process.env.HERSHY_AGENT_LOOP_PYTHON || process.env.PYTHON || 'python3') || 'python3';
+}
+
+function runPythonNativeAgentLoop(payload) {
+  return new Promise((resolve, reject) => {
+    const child = spawn(resolveNativeAgentLoopPython(), [PYTHON_NATIVE_AGENT_LOOP_SCRIPT], {
+      cwd: __dirname,
+      env: {
+        ...process.env,
+        PYTHONIOENCODING: 'utf-8',
+        PYTHONWARNINGS: 'ignore',
+      },
+      stdio: ['pipe', 'pipe', 'pipe'],
+    });
+    let stdout = '';
+    let stderr = '';
+
+    child.stdout.setEncoding('utf8');
+    child.stderr.setEncoding('utf8');
+    child.stdout.on('data', (chunk) => {
+      stdout += chunk;
+    });
+    child.stderr.on('data', (chunk) => {
+      stderr += chunk;
+    });
+    child.on('error', reject);
+    child.on('close', (code) => {
+      if (code !== 0) {
+        reject(new Error(`python native agent loop failed (${code}): ${normalizeText(stderr) || normalizeText(stdout) || 'no output'}`));
+        return;
+      }
+      try {
+        resolve(JSON.parse(stdout));
+      } catch (error) {
+        reject(new Error(`python native agent loop returned invalid JSON: ${error?.message || error}; stderr=${normalizeText(stderr)}`));
+      }
+    });
+
+    child.stdin.end(`${JSON.stringify(payload)}\n`);
+  });
+}
+
+async function runNativeAgenticStrategyLoop(promptInput, options = {}) {
+  const prompt = normalizeText(promptInput || options.prompt);
+  if (!prompt) {
+    throw new Error('prompt is required');
+  }
+  const result = await runPythonNativeAgentLoop({ prompt, options });
+  if (!result?.strategy || !Array.isArray(result.strategy.blocks) || !Array.isArray(result.strategy.connections)) {
+    throw new Error('python native agent loop returned no strategy graph');
+  }
+  try {
+    result.persistence = await persistAgenticWorkflowRun(result, options);
+  } catch (error) {
+    result.persistence = {
+      status: 'failed',
+      message: error?.message || String(error),
+    };
+  }
+  return result;
 }
 
 function normalizeStreamSampleInput(raw) {
@@ -2023,7 +2281,7 @@ function isActionUsingConnectedExchange(action, connections) {
 function formatMarketPrice(value, symbol) {
   const numeric = Number(value);
   if (!Number.isFinite(numeric)) return '0.00';
-  if (/XRP|DOGE|PEPE|SHIB/i.test(symbol)) {
+  if (/DOGE|PEPE|SHIB/i.test(symbol)) {
     return numeric.toLocaleString('en-US', { minimumFractionDigits: 4, maximumFractionDigits: 6 });
   }
   return numeric.toLocaleString('en-US', { minimumFractionDigits: 1, maximumFractionDigits: 2 });
@@ -2044,25 +2302,25 @@ async function fetchJSONWithTimeout(url, timeoutMs = 6000) {
 }
 
 async function fetchMarketOverviewRows() {
-  const [btc, eth, xrp, xrpPerp, gecko] = await Promise.allSettled([
+  const [btc, eth, sol, bnb, gecko] = await Promise.allSettled([
     fetchJSONWithTimeout('https://api.binance.com/api/v3/ticker/24hr?symbol=BTCUSDT', 8000),
     fetchJSONWithTimeout('https://api.binance.com/api/v3/ticker/24hr?symbol=ETHUSDT', 8000),
-    fetchJSONWithTimeout('https://api.binance.com/api/v3/ticker/24hr?symbol=XRPUSDT', 8000),
-    fetchJSONWithTimeout('https://fapi.binance.com/fapi/v1/ticker/24hr?symbol=XRPUSDT', 8000),
-    fetchJSONWithTimeout('https://api.coingecko.com/api/v3/simple/price?ids=bitcoin,ethereum,ripple&vs_currencies=usd&include_24hr_change=true', 8000),
+    fetchJSONWithTimeout('https://api.binance.com/api/v3/ticker/24hr?symbol=SOLUSDT', 8000),
+    fetchJSONWithTimeout('https://api.binance.com/api/v3/ticker/24hr?symbol=BNBUSDT', 8000),
+    fetchJSONWithTimeout('https://api.coingecko.com/api/v3/simple/price?ids=bitcoin,ethereum,solana,binancecoin&vs_currencies=usd&include_24hr_change=true', 8000),
   ]);
   const geckoValue = gecko.status === 'fulfilled' ? gecko.value : {};
   const bySymbol = new Map([
     ['BTCUSDT', btc.status === 'fulfilled' ? btc.value : null],
     ['ETHUSDT', eth.status === 'fulfilled' ? eth.value : null],
-    ['XRPUSDT', xrp.status === 'fulfilled' ? xrp.value : null],
-    ['XRPUSDT.P', xrpPerp.status === 'fulfilled' ? xrpPerp.value : null],
+    ['SOLUSDT', sol.status === 'fulfilled' ? sol.value : null],
+    ['BNBUSDT', bnb.status === 'fulfilled' ? bnb.value : null],
   ]);
   const geckoBySymbol = {
     BTCUSDT: geckoValue?.bitcoin ? { lastPrice: geckoValue.bitcoin.usd, priceChangePercent: geckoValue.bitcoin.usd_24h_change } : null,
     ETHUSDT: geckoValue?.ethereum ? { lastPrice: geckoValue.ethereum.usd, priceChangePercent: geckoValue.ethereum.usd_24h_change } : null,
-    XRPUSDT: geckoValue?.ripple ? { lastPrice: geckoValue.ripple.usd, priceChangePercent: geckoValue.ripple.usd_24h_change } : null,
-    'XRPUSDT.P': geckoValue?.ripple ? { lastPrice: geckoValue.ripple.usd, priceChangePercent: geckoValue.ripple.usd_24h_change } : null,
+    SOLUSDT: geckoValue?.solana ? { lastPrice: geckoValue.solana.usd, priceChangePercent: geckoValue.solana.usd_24h_change } : null,
+    BNBUSDT: geckoValue?.binancecoin ? { lastPrice: geckoValue.binancecoin.usd, priceChangePercent: geckoValue.binancecoin.usd_24h_change } : null,
   };
   const rows = DEFAULT_MARKET_OVERVIEW_ROWS.map((base) => {
     const source = bySymbol.get(base.symbol) || geckoBySymbol[base.symbol];
@@ -2376,6 +2634,10 @@ function shouldDefaultResearchPrompt(prompt) {
 
 function buildDefaultOrchestrationPlan(prompt) {
   const needResearch = shouldDefaultResearchPrompt(prompt);
+  const strategyWorkflowPlan = inferStrategyWorkflow(prompt);
+  const workflowResearchTasks = Array.isArray(strategyWorkflowPlan.researchTasks)
+    ? strategyWorkflowPlan.researchTasks
+    : [];
   return {
     mode: 'research_then_strategy',
     needResearch,
@@ -2384,13 +2646,16 @@ function buildDefaultOrchestrationPlan(prompt) {
         kind: 'contract_discovery',
         query: normalizeText(prompt),
         priority: 'high'
-      }
-    ] : [],
+      },
+      ...workflowResearchTasks,
+    ] : workflowResearchTasks,
     strategyTasks: [
+      `Use algorithmic workflow ${strategyWorkflowPlan.selectedAlgorithm.id}: ${strategyWorkflowPlan.selectedAlgorithm.title}`,
       'Use verified contracts when available',
       'Do not fabricate addresses or URLs',
       'Return valid hershy-strategy-graph JSON'
     ],
+    strategyWorkflowPlan,
     contractHints: [],
     notes: []
   };
@@ -2398,6 +2663,7 @@ function buildDefaultOrchestrationPlan(prompt) {
 
 function normalizeOrchestrationPlan(rawPlan, prompt) {
   const fallback = buildDefaultOrchestrationPlan(prompt);
+  const strategyWorkflowPlan = inferStrategyWorkflow(prompt);
   const plan = normalizeObject(rawPlan);
   if (!plan) {
     return fallback;
@@ -2429,6 +2695,9 @@ function normalizeOrchestrationPlan(rawPlan, prompt) {
       })
       .filter(Boolean)
     : [];
+  const workflowResearchTasks = Array.isArray(strategyWorkflowPlan.researchTasks)
+    ? strategyWorkflowPlan.researchTasks
+    : [];
 
   const contractHints = normalizeContractHints(
     plan.contractHints || plan.contracts || plan.contract_candidates,
@@ -2437,12 +2706,32 @@ function normalizeOrchestrationPlan(rawPlan, prompt) {
 
   return {
     mode: normalizeText(plan.mode) || fallback.mode,
-    needResearch,
-    researchTasks: researchTasks.length > 0 ? researchTasks : fallback.researchTasks,
-    strategyTasks: normalizeStringArray(plan.strategyTasks || plan.strategyDirectives || plan.directives),
+    needResearch: needResearch || workflowResearchTasks.length > 0,
+    researchTasks: mergeResearchTasks(researchTasks.length > 0 ? researchTasks : fallback.researchTasks, workflowResearchTasks),
+    strategyTasks: uniqueStrings([
+      ...normalizeStringArray(plan.strategyTasks || plan.strategyDirectives || plan.directives),
+      `Use algorithmic workflow ${strategyWorkflowPlan.selectedAlgorithm.id}: ${strategyWorkflowPlan.selectedAlgorithm.title}`,
+    ]),
+    strategyWorkflowPlan,
     contractHints,
     notes: normalizeStringArray(plan.notes || plan.assumptions),
   };
+}
+
+function mergeResearchTasks(primaryTasks, secondaryTasks) {
+  const merged = [];
+  const seen = new Set();
+  for (const item of [...(primaryTasks || []), ...(secondaryTasks || [])]) {
+    if (!item || typeof item !== 'object') {
+      continue;
+    }
+    const key = `${normalizeText(item.kind)}:${normalizeText(item.query).toLowerCase()}`;
+    if (!key.endsWith(':') && !seen.has(key)) {
+      seen.add(key);
+      merged.push(item);
+    }
+  }
+  return merged;
 }
 
 function buildFallbackResearchBundle({ prompt, orchestrationPlan }) {
@@ -2837,11 +3126,19 @@ Required top-level object:
       "requiredSignals": ["string"],
       "requiredTriggerTypes": ["string"],
       "sourcePrompt": "string",
+      "strategyBlock": {
+        "id": "stable strategy container id",
+        "title": "short user-facing strategy block title",
+        "purpose": "why this whole strategy exists",
+        "nodeIds": ["all runtimeGraph block ids owned by this strategy"]
+      },
       "workflowGroups": [
         {
           "id": "stable workflow id",
           "title": "short user-facing workflow name",
           "purpose": "why this workflow exists",
+          "sequenceType": "init|data|signal|execution|risk|kill-switch|workflow",
+          "order": 1,
           "nodeIds": ["exact runtimeGraph block ids in this workflow"],
           "canAbstract": true,
           "mustStayVisibleNodeIds": ["block ids that must not be collapsed in easy view"]
@@ -2850,7 +3147,9 @@ Required top-level object:
     },
     "summary": {"blocks": number, "connections": number, "byType": {"streaming": number, "normal": number, "trigger": number, "action": number, "monitoring": number}},
     "blocks": [...],
-    "connections": [...]
+    "connections": [
+      {"id": "string", "kind": "stream-monitor|trigger-action|trigger-input|action-input|data-flow|action-result", "fromId": "string", "toId": "string", "easyLabel": "short Korean label for easy-view arrow"}
+    ]
   }
 }
 
@@ -2869,9 +3168,15 @@ Validation constraints:
 - trigger.config.triggerType="condition" requires non-empty trigger.config.condition
 - Logic IR is not a strategy-template selector. classification is only a hint; requirements, nodes, edges, and invariants are the source of truth.
 - Logic node categories are fixed: data_feed, compute, predicate, trigger, action, risk_control, monitoring. semanticType is an open string.
+- Also generate UI grouping metadata. Put the top-level strategy container in runtimeGraph.metadata.strategyBlock and put every user-comprehensible sequence/workflow in runtimeGraph.metadata.workflowGroups.
+- Do NOT create runtimeGraph.blocks with type "strategy" or "sequence"; those are UI containers derived from metadata, not executable runner blocks.
+- metadata.strategyBlock.nodeIds must list every executable block id in this runtimeGraph.
 - Before writing runtimeGraph blocks, decide the semantic workflow groups. Put them in runtimeGraph.metadata.workflowGroups and list the exact block ids for each workflow.
 - Every runtimeGraph block must belong to exactly one workflow, either via block.config.workflowId or metadata.workflowGroups[].nodeIds.
 - Workflow groups should represent user-comprehensible phases such as Init capital readiness, data ingestion, signal computation, decision gating, execution, risk monitoring, and kill-switch safe exit.
+- Each workflowGroup is rendered as a visible sequence block in advanced view. Use sequenceType/order/title/purpose deliberately so the visual grouping is understandable before looking at internal nodes.
+- runtimeGraph and metadata.workflowGroups are the visible trading strategy only. Do not put AI-loop phases such as intent parsing, web/research discovery, KG retrieval, candidate universe building, contract lookup, ranking/scoring research, solver planning, or workflow planning into runtimeGraph blocks or workflowGroups.
+- If research/discovery/ranking is needed, finish it inside intentPlan, logicIR assumptions, orchestration notes, or evidence context, then emit only actual trading logic such as data/state reads, capital readiness, approvals, deposits, staking, order/swap execution, monitoring, rebalancing, claim, exit, and kill-switch flows in runtimeGraph.
 - Do not make workflow grouping by graph proximity alone. Group by semantic responsibility first, then list node ids.
 - Blocks that must remain visible in easy view include CEX/DEX action blocks, branch decision triggers, Init approval/readiness nodes, and Kill switch trigger/action nodes. Put these in mustStayVisibleNodeIds or set canAbstract=false for their workflow.
 - For non-pure-execution strategies, canonical flow is: Data Feed -> Compute / Formula / Indicator -> Predicate / Trigger -> Action.
@@ -2880,7 +3185,11 @@ Validation constraints:
 - For basis/spread/indicator strategies, condition triggers must reference computed signal nodes, not raw feed fields directly.
 - Actions are not terminal nodes. If a later action depends on an earlier action, connect action outputs with action-result to normal/trigger/monitoring, then require a confirmation trigger before the next action.
 - Use action-result only from action blocks to normal, trigger, or monitoring blocks. Never connect action directly to action.
+- Sequential execution must be explicit. If two DEX/CEX actions must run in order, model it as Action A -> action-result -> confirmation trigger -> trigger-action -> Action B so the advanced UI can display the intended DEX/CEX block order.
 - Every strategy MUST include an explicit Init/start safety sequence. It must identify where strategy capital starts, verify balances/allowances/collateral before first execution, and emit a capitalReady/startApproved signal that gates the first execution action.
+- When CEX Balance MyData is present in user context, use it as the read-only starting capital reference. Put snapshot identifiers, spendable asset, available amount, and a user-editable spend cap/allocation field into the Init/config and relevant CEX action configs.
+- Never size a generated CEX order above the available/spendable balance from MyData. If the user did not give an explicit spend amount, use a conservative editable allocation instead of assuming 100% of funds.
+- Treat Balance MyData as stale-by-default for live execution: generated strategies must re-check balances server-side immediately before submitting live orders.
 - Every strategy MUST include an explicit kill switch: a condition trigger for manual halt plus strategy-specific fail-safe conditions such as max drawdown, stale data, disconnect, or failed hedge; it must connect via trigger-action to close/cancel/reduce-only/unwind actions that can stop the strategy and unwind/cancel open exposure.
 - Kill switch capital objective: move strategy assets into lower-volatility assets as safely as possible. Prefer stable/cash-like assets such as USDC, USDT, DAI, USD, or KRW. Do not leave assets in volatile base tokens, LP positions, or perpetual exposure unless the user explicitly asks for that.
 - Mark safety configs with clear fields such as killSwitch, emergencyStop, capitalSource, capitalSink, safeAsset, and safetyObjective.
@@ -2888,6 +3197,7 @@ Validation constraints:
 - If execution is driven by time, schedule, interval, cadence, DCA timing, cron, or "every N minutes/hours/days", use a trigger block with config.triggerType="time" and config.intervalMs set to the cadence in milliseconds.
 - If a condition should only be evaluated on that cadence, connect the time trigger to the condition trigger with trigger-input. Do not create a separate normal block for DCA interval/cadence/time-pulse/time period.
 - Easy view will abstract non-adjustable pipeline nodes. Keep CEX/DEX action configs concrete and parameterized; keep branch conditions explicit so easy view can split paths when logic branches.
+- Add easyLabel to each runtimeGraph connection when the label is obvious from the trading logic. It should explain the handoff in trader language, not repeat the internal kind.
 - include position {x,y} for each block
 - runtimeGraph must pass: cd examples/strategy-runner && go run ./cmd/strategy-validate --file <json>
 	`.trim();
@@ -2908,6 +3218,10 @@ async function buildAIStrategyUserPrompt(prompt, currentStrategy, researchBundle
   }
   if (orchestrationPlan && typeof orchestrationPlan === 'object') {
     text += `\n\nOrchestration plan:\n${trimForLog(stringifyJSON(orchestrationPlan), 6000)}`;
+    const workflowSection = buildStrategyWorkflowPromptSection(orchestrationPlan.strategyWorkflowPlan);
+    if (workflowSection) {
+      text += `\n\n${trimForLog(workflowSection, 14000)}`;
+    }
   }
   if (researchBundle && typeof researchBundle === 'object') {
     text += `\n\nResearch bundle:\n${trimForLog(stringifyJSON(researchBundle), 24000)}`;
@@ -2930,17 +3244,25 @@ Use Korean.
 Return shape:
 {
   "strategySummary": "one short Korean sentence",
-  "blocks": [
-    {
-      "id": "must match an existing runtimeGraph block id",
-      "description": "one short sentence shown in selected block card",
-      "roleDescription": "1-2 sentences explaining exactly what this block does in this strategy",
-      "tradingCriterion": "only for action blocks: the condition/time/risk criterion that causes this trade to execute. Empty string for non-action blocks.",
-      "inputSummary": "one short sentence naming the concrete inputs this block uses",
-      "outputSummary": "one short sentence naming the concrete values/results this block produces"
-    }
-  ]
-}
+	  "blocks": [
+	    {
+	      "id": "must match an existing runtimeGraph block id",
+	      "description": "one short sentence shown in selected block card",
+	      "roleDescription": "1-2 sentences explaining exactly what this block does in this strategy",
+	      "tradingCriterion": "only for action blocks: the condition/time/risk criterion that causes this trade to execute. Empty string for non-action blocks.",
+	      "inputSummary": "one short sentence naming the concrete inputs this block uses",
+	      "outputSummary": "one short sentence naming the concrete values/results this block produces"
+	    }
+	  ],
+	  "connections": [
+	    {
+	      "id": "must match an existing runtimeGraph connection id",
+	      "fromId": "source block id",
+	      "toId": "target block id",
+	      "label": "short Korean easy-view arrow label"
+	    }
+	  ]
+	}
 
 Rules:
 - Include one entry for every runtimeGraph block.
@@ -2949,8 +3271,10 @@ Rules:
 - For non-action blocks, tradingCriterion must be "".
 - Easy view abstraction rule: any block that does not expose user-adjustable CEX/DEX parameters may be summarized into a higher-level strategy stage.
 - Write non-action descriptions so they compose well when grouped with neighboring data/feed/formula/trigger blocks.
-- If a trigger/condition branches into multiple paths, describe each branch by its actual outcome so the easy view can split the abstraction into separate paths.
-- Prefer trader language: 시세, 베이시스, 진입, 청산, 리밸런싱, 주문, 체결 결과.
+	- If a trigger/condition branches into multiple paths, describe each branch by its actual outcome so the easy view can split the abstraction into separate paths.
+	- Include one short label for every runtimeGraph connection. Labels must describe why the next block receives control/data, not the internal connection kind.
+	- Keep connection labels compact: 2-5 Korean words, preferably 10 Korean characters or fewer.
+	- Prefer trader language: 시세, 베이시스, 진입, 청산, 리밸런싱, 주문, 체결 결과.
   `.trim();
 }
 
@@ -2971,6 +3295,18 @@ function enrichStrategyGraphWithOverview(strategyGraph, overviewPayload) {
       .map((item) => [normalizeText(item.id), item])
       .filter(([id]) => Boolean(id)),
   );
+  const connectionOverviewByID = new Map();
+  const connectionOverviewByPair = new Map();
+  (Array.isArray(overviewPayload?.connections) ? overviewPayload.connections : [])
+    .map((item) => normalizeObject(item))
+    .filter(Boolean)
+    .forEach((item) => {
+      const id = normalizeText(item.id);
+      const fromId = normalizeText(item.fromId || item.from || item.source || item.sourceId);
+      const toId = normalizeText(item.toId || item.to || item.target || item.targetId);
+      if (id) connectionOverviewByID.set(id, item);
+      if (fromId && toId) connectionOverviewByPair.set(`${fromId}->${toId}`, item);
+    });
 
   const blocks = Array.isArray(graph.blocks)
     ? graph.blocks.map((block) => {
@@ -2995,6 +3331,20 @@ function enrichStrategyGraphWithOverview(strategyGraph, overviewPayload) {
       };
     })
     : graph.blocks;
+  const connections = Array.isArray(graph.connections)
+    ? graph.connections.map((connection) => {
+      const id = normalizeText(connection?.id);
+      const fromId = normalizeText(connection?.fromId);
+      const toId = normalizeText(connection?.toId);
+      const overview = connectionOverviewByID.get(id) || connectionOverviewByPair.get(`${fromId}->${toId}`);
+      const label = normalizeText(overview?.label || overview?.easyLabel);
+      if (!label) return connection;
+      return {
+        ...connection,
+        easyLabel: label,
+      };
+    })
+    : graph.connections;
 
   return {
     ...graph,
@@ -3004,6 +3354,7 @@ function enrichStrategyGraphWithOverview(strategyGraph, overviewPayload) {
       easyOverviewSummary: normalizeText(overviewPayload?.strategySummary),
     },
     blocks,
+    connections,
   };
 }
 
@@ -3044,7 +3395,11 @@ Hard validation target:
 - condition triggers need triggerType="condition" and a non-empty condition, e.g. stream-1::lastPrice > threshold-1
 - Formula/indicator dependencies must be preserved as data-flow connections. Do not bypass required formula nodes by connecting raw market feeds directly to actions.
 - Raw market feeds must flow into formula/indicator nodes first when a derived signal is required. Actions must be downstream of triggers.
+- Preserve or add runtimeGraph.metadata.strategyBlock. It is the UI strategy container and must list all runtimeGraph block ids in nodeIds.
 - Preserve or add runtimeGraph.metadata.workflowGroups. Each group must define id, title, purpose, nodeIds, canAbstract, and mustStayVisibleNodeIds.
+- Workflow groups are rendered as visible sequence blocks in advanced view. Include sequenceType and order when missing. Do not add executable block types named "strategy" or "sequence".
+- runtimeGraph.metadata.workflowGroups must contain only visible trading/runtime sequences. Never repair by adding AI-loop phases such as intent parsing, web/research discovery, KG retrieval, candidate building, ranking/scoring research, solver planning, or workflow planning.
+- Keep discovery/ranking evidence outside runtimeGraph; runtimeGraph must show only data/state reads, capital readiness, approvals, deposits, staking, order/swap execution, monitoring, rebalancing, claim, exit, and kill-switch flows.
 - Every runtimeGraph block must belong to exactly one workflow, either through config.workflowId or workflowGroups[].nodeIds.
 - Workflow groups are semantic phases, not arbitrary layout clusters. Keep editable actions, branch triggers, Init approval/readiness, and Kill switch trigger/action visible via mustStayVisibleNodeIds or canAbstract=false.
 - Use action-input only for data/parameters required by the action. Never use action-input as a substitute for trigger logic.
@@ -3052,9 +3407,11 @@ Hard validation target:
 - For action outputs, use action-result from action blocks to normal, trigger, or monitoring blocks.
 - Do not connect action directly to action.
 - If a later action depends on an earlier action result, add a confirmation trigger and any required formula nodes first.
+- Sequential execution must be visible in the graph: Action A -> action-result -> confirmation trigger -> trigger-action -> Action B. Do not fan out multiple dependent actions from the same trigger when they must run one after another.
 - Use filledQty, avgFillPrice, status, orderId, txHash, amountOut, executionPrice outputs instead of requested order quantities when chaining fills.
 - Time/schedule/DCA cadence must be represented as one trigger block with triggerType="time" and intervalMs; if it gates a condition, use trigger-input from time trigger to condition trigger. Do not repair it into normal interval/time-pulse + condition trigger.
 - Preserve or add the Init sequence. It must remain visible and verify capital location, balances/allowances/collateral, and readiness before the first execution action can use funds.
+- If user context includes CEX Balance MyData, preserve or add the balance snapshot id, spendable asset/amount, editable spend cap, and a server-side fresh balance re-check before live orders.
 - Preserve or add the kill switch. It must remain visible as trigger -> close/cancel/reduce-only/unwind action and must be able to halt the strategy for manual stop, drawdown breach, stale data, disconnect, or failed hedge.
 - Kill switch capital objective: collect strategy assets into lower-volatility assets such as USDC, USDT, DAI, USD, or KRW. Do not leave assets in volatile base tokens, LP positions, or perpetual exposure unless explicitly requested.
 - Mark safety configs with killSwitch, emergencyStop, capitalSource, capitalSink, safeAsset, and safetyObjective when applicable.
@@ -3094,6 +3451,10 @@ function buildStrategyRepairUserPrompt({
   }
   if (orchestrationPlan && typeof orchestrationPlan === 'object') {
     text += `\n\nOrchestration plan:\n${trimForLog(stringifyJSON(orchestrationPlan), 6000)}`;
+    const workflowSection = buildStrategyWorkflowPromptSection(orchestrationPlan.strategyWorkflowPlan);
+    if (workflowSection) {
+      text += `\n\n${trimForLog(workflowSection, 14000)}`;
+    }
   }
   if (researchBundle && typeof researchBundle === 'object') {
     text += `\n\nResearch bundle:\n${trimForLog(stringifyJSON(researchBundle), 12000)}`;
@@ -3687,12 +4048,40 @@ function coerceStrategyGraphForSchema(rawGraph, prompt = '') {
   const strategy = normalizeObject(graph.strategy) || {};
   const name = normalizeText(strategy.name || graph.name || graph.title || prompt) || 'AI Generated Strategy';
   const id = normalizeText(strategy.id) || slugifyForPath(name, 'ai-generated-strategy');
+  const blockIds = normalizedGraphShape.blocks.map((block) => block.id).filter(Boolean);
+  const metadata = normalizeObject(graph.metadata) || {};
+  const rawStrategyBlock = normalizeObject(metadata.strategyBlock);
+  const workflowGroups = Array.isArray(metadata.workflowGroups) && metadata.workflowGroups.length > 0
+    ? metadata.workflowGroups
+    : [{
+      id: 'main-workflow',
+      title: '메인 전략 흐름',
+      purpose: '전략의 핵심 데이터, 조건, 실행 흐름을 담는 기본 시퀀스입니다.',
+      sequenceType: 'workflow',
+      order: 1,
+      nodeIds: blockIds,
+      canAbstract: true,
+      mustStayVisibleNodeIds: normalizedGraphShape.blocks
+        .filter((block) => block.type === 'action' || block.type === 'trigger' || isKillSwitchBlock(block) || isInitSafetyBlock(block))
+        .map((block) => block.id),
+    }];
 
   return {
     ...graph,
     schemaVersion: Number(graph.schemaVersion) || 1,
     kind: 'hershy-strategy-graph',
     strategy: { ...strategy, id, name },
+    metadata: {
+      ...metadata,
+      strategyBlock: {
+        ...(rawStrategyBlock || {}),
+        id: normalizeText(rawStrategyBlock?.id) || id,
+        title: normalizeText(rawStrategyBlock?.title || rawStrategyBlock?.label || rawStrategyBlock?.name) || name,
+        purpose: normalizeText(rawStrategyBlock?.purpose || rawStrategyBlock?.description || rawStrategyBlock?.summary) || '전략 전체를 감싸는 최상위 실행 컨테이너입니다.',
+        nodeIds: blockIds,
+      },
+      workflowGroups,
+    },
     blocks: normalizedGraphShape.blocks,
     connections: normalizedGraphShape.connections,
   };
@@ -3984,6 +4373,17 @@ function hasRuntimeKillSwitch(blocks, connections) {
     killActions.has(normalizeText(connection?.toId)));
 }
 
+function shouldAttachRuntimeKillSwitch(strategyGraph, blocks) {
+  const metadata = normalizeConfigObject(strategyGraph?.metadata);
+  const sequenceIsolation = normalizeText(metadata.sequenceIsolation).toLowerCase();
+  const readiness = normalizeConfigObject(metadata.executionReadiness);
+  if (sequenceIsolation.includes('monitoring-only') || (readiness.liveExecutable === false && readiness.monitoringReady === true)) {
+    return false;
+  }
+
+  return blocks.some((block) => normalizeText(block?.type) === 'action' && !isKillSwitchBlock(block));
+}
+
 function defaultKillSwitchExchangeName(exchangeConnections = []) {
   const connected = getConnectedExchangeConnections(exchangeConnections);
   return normalizeText(connected[0]?.name || connected[0]?.id) || 'Binance';
@@ -4045,7 +4445,10 @@ function inferKillSwitchActionConfig(blocks, exchangeConnections = []) {
   };
 }
 
-function ensureRuntimeKillSwitch(blocks, connections, existing, exchangeConnections = []) {
+function ensureRuntimeKillSwitch(blocks, connections, existing, strategyGraph = {}, exchangeConnections = []) {
+  if (!shouldAttachRuntimeKillSwitch(strategyGraph, blocks)) {
+    return;
+  }
   if (hasRuntimeKillSwitch(blocks, connections)) {
     return;
   }
@@ -5003,7 +5406,33 @@ function lintRuntimeStrategyGraph(strategyGraph, { prompt = '', intentPlan = nul
   const blockByID = new Map(blocks.map((block) => [block.id, block]));
   const semantics = deriveStrategySemantics({ strategyGraph: graph, prompt, intentPlan, logicIR });
   const issues = [];
-  const workflowGroups = normalizeWorkflowGroupsForLint(normalizeObject(graph.metadata) || {});
+  const metadata = normalizeObject(graph.metadata) || {};
+  const strategyBlock = normalizeObject(metadata.strategyBlock);
+  const workflowGroups = normalizeWorkflowGroupsForLint(metadata);
+
+  if (!strategyBlock) {
+    issues.push(logicIssue(
+      'STRATEGY_BLOCK_REQUIRED',
+      'error',
+      'runtimeGraph.metadata.strategyBlock is missing.',
+      {},
+      'Add metadata.strategyBlock with id, title, purpose, and nodeIds for the advanced-view strategy container.',
+    ));
+  } else {
+    const strategyNodeIds = new Set(normalizeStringList(strategyBlock.nodeIds || strategyBlock.nodes || strategyBlock.blockIds));
+    const missingStrategyNodeIds = blocks
+      .map((block) => block.id)
+      .filter((blockId) => !strategyNodeIds.has(blockId));
+    if (missingStrategyNodeIds.length > 0) {
+      issues.push(logicIssue(
+        'STRATEGY_BLOCK_NODE_IDS_INCOMPLETE',
+        'error',
+        `metadata.strategyBlock.nodeIds is missing ${missingStrategyNodeIds.length} block(s).`,
+        { missingNodeIds: missingStrategyNodeIds.slice(0, 12) },
+        'metadata.strategyBlock.nodeIds must list every runtimeGraph block id.',
+      ));
+    }
+  }
 
   if (workflowGroups.length === 0) {
     issues.push(logicIssue(
@@ -5397,7 +5826,7 @@ function normalizeStrategyGraphForRunner(strategyGraph, prompt = '', semanticCon
   connections = coerced.connections;
   blockByID = new Map(blocks.map((block) => [block.id, block]));
   existing = rebuildConnectionSet(connections);
-  ensureRuntimeKillSwitch(blocks, connections, existing, semanticContext.exchangeConnections || []);
+  ensureRuntimeKillSwitch(blocks, connections, existing, strategyGraph, semanticContext.exchangeConnections || []);
   blockByID = new Map(blocks.map((block) => [block.id, block]));
   existing = rebuildConnectionSet(connections);
 
@@ -5488,6 +5917,72 @@ async function validateStrategyGraphWithRunner(strategyGraph) {
   }
 }
 
+function analyzeGeneratedHershyCode(programCode) {
+  const source = normalizeText(programCode);
+  const blockInventory = [];
+  const connections = [];
+  const blockPattern = /\{ID:\s*"([^"]+)",\s*Type:\s*"([^"]+)",\s*Name:\s*"([^"]*)"\}/g;
+  const connectionPattern = /\{ID:\s*"([^"]+)",\s*Kind:\s*"([^"]+)",\s*FromID:\s*"([^"]+)",\s*ToID:\s*"([^"]+)"\}/g;
+
+  let match;
+  while ((match = blockPattern.exec(source)) !== null) {
+    blockInventory.push({
+      id: match[1],
+      type: match[2],
+      name: match[3],
+    });
+  }
+  while ((match = connectionPattern.exec(source)) !== null) {
+    connections.push({
+      id: match[1],
+      kind: match[2],
+      fromId: match[3],
+      toId: match[4],
+    });
+  }
+
+  return {
+    source: 'generated_strategy.go-static-analysis',
+    analyzedAt: new Date().toISOString(),
+    blockInventory,
+    connections,
+  };
+}
+
+function compareGeneratedCodeAnalysisToStrategy(staticAnalysis, strategyGraph) {
+  const expectedBlocks = Array.isArray(strategyGraph?.blocks) ? strategyGraph.blocks : [];
+  const expectedConnections = Array.isArray(strategyGraph?.connections) ? strategyGraph.connections : [];
+  const analyzedBlockIds = new Set(staticAnalysis.blockInventory.map((item) => item.id));
+  const analyzedConnectionIds = new Set(staticAnalysis.connections.map((item) => item.id));
+  const errors = [];
+
+  expectedBlocks.forEach((block) => {
+    const blockId = normalizeText(block?.id);
+    if (blockId && !analyzedBlockIds.has(blockId)) {
+      errors.push(`generated_strategy.go is missing block ${blockId}`);
+    }
+  });
+  expectedConnections.forEach((connection) => {
+    const connectionId = normalizeText(connection?.id);
+    if (connectionId && !analyzedConnectionIds.has(connectionId)) {
+      errors.push(`generated_strategy.go is missing connection ${connectionId}`);
+    }
+  });
+
+  return {
+    ok: errors.length === 0,
+    errors,
+    expected: {
+      blocks: expectedBlocks.length,
+      connections: expectedConnections.length,
+    },
+    analyzed: {
+      blocks: staticAnalysis.blockInventory.length,
+      connections: staticAnalysis.connections.length,
+    },
+  };
+}
+
 async function writeStrategyRuntimeArtifacts(strategyGraph, validationHistory = [], options = {}) {
   if (!getAIBooleanEnv('AI_STRATEGY_WRITE_RUNTIME_ARTIFACTS', true)) {
     return null;
@@ -5531,6 +6026,11 @@ async function writeStrategyRuntimeArtifacts(strategyGraph, validationHistory = 
     },
   );
   const generatedGoCode = await fs.readFile(mainGoPath, 'utf8');
+  const staticAnalysis = analyzeGeneratedHershyCode(generatedGoCode);
+  const staticAnalysisConsistency = compareGeneratedCodeAnalysisToStrategy(staticAnalysis, strategyGraph);
+  if (!staticAnalysisConsistency.ok) {
+    throw new Error(`generated_strategy.go static analysis mismatch: ${staticAnalysisConsistency.errors.slice(0, 6).join('; ')}`);
+  }
 
   const relDir = path.relative(REPO_ROOT, dir);
   const relStrategyPath = path.relative(REPO_ROOT, strategyPath);
@@ -5597,6 +6097,8 @@ Files:
     generatedGoPath: relMainGoPath,
     programCode: generatedGoCode,
     generatedGoCode,
+    staticAnalysis,
+    staticAnalysisConsistency,
     validationPath: path.relative(REPO_ROOT, validationPath),
     readmePath: path.relative(REPO_ROOT, readmePath),
     hostProgram,

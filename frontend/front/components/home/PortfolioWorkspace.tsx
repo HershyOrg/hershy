@@ -7,16 +7,20 @@ import {
   BriefcaseBusiness,
   Landmark,
   PieChart,
+  RefreshCw,
   ShieldCheck,
   Wallet,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
-import type { ExchangeConnection, MarketRow } from "./types";
+import type { BalanceMyDataSnapshot, ExchangeConnection, MarketRow } from "./types";
 
 type PortfolioWorkspaceProps = {
   exchangeConnections: ExchangeConnection[];
+  balanceSnapshots?: BalanceMyDataSnapshot[];
   marketRows: MarketRow[];
   strategyCount: number;
+  syncingBalanceConnectionId?: string;
+  onSyncBalance?: (connectionId: string, market?: "spot" | "futures") => void;
   onManageExchanges: () => void;
 };
 
@@ -30,7 +34,14 @@ type PortfolioHolding = {
   note?: string;
 };
 
-type PortfolioVenuePreset = {
+type PortfolioVenueView = {
+  id: string;
+  name: string;
+  status: string;
+  live: boolean;
+  type: ExchangeConnection["type"];
+  hasLiveBalance: boolean;
+  balanceSnapshot?: BalanceMyDataSnapshot;
   equityUsd: number;
   availableUsd: number;
   deployedUsd: number;
@@ -38,14 +49,6 @@ type PortfolioVenuePreset = {
   syncLabel: string;
   riskLabel: string;
   holdings: PortfolioHolding[];
-};
-
-type PortfolioVenueView = PortfolioVenuePreset & {
-  id: string;
-  name: string;
-  status: string;
-  live: boolean;
-  type: ExchangeConnection["type"];
 };
 
 type AggregatedAsset = {
@@ -97,86 +100,6 @@ const DONUT_COLORS = [
   "#ef4444",
 ] as const;
 
-const PORTFOLIO_PRESETS: Record<string, PortfolioVenuePreset> = {
-  binance: {
-    equityUsd: 18540,
-    availableUsd: 5120,
-    deployedUsd: 13420,
-    pnl24h: 2.84,
-    syncLabel: "2초 전 REST 잔고 동기화",
-    riskLabel: "현물/선물 헤지 68%",
-    holdings: [
-      { symbol: "BTC", name: "Bitcoin", amount: 0.1524, valueUsd: 10210, allocation: 55.1, pnl24h: 1.84 },
-      { symbol: "ETH", name: "Ethereum", amount: 1.86, valueUsd: 6120, allocation: 33.0, pnl24h: 3.62 },
-      { symbol: "USDT", name: "Tether", amount: 2210, valueUsd: 2210, allocation: 11.9, pnl24h: 0, note: "드라이런 대기 자금" },
-    ],
-  },
-  bybit: {
-    equityUsd: 9640,
-    availableUsd: 2480,
-    deployedUsd: 7160,
-    pnl24h: 1.27,
-    syncLabel: "5초 전 unified account 스냅샷",
-    riskLabel: "perp basis 포지션 3개",
-    holdings: [
-      { symbol: "SOL", name: "Solana", amount: 92, valueUsd: 4130, allocation: 42.8, pnl24h: 2.15 },
-      { symbol: "ETH", name: "Ethereum", amount: 0.98, valueUsd: 3220, allocation: 33.4, pnl24h: 3.62 },
-      { symbol: "USDC", name: "USD Coin", amount: 2290, valueUsd: 2290, allocation: 23.8, pnl24h: 0.03 },
-    ],
-  },
-  okx: {
-    equityUsd: 12310,
-    availableUsd: 3310,
-    deployedUsd: 9000,
-    pnl24h: -0.42,
-    syncLabel: "cross margin wallet 기준",
-    riskLabel: "옵션 델타 중립 유지",
-    holdings: [
-      { symbol: "BTC", name: "Bitcoin", amount: 0.083, valueUsd: 5570, allocation: 45.3, pnl24h: 1.84 },
-      { symbol: "ARB", name: "Arbitrum", amount: 3840, valueUsd: 3480, allocation: 28.3, pnl24h: -2.4 },
-      { symbol: "USDT", name: "Tether", amount: 3260, valueUsd: 3260, allocation: 26.4, pnl24h: 0 },
-    ],
-  },
-  gate: {
-    equityUsd: 7040,
-    availableUsd: 1880,
-    deployedUsd: 5160,
-    pnl24h: 0.88,
-    syncLabel: "read-only API 마지막 확인 1분 전",
-    riskLabel: "알트 분산 5종",
-    holdings: [
-      { symbol: "XRP", name: "XRP", amount: 8240, valueUsd: 4390, allocation: 62.4, pnl24h: 0.72 },
-      { symbol: "DOGE", name: "Dogecoin", amount: 9420, valueUsd: 1390, allocation: 19.7, pnl24h: 1.14 },
-      { symbol: "USDT", name: "Tether", amount: 1260, valueUsd: 1260, allocation: 17.9, pnl24h: 0 },
-    ],
-  },
-  polymarket: {
-    equityUsd: 5280,
-    availableUsd: 1910,
-    deployedUsd: 3370,
-    pnl24h: 4.16,
-    syncLabel: "polygon funder / CLOB 잔고 조합",
-    riskLabel: "이벤트 포지션 4개",
-    holdings: [
-      { symbol: "USDC", name: "USD Coin", amount: 1880, valueUsd: 1880, allocation: 35.6, pnl24h: 0.01 },
-      { symbol: "TRUMP-YES", name: "Trump Yes", amount: 1240, valueUsd: 1620, allocation: 30.7, pnl24h: 8.42, note: "선거 이벤트 헤지" },
-      { symbol: "RATE-CUT", name: "Rate Cut", amount: 980, valueUsd: 1040, allocation: 19.7, pnl24h: 3.64 },
-      { symbol: "BTC-80K", name: "BTC 80K", amount: 520, valueUsd: 740, allocation: 14.0, pnl24h: 5.11 },
-    ],
-  },
-};
-
-const FALLBACK_PRESET: PortfolioVenuePreset = {
-  equityUsd: 2500,
-  availableUsd: 1700,
-  deployedUsd: 800,
-  pnl24h: 0,
-  syncLabel: "잔고 API 연결 전",
-  riskLabel: "연결 필요",
-  holdings: [
-    { symbol: "USDT", name: "Tether", amount: 2500, valueUsd: 2500, allocation: 100, pnl24h: 0, note: "샘플 잔고" },
-  ],
-};
 
 function formatUsd(value: number) {
   return USD_FORMATTER.format(value);
@@ -195,15 +118,85 @@ function formatSignedPercent(value: number) {
   return `${sign}${PERCENT_FORMATTER.format(value)}%`;
 }
 
-function buildVenue(connection: ExchangeConnection): PortfolioVenueView {
-  const preset = PORTFOLIO_PRESETS[connection.id] ?? FALLBACK_PRESET;
+function parseAmount(value: unknown) {
+  const amount = Number(value);
+  return Number.isFinite(amount) ? amount : 0;
+}
+
+function formatSnapshotTime(value?: string) {
+  if (!value) return "방금 전 실잔고 동기화";
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return "실잔고 동기화됨";
+  return `${date.toLocaleString("ko-KR", { month: "numeric", day: "numeric", hour: "2-digit", minute: "2-digit" })} 실잔고`;
+}
+
+function findBalanceSnapshot(connection: ExchangeConnection, snapshots: BalanceMyDataSnapshot[]) {
+  const connectionTokens = [
+    connection.id,
+    connection.name,
+  ].map((value) => String(value || "").toLowerCase());
+  return snapshots
+    .filter((snapshot) => {
+      const snapshotTokens = [
+        snapshot.connectionId,
+        snapshot.exchangeId,
+        snapshot.exchangeName,
+        snapshot.exchange,
+      ].map((value) => String(value || "").toLowerCase());
+      return connectionTokens.some((token) => token && snapshotTokens.includes(token));
+    })
+    .sort((left, right) => String(right.updatedAt || "").localeCompare(String(left.updatedAt || "")))[0];
+}
+
+function buildLiveHoldings(snapshot: BalanceMyDataSnapshot): PortfolioHolding[] {
+  const assets = Array.isArray(snapshot.assets) ? snapshot.assets : [];
+  const totalValue = snapshot.totals?.totalValueUsd
+    ?? assets.reduce((sum, asset) => sum + parseAmount(asset.valueUsd ?? asset.availableUsd), 0);
+  return assets
+    .filter((asset) => parseAmount(asset.total ?? asset.available ?? asset.free) > 0)
+    .slice(0, 18)
+    .map((asset) => {
+      const symbol = String(asset.asset || "");
+      const amount = parseAmount(asset.total ?? asset.available ?? asset.free);
+      const valueUsd = parseAmount(asset.valueUsd ?? asset.availableUsd);
+      const available = String(asset.available ?? asset.free ?? "");
+      return {
+        symbol,
+        name: symbol,
+        amount,
+        valueUsd,
+        allocation: totalValue > 0 ? (valueUsd / totalValue) * 100 : 0,
+        pnl24h: 0,
+        note: available ? `가용 ${available}` : "실잔고",
+      };
+    });
+}
+
+function buildVenue(connection: ExchangeConnection, snapshots: BalanceMyDataSnapshot[]): PortfolioVenueView {
+  const balanceSnapshot = findBalanceSnapshot(connection, snapshots);
+  const liveHoldings = balanceSnapshot ? buildLiveHoldings(balanceSnapshot) : [];
+  const liveEquity = balanceSnapshot?.totals?.totalValueUsd ?? liveHoldings.reduce((sum, holding) => sum + holding.valueUsd, 0);
+  const liveAvailable = balanceSnapshot?.totals?.totalAvailableUsd
+    ?? balanceSnapshot?.spendable?.totalStableAvailableUsd
+    ?? liveHoldings.reduce((sum, holding) => sum + holding.valueUsd, 0);
+  const hasLiveBalance = Boolean(balanceSnapshot);
   return {
-    ...preset,
     id: connection.id,
     name: connection.name,
     status: connection.status,
     live: connection.status === "연결됨",
     type: connection.type,
+    hasLiveBalance,
+    balanceSnapshot,
+    equityUsd: hasLiveBalance ? parseAmount(liveEquity) : 0,
+    availableUsd: hasLiveBalance ? parseAmount(liveAvailable) : 0,
+    deployedUsd: hasLiveBalance ? Math.max(0, parseAmount(liveEquity) - parseAmount(liveAvailable)) : 0,
+    pnl24h: 0,
+    syncLabel: hasLiveBalance ? formatSnapshotTime(balanceSnapshot?.updatedAt) : "잔고 동기화 필요",
+    riskLabel: hasLiveBalance
+      ? `${balanceSnapshot?.market || balanceSnapshot?.accountType || "spot"} · ${balanceSnapshot?.spendable?.preferredAsset || "잔고"} 사용 가능`
+      : "연결됨 · 실잔고 미동기화",
+    holdings: hasLiveBalance ? liveHoldings : [],
   };
 }
 
@@ -244,6 +237,14 @@ function aggregateAssets(venues: PortfolioVenueView[]) {
 
 function buildWatchItems(venues: PortfolioVenueView[], totalEquity: number) {
   const items: Array<{ title: string; detail: string; tone: "neutral" | "warn" | "good" }> = [];
+
+  if (venues.length === 0) {
+    return [{
+      title: "연결된 자산 계정 없음",
+      detail: "거래소를 연결하고 잔고를 동기화하면 포트폴리오와 전략 자금 기준이 표시됩니다.",
+      tone: "neutral",
+    }];
+  }
 
   const mostConcentrated = aggregateAssets(venues)[0];
   if (mostConcentrated && totalEquity > 0) {
@@ -408,12 +409,18 @@ function AllocationDonutCard({
 
 export function PortfolioWorkspace({
   exchangeConnections,
+  balanceSnapshots = [],
   marketRows,
   strategyCount,
+  syncingBalanceConnectionId = "",
+  onSyncBalance,
   onManageExchanges,
 }: PortfolioWorkspaceProps) {
-  const venues = exchangeConnections.map(buildVenue);
-  const liveVenueCount = venues.filter((venue) => venue.live).length;
+  const connectedExchangeCount = exchangeConnections.filter((connection) => connection.status === "연결됨").length;
+  const venues = exchangeConnections
+    .map((connection) => buildVenue(connection, balanceSnapshots))
+    .filter((venue) => venue.live || venue.hasLiveBalance);
+  const syncedVenueCount = venues.filter((venue) => venue.hasLiveBalance).length;
   const totalEquity = venues.reduce((sum, venue) => sum + venue.equityUsd, 0);
   const totalAvailable = venues.reduce((sum, venue) => sum + venue.availableUsd, 0);
   const totalDeployed = venues.reduce((sum, venue) => sum + venue.deployedUsd, 0);
@@ -425,7 +432,7 @@ export function PortfolioWorkspace({
     venues,
     (venue) => venue.name,
     (venue) => venue.equityUsd,
-    (venue) => `${venue.type} · ${venue.live ? "Live" : "Demo"}`,
+    (venue) => `${venue.type} · ${venue.hasLiveBalance ? "실잔고" : "동기화 필요"}`,
   );
   const assetAllocationSlices = buildAllocationSlices(
     aggregatedAssets,
@@ -434,7 +441,7 @@ export function PortfolioWorkspace({
     (asset) => asset.venues.join(" · "),
   );
   const watchItems = buildWatchItems(venues, totalEquity);
-  const defaultVenueId = venues.find((venue) => venue.live)?.id ?? venues[0]?.id ?? "";
+  const defaultVenueId = venues.find((venue) => venue.hasLiveBalance)?.id ?? venues[0]?.id ?? "";
   const [selectedVenueId, setSelectedVenueId] = useState(defaultVenueId);
 
   useEffect(() => {
@@ -444,6 +451,12 @@ export function PortfolioWorkspace({
   }, [defaultVenueId, selectedVenueId, venues]);
 
   const selectedVenue = venues.find((venue) => venue.id === selectedVenueId) ?? venues[0] ?? null;
+  const canSyncSelectedBalance = Boolean(
+    onSyncBalance &&
+    selectedVenue &&
+    /binance/i.test(`${selectedVenue.id} ${selectedVenue.name}`),
+  );
+  const isSyncingSelectedBalance = Boolean(selectedVenue && syncingBalanceConnectionId === selectedVenue.id);
 
   return (
     <div className="h-full overflow-auto bg-[radial-gradient(circle_at_top_left,_rgba(251,191,36,0.12),_transparent_28%),radial-gradient(circle_at_right,_rgba(14,165,233,0.12),_transparent_24%),linear-gradient(180deg,#f8fafc_0%,#eef2ff_100%)]">
@@ -456,10 +469,10 @@ export function PortfolioWorkspace({
                   Portfolio Command Center
                 </span>
                 <span className="rounded-full border border-slate-200 bg-white px-3 py-1 text-[11px] font-semibold text-slate-600">
-                  거래소 {venues.length}개
+                  자산 계정 {venues.length}개
                 </span>
                 <span className="rounded-full border border-emerald-200 bg-emerald-50 px-3 py-1 text-[11px] font-semibold text-emerald-700">
-                  라이브 연결 {liveVenueCount}개
+                  실잔고 {syncedVenueCount}개
                 </span>
               </div>
               <h2 className="mt-4 text-3xl font-black tracking-tight text-slate-950">
@@ -467,8 +480,7 @@ export function PortfolioWorkspace({
                 <br className="hidden md:block" /> 전략이 실제로 먹는 증거금까지 같이 봅니다.
               </h2>
               <p className="mt-3 max-w-3xl text-sm leading-6 text-slate-600">
-                CEX/DEX별 잔고, 대기 자금, 전략에 묶인 자금을 분리해서 보여주는 UI입니다. 실제 잔고 API를 붙이면 이 구조 그대로
-                라이브 데이터로 교체할 수 있도록 거래소 카드와 상세 테이블을 분리해 두었습니다.
+                연결되어 있고 잔고가 동기화된 계정만 포트폴리오 자산으로 집계합니다. 아직 연결하지 않은 거래소의 샘플 잔고는 표시하지 않습니다.
               </p>
 
               <div className="mt-5 grid gap-3 md:grid-cols-3">
@@ -502,7 +514,7 @@ export function PortfolioWorkspace({
             </div>
 
             <div className="rounded-[24px] border border-slate-200 bg-white/88 p-4 shadow-sm">
-              <div className="flex items-center justify-between">
+              <div className="flex flex-wrap items-center justify-between gap-2">
                 <div>
                   <div className="text-[11px] font-bold uppercase tracking-[0.16em] text-slate-500">Available to Deploy</div>
                   <div className="mt-1 text-2xl font-black text-slate-950">{formatCompactUsd(totalAvailable)}</div>
@@ -514,6 +526,15 @@ export function PortfolioWorkspace({
                 >
                   <Landmark className="h-4 w-4 text-amber-600" />
                   거래소 관리
+                </button>
+                <button
+                  type="button"
+                  onClick={() => selectedVenue ? onSyncBalance?.(selectedVenue.id, "spot") : undefined}
+                  disabled={!canSyncSelectedBalance || isSyncingSelectedBalance}
+                  className="inline-flex h-10 items-center gap-2 rounded-xl border border-emerald-200 bg-emerald-50 px-3 text-sm font-bold text-emerald-700 hover:bg-emerald-100 disabled:cursor-not-allowed disabled:border-slate-200 disabled:bg-slate-100 disabled:text-slate-400"
+                >
+                  <RefreshCw className={cn("h-4 w-4", isSyncingSelectedBalance ? "animate-spin" : "")} />
+                  {isSyncingSelectedBalance ? "동기화 중" : "잔고 동기화"}
                 </button>
               </div>
 
@@ -548,12 +569,13 @@ export function PortfolioWorkspace({
                 <h3 className="mt-1 text-xl font-black text-slate-950">거래소별 자산 보기</h3>
               </div>
               <div className="rounded-full border border-slate-200 bg-slate-50 px-3 py-1 text-xs font-semibold text-slate-600">
-                라이브 연결 {liveVenueCount} / {venues.length}
+                연결 {connectedExchangeCount} / 실잔고 {syncedVenueCount}
               </div>
             </div>
 
-            <div className="mt-4 grid gap-3 lg:grid-cols-2 2xl:grid-cols-3">
-              {venues.map((venue) => {
+            {venues.length > 0 ? (
+              <div className="mt-4 grid gap-3 lg:grid-cols-2 2xl:grid-cols-3">
+                {venues.map((venue) => {
                 const cashRatio = venue.equityUsd > 0 ? (venue.availableUsd / venue.equityUsd) * 100 : 0;
                 return (
                   <button
@@ -577,12 +599,12 @@ export function PortfolioWorkspace({
                           <div className="text-lg font-black">{venue.name}</div>
                         </div>
                         <div className={cn("mt-1 text-xs font-semibold", selectedVenue?.id === venue.id ? "text-slate-300" : "text-slate-500")}>
-                          {venue.type} · {venue.live ? venue.syncLabel : "데모 잔고 프리셋"}
+                          {venue.type} · {venue.hasLiveBalance ? venue.syncLabel : "잔고 동기화 필요"}
                         </div>
                       </div>
                       <span className={cn(
                         "rounded-full px-2.5 py-1 text-[11px] font-bold",
-                        venue.live
+                        venue.hasLiveBalance
                           ? selectedVenue?.id === venue.id
                             ? "bg-emerald-500/15 text-emerald-300"
                             : "bg-emerald-50 text-emerald-700"
@@ -590,7 +612,7 @@ export function PortfolioWorkspace({
                             ? "bg-amber-500/15 text-amber-300"
                             : "bg-amber-50 text-amber-700",
                       )}>
-                        {venue.live ? "Live" : "Demo"}
+                        {venue.hasLiveBalance ? "Synced" : "Live"}
                       </span>
                     </div>
 
@@ -614,7 +636,7 @@ export function PortfolioWorkspace({
                       <div className="h-2 overflow-hidden rounded-full bg-slate-200/80">
                         <div
                           className={cn("h-full rounded-full", selectedVenue?.id === venue.id ? "bg-white" : "bg-slate-900")}
-                          style={{ width: `${Math.min(Math.max(cashRatio, 6), 100)}%` }}
+                          style={{ width: venue.equityUsd > 0 ? `${Math.min(Math.max(cashRatio, 6), 100)}%` : "0%" }}
                         />
                       </div>
                       <div className={cn("text-[11px] font-semibold", selectedVenue?.id === venue.id ? "text-slate-300" : "text-slate-500")}>
@@ -623,8 +645,24 @@ export function PortfolioWorkspace({
                     </div>
                   </button>
                 );
-              })}
-            </div>
+                })}
+              </div>
+            ) : (
+              <div className="mt-4 rounded-3xl border border-dashed border-slate-300 bg-slate-50 px-5 py-8 text-center">
+                <div className="text-sm font-black text-slate-900">표시할 실잔고가 없습니다</div>
+                <p className="mx-auto mt-2 max-w-md text-sm leading-6 text-slate-500">
+                  거래소 관리에서 API 키를 저장하고 잔고 동기화를 실행하면 이 영역에 실제 자산 계정만 표시됩니다.
+                </p>
+                <button
+                  type="button"
+                  onClick={onManageExchanges}
+                  className="mt-4 inline-flex h-9 items-center gap-2 rounded-xl border border-slate-200 bg-white px-3 text-sm font-bold text-slate-700 hover:bg-slate-100"
+                >
+                  <Landmark className="h-4 w-4 text-amber-600" />
+                  거래소 관리
+                </button>
+              </div>
+            )}
 
             <div className="mt-4 grid gap-4 2xl:grid-cols-2">
               <AllocationDonutCard
@@ -649,7 +687,7 @@ export function PortfolioWorkspace({
                 Cross-Exchange Allocation
               </div>
               <div className="mt-4 space-y-3">
-                {aggregatedAssets.slice(0, 6).map((asset) => {
+                {aggregatedAssets.length > 0 ? aggregatedAssets.slice(0, 6).map((asset) => {
                   const ratio = totalEquity > 0 ? (asset.valueUsd / totalEquity) * 100 : 0;
                   return (
                     <div key={asset.symbol}>
@@ -673,7 +711,11 @@ export function PortfolioWorkspace({
                       </div>
                     </div>
                   );
-                })}
+                }) : (
+                  <div className="rounded-2xl border border-dashed border-slate-300 bg-slate-50 px-3 py-5 text-center text-sm font-semibold text-slate-500">
+                    잔고 동기화 후 자산 비중이 표시됩니다.
+                  </div>
+                )}
               </div>
             </section>
 
@@ -714,7 +756,7 @@ export function PortfolioWorkspace({
                 <div className="text-[11px] font-bold uppercase tracking-[0.16em] text-slate-500">Selected Venue</div>
                 <h3 className="mt-1 text-xl font-black text-slate-950">{selectedVenue.name} 자산 상세</h3>
                 <p className="mt-1 text-sm text-slate-500">
-                  {selectedVenue.live ? selectedVenue.syncLabel : "라이브 읽기 권한 연결 시 실잔고 API로 교체"} · {selectedVenue.riskLabel}
+                  {selectedVenue.hasLiveBalance ? selectedVenue.syncLabel : selectedVenue.live ? "잔고 동기화 버튼으로 실잔고 마이데이터 생성" : "라이브 읽기 권한 연결 시 실잔고 API로 교체"} · {selectedVenue.riskLabel}
                 </p>
               </div>
               <div className="flex flex-wrap gap-2">
@@ -736,7 +778,7 @@ export function PortfolioWorkspace({
                 <div>Weight</div>
               </div>
               <div className="divide-y divide-slate-200">
-                {selectedVenue.holdings.map((holding) => (
+                {selectedVenue.holdings.length > 0 ? selectedVenue.holdings.map((holding) => (
                   <div
                     key={`${selectedVenue.id}-${holding.symbol}`}
                     className="grid grid-cols-[minmax(0,1.6fr)_1fr_1fr_0.8fr_0.8fr] items-center gap-3 px-4 py-4 text-sm"
@@ -763,7 +805,11 @@ export function PortfolioWorkspace({
                       </div>
                     </div>
                   </div>
-                ))}
+                )) : (
+                  <div className="px-4 py-8 text-center text-sm font-semibold text-slate-500">
+                    아직 동기화된 자산이 없습니다.
+                  </div>
+                )}
               </div>
             </div>
           </section>

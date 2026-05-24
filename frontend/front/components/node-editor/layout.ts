@@ -1,5 +1,5 @@
 import dagre from "dagre";
-import { Node, Edge } from "@xyflow/react";
+import type { Node, Edge } from "@xyflow/react";
 
 const DEFAULT_NODE_WIDTH = 320;
 const DEFAULT_NODE_HEIGHT = 130;
@@ -13,6 +13,60 @@ const RANK_SEPARATION = 220;
 const NODE_SEPARATION = 120;
 const EDGE_SEPARATION = 90;
 const SIBLING_GAP = 96;
+const STRATEGY_GROUP_LANE_GAP = 96;
+const STRATEGY_GROUP_STACK_GAP = 42;
+
+function getBlockCount(data: Record<string, unknown> | undefined, key: string) {
+  const value = data?.[key];
+  return Array.isArray(value) ? value.length : 0;
+}
+
+function estimateNodeSize(node: Node) {
+  const data = node.data as Record<string, unknown> | undefined;
+  const inputCount = Math.max(getBlockCount(data, "inputBlocks"), 1);
+  const outputCount = Math.max(getBlockCount(data, "outputBlocks"), 1);
+  const expanded = data?.isExpanded !== false && data?.isExpanded !== undefined;
+  const viewMode = String(data?.viewMode ?? "");
+
+  if (node.type === "actionNode") {
+    return expanded
+      ? { width: 420, height: 560 + inputCount * 34 + outputCount * 28 }
+      : { width: 220, height: 118 + Math.max(0, inputCount - 1) * 16 };
+  }
+  if (node.type === "functionNode") {
+    return expanded
+      ? { width: 640, height: viewMode === "code" ? 650 : 590 + inputCount * 34 + outputCount * 34 }
+      : { width: 310, height: 282 + inputCount * 18 + outputCount * 18 };
+  }
+  if (node.type === "streamingNode") {
+    const compact = data?.isExpanded === false;
+    return compact
+      ? { width: 260, height: 172 + Math.min(outputCount, 4) * 42 }
+      : { width: 260, height: 520 + outputCount * 42 };
+  }
+  if (node.type === "monitoringNode") {
+    return { width: 420, height: 500 + Math.max(0, outputCount - 1) * 36 };
+  }
+  if (node.type === "codeEditor") {
+    return { width: 430, height: 360 };
+  }
+  if (node.type === "branchNode") {
+    return { width: 460, height: 180 };
+  }
+  if (node.type === "timelineFrame") {
+    return { width: 560, height: 380 };
+  }
+  if (node.type === "clickTrigger") {
+    return { width: 180, height: 184 };
+  }
+  if (node.type === "timeTrigger") {
+    return { width: 300, height: 170 };
+  }
+  if (node.type === "groupNode") {
+    return { width: GROUP_MIN_WIDTH, height: GROUP_MIN_HEIGHT };
+  }
+  return { width: DEFAULT_NODE_WIDTH, height: DEFAULT_NODE_HEIGHT };
+}
 
 function toNumber(value: unknown): number | undefined {
   if (typeof value === "number" && Number.isFinite(value)) return value;
@@ -36,6 +90,15 @@ function getNodeSize(node: Node) {
     toNumber(measured?.height) ??
     toNumber(style?.height) ??
     toNumber(node.height);
+
+  const estimate = estimateNodeSize(node);
+  if (node.type === "groupNode") {
+    width = width || estimate.width;
+    height = height || estimate.height;
+  } else {
+    width = Math.max(width || 0, estimate.width);
+    height = Math.max(height || 0, estimate.height);
+  }
 
   if (!width || !height) {
     if (node.type === "groupNode") {
@@ -84,6 +147,72 @@ function shouldPreserveStrategyStack(parentId: string, parentNode: Node | undefi
   const isSequenceStack = childNodes.length > 0 && childNodes.every((node) => node.type === "groupNode");
 
   return isStrategyLike && isSequenceStack;
+}
+
+function getStrategyGroupLanePriority(node: Node) {
+  const data = node.data as Record<string, unknown> | undefined;
+  const styleType = String(data?.styleType ?? "");
+  const sequenceType = String(data?.sequenceType ?? "").toLowerCase();
+  if (styleType === "pipeline" || sequenceType === "data-pipeline" || sequenceType === "pipeline" || data?.sharedDataPipeline === true) {
+    return 0;
+  }
+  if (sequenceType === "monitoring") return 2;
+  return 1;
+}
+
+function getStrategyGroupOrder(node: Node) {
+  const data = node.data as Record<string, unknown> | undefined;
+  const rawOrder = data?.order;
+  if (typeof rawOrder === "number" && Number.isFinite(rawOrder)) return rawOrder;
+  if (typeof rawOrder === "string") {
+    const parsed = Number.parseFloat(rawOrder);
+    if (Number.isFinite(parsed)) return parsed;
+  }
+  const legacyOrder = ["g_init", "g_trigger1", "g_trigger2", "g_trigger3", "g_emergency"].indexOf(node.id);
+  return legacyOrder >= 0 ? legacyOrder + 1 : 0;
+}
+
+function compareStrategyGroupsForLeftToRightLayout(left: Node, right: Node) {
+  return getStrategyGroupLanePriority(left) - getStrategyGroupLanePriority(right) ||
+    getStrategyGroupOrder(left) - getStrategyGroupOrder(right) ||
+    left.position.x - right.position.x ||
+    left.position.y - right.position.y ||
+    left.id.localeCompare(right.id);
+}
+
+function arrangeStrategyGroupsInLaneColumns(strategyGroups: Node[]) {
+  const ordered = strategyGroups.sort(compareStrategyGroupsForLeftToRightLayout);
+  const occupiedLanes = Array.from(new Set(ordered.map(getStrategyGroupLanePriority))).sort((left, right) => left - right);
+  const laneWidths = new Map<number, number>();
+  ordered.forEach((group) => {
+    const { width } = getNodeSize(group);
+    const lane = getStrategyGroupLanePriority(group);
+    laneWidths.set(lane, Math.max(laneWidths.get(lane) ?? 0, width));
+  });
+
+  const laneXByPriority = new Map<number, number>();
+  let cursorX = 56;
+  occupiedLanes.forEach((lane) => {
+    laneXByPriority.set(lane, cursorX);
+    cursorX += (laneWidths.get(lane) ?? GROUP_MIN_WIDTH) + STRATEGY_GROUP_LANE_GAP;
+  });
+
+  const laneCursorYByPriority = new Map<number, number>(occupiedLanes.map((lane) => [lane, 72]));
+  let maxX = 0;
+  let maxY = 0;
+  ordered.forEach((group) => {
+    const lane = getStrategyGroupLanePriority(group);
+    const { width, height } = getNodeSize(group);
+    const x = laneXByPriority.get(lane) ?? 56;
+    const y = laneCursorYByPriority.get(lane) ?? 72;
+    group.position.x = x;
+    group.position.y = y;
+    laneCursorYByPriority.set(lane, y + height + STRATEGY_GROUP_STACK_GAP);
+    maxX = Math.max(maxX, x + width);
+    maxY = Math.max(maxY, y + height);
+  });
+
+  return { maxX, maxY };
 }
 
 function separateOverlappingSiblings(nodes: Node[], direction = "LR") {
@@ -291,81 +420,35 @@ export function getLayoutedElements(nodes: Node[], edges: Edge[], direction = "L
   });
 
 
-  // FORCE Top-to-Bottom stacking for sequences inside g_strategy
-  const strategyGroups = newNodes.filter(n => n.parentId === 'g_strategy');
-  if (strategyGroups.length > 0) {
-    // Use manual sorting order or fallback to their original Y position
-    const order = ["g_init", "g_trigger1", "g_trigger2", "g_trigger3", "g_emergency"];
-    strategyGroups.sort((a, b) => {
-      const idxA = order.indexOf(a.id);
-      const idxB = order.indexOf(b.id);
-      if (idxA !== -1 && idxB !== -1) return idxA - idxB;
-      return a.position.y - b.position.y;
-    });
+  // Keep workflow containers inside each solid strategy group in lane columns:
+  // data pipelines on the left, execution/check-effect sequences in the middle,
+  // monitoring sequences on the right. Groups within the same lane stack top-to-bottom.
+  // Generated AI strategy groups use dynamic ids, so this cannot be hard-coded to g_strategy.
+  const solidStrategyGroups = newNodes.filter((node) =>
+    node.type === "groupNode" &&
+    (node.data as Record<string, unknown> | undefined)?.styleType === "solid",
+  );
 
-    let currentY = 72;
-    const groupGap = 72;
-    const placedRects: Array<{ left: number; top: number; right: number; bottom: number }> = [];
+  solidStrategyGroups.forEach((strategyGroup) => {
+    const strategyGroups = newNodes.filter((node) =>
+      node.parentId === strategyGroup.id &&
+      node.type === "groupNode" &&
+      (node.data as Record<string, unknown> | undefined)?.styleType !== "solid",
+    );
+    if (strategyGroups.length === 0) return;
 
-    // Indentation depth for each sequence to look like programming tabs
-    const indentMap: Record<string, number> = {
-      "g_init": 0,
-      "g_trigger1": 1,
-      "g_trigger2": 1,
-      "g_trigger3": 1,
-      "g_emergency": 2
+    const { maxX, maxY } = arrangeStrategyGroupsInLaneColumns(strategyGroups);
+
+    const width = Math.max(maxX + 80, GROUP_MIN_WIDTH);
+    const height = Math.max(maxY + 64, GROUP_MIN_HEIGHT);
+    strategyGroup.style = {
+      ...strategyGroup.style,
+      width,
+      height,
     };
-
-    for (const sg of strategyGroups) {
-      const depth = indentMap[sg.id] || 0;
-      const { width, height: h } = getNodeSize(sg);
-      const x = 56 + depth * 152;
-      let y = currentY;
-
-      let hasOverlap = true;
-      while (hasOverlap) {
-        hasOverlap = false;
-
-        for (const rect of placedRects) {
-          const horizontalOverlap = x < rect.right + groupGap && x + width > rect.left - groupGap;
-          const verticalOverlap = y < rect.bottom + groupGap && y + h > rect.top - groupGap;
-
-          if (horizontalOverlap && verticalOverlap) {
-            y = rect.bottom + groupGap;
-            hasOverlap = true;
-          }
-        }
-      }
-
-      sg.position.x = x;
-      sg.position.y = y;
-      placedRects.push({ left: x, top: y, right: x + width, bottom: y + h });
-      currentY = y + h + groupGap;
-    }
-
-    const gStrategy = newNodes.find(n => n.id === 'g_strategy');
-    if (gStrategy) {
-      let maxX = 0;
-      let maxY = 0;
-
-      strategyGroups.forEach((sg) => {
-        const { width, height } = getNodeSize(sg);
-
-        maxX = Math.max(maxX, sg.position.x + width);
-        maxY = Math.max(maxY, sg.position.y + height);
-      });
-
-      const width = Math.max(maxX + 80, GROUP_MIN_WIDTH);
-      const height = Math.max(maxY + 64, GROUP_MIN_HEIGHT);
-      gStrategy.style = {
-        ...gStrategy.style,
-        width,
-        height,
-      };
-      gStrategy.width = width;
-      gStrategy.height = height;
-    }
-  }
+    strategyGroup.width = width;
+    strategyGroup.height = height;
+  });
 
   return newNodes;
 }

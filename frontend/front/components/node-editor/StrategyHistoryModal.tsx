@@ -18,6 +18,7 @@ import {
   useNodesState,
   useEdgesState,
   SelectionMode,
+  PanOnScrollMode,
 } from "@xyflow/react";
 import { Clock3, GitBranch, GitCommitHorizontal, GitMerge, Sparkles, X, GitBranchPlus, Play, Square } from "lucide-react";
 
@@ -970,7 +971,10 @@ export function StrategyHistoryModal({
                 selectionMode={SelectionMode.Partial}
                 selectionOnDrag={true}
                 panOnDrag={true}
-                panOnScroll={false}
+                zoomOnScroll={false}
+                panOnScroll
+                panOnScrollMode={PanOnScrollMode.Free}
+                panOnScrollSpeed={0.9}
                 selectNodesOnDrag={false}
                 deleteKeyCode={["Backspace", "Delete"]}
                 onNodesDelete={handleDeleteSelected}

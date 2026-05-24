@@ -50,6 +50,32 @@ function normalizeCredentialText(value) {
   return String(value ?? '').trim();
 }
 
+function normalizeAssetSymbol(value) {
+  return normalizeText(value).toUpperCase();
+}
+
+function toFiniteNumber(value) {
+  const number = Number(value);
+  return Number.isFinite(number) ? number : 0;
+}
+
+function formatDecimal(value, fractionDigits = 12) {
+  const number = Number(value);
+  if (!Number.isFinite(number)) {
+    return '0';
+  }
+  if (number === 0) {
+    return '0';
+  }
+  return number
+    .toFixed(fractionDigits)
+    .replace(/\.?0+$/, '');
+}
+
+function isNonZeroAmount(value) {
+  return Math.abs(toFiniteNumber(value)) > 0;
+}
+
 function normalizeConnectionStatus(value, hasExecutionEndpoint, { autoConnectOnEndpoint = false } = {}) {
   const status = normalizeText(value);
   if (hasExecutionEndpoint && (autoConnectOnEndpoint || status === '연결됨' || status.toLowerCase() === 'connected')) {
@@ -100,6 +126,21 @@ function normalizeCapabilityExchangeID(connection = {}) {
   if (value.includes('gate')) return 'gateio';
   if (value.includes('polymarket')) return 'polymarket';
   return value;
+}
+
+const USD_STABLE_ASSETS = new Set(['USDT', 'USDC', 'FDUSD', 'BUSD', 'TUSD', 'DAI', 'USD']);
+
+function estimateAssetValueUSD(asset, amount, priceByAsset) {
+  const symbol = normalizeAssetSymbol(asset);
+  const numericAmount = toFiniteNumber(amount);
+  if (!symbol || numericAmount === 0) {
+    return null;
+  }
+  const price = USD_STABLE_ASSETS.has(symbol) ? 1 : priceByAsset.get(symbol);
+  if (!Number.isFinite(price)) {
+    return null;
+  }
+  return Number((numericAmount * price).toFixed(8));
 }
 
 function buildCEXSpotOrderCapability(exchangeID) {
@@ -188,13 +229,14 @@ function buildAccountReadCapability(connection = {}) {
   if (exchangeID !== 'binance') return null;
   return {
     id: 'binance.account.read',
-    description: 'Run a signed Binance account read/auth test on the server.',
+    description: 'Read Binance account balances on the server and expose sanitized balance MyData.',
     endpoint: 'GET /api/v3/account or /fapi/v2/account through server-side signed request',
     supportedMarkets: ['spot', 'futures-auth-test'],
     requiredCredentials: ['apiKey', 'apiSecret'],
     guardrails: [
-      'This is currently exposed as a server-side auth/account check, not a generated trading action block.',
+      'This read capability can create sanitized balance MyData but is not itself a generated trading action block.',
       'Do not send raw API credentials to the AI prompt or generated strategy JSON.',
+      'Before live execution, re-check the balance server-side; do not rely only on a stale AI prompt snapshot.',
     ],
   };
 }
@@ -689,8 +731,185 @@ export function createExchangeConnectionManager({
 
   function getBinanceBaseURL(connection, market) {
     const configured = normalizeText(connection.apiUrl || connection.restUrl);
-    if (configured) return configured;
+    if (configured && (market !== 'futures' || /fapi|future/i.test(configured))) return configured;
     return market === 'futures' ? 'https://fapi.binance.com' : 'https://api.binance.com';
+  }
+
+  async function fetchBinanceUSDTPriceMap(connection, market, assets) {
+    const symbols = Array.from(new Set(
+      (Array.isArray(assets) ? assets : [])
+        .map(normalizeAssetSymbol)
+        .filter((asset) => asset && !USD_STABLE_ASSETS.has(asset)),
+    )).slice(0, 40);
+    if (symbols.length === 0) {
+      return new Map();
+    }
+
+    try {
+      const endpoint = market === 'futures' ? '/fapi/v1/ticker/price' : '/api/v3/ticker/price';
+      const url = new URL(endpoint, getBinanceBaseURL(connection, market));
+      const response = await fetch(url, {
+        signal: typeof AbortSignal !== 'undefined' && typeof AbortSignal.timeout === 'function'
+          ? AbortSignal.timeout(6000)
+          : undefined,
+      });
+      const rawText = await response.text();
+      const data = parseJSON(rawText, 'Binance ticker response');
+      if (!response.ok || !Array.isArray(data)) {
+        return new Map();
+      }
+      const priceBySymbol = new Map(
+        data
+          .map((item) => [normalizeText(item?.symbol).toUpperCase(), Number(item?.price)])
+          .filter(([, price]) => Number.isFinite(price)),
+      );
+      return new Map(
+        symbols
+          .map((asset) => [asset, priceBySymbol.get(`${asset}USDT`)])
+          .filter(([, price]) => Number.isFinite(price)),
+      );
+    } catch {
+      return new Map();
+    }
+  }
+
+  function normalizeBinanceSpotAsset(balance, priceByAsset) {
+    const asset = normalizeAssetSymbol(balance?.asset);
+    const free = formatDecimal(balance?.free);
+    const locked = formatDecimal(balance?.locked);
+    const total = formatDecimal(toFiniteNumber(free) + toFiniteNumber(locked));
+    const available = free;
+    const valueUsd = estimateAssetValueUSD(asset, total, priceByAsset);
+    const availableUsd = estimateAssetValueUSD(asset, available, priceByAsset);
+    return {
+      asset,
+      free,
+      locked,
+      total,
+      available,
+      ...(valueUsd === null ? {} : { valueUsd }),
+      ...(availableUsd === null ? {} : { availableUsd }),
+      sourceField: 'balances',
+    };
+  }
+
+  function normalizeBinanceFuturesAsset(assetRow, priceByAsset) {
+    const asset = normalizeAssetSymbol(assetRow?.asset);
+    const walletBalance = formatDecimal(assetRow?.walletBalance);
+    const unrealizedPnl = formatDecimal(assetRow?.unrealizedProfit || assetRow?.crossUnPnl);
+    const marginBalance = formatDecimal(assetRow?.marginBalance || toFiniteNumber(walletBalance) + toFiniteNumber(unrealizedPnl));
+    const available = formatDecimal(assetRow?.availableBalance || assetRow?.maxWithdrawAmount || walletBalance);
+    const locked = formatDecimal(
+      toFiniteNumber(assetRow?.initialMargin)
+        + toFiniteNumber(assetRow?.positionInitialMargin)
+        + toFiniteNumber(assetRow?.openOrderInitialMargin),
+    );
+    const valueUsd = estimateAssetValueUSD(asset, marginBalance, priceByAsset);
+    const availableUsd = estimateAssetValueUSD(asset, available, priceByAsset);
+    return {
+      asset,
+      free: available,
+      locked,
+      total: marginBalance,
+      available,
+      walletBalance,
+      marginBalance,
+      unrealizedPnl,
+      maxWithdrawAmount: formatDecimal(assetRow?.maxWithdrawAmount),
+      ...(valueUsd === null ? {} : { valueUsd }),
+      ...(availableUsd === null ? {} : { availableUsd }),
+      sourceField: 'assets',
+    };
+  }
+
+  function buildBalanceTotals(assets) {
+    const totalValueUsd = assets.reduce((sum, asset) => (
+      Number.isFinite(asset.valueUsd) ? sum + asset.valueUsd : sum
+    ), 0);
+    const totalAvailableUsd = assets.reduce((sum, asset) => (
+      Number.isFinite(asset.availableUsd) ? sum + asset.availableUsd : sum
+    ), 0);
+    const stableAvailableUsd = assets.reduce((sum, asset) => {
+      const symbol = normalizeAssetSymbol(asset.asset);
+      return USD_STABLE_ASSETS.has(symbol) && Number.isFinite(asset.availableUsd)
+        ? sum + asset.availableUsd
+        : sum;
+    }, 0);
+    return {
+      assetCount: assets.length,
+      totalValueUsd: Number(totalValueUsd.toFixed(8)),
+      totalAvailableUsd: Number(totalAvailableUsd.toFixed(8)),
+      stableAvailableUsd: Number(stableAvailableUsd.toFixed(8)),
+    };
+  }
+
+  function buildSpendableBalanceSummary(assets) {
+    const stableAssets = assets
+      .filter((asset) => USD_STABLE_ASSETS.has(normalizeAssetSymbol(asset.asset)) && toFiniteNumber(asset.available) > 0)
+      .sort((left, right) => toFiniteNumber(right.available) - toFiniteNumber(left.available))
+      .map((asset) => ({
+        asset: asset.asset,
+        available: asset.available,
+        availableUsd: Number.isFinite(asset.availableUsd) ? asset.availableUsd : toFiniteNumber(asset.available),
+      }));
+    const preferred = stableAssets.find((asset) => asset.asset === 'USDT') || stableAssets[0] || null;
+    return {
+      preferredAsset: preferred?.asset || '',
+      preferredAvailable: preferred?.available || '0',
+      preferredAvailableUsd: Number(preferred?.availableUsd || 0),
+      stableAssets,
+      totalStableAvailableUsd: Number(
+        stableAssets.reduce((sum, asset) => sum + Number(asset.availableUsd || 0), 0).toFixed(8),
+      ),
+      policy: 'AI may reference this as read-only MyData. Live order execution must re-check balances server-side.',
+    };
+  }
+
+  async function buildBinanceBalanceSnapshot(connection, data, { market = 'spot' } = {}) {
+    const rawAssets = market === 'futures'
+      ? (Array.isArray(data?.assets) ? data.assets : [])
+      : (Array.isArray(data?.balances) ? data.balances : []);
+    const assetSymbols = rawAssets.map((item) => item?.asset).filter(Boolean);
+    const priceByAsset = await fetchBinanceUSDTPriceMap(connection, market, assetSymbols);
+    const assets = rawAssets
+      .map((item) => (
+        market === 'futures'
+          ? normalizeBinanceFuturesAsset(item, priceByAsset)
+          : normalizeBinanceSpotAsset(item, priceByAsset)
+      ))
+      .filter((asset) => asset.asset && (
+        isNonZeroAmount(asset.free)
+        || isNonZeroAmount(asset.locked)
+        || isNonZeroAmount(asset.total)
+        || isNonZeroAmount(asset.walletBalance)
+        || isNonZeroAmount(asset.marginBalance)
+      ))
+      .sort((left, right) => {
+        const rightValue = Number.isFinite(right.valueUsd) ? right.valueUsd : toFiniteNumber(right.total);
+        const leftValue = Number.isFinite(left.valueUsd) ? left.valueUsd : toFiniteNumber(left.total);
+        return rightValue - leftValue;
+      });
+    const updatedAt = new Date().toISOString();
+    return {
+      kind: 'cex-balance-snapshot',
+      schemaVersion: 1,
+      id: `${normalizeText(connection.id || connection.name) || 'binance'}:${market}:${Date.now()}`,
+      exchangeId: normalizeText(connection.id),
+      connectionId: normalizeText(connection.id),
+      exchangeName: normalizeText(connection.name) || 'Binance',
+      exchange: 'binance',
+      market,
+      accountType: normalizeText(data?.accountType) || (market === 'futures' ? 'futures' : 'spot'),
+      source: market === 'futures' ? 'binance.fapi.v2.account' : 'binance.api.v3.account',
+      canTrade: data?.canTrade,
+      permissions: Array.isArray(data?.permissions) ? data.permissions : undefined,
+      updateTime: data?.updateTime,
+      updatedAt,
+      assets,
+      totals: buildBalanceTotals(assets),
+      spendable: buildSpendableBalanceSummary(assets),
+      rawIncluded: false,
+    };
   }
 
   async function binanceSignedRestRequest(
@@ -740,6 +959,21 @@ export function createExchangeConnectionManager({
     });
   }
 
+  async function readBinanceBalanceSnapshot(connection, { market = 'spot' } = {}) {
+    const name = normalizeText(connection.name || connection.id).toLowerCase();
+    if (!name.includes('binance')) {
+      throw new Error('Binance balance sync is only available for Binance connections');
+    }
+    const result = await binanceSignedRestRequest(connection, {
+      market,
+      endpoint: market === 'futures' ? '/fapi/v2/account' : '/api/v3/account',
+    });
+    return {
+      ...result,
+      snapshot: await buildBinanceBalanceSnapshot(connection, result.data, { market }),
+    };
+  }
+
   function buildConnectedExchangeContextForAI(connections) {
     return getConnectedExchangeConnections(connections).map((connection) => ({
       id: connection.id,
@@ -775,6 +1009,7 @@ export function createExchangeConnectionManager({
     getConnectedExchangeConnections,
     loadExchangeConnections,
     patchExchangeConnection,
+    readBinanceBalanceSnapshot,
     serializeExchangeConnection,
     serializeExchangeConnections,
     testBinanceSignedConnection,

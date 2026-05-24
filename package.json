@@ -1,0 +1,25 @@
+{
+  "private": true,
+  "scripts": {
+    "kg:db:up": "docker compose -f docker-compose.kg.yml up -d kg-postgres",
+    "kg:db:down": "docker compose -f docker-compose.kg.yml down",
+    "kg:db:logs": "docker compose -f docker-compose.kg.yml logs -f kg-postgres",
+    "kg:migrate": "npm --prefix frontend/front run kg:migrate --",
+    "kg:enqueue": "npm --prefix frontend/front run kg:enqueue --",
+    "kg:loop": "npm --prefix frontend/front run kg:loop --",
+    "kg:ingest": "npm --prefix frontend/front run kg:ingest --",
+    "kg:search": "npm --prefix frontend/front run kg:search --",
+    "kg:history": "npm --prefix frontend/front run kg:history --",
+    "kg:embed-backfill": "npm --prefix frontend/front run kg:embed-backfill --",
+    "kg:embedding-index": "npm --prefix frontend/front run kg:embedding-index --",
+    "evm:protocol-ingest": "npm --prefix frontend/front run evm:protocol-ingest --",
+    "evm:protocol-search": "npm --prefix frontend/front run evm:protocol-search --",
+    "evm:protocol-alerts": "npm --prefix frontend/front run evm:protocol-alerts --",
+    "strategy:workflow-plan": "npm --prefix frontend/front run strategy:workflow-plan --",
+    "strategy:agent-loop": "npm --prefix frontend/front run strategy:agent-loop --",
+    "strategy:trace": "npm --prefix frontend/front run strategy:trace --",
+    "protocols:top100": "npm --prefix frontend/front run protocols:top100 --",
+    "protocols:base-top100": "npm --prefix frontend/front run protocols:base-top100 --",
+    "protocols:import-registry": "npm --prefix frontend/front run protocols:import-registry --"
+  }
+}

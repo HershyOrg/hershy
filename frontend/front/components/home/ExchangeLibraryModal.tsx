@@ -207,10 +207,10 @@ export function ExchangeLibraryModal({
                 >
                   <KeyRound className="h-3.5 w-3.5" />
                   {isTestingExchangeAuth
-                    ? "검증 중"
+                    ? "동기화 중"
                     : hasPendingBinanceCredentialInput
-                      ? "저장 후 테스트"
-                      : "서명 테스트"}
+                      ? "저장 후 잔고 동기화"
+                      : "잔고 동기화"}
                 </button>
               ) : null}
 

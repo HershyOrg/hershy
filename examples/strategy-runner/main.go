@@ -5,7 +5,6 @@ import (
 	"flag"
 	"log"
 	"os"
-	"os/exec"
 	"os/signal"
 	"syscall"
 	"time"
@@ -16,14 +15,16 @@ import (
 
 func main() {
 	strategyPath := flag.String("strategy", "/app/strategy.json", "Strategy JSON file path")
-	debugEventsPath := flag.String("debug-events-path", defaultDebugEventsPath(), "Structured debug timeline path (.json for state, .jsonl for legacy stream)")
+	debugEventsPath := flag.String("debug-events-path", "", "Reserved debug timeline path; structured recorder is disabled in this runner build")
 	flag.Parse()
 
 	engine, err := runner.LoadEngine(*strategyPath)
 	if err != nil {
 		log.Fatalf("[BOOT] failed to load strategy: %v", err)
 	}
-	engine.SetRecorder(openDebugRecorder(*debugEventsPath, engine.strategyName))
+	if *debugEventsPath != "" {
+		log.Printf("[BOOT] debug-events-path ignored by current runner: %s", *debugEventsPath)
+	}
 
 	config := hersh.DefaultWatcherConfig()
 	config.ServerPort = 8080
@@ -32,9 +33,7 @@ func main() {
 	watcher := hersh.NewWatcher(config, map[string]string{"RUNNER": "strategy-runner"}, context.Background())
 	watcher.Manage(func(msg *hersh.Message, ctx hersh.HershContext) error {
 		return engine.Run(msg, ctx)
-	}, "StrategyRunner").Cleanup(func(ctx hersh.HershContext) {
-		engine.Close()
-	})
+	}, "StrategyRunner")
 
 	if err := watcher.Start(); err != nil {
 		log.Fatalf("[BOOT] watcher start failed: %v", err)

@@ -1,5 +1,6 @@
 type Listener = () => void;
 const HISTORY_STORAGE_KEY = "thirdeye.strategy-history.v1";
+const DEPRECATED_XRP_SEED_PATTERN = /XRPUSDT|XRPUSDT\.P|\bXRP\b/i;
 
 function cloneValue<T>(value: T): T {
   if (typeof structuredClone === "function") {
@@ -119,6 +120,10 @@ class HistoryStore {
     try {
       const raw = window.localStorage.getItem(HISTORY_STORAGE_KEY);
       if (!raw) return;
+      if (DEPRECATED_XRP_SEED_PATTERN.test(raw)) {
+        window.localStorage.removeItem(HISTORY_STORAGE_KEY);
+        return;
+      }
 
       const parsed = JSON.parse(raw) as PersistedHistoryStoreState;
       const loaded = this.normalizeLoadedState(parsed);
