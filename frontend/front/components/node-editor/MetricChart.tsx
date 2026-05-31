@@ -109,11 +109,49 @@ export function normalizeChartComparisonValues(value: unknown): ChartComparisonV
 }
 
 export function buildConditionSeries(series: MetricPoint[], condition?: IndicatorCondition) {
+  return buildCombinedConditionSeries(series, condition ? [condition] : []);
+}
+
+function isFiniteCondition(condition: IndicatorCondition | undefined): condition is IndicatorCondition {
+  return Boolean(condition && typeof condition.threshold === "number" && Number.isFinite(condition.threshold));
+}
+
+function satisfiesAllConditions(value: number, conditions: IndicatorCondition[]) {
+  return conditions.every((condition) => evaluateCondition(value, condition));
+}
+
+export function buildCombinedConditionSeries(series: MetricPoint[], conditions: IndicatorCondition[]) {
+  const activeConditions = conditions.filter(isFiniteCondition);
+  if (activeConditions.length === 0) return series;
+
   return series.map((point) =>
-    evaluateCondition(point.value, condition)
+    satisfiesAllConditions(point.value, activeConditions)
       ? point
       : ({ time: point.time } as MetricWhitespacePoint),
   );
+}
+
+function buildConditionSegments(series: MetricPoint[], conditions: IndicatorCondition[]) {
+  const activeConditions = conditions.filter(isFiniteCondition);
+  if (activeConditions.length === 0) return [series];
+
+  const segments: MetricPoint[][] = [];
+  let currentSegment: MetricPoint[] = [];
+
+  series.forEach((point) => {
+    if (satisfiesAllConditions(point.value, activeConditions)) {
+      currentSegment.push(point);
+      return;
+    }
+
+    if (currentSegment.length > 0) {
+      segments.push(currentSegment);
+      currentSegment = [];
+    }
+  });
+
+  if (currentSegment.length > 0) segments.push(currentSegment);
+  return segments;
 }
 
 type MetricChartProps = {
@@ -124,6 +162,7 @@ type MetricChartProps = {
     color: string;
   }>;
   condition?: IndicatorCondition;
+  conditions?: IndicatorCondition[];
   comparisonValues?: ChartComparisonValue[];
   height?: number;
   compact?: boolean;
@@ -135,6 +174,9 @@ type MetricChartProps = {
   updatedAt?: string;
   showStats?: boolean;
   showVolume?: boolean;
+  frameless?: boolean;
+  isFocused?: boolean;
+  booleanMode?: boolean;
 };
 
 function useIsDarkMode() {
@@ -163,6 +205,36 @@ function formatMetricValue(value?: number) {
   return numeric.toFixed(6);
 }
 
+function formatBooleanValue(value?: number) {
+  if (!Number.isFinite(value)) return "-";
+  return Number(value) >= 0.5 ? "YES" : "NO";
+}
+
+function formatBooleanTickmarks(values: readonly number[]) {
+  return values.map(formatBooleanValue);
+}
+
+function isBinaryChartSeries(series: MetricPoint[]) {
+  const finiteValues = series.map((point) => point.value).filter((value) => Number.isFinite(value));
+  if (finiteValues.length === 0) return false;
+  return finiteValues.every((value) => value === 0 || value === 1);
+}
+
+function normalizeBooleanChartSeries(series: MetricPoint[]) {
+  return series.map((point) => ({
+    ...point,
+    value: point.value >= 0.5 ? 1 : 0,
+  }));
+}
+
+function buildBooleanStateSeries(series: MetricPoint[], state: 0 | 1) {
+  return series.map((point) =>
+    point.value === state
+      ? point
+      : ({ time: point.time } as MetricWhitespacePoint),
+  );
+}
+
 function formatMetricTime(value?: number) {
   if (!Number.isFinite(value)) return "";
   return new Date(Number(value) * 1000).toLocaleTimeString("ko-KR", {
@@ -176,6 +248,7 @@ export function MetricChart({
   series,
   compareSeries = [],
   condition,
+  conditions = [],
   comparisonValues = [],
   height = 180,
   compact = false,
@@ -187,16 +260,46 @@ export function MetricChart({
   updatedAt = "",
   showStats = !compact,
   showVolume = !compact,
+  frameless = false,
+  isFocused = false,
+  booleanMode = false,
 }: MetricChartProps) {
   const containerRef = useRef<HTMLDivElement | null>(null);
   const isDarkMode = useIsDarkMode();
+  const isBooleanMode = useMemo(
+    () => booleanMode || isBinaryChartSeries(series),
+    [booleanMode, series],
+  );
+  const displaySeries = useMemo(
+    () => isBooleanMode ? normalizeBooleanChartSeries(series) : series,
+    [isBooleanMode, series],
+  );
+  const displayCompareSeries = useMemo(
+    () => isBooleanMode
+      ? compareSeries.map((item) => ({ ...item, series: normalizeBooleanChartSeries(item.series) }))
+      : compareSeries,
+    [compareSeries, isBooleanMode],
+  );
+  const activeConditions = useMemo(
+    () => {
+      const merged = conditions.length > 0 ? conditions : condition ? [condition] : [];
+      const seen = new Set<string>();
+      return merged.filter(isFiniteCondition).filter((item) => {
+        const key = `${item.operator}:${item.threshold}`;
+        if (seen.has(key)) return false;
+        seen.add(key);
+        return true;
+      });
+    },
+    [condition, conditions],
+  );
 
-  const activeSeries = useMemo(
-    () => buildConditionSeries(series, condition),
-    [condition, series],
+  const activeSegments = useMemo(
+    () => buildConditionSegments(displaySeries, activeConditions),
+    [activeConditions, displaySeries],
   );
   const stats = useMemo(() => {
-    const values = series.map((point) => point.value).filter((value) => Number.isFinite(value));
+    const values = displaySeries.map((point) => point.value).filter((value) => Number.isFinite(value));
     const latest = values[values.length - 1];
     const previous = values.length > 1 ? values[values.length - 2] : undefined;
     const first = values[0];
@@ -212,42 +315,68 @@ export function MetricChart({
       changePercent,
       high: values.length > 0 ? Math.max(...values) : undefined,
       low: values.length > 0 ? Math.min(...values) : undefined,
-      time: series[series.length - 1]?.time as number | undefined,
+      time: displaySeries[displaySeries.length - 1]?.time as number | undefined,
     };
-  }, [series]);
+  }, [displaySeries]);
 
   useEffect(() => {
     const container = containerRef.current;
-    if (!container || series.length === 0) return;
+    if (!container || displaySeries.length === 0) return;
 
     let disposed = false;
     let cleanup: (() => void) | null = null;
 
-    import("lightweight-charts").then(({ ColorType, HistogramSeries, LineSeries, LineStyle, createChart }) => {
+    import("lightweight-charts").then(({ ColorType, HistogramSeries, LineSeries, LineStyle, LineType, createChart }) => {
       if (disposed || !containerRef.current) return;
       const resolvedBackgroundColor = backgroundColor ?? (isDarkMode ? "#020617" : "#f8fafc");
       const textColor = compact ? "transparent" : isDarkMode ? "#cbd5e1" : "#475569";
       const gridColor = compact ? "transparent" : isDarkMode ? "rgba(71, 85, 105, 0.56)" : "#e2e8f0";
       const crosshairColor = isDarkMode ? "rgba(148, 163, 184, 0.72)" : "rgba(100, 116, 139, 0.68)";
+      const binaryBaseColor = isDarkMode ? "#5e6673" : "#94a3b8";
+      const yesColor = "#0ecb81";
+      const noColor = "#f6465d";
+      const booleanSeriesOptions = isBooleanMode ? {
+        lineType: LineType.WithSteps,
+        priceFormat: {
+          type: "custom" as const,
+          minMove: 1,
+          formatter: formatBooleanValue,
+          tickmarksFormatter: formatBooleanTickmarks,
+        },
+        autoscaleInfoProvider: () => ({
+          priceRange: {
+            minValue: -0.1,
+            maxValue: 1.1,
+          },
+          margins: {
+            above: 6,
+            below: 6,
+          },
+        }),
+      } : {};
 
       const chart = createChart(containerRef.current, {
         width: containerRef.current.clientWidth || 320,
         height,
         autoSize: true,
         layout: {
-          background: { type: ColorType.Solid, color: resolvedBackgroundColor },
+          background: { type: ColorType.Solid, color: isBooleanMode ? "rgba(0, 0, 0, 0)" : resolvedBackgroundColor },
           textColor,
           fontSize: compact ? 10 : 11,
           attributionLogo: false,
         },
+        localization: isBooleanMode ? {
+          priceFormatter: formatBooleanValue,
+          tickmarksPriceFormatter: formatBooleanTickmarks,
+        } : undefined,
         grid: {
           vertLines: { color: gridColor, visible: !compact },
-          horzLines: { color: gridColor },
+          horzLines: { color: isBooleanMode ? "transparent" : gridColor, visible: !isBooleanMode },
         },
         rightPriceScale: {
-          visible: !compact,
+          visible: !compact && !isBooleanMode,
           borderVisible: false,
-          scaleMargins: { top: 0.18, bottom: 0.16 },
+          scaleMargins: isBooleanMode ? { top: 0.24, bottom: 0.24 } : { top: 0.18, bottom: 0.16 },
         },
         timeScale: {
           visible: !compact,
@@ -257,40 +386,67 @@ export function MetricChart({
         },
         crosshair: {
           vertLine: { color: crosshairColor, visible: !compact, labelVisible: !compact },
-          horzLine: { color: crosshairColor, visible: !compact, labelVisible: !compact },
+          horzLine: { color: crosshairColor, visible: !compact, labelVisible: !compact && !isBooleanMode },
         },
-        handleScale: false,
-        handleScroll: false,
+        handleScale: !compact,
+        handleScroll: !compact,
       });
 
       const baseSeries = chart.addSeries(LineSeries, {
-        color: baseColor,
+        color: isBooleanMode ? binaryBaseColor : baseColor,
         lineWidth: compact ? 2 : 3,
         priceLineVisible: false,
-        lastValueVisible: !compact,
+        lastValueVisible: !compact && !isBooleanMode,
+        ...booleanSeriesOptions,
       });
-      baseSeries.setData(series);
+      baseSeries.setData(displaySeries);
 
-      const highlightedSeries = chart.addSeries(LineSeries, {
-        color: activeColor,
-        lineWidth: compact ? 3 : 4,
-        priceLineVisible: false,
-        lastValueVisible: false,
-      });
-      highlightedSeries.setData(activeSeries);
+      if (isBooleanMode) {
+        const yesSeries = chart.addSeries(LineSeries, {
+          color: yesColor,
+          lineWidth: compact ? 3 : 4,
+          priceLineVisible: false,
+          lastValueVisible: false,
+          ...booleanSeriesOptions,
+        });
+        yesSeries.setData(buildBooleanStateSeries(displaySeries, 1));
 
-      compareSeries.forEach((item) => {
+        const noSeries = chart.addSeries(LineSeries, {
+          color: noColor,
+          lineWidth: compact ? 3 : 4,
+          priceLineVisible: false,
+          lastValueVisible: false,
+          ...booleanSeriesOptions,
+        });
+        noSeries.setData(buildBooleanStateSeries(displaySeries, 0));
+      }
+
+      if (activeConditions.length > 0) {
+        activeSegments.forEach((segment) => {
+          const focusedSeries = chart.addSeries(LineSeries, {
+            color: activeColor,
+            lineWidth: compact ? 3 : 4,
+            priceLineVisible: false,
+            lastValueVisible: false,
+            ...booleanSeriesOptions,
+          });
+          focusedSeries.setData(segment);
+        });
+      }
+
+      displayCompareSeries.forEach((item) => {
         const comparison = chart.addSeries(LineSeries, {
           color: item.color,
           lineWidth: compact ? 1 : 2,
           priceLineVisible: false,
           lastValueVisible: !compact,
+          ...booleanSeriesOptions,
         });
         comparison.setData(item.series);
       });
 
-      const volumeSeries = showVolume
-        ? series
+      const volumeSeries = showVolume && !isBooleanMode
+        ? displaySeries
           .filter((point) => Number.isFinite(point.volume))
           .map((point) => ({
             time: point.time,
@@ -314,21 +470,22 @@ export function MetricChart({
         histogram.setData(volumeSeries);
       }
 
-      if (condition && Number.isFinite(condition.threshold)) {
+      activeConditions.forEach((activeCondition) => {
         const thresholdSeries = chart.addSeries(LineSeries, {
           color: thresholdColor,
           lineWidth: 1,
           lineStyle: LineStyle.Dashed,
           priceLineVisible: false,
           lastValueVisible: !compact,
+          ...booleanSeriesOptions,
         });
         thresholdSeries.setData(
-          series.map((point) => ({
+          displaySeries.map((point) => ({
             time: point.time,
-            value: condition.threshold,
+            value: activeCondition.threshold,
           })),
         );
-      }
+      });
 
       comparisonValues
         .filter((item) => item.enabled !== false && Number.isFinite(item.value))
@@ -339,9 +496,10 @@ export function MetricChart({
             lineStyle: LineStyle.Dashed,
             priceLineVisible: false,
             lastValueVisible: !compact,
+            ...booleanSeriesOptions,
           });
           comparisonLine.setData(
-            series.map((point) => ({
+            displaySeries.map((point) => ({
               time: point.time,
               value: item.value,
             })),
@@ -359,16 +517,17 @@ export function MetricChart({
     };
   }, [
     activeColor,
-    activeSeries,
+    activeConditions,
+    activeSegments,
     backgroundColor,
     baseColor,
     compact,
-    compareSeries,
     comparisonValues,
-    condition,
+    displayCompareSeries,
+    displaySeries,
     height,
+    isBooleanMode,
     isDarkMode,
-    series,
     showVolume,
     thresholdColor,
   ]);
@@ -377,25 +536,44 @@ export function MetricChart({
 
   return (
     <div
-      className="relative h-full w-full overflow-hidden rounded-md border border-slate-200 bg-slate-50 dark:border-slate-800 dark:bg-slate-950"
+      className={[
+        "relative h-full w-full overflow-hidden bg-slate-50 dark:bg-slate-950",
+        frameless ? "rounded-none border-0" : "rounded-md border border-slate-200 dark:border-slate-800",
+        isFocused && !frameless ? "ring-2 ring-emerald-300" : "",
+      ].filter(Boolean).join(" ")}
       style={{ minHeight: height }}
     >
+      {isBooleanMode ? (
+        <div className="pointer-events-none absolute inset-0 z-0">
+          <div className="absolute inset-x-0 top-0 h-1/2 bg-[#0ecb81]/[0.075]" />
+          <div className="absolute inset-x-0 bottom-0 h-1/2 bg-[#f6465d]/[0.065]" />
+          <div className="absolute inset-x-0 top-1/2 border-t border-dashed border-[#848e9c]/45" />
+          <div className="absolute left-2 top-2 rounded-sm border border-[#0ecb81]/30 bg-[#0ecb81]/10 px-1.5 py-0.5 font-mono text-[9px] font-black text-[#0ecb81]">
+            YES
+          </div>
+          <div className="absolute bottom-2 left-2 rounded-sm border border-[#f6465d]/30 bg-[#f6465d]/10 px-1.5 py-0.5 font-mono text-[9px] font-black text-[#f6465d]">
+            NO
+          </div>
+        </div>
+      ) : null}
       {showStats ? (
-        <div className="pointer-events-none absolute left-2 right-2 top-2 z-10 flex items-start justify-between gap-3">
+        <div className="pointer-events-none absolute left-2 right-2 top-2 z-20 flex items-start justify-between gap-3">
           <div className="min-w-0 rounded-md border border-white/70 bg-white/80 px-2 py-1 shadow-sm backdrop-blur dark:border-slate-700/70 dark:bg-slate-900/78">
             <div className="flex items-baseline gap-2">
               <span className="font-mono text-[13px] font-black text-slate-900 dark:text-slate-100">
-                {formatMetricValue(stats.latest)}
+                {isBooleanMode ? formatBooleanValue(stats.latest) : formatMetricValue(stats.latest)}
               </span>
-              <span className={changePositive ? "text-[10px] font-bold text-emerald-600 dark:text-emerald-300" : "text-[10px] font-bold text-rose-600 dark:text-rose-300"}>
-                {changePositive ? "+" : ""}
-                {formatMetricValue(stats.change)} / {changePositive ? "+" : ""}
-                {stats.changePercent.toFixed(2)}%
-              </span>
+              {isBooleanMode ? null : (
+                <span className={changePositive ? "text-[10px] font-bold text-emerald-600 dark:text-emerald-300" : "text-[10px] font-bold text-rose-600 dark:text-rose-300"}>
+                  {changePositive ? "+" : ""}
+                  {formatMetricValue(stats.change)} / {changePositive ? "+" : ""}
+                  {stats.changePercent.toFixed(2)}%
+                </span>
+              )}
             </div>
             <div className="mt-0.5 flex gap-2 text-[9px] font-semibold text-slate-500 dark:text-slate-400">
-              <span>H {formatMetricValue(stats.high)}</span>
-              <span>L {formatMetricValue(stats.low)}</span>
+              <span>H {isBooleanMode ? formatBooleanValue(stats.high) : formatMetricValue(stats.high)}</span>
+              <span>L {isBooleanMode ? formatBooleanValue(stats.low) : formatMetricValue(stats.low)}</span>
               {stats.time ? <span>{formatMetricTime(stats.time)}</span> : null}
             </div>
           </div>
@@ -407,7 +585,13 @@ export function MetricChart({
           ) : null}
         </div>
       ) : null}
-      <div ref={containerRef} className="h-full w-full" />
+      {isBooleanMode ? (
+        <div className="pointer-events-none absolute inset-y-3 right-1 z-20 flex flex-col justify-between text-right font-mono text-[9px] font-black uppercase">
+          <span className="text-[#0ecb81]">YES</span>
+          <span className="text-[#f6465d]">NO</span>
+        </div>
+      ) : null}
+      <div ref={containerRef} className="relative z-10 h-full w-full" />
     </div>
   );
 }

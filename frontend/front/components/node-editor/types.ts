@@ -61,13 +61,18 @@ export type FunctionNodeData = Record<string, unknown> & RuntimeArtifactData & {
   chartComparisonValues?: ChartComparisonValue[];
   isExpanded?: boolean;
   viewMode?: ViewMode;
+  nodeWidth?: number;
+  chartPaneHeight?: number;
 }
 
 // TIME Trigger Node
 export type TimeTriggerData = Record<string, unknown> & RuntimeArtifactData & {
   label: string;
+  triggerMode?: "TIME" | "CLICK";
   interval: number; // seconds
   isActive: boolean;
+  shortcut?: string | null;
+  isRecording?: boolean;
   linkedCondition?: string; // if connected to IF/CLICK, activates when condition met
   outputBlocks?: BlockData[];
 }

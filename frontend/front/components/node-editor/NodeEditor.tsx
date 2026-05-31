@@ -30,14 +30,13 @@ import "@xyflow/react/dist/style.css";
 
 import { FunctionNode } from "./FunctionNode";
 import { TimeTriggerNode } from "./TimeTriggerNode";
-import { ClickTriggerNode } from "./ClickTriggerNode";
 import { BranchNode } from "./BranchNode";
 import { BlockNode } from "./BlockNode";
 import { ActionNode } from "./ActionNode";
+import { ConditionJunctionNode } from "./ConditionJunctionNode";
 import { MergedFunctionNode } from "./MergedFunctionNode";
 import { TimelineFrame } from "./TimelineFrame";
 import { MonitoringNode } from "./MonitoringNode";
-import { TerminalPanel } from "./TerminalPanel";
 import { GroupNode } from "./GroupNode";
 import { StreamingNode } from "./StreamingNode";
 import { CodeEditorNode } from "./CodeEditorNode";
@@ -46,10 +45,11 @@ import { getLayoutedElements } from "./layout";
 import { CustomEdge } from "./CustomEdge";
 import { DelayEdge } from "./DelayEdge";
 import { FSMEdge } from "./FSMEdge";
+import { ConditionMergeEdge } from "./ConditionMergeEdge";
 import { FSMProvider, useFSM } from "./FSMContext";
 import { Toolbar } from "./Toolbar";
 import { ContextMenu } from "./ContextMenu";
-import type { FunctionNodeData, TimeTriggerData, ClickTriggerData, BranchNodeData, CEXActionData, DEXActionData, ActionNodeData, MergedFunctionNodeData, TimelineFrameData, MonitoringNodeData, StreamingNodeData, NodeChartPoint, BlockData } from "./types";
+import type { FunctionNodeData, TimeTriggerData, BranchNodeData, CEXActionData, DEXActionData, ActionNodeData, MergedFunctionNodeData, StreamingNodeData, NodeChartPoint, BlockData, IndicatorCondition } from "./types";
 import { cn } from "@/lib/utils";
 import { historyStore } from "@/lib/historyStore";
 import { getEtfDcaStrategyNodes, getPepeHedgeStrategyNodes } from "@/lib/demo-data";
@@ -61,8 +61,9 @@ import {
 const nodeTypes: NodeTypes = {
   functionNode: withExplanation(FunctionNode),
   timeTrigger: withExplanation(TimeTriggerNode),
-  clickTrigger: withExplanation(ClickTriggerNode),
+  clickTrigger: withExplanation(TimeTriggerNode),
   branchNode: withExplanation(BranchNode),
+  conditionJunction: ConditionJunctionNode,
   block: withExplanation(BlockNode),
   actionNode: withExplanation(ActionNode),
   mergedFunction: withExplanation(MergedFunctionNode),
@@ -77,6 +78,7 @@ const edgeTypes: EdgeTypes = {
   custom: CustomEdge,
   delay: DelayEdge,
   fsmEdge: FSMEdge,
+  conditionMerge: ConditionMergeEdge,
 };
 
 const defaultEdgeOptions = {
@@ -102,9 +104,78 @@ function isOutputBlockSourceHandle(sourceHandle?: string | null) {
 function isControlSourceHandle(sourceHandle?: string | null) {
   return Boolean(
     sourceHandle?.endsWith("-trigger-out") ||
+    /-trigger-.+-out$/.test(sourceHandle ?? "") ||
+    sourceHandle?.endsWith("-condition-out") ||
     sourceHandle?.includes("-branch-") && sourceHandle.endsWith("-out") ||
     sourceHandle?.endsWith("-success-out")
   );
+}
+
+function isTriggerFormulaSourceHandle(sourceHandle?: string | null) {
+  return /-trigger-.+-out$/.test(sourceHandle ?? "");
+}
+
+function isConditionJunctionSourceHandle(sourceHandle?: string | null) {
+  return Boolean(sourceHandle?.endsWith("-condition-out"));
+}
+
+function shouldUseConditionMergeEdge(edge: Pick<Edge, "sourceHandle" | "target" | "targetHandle">, targetNode?: Node) {
+  const isConditionJunctionTarget =
+    targetNode?.type === "conditionJunction" ||
+    (edge.target?.startsWith("condition-junction-") && edge.targetHandle?.includes("-input-"));
+  const isActionTarget = targetNode
+    ? targetNode.type === "actionNode" || targetNode.type === "timelineFrame"
+    : edge.target?.startsWith("action-") || edge.targetHandle?.startsWith("action-");
+
+  return isConditionJunctionTarget ||
+    (isActionTarget &&
+      (isTriggerFormulaSourceHandle(edge.sourceHandle) || isConditionJunctionSourceHandle(edge.sourceHandle)));
+}
+
+function normalizeConditionMergeEdge(edge: Edge, nodesById: Map<string, Node>) {
+  const targetNode = nodesById.get(edge.target);
+  if (!shouldUseConditionMergeEdge(edge, targetNode)) return edge;
+
+  const data = (edge.data ?? {}) as Record<string, unknown>;
+  const logicMode = data.logicMode === "OR" ? "OR" : "AND";
+  const isActionTarget = targetNode
+    ? targetNode.type === "actionNode" || targetNode.type === "timelineFrame"
+    : edge.target?.startsWith("action-") || edge.targetHandle?.startsWith("action-");
+
+  if (
+    edge.type === "conditionMerge" &&
+    data.logicMode === logicMode &&
+    (!isActionTarget || (data.delay === 0 && data.waitForResult === true))
+  ) {
+    return edge;
+  }
+
+  return {
+    ...edge,
+    type: "conditionMerge",
+    data: {
+      ...data,
+      ...(isActionTarget ? { delay: 0, waitForResult: true } : {}),
+      logicMode,
+    },
+  };
+}
+
+function normalizeConditionMergeEdges(inputNodes: Node[], inputEdges: Edge[]) {
+  const nodesById = new Map(inputNodes.map((node) => [node.id, node]));
+  let changed = false;
+  const edges = inputEdges.map((edge) => {
+    const normalized = normalizeConditionMergeEdge(edge, nodesById);
+    if (normalized !== edge) changed = true;
+    return normalized;
+  });
+
+  return changed ? edges : inputEdges;
+}
+
+function normalizeEditorGraphEdges<T extends { nodes: Node[]; edges: Edge[] }>(graph: T): T {
+  const edges = normalizeConditionMergeEdges(graph.nodes, graph.edges);
+  return edges === graph.edges ? graph : { ...graph, edges };
 }
 
 function isConnectableSourceHandle(sourceHandle?: string | null) {
@@ -158,7 +229,13 @@ function isAllowedEditorConnection(params: Pick<Connection, "source" | "target" 
 
 function isOutputBlockEdge(edge: Pick<Edge, "sourceHandle" | "data">) {
   return Boolean((edge.data as Record<string, unknown> | undefined)?.collapsedProxy === true) ||
-    isOutputBlockSourceHandle(edge.sourceHandle);
+    isOutputBlockSourceHandle(edge.sourceHandle) ||
+    isControlSourceHandle(edge.sourceHandle);
+}
+
+function isTriggerDataBlock(block: Pick<BlockData, "id" | "name"> & Record<string, unknown>) {
+  const text = `${block.id} ${block.name} ${String(block.outputKind ?? "")}`.toLowerCase();
+  return /\btrigger(?:ed)?\b|boolean-trigger|boolean-data/.test(text);
 }
 
 function getHandleBlockId(handle?: string | null, direction: "source" | "target" = "source") {
@@ -189,9 +266,23 @@ function getSourceSignalName(sourceNode: Node | undefined, sourceHandle?: string
     return "success";
   }
 
+  if (sourceHandle?.endsWith("-condition-out")) {
+    return "yes";
+  }
+
+  const triggerOutputBlockId = sourceHandle?.match(/-trigger-(.+)-out$/)?.[1];
+  if (triggerOutputBlockId) {
+    const outputBlocks = (sourceNode.data as { outputBlocks?: BlockData[] })?.outputBlocks ?? [];
+    const outputBlock = outputBlocks.find((block) => block.id === triggerOutputBlockId);
+    return outputBlock?.name ? `${outputBlock.name} yes` : "yes";
+  }
+
+  if (/-trigger-.+-out$/.test(sourceHandle ?? "")) {
+    return "yes";
+  }
+
   if (sourceHandle?.endsWith("-trigger-out")) {
-    if (sourceNode.type === "clickTrigger") return "click";
-    if (sourceNode.type === "timeTrigger") return "tick";
+    if (sourceNode.type === "clickTrigger" || sourceNode.type === "timeTrigger") return "yes";
     if (sourceNode.type === "streamingNode") return "stream";
     return "trigger";
   }
@@ -207,14 +298,22 @@ function getSourceSignalName(sourceNode: Node | undefined, sourceHandle?: string
 
 function getOutputBlockForHandle(sourceNode: Node | undefined, sourceHandle?: string | null) {
   const blockId = getHandleBlockId(sourceHandle, "source");
-  const outputBlocks = (sourceNode?.data as { outputBlocks?: Array<{ id: string; name: string; description?: string; type: "output" }> })?.outputBlocks ?? [];
+  const outputBlocks = (sourceNode?.data as { outputBlocks?: BlockData[] })?.outputBlocks ?? [];
   return outputBlocks.find((block) => block.id === blockId) ?? null;
 }
 
 function getInputBlockForHandle(targetNode: Node | undefined, targetHandle?: string | null) {
   const blockId = getHandleBlockId(targetHandle, "target");
-  const inputBlocks = (targetNode?.data as { inputBlocks?: Array<{ id: string; name: string; description?: string; type: "input" }> })?.inputBlocks ?? [];
+  const inputBlocks = (targetNode?.data as { inputBlocks?: BlockData[] })?.inputBlocks ?? [];
   return inputBlocks.find((block) => block.id === blockId) ?? null;
+}
+
+function getChartSeriesForOutputHandle(sourceNode: Node, sourceHandle?: string | null) {
+  const sourceBlock = getOutputBlockForHandle(sourceNode, sourceHandle) as (BlockData & { chartSeries?: NodeChartPoint[] }) | null;
+  const blockSeries = sourceBlock?.chartSeries;
+  if (Array.isArray(blockSeries) && blockSeries.length > 0) return blockSeries;
+  const nodeSeries = (sourceNode.data as { chartSeries?: NodeChartPoint[] })?.chartSeries;
+  return Array.isArray(nodeSeries) ? nodeSeries : [];
 }
 
 function getFallbackInputBlocksForNode(node: Node, sourceBlockName: string): BlockData[] {
@@ -308,10 +407,14 @@ function buildInputConnectionUpdate({
     !requestedBlock ||
     Boolean(requestedBlock.connectedFrom && requestedBlock.connectedFrom !== connectedFrom && !existingBlock);
   const targetBlockId = existingBlock?.id || (!shouldAppend && requestedBlock ? requestedBlock.id : `ib-${sanitizeHandlePart(sourceBlockName)}-${Date.now()}`);
+  const shouldKeepRequestedName =
+    requestedBlock &&
+    !isPlaceholderInputBlock(requestedBlock) &&
+    targetNode.type !== "conditionJunction";
   const nextInputBlock: BlockData = {
     ...(requestedBlock ?? {}),
     id: targetBlockId,
-    name: requestedBlock && !isPlaceholderInputBlock(requestedBlock) ? requestedBlock.name : sourceBlockName,
+    name: shouldKeepRequestedName ? requestedBlock.name : sourceBlockName,
     description: requestedBlock?.description || sourceDescription,
     type: "input",
     connectedFrom,
@@ -334,6 +437,35 @@ function buildInputConnectionUpdate({
     connectedFrom,
     nextInputBlock,
   };
+}
+
+function buildPassthroughOutputBlock(inputBlock: BlockData, connectedFrom: string): BlockData {
+  const baseName = sanitizeHandlePart(inputBlock.name || "source") || "source";
+  return {
+    id: `ob-pass-${sanitizeHandlePart(inputBlock.id || baseName)}-${Date.now()}`,
+    name: inputBlock.name || baseName,
+    description: `입력 ${connectedFrom}을 그대로 반환`,
+    type: "output",
+    outputMode: "passthrough",
+    passthroughInputBlockId: inputBlock.id,
+    connectedFrom,
+    formulaCode: sanitizeFormulaIdentifier(inputBlock.name || baseName) || "source",
+  };
+}
+
+function appendPassthroughOutputBlockIfNeeded(
+  outputBlocks: BlockData[] | undefined,
+  inputBlock: BlockData,
+  connectedFrom: string,
+) {
+  const currentOutputBlocks = Array.isArray(outputBlocks) ? outputBlocks : [];
+  const alreadyExists = currentOutputBlocks.some((block) =>
+    block.connectedFrom === connectedFrom ||
+    block.passthroughInputBlockId === inputBlock.id ||
+    block.name === inputBlock.name,
+  );
+  if (alreadyExists) return currentOutputBlocks;
+  return [...currentOutputBlocks, buildPassthroughOutputBlock(inputBlock, connectedFrom)];
 }
 
 function escapeRegExp(value: string) {
@@ -644,8 +776,12 @@ function movingAverageSeries(series: NodeChartPoint[], windowSize = 20) {
 type ReactiveIncomingSeries = {
   node: Node;
   series: NodeChartPoint[];
+  sourceHandle?: string | null;
+  targetHandle?: string | null;
+  targetInputId?: string;
   sourceBlockName?: string;
   targetInputName?: string;
+  connectedFrom?: string;
 };
 
 type ReactiveFormulaResult = {
@@ -671,8 +807,12 @@ function uniquePushIdentifier(list: string[], value: string) {
   }
 }
 
-function getFunctionFormulaText(data: Record<string, unknown>, primaryOutputName = "") {
-  const code = readNodeText(data, ["code", "formula", "expression", "logic"]);
+function getFunctionFormulaText(data: Record<string, unknown>, primaryOutputName = "", outputBlock?: BlockData | null) {
+  const outputData = outputBlock as Record<string, unknown> | null | undefined;
+  const outputCode = outputData
+    ? readNodeText(outputData, ["formulaCode", "code", "formula", "expression", "logic"])
+    : "";
+  const code = outputCode || readNodeText(data, ["code", "formula", "expression", "logic"]);
   const candidates = [primaryOutputName, "result", "value", "signal", "basis", "spread", "metric"]
     .map((value) => sanitizeFormulaIdentifier(value))
     .filter(Boolean);
@@ -693,7 +833,8 @@ function getFunctionFormulaText(data: Record<string, unknown>, primaryOutputName
     if (!/[{};]/.test(code) && /[+\-*/%()]/.test(code)) return code;
   }
 
-  const description = readNodeText(data, ["logicDescription", "description"]);
+  const outputDescription = outputData ? readNodeText(outputData, ["logicDescription", "description"]) : "";
+  const description = outputDescription || readNodeText(data, ["logicDescription", "description"]);
   if (!/[{};]/.test(description) && /[+\-*/%()]/.test(description)) {
     return description;
   }
@@ -784,11 +925,11 @@ function compileFormulaEvaluator(expression: string) {
   };
 }
 
-function deriveFormulaChartSeries(node: Node, incoming: ReactiveIncomingSeries[]): ReactiveFormulaResult | null {
+function deriveFormulaChartSeries(node: Node, incoming: ReactiveIncomingSeries[], outputBlock?: BlockData | null): ReactiveFormulaResult | null {
   const data = node.data as Record<string, unknown>;
   const outputBlocks = Array.isArray(data.outputBlocks) ? data.outputBlocks as BlockData[] : [];
-  const primaryOutputName = outputBlocks[0]?.name || "value";
-  const expression = getFunctionFormulaText(data, primaryOutputName);
+  const primaryOutputName = outputBlock?.name || outputBlocks[0]?.name || "value";
+  const expression = getFunctionFormulaText(data, primaryOutputName, outputBlock);
   if (!expression) return null;
 
   const evaluator = compileFormulaEvaluator(expression);
@@ -824,15 +965,35 @@ function deriveFormulaChartSeries(node: Node, incoming: ReactiveIncomingSeries[]
   };
 }
 
-function deriveFunctionChartSeries(node: Node, incoming: ReactiveIncomingSeries[]): ReactiveFormulaResult | null {
+function deriveFunctionChartSeries(node: Node, incoming: ReactiveIncomingSeries[], outputBlock?: BlockData | null): ReactiveFormulaResult | null {
   if (incoming.length === 0) return null;
-  const formulaResult = deriveFormulaChartSeries(node, incoming);
+  const outputData = outputBlock as Record<string, unknown> | null | undefined;
+
+  if (outputData?.outputMode === "passthrough") {
+    const passthroughInputBlockId = typeof outputData.passthroughInputBlockId === "string" ? outputData.passthroughInputBlockId : "";
+    const connectedFrom = typeof outputData.connectedFrom === "string" ? outputData.connectedFrom : "";
+    const matchedInput =
+      incoming.find((item) => passthroughInputBlockId && item.targetInputId === passthroughInputBlockId) ??
+      incoming.find((item) => connectedFrom && item.connectedFrom === connectedFrom) ??
+      incoming.find((item) => item.targetInputName === outputBlock?.name) ??
+      incoming[0];
+
+    return {
+      series: matchedInput.series,
+      source: `passthrough: ${matchedInput.connectedFrom || matchedInput.sourceBlockName || matchedInput.targetInputName || "source"}`,
+      warning: "",
+    };
+  }
+
+  const formulaResult = deriveFormulaChartSeries(node, incoming, outputBlock);
   if (formulaResult && formulaResult.series.length > 0) return formulaResult;
 
   const data = node.data as Record<string, unknown>;
   const text = [
     node.id,
     readNodeText(data, ["label", "name", "functionName", "description", "logicDescription", "code", "expression", "logic"]),
+    outputBlock?.name ?? "",
+    outputBlock?.description ?? "",
   ].join(" ").toLowerCase();
 
   if (incoming.length >= 2 && /basis|spread|gap|premium|차익|가격차|괴리|현선/.test(text)) {
@@ -890,6 +1051,7 @@ function getClientPoint(event: MouseEvent | TouchEvent) {
 const SEQUENCE_GROUP_TRANSITION =
   "width 420ms cubic-bezier(0.22,1,0.36,1), height 420ms cubic-bezier(0.22,1,0.36,1), box-shadow 280ms ease";
 const SEQUENCE_LAYOUT_MOVE_DURATION_MS = 420;
+const CONDITION_JUNCTION_ACTION_GAP = 228;
 const RUNTIME_PROGRAM_NODE_ID = "hershy-generated-program";
 const FOCUS_NODE_TRANSITION = "opacity 140ms ease, filter 140ms ease";
 const FOCUS_NODE_FILTERS = new Set([
@@ -987,6 +1149,12 @@ function clearFocusEdgeStyle(edge: Edge): Edge {
 }
 
 function isNodeInStrategyTree(node: Node, nodesById: Map<string, Node>) {
+  const hasSolidStrategyBlock = Array.from(nodesById.values()).some((candidate) => {
+    return candidate.type === "groupNode" && (candidate.data as any)?.styleType === "solid";
+  });
+
+  if (!hasSolidStrategyBlock) return true;
+
   let currentParentId = node.parentId;
 
   while (currentParentId) {
@@ -1084,6 +1252,8 @@ function estimateEditorNodeSize(node: Node) {
       return { width: 430, height: 360 };
     case "branchNode":
       return { width: 460, height: 180 };
+    case "conditionJunction":
+      return { width: 1, height: 96 + Math.max(0, inputCount - 2) * 32 };
     case "timelineFrame":
       return { width: 560, height: 380 };
     case "clickTrigger":
@@ -1249,7 +1419,8 @@ function applySequenceCollapsedState(inputNodes: Node[], inputEdges: Edge[]) {
   });
 
   const nodesById = new Map(nodes.map((node) => [node.id, node]));
-  const edges = inputEdges
+  const normalizedInputEdges = normalizeConditionMergeEdges(nodes, inputEdges);
+  const edges = normalizedInputEdges
     .map((edge) => {
       const originalSource = readOriginalEdgeText(edge, "originalSource", edge.source);
       const originalTarget = readOriginalEdgeText(edge, "originalTarget", edge.target);
@@ -1607,18 +1778,90 @@ type NodeEditorProps = {
   previewMode?: boolean;
 };
 
+type CanvasPoint = { x: number; y: number };
+
+type ThresholdActionCreateDetail = {
+  sourceNodeId: string;
+  sourceHandleId: string;
+  sourceHandleIds?: string[];
+  clientPoint?: CanvasPoint;
+  outputBlockId: string;
+  blockName: string;
+  chartIndex?: number;
+  condition: IndicatorCondition;
+  conditions?: IndicatorCondition[];
+  mergeMode?: "AND" | "OR";
+  directSignal?: boolean;
+};
+
+function getAbsoluteNodePosition(node: Node | undefined, nodesById: Map<string, Node>) {
+  if (!node) return { x: 0, y: 0 };
+  let x = node.position.x;
+  let y = node.position.y;
+  let parentId = node.parentId;
+
+  while (parentId) {
+    const parent = nodesById.get(parentId);
+    if (!parent) break;
+    x += parent.position.x;
+    y += parent.position.y;
+    parentId = parent.parentId;
+  }
+
+  return { x, y };
+}
+
+function getConditionJunctionPositionForAction(actionNode: Node, junctionNode?: Node) {
+  const actionSize = getEditorNodeSize(actionNode);
+  const junctionSize = junctionNode ? getEditorNodeSize(junctionNode) : { width: 1, height: 96 };
+
+  return {
+    x: actionNode.position.x - CONDITION_JUNCTION_ACTION_GAP,
+    y: actionNode.position.y + actionSize.height / 2 - junctionSize.height / 2,
+  };
+}
+
+function syncConditionJunctionsForAction(nodeList: Node[], edgeList: Edge[], actionNode: Node) {
+  const junctionIds = new Set(
+    edgeList
+      .filter((edge) => edge.target === actionNode.id && edge.sourceHandle?.endsWith("-condition-out"))
+      .map((edge) => edge.source),
+  );
+
+  if (junctionIds.size === 0) return nodeList;
+
+  return nodeList.map((node) => {
+    if (!junctionIds.has(node.id) || node.type !== "conditionJunction") return node;
+    return {
+      ...node,
+      parentId: actionNode.parentId,
+      extent: actionNode.parentId ? ("parent" as const) : undefined,
+      expandParent: Boolean(actionNode.parentId),
+      position: getConditionJunctionPositionForAction(actionNode, node),
+    };
+  });
+}
+
+function formatThresholdActionValue(value: number) {
+  return new Intl.NumberFormat("en-US", {
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
+  }).format(value);
+}
+
 function NodeEditorInner({ initialGraph, initialGraphVersion = 0, programCode = "", previewMode = false }: NodeEditorProps) {
-  const { fitView, getIntersectingNodes, getNodes } = useReactFlow();
+  const { fitView, getIntersectingNodes, getNodes, screenToFlowPosition } = useReactFlow();
   const updateNodeInternals = useUpdateNodeInternals();
   const { showFSMEdges, isAvailable, currentState } = useFSM();
   const nodesInitialized = useNodesInitialized();
   const initialSnapshot = useMemo(() => {
     if (initialGraph && initialGraph.nodes.length > 0) {
-      return initialGraph;
+      return normalizeEditorGraphEdges(initialGraph);
     }
     if (previewMode) return null;
     const activeId = historyStore.getActiveId();
-    return historyStore.getSnapshotById(activeId);
+    const snapshot = historyStore.getSnapshotById(activeId);
+    return snapshot ? normalizeEditorGraphEdges(snapshot) : null;
   }, [initialGraph, previewMode]);
   const [nodes, setNodes, onNodesChange] = useNodesState<Node>(
     initialSnapshot && initialSnapshot.nodes.length > 0 ? initialSnapshot.nodes : [],
@@ -1641,6 +1884,7 @@ function NodeEditorInner({ initialGraph, initialGraphVersion = 0, programCode = 
   const measuredSequenceRelayoutFrameRef = useRef<number | null>(null);
   const containmentResizeFrameRef = useRef<number | null>(null);
   const connectionStartRef = useRef<OnConnectStartParams | null>(null);
+  const skipNextStrategyRelayoutRef = useRef(false);
   const [focusState, setFocusState] = useState<FocusState>({
     isActive: false,
     focusedNodeId: null,
@@ -1653,8 +1897,6 @@ function NodeEditorInner({ initialGraph, initialGraphVersion = 0, programCode = 
     selectedNodes: Node[];
   } | null>(null);
   const nodeIdRef = useRef(10);
-
-  const [isTerminalOpen, setTerminalOpen] = useState(false);
 
   const clearPendingSequenceRelayout = useCallback(() => {
     if (sequenceRelayoutFrameRef.current !== null) {
@@ -1699,7 +1941,7 @@ function NodeEditorInner({ initialGraph, initialGraphVersion = 0, programCode = 
         affectedNodeIds?: string[];
       },
     ) => {
-      const normalized = applySequenceCollapsedState(inputNodes, inputEdges);
+      const normalized = applySequenceCollapsedState(inputNodes, normalizeConditionMergeEdges(inputNodes, inputEdges));
       const layoutedNodes = getLayoutedElements(normalized.nodes, normalized.edges, "LR");
 
       clearPendingSequenceRelayout();
@@ -1768,17 +2010,6 @@ function NodeEditorInner({ initialGraph, initialGraphVersion = 0, programCode = 
       stopSequenceLayoutAnimation();
     };
   }, [clearPendingSequenceRelayout, stopSequenceLayoutAnimation]);
-
-  // Derive monitoring nodes data for the Terminal
-  const monitoringNodesData = useMemo(() => {
-    const data: Record<string, MonitoringNodeData> = {};
-    nodes.forEach((n) => {
-      if (n.type === "monitoringNode") {
-        data[n.id] = n.data as MonitoringNodeData;
-      }
-    });
-    return data;
-  }, [nodes]);
 
   const marketChartRequestPayload = useMemo(() => {
     const requests = nodes
@@ -2118,41 +2349,83 @@ function NodeEditorInner({ initialGraph, initialGraphVersion = 0, programCode = 
             .map((edge): ReactiveIncomingSeries | null => {
               const sourceNode = nextById.get(edge.source);
               if (!sourceNode) return null;
-              const series = (sourceNode.data as { chartSeries?: NodeChartPoint[] })?.chartSeries ?? [];
+              const series = getChartSeriesForOutputHandle(sourceNode, edge.sourceHandle);
               if (!Array.isArray(series) || series.length === 0) return null;
+              const sourceBlockName = getOutputBlockForHandle(sourceNode, edge.sourceHandle)?.name;
+              const targetInputBlock = getInputBlockForHandle(currentFunctionNode, edge.targetHandle);
+              const sourceNodeName = getNodeDisplayName(sourceNode);
               return {
                 node: sourceNode,
                 series,
-                sourceBlockName: getOutputBlockForHandle(sourceNode, edge.sourceHandle)?.name,
-                targetInputName: getInputBlockForHandle(currentFunctionNode, edge.targetHandle)?.name,
+                sourceHandle: edge.sourceHandle,
+                targetHandle: edge.targetHandle,
+                targetInputId: targetInputBlock?.id,
+                sourceBlockName,
+                targetInputName: targetInputBlock?.name,
+                connectedFrom: sourceBlockName ? `${sourceNodeName}.${sourceBlockName}` : undefined,
               };
             })
             .filter((item): item is ReactiveIncomingSeries => Boolean(item));
 
-          const result = deriveFunctionChartSeries(currentFunctionNode, incoming);
-          if (!result) continue;
-
           const currentData = currentFunctionNode.data as FunctionNodeData;
-          const nextSeries = result.series.length > 0 ? result.series : currentData.chartSeries;
-          const seriesSame = result.series.length > 0
-            ? chartSeriesEqual(currentData.chartSeries, nextSeries)
-            : true;
-          if (
-            seriesSame &&
-            currentData.chartSource === result.source &&
-            (currentData.chartWarning || "") === (result.warning || "")
-          ) {
-            continue;
-          }
+          const outputBlocks = Array.isArray(currentData.outputBlocks) ? currentData.outputBlocks as BlockData[] : [];
+          const chartableOutputBlocks = outputBlocks.filter((block) => !isTriggerDataBlock(block));
+          const nextOutputBlocks = outputBlocks.map((block) => ({ ...block }));
+          let nodeChartPatch: Partial<FunctionNodeData> = {};
+          let nodeChanged = false;
+
+          chartableOutputBlocks.forEach((outputBlock, outputIndex) => {
+            const result = deriveFunctionChartSeries(currentFunctionNode, incoming, outputBlock);
+            if (!result) return;
+
+            const blockIndex = nextOutputBlocks.findIndex((block) => block.id === outputBlock.id);
+            if (blockIndex < 0) return;
+            const currentBlock = nextOutputBlocks[blockIndex] as BlockData & {
+              chartSeries?: NodeChartPoint[];
+              chartSource?: string;
+              chartWarning?: string;
+            };
+            const nextSeries = result.series.length > 0 ? result.series : currentBlock.chartSeries;
+            const seriesSame = result.series.length > 0
+              ? chartSeriesEqual(currentBlock.chartSeries, nextSeries)
+              : true;
+            const nextWarning = result.warning || "";
+            if (
+              seriesSame &&
+              currentBlock.chartSource === result.source &&
+              (currentBlock.chartWarning || "") === nextWarning
+            ) {
+              return;
+            }
+
+            const updatedBlock = {
+              ...currentBlock,
+              chartSeries: nextSeries,
+              chartSource: result.source,
+              chartUpdatedAt: new Date().toISOString(),
+              chartWarning: nextWarning,
+            };
+            nextOutputBlocks[blockIndex] = updatedBlock;
+            nodeChanged = true;
+
+            if (outputIndex === 0) {
+              nodeChartPatch = {
+                chartSeries: nextSeries,
+                chartSource: result.source,
+                chartUpdatedAt: updatedBlock.chartUpdatedAt,
+                chartWarning: nextWarning,
+              };
+            }
+          });
+
+          if (!nodeChanged) continue;
 
           const updatedNode = {
             ...currentFunctionNode,
             data: {
               ...currentFunctionNode.data,
-              chartSeries: nextSeries,
-              chartSource: result.source,
-              chartUpdatedAt: new Date().toISOString(),
-              chartWarning: result.warning || "",
+              ...nodeChartPatch,
+              outputBlocks: nextOutputBlocks,
             },
           };
           nextById.set(currentFunctionNode.id, updatedNode);
@@ -2183,7 +2456,7 @@ function NodeEditorInner({ initialGraph, initialGraphVersion = 0, programCode = 
       return;
     }
 
-    const runtimeGraph = enrichGraphWithRuntimeProgram(initialGraph, programCode);
+    const runtimeGraph = normalizeEditorGraphEdges(enrichGraphWithRuntimeProgram(initialGraph, programCode));
 
     loadedInitialGraphVersionRef.current = initialGraphVersion;
     activeSnapshotPersistSignatureRef.current = JSON.stringify({
@@ -2300,18 +2573,236 @@ function NodeEditorInner({ initialGraph, initialGraphVersion = 0, programCode = 
     });
   }, [resizeParentsToFitChildren, setNodes]);
 
-  // Terminal toggle listener from MonitoringNodes
+  const handleCreateThresholdActionNode = useCallback(
+    (event: Event) => {
+      const detail = (event as CustomEvent<ThresholdActionCreateDetail>).detail;
+      if (!detail?.sourceNodeId || !detail.sourceHandleId || !detail.outputBlockId || !detail.blockName) return;
+
+      const sourceNode = nodes.find((node) => node.id === detail.sourceNodeId);
+      if (!sourceNode) return;
+
+      const nodesById = new Map(nodes.map((node) => [node.id, node]));
+      const sourceHandleIds = (detail.sourceHandleIds?.length ? detail.sourceHandleIds : [detail.sourceHandleId])
+        .filter((handleId): handleId is string => Boolean(handleId));
+      const sourceHandleIdSet = new Set(sourceHandleIds);
+      const conditions = (detail.conditions?.length ? detail.conditions : [detail.condition]).map((condition) => ({
+        ...condition,
+        metric: condition.metric || detail.blockName,
+      }));
+      const isDirectSignal = detail.directSignal === true;
+      const shouldMergeConditions = !isDirectSignal && sourceHandleIds.length > 1;
+      const junctionId = `condition-junction-${sanitizeHandlePart(detail.sourceNodeId)}-${sanitizeHandlePart(detail.outputBlockId)}`;
+      const directActionEdge = edges.find((edge) => {
+        if (edge.source !== detail.sourceNodeId || !sourceHandleIdSet.has(edge.sourceHandle ?? "")) return false;
+        return nodesById.get(edge.target)?.type === "actionNode";
+      });
+      const junctionActionEdge = edges.find((edge) => edge.source === junctionId && edge.sourceHandle === `${junctionId}-condition-out`);
+      const existingTargetNode =
+        (junctionActionEdge ? nodesById.get(junctionActionEdge.target) : undefined) ??
+        (directActionEdge ? nodesById.get(directActionEdge.target) : undefined);
+      const now = Date.now();
+      const actionId = existingTargetNode?.id ?? `action-${now}`;
+      const sourceSize = getEditorNodeSize(sourceNode);
+      const sourcePosition = getAbsoluteNodePosition(sourceNode, nodesById);
+      const anchorPosition = detail.clientPoint
+        ? screenToFlowPosition(detail.clientPoint)
+        : {
+          x: sourcePosition.x + sourceSize.width,
+          y: sourcePosition.y + 86 + (detail.chartIndex ?? 0) * 96,
+        };
+      const targetParentId = sourceNode.parentId;
+      const parentPosition = targetParentId
+        ? getAbsoluteNodePosition(nodesById.get(targetParentId), nodesById)
+        : { x: 0, y: 0 };
+      const actionPosition = {
+        x: anchorPosition.x + (shouldMergeConditions ? 320 : 92) - parentPosition.x,
+        y: anchorPosition.y - 58 - parentPosition.y,
+      };
+      const triggerCondition = {
+        ...conditions[0],
+        metric: conditions[0]?.metric || detail.blockName,
+        conditions,
+        mergeMode: shouldMergeConditions ? (detail.mergeMode ?? "AND") : undefined,
+        directSignal: isDirectSignal,
+      };
+      const conditionSummary = conditions
+        .map((condition) => `${condition.operator} ${formatThresholdActionValue(Number(condition.threshold))}`)
+        .join(` ${detail.mergeMode ?? "AND"} `);
+      const existingActionData = existingTargetNode?.data as Partial<DEXActionData> | undefined;
+      const actionData: DEXActionData = {
+        ...(existingActionData ?? {}),
+        label: isDirectSignal
+          ? `Action when ${detail.blockName} YES`
+          : `Action when ${detail.blockName} ${conditionSummary}`,
+        actionType: "DEX",
+        contractAddress: "0x...",
+        functionName: "swap()",
+        chainId: 1,
+        inputBlocks: [],
+        outputBlocks: (existingActionData?.outputBlocks?.length
+          ? existingActionData.outputBlocks
+          : [{ id: `dex-ob-${now}`, name: "success", type: "output" }]),
+        isExpanded: false,
+        triggerCondition,
+        triggerOutputBlockId: detail.outputBlockId,
+      };
+      const junctionInputBlocks: BlockData[] = sourceHandleIds.map((sourceHandleId, index) => ({
+        id: `range-${index + 1}`,
+        name: conditions[index]
+          ? `${conditions[index].operator} ${formatThresholdActionValue(Number(conditions[index].threshold))}`
+          : `C${index + 1}`,
+        description: sourceHandleId,
+        type: "input",
+      }));
+      const junctionData = {
+        label: "Range",
+        mode: detail.mergeMode ?? "AND",
+        inputBlocks: junctionInputBlocks,
+        outputBlocks: [
+          {
+            id: "yes-no",
+            name: "yes/no",
+            description: "range condition result",
+            type: "output",
+            outputKind: "boolean-data",
+          },
+        ],
+      };
+      const nextEdge: Edge = {
+        id: `e-${detail.sourceNodeId}-${actionId}-${now}`,
+        source: detail.sourceNodeId,
+        target: actionId,
+        sourceHandle: detail.sourceHandleId,
+        targetHandle: `${actionId}-func-in`,
+        type: "conditionMerge",
+        data: {
+          delay: 0,
+          waitForResult: true,
+          sourceOutputBlockId: detail.outputBlockId,
+          condition: triggerCondition,
+          directSignal: isDirectSignal,
+          logicMode: detail.mergeMode ?? "AND",
+        },
+      };
+      const thresholdMergeEdges: Edge[] = sourceHandleIds.map((sourceHandleId, index) => ({
+        id: `e-${detail.sourceNodeId}-${junctionId}-${index}-${now}`,
+        source: detail.sourceNodeId,
+        target: junctionId,
+        sourceHandle: sourceHandleId,
+        targetHandle: `${junctionId}-input-${junctionInputBlocks[index].id}-in`,
+        type: "conditionMerge",
+        selectable: false,
+        data: {
+          condition: conditions[index],
+          logicMode: detail.mergeMode ?? "AND",
+        },
+      }));
+      const junctionToActionEdge: Edge = {
+        id: `e-${junctionId}-${actionId}-${now}`,
+        source: junctionId,
+        target: actionId,
+        sourceHandle: `${junctionId}-condition-out`,
+        targetHandle: `${actionId}-func-in`,
+        type: "conditionMerge",
+        data: {
+          delay: 0,
+          waitForResult: true,
+          condition: triggerCondition,
+          logicMode: detail.mergeMode ?? "AND",
+        },
+      };
+
+      skipNextStrategyRelayoutRef.current = true;
+
+      setNodes((currentNodes) => {
+        const hasExistingTargetInState = currentNodes.some((node) => node.id === actionId);
+        const actionNodePatch: Node<DEXActionData> = {
+          id: actionId,
+          type: "actionNode",
+          parentId: targetParentId,
+          extent: targetParentId ? ("parent" as const) : undefined,
+          expandParent: Boolean(targetParentId),
+          position: actionPosition,
+          selected: true,
+        data: actionData,
+      };
+      const junctionPosition = getConditionJunctionPositionForAction(actionNodePatch);
+      let nextNodes: Node[] = hasExistingTargetInState
+          ? currentNodes.map((node) =>
+            node.id === actionId
+              ? {
+                ...node,
+                ...actionNodePatch,
+              }
+              : { ...node, selected: false },
+          )
+          : [
+            ...currentNodes.map((node) => ({ ...node, selected: false })),
+            actionNodePatch,
+          ];
+
+        if (shouldMergeConditions) {
+          const junctionNodePatch: Node = {
+            id: junctionId,
+            type: "conditionJunction",
+            parentId: targetParentId,
+            extent: targetParentId ? ("parent" as const) : undefined,
+            expandParent: Boolean(targetParentId),
+            position: junctionPosition,
+            selected: false,
+            selectable: false,
+            draggable: false,
+            focusable: false,
+            data: junctionData,
+          };
+          const hasJunctionInState = nextNodes.some((node) => node.id === junctionId);
+          nextNodes = hasJunctionInState
+            ? nextNodes.map((node) => node.id === junctionId ? { ...node, ...junctionNodePatch } : node)
+            : [...nextNodes, junctionNodePatch];
+        }
+
+        return resizeParentsToFitChildren(nextNodes);
+      });
+
+      setEdges((currentEdges) => {
+        const retainedEdges = currentEdges.filter((edge) => {
+          if (edge.source === detail.sourceNodeId && sourceHandleIdSet.has(edge.sourceHandle ?? "")) return false;
+          if (shouldMergeConditions && (edge.source === junctionId || edge.target === junctionId)) return false;
+          return true;
+        });
+
+        return shouldMergeConditions
+          ? [...retainedEdges, ...thresholdMergeEdges, junctionToActionEdge]
+          : [...retainedEdges, nextEdge];
+      });
+
+      window.requestAnimationFrame(() => {
+        updateNodeInternals(detail.sourceNodeId);
+        if (shouldMergeConditions) updateNodeInternals(junctionId);
+        updateNodeInternals(actionId);
+        window.setTimeout(() => {
+          updateNodeInternals(detail.sourceNodeId);
+          if (shouldMergeConditions) updateNodeInternals(junctionId);
+          updateNodeInternals(actionId);
+        }, 0);
+      });
+
+      setFocusState({
+        isActive: true,
+        focusedNodeId: detail.sourceNodeId,
+        connectedNodeIds: shouldMergeConditions ? [junctionId, actionId] : [actionId],
+        connectedEdgeIds: shouldMergeConditions
+          ? [...thresholdMergeEdges.map((edge) => edge.id), junctionToActionEdge.id]
+          : [nextEdge.id],
+      });
+    },
+    [edges, nodes, resizeParentsToFitChildren, screenToFlowPosition, setEdges, setNodes, updateNodeInternals],
+  );
+
   useEffect(() => {
-    const handleToggleTerminal = (e: CustomEvent<{ open?: boolean; monitoringNodeId?: string }>) => {
-      if (typeof e.detail.open === "boolean") {
-        setTerminalOpen(e.detail.open);
-      } else {
-        setTerminalOpen((prev) => !prev);
-      }
-    };
-    window.addEventListener("toggleTerminal", handleToggleTerminal as EventListener);
-    return () => window.removeEventListener("toggleTerminal", handleToggleTerminal as EventListener);
-  }, []);
+    window.addEventListener("createThresholdActionNode", handleCreateThresholdActionNode);
+    return () => window.removeEventListener("createThresholdActionNode", handleCreateThresholdActionNode);
+  }, [handleCreateThresholdActionNode]);
 
   // Calculate connected nodes and edges when focus changes.
   // A focused parent/group should keep every descendant block in the same focus set.
@@ -2369,6 +2860,13 @@ function NodeEditorInner({ initialGraph, initialGraphVersion = 0, programCode = 
     };
   }, [getConnectedInfo]);
 
+  useEffect(() => {
+    const normalizedEdges = normalizeConditionMergeEdges(nodes, edges);
+    if (normalizedEdges === edges) return;
+
+    setEdges(normalizedEdges);
+  }, [edges, nodes, setEdges]);
+
   // Save to history whenever nodes or edges change
   useEffect(() => {
     if (isUndoRedoRef.current) {
@@ -2398,7 +2896,7 @@ function NodeEditorInner({ initialGraph, initialGraphVersion = 0, programCode = 
     historyIndexRef.current = newIndex;
     setHistoryIndex(newIndex);
     setNodes(historyNodes);
-    setEdges(historyEdges);
+    setEdges(normalizeConditionMergeEdges(historyNodes, historyEdges));
   }, [historyIndex, history, setNodes, setEdges]);
 
   // Redo handler
@@ -2412,7 +2910,7 @@ function NodeEditorInner({ initialGraph, initialGraphVersion = 0, programCode = 
     historyIndexRef.current = newIndex;
     setHistoryIndex(newIndex);
     setNodes(historyNodes);
-    setEdges(historyEdges);
+    setEdges(normalizeConditionMergeEdges(historyNodes, historyEdges));
   }, [historyIndex, history, setNodes, setEdges]);
 
   // Keyboard shortcuts for undo/redo
@@ -2470,13 +2968,11 @@ function NodeEditorInner({ initialGraph, initialGraphVersion = 0, programCode = 
   // Group Feature
   // ------------------------------------------
   const handleGroup = useCallback(() => {
-    const selectedNodes = nodes.filter((n) => n.selected);
+    const selectedNodes = nodes.filter((n) => n.selected && n.type !== "groupNode");
     if (selectedNodes.length < 1) return;
 
-    // 시퀀스들을 그룹화하면 전략(Strategy, solid), 일반 노드들을 그룹화하면 시퀀스(Sequence, dashed-trigger)
-    const isStrategy = selectedNodes.some(n => n.type === "groupNode");
-    const groupLabel = isStrategy ? "새로운 전략 (Strategy)" : "새로운 시퀀스 (Sequence)";
-    const styleType = isStrategy ? "solid" : "dashed-trigger";
+    const groupLabel = "새로운 시퀀스 (Sequence)";
+    const styleType = "dashed-trigger";
 
     const newGroupId = `group-${Date.now()}`;
     const selectedIds = new Set(selectedNodes.map(n => n.id));
@@ -2490,9 +2986,7 @@ function NodeEditorInner({ initialGraph, initialGraphVersion = 0, programCode = 
       return { x: parentAbs.x + node.position.x, y: parentAbs.y + node.position.y };
     };
 
-    // Calculate bounding box using ABSOLUTE coordinates of selected nodes
-    // (and their measured sizes). For strategy grouping we also include
-    // the children that live inside selected sequences so sizing is accurate.
+    // Calculate bounding box using ABSOLUTE coordinates of selected nodes.
     let minX = Infinity, minY = Infinity;
     let maxX = -Infinity, maxY = -Infinity;
 
@@ -2510,12 +3004,6 @@ function NodeEditorInner({ initialGraph, initialGraphVersion = 0, programCode = 
 
     selectedNodes.forEach(n => {
       includeNode(n.id);
-      // Also include their direct children so the wrapping box is big enough
-      if (isStrategy) {
-        nodes.forEach(child => {
-          if (child.parentId === n.id) includeNode(child.id);
-        });
-      }
     });
 
     const padding = 60;
@@ -2558,48 +3046,42 @@ function NodeEditorInner({ initialGraph, initialGraphVersion = 0, programCode = 
     });
 
     // ── AI auto-summary for newly created SEQUENCE ─────────────────────
-    if (!isStrategy) {
-      // Collect node labels for context
-      const nodeLabels = selectedNodes
-        .map(n => (n.data as any)?.label || (n.data as any)?.functionName || n.id)
-        .filter(Boolean);
+    const nodeLabels = selectedNodes
+      .map(n => (n.data as any)?.label || (n.data as any)?.functionName || n.id)
+      .filter(Boolean);
 
-      // Dummy AI summaries pool — rotate based on node count
-      const dummySummaries = [
-        `가격 모니터링 후 자동 실행: ${nodeLabels.join(" → ")} 순서로 실행되며, USDC/ETH 페어의 가격 변동을 실시간 감시하고 부충 조건 충족 시 자동 매수/매도 심호를 발송합니다.`,
-        `유동성 리밸런싱 시퀀스: ${nodeLabels.join(", ")} 노드가 페어를 확인하고 명목 포지션 차이(delta)가 넘어졌을 때 LP에 다시 추가하여 슬리피지를 줄입니다.`,
-        `연속 ${nodeLabels.length}단계 실행 파이프라인: 시장 신호 감지 → 조건 평가 → 주문 실행의 잊년없는 흐름으로 구성되어 있습니다. EMa 크로스오버 + 볼린저 스파이크 신호를 결합해 순간 진입 타이밍을 계산합니다.`,
-        `리스크 관리 시퀀스: 변보성 ATR 기반 스톱로스 자동 조정, 노드 (${nodeLabels.join(" · ")})를 통해 PnL 누적 후 추의 취득 조정이 일어납니다.`,
-      ];
+    const dummySummaries = [
+      `가격 모니터링 후 자동 실행: ${nodeLabels.join(" → ")} 순서로 실행되며, USDC/ETH 페어의 가격 변동을 실시간 감시하고 부충 조건 충족 시 자동 매수/매도 심호를 발송합니다.`,
+      `유동성 리밸런싱 시퀀스: ${nodeLabels.join(", ")} 노드가 페어를 확인하고 명목 포지션 차이(delta)가 넘어졌을 때 LP에 다시 추가하여 슬리피지를 줄입니다.`,
+      `연속 ${nodeLabels.length}단계 실행 파이프라인: 시장 신호 감지 → 조건 평가 → 주문 실행의 잊년없는 흐름으로 구성되어 있습니다. EMa 크로스오버 + 볼린저 스파이크 신호를 결합해 순간 진입 타이밍을 계산합니다.`,
+      `리스크 관리 시퀀스: 변보성 ATR 기반 스톱로스 자동 조정, 노드 (${nodeLabels.join(" · ")})를 통해 PnL 누적 후 추의 취득 조정이 일어납니다.`,
+    ];
 
-      const summary = dummySummaries[nodeLabels.length % dummySummaries.length];
+    const summary = dummySummaries[nodeLabels.length % dummySummaries.length];
 
-      // Animate a "typing" effect on the new group node’s explanation field
-      const words = summary.split("");
-      let built = "";
-      let i = 0;
-      const typeInterval = setInterval(() => {
-        built += words[i++] || "";
+    const words = summary.split("");
+    let built = "";
+    let i = 0;
+    const typeInterval = setInterval(() => {
+      built += words[i++] || "";
+      setNodes(nds =>
+        nds.map(n =>
+          n.id === newGroupId
+            ? { ...n, data: { ...n.data, explanation: built + "▊" } }
+            : n
+        )
+      );
+      if (i >= words.length) {
+        clearInterval(typeInterval);
         setNodes(nds =>
           nds.map(n =>
             n.id === newGroupId
-              ? { ...n, data: { ...n.data, explanation: built + "▊" } }
+              ? { ...n, data: { ...n.data, explanation: summary } }
               : n
           )
         );
-        if (i >= words.length) {
-          clearInterval(typeInterval);
-          // finalise without cursor
-          setNodes(nds =>
-            nds.map(n =>
-              n.id === newGroupId
-                ? { ...n, data: { ...n.data, explanation: summary } }
-                : n
-            )
-          );
-        }
-      }, 18);
-    }
+      }
+    }, 18);
 
     setContextMenu(null);
   }, [nodes, setNodes]);
@@ -2926,6 +3408,7 @@ function NodeEditorInner({ initialGraph, initialGraphVersion = 0, programCode = 
       }
 
       if (draggedNode.type === "actionNode") {
+        setNodes((currentNodes) => syncConditionJunctionsForAction(currentNodes, edges, draggedNode));
         const timeline = getOverlappingTimeline(draggedNode);
         window.dispatchEvent(
           new CustomEvent("dragOverTimeline", {
@@ -2934,7 +3417,7 @@ function NodeEditorInner({ initialGraph, initialGraphVersion = 0, programCode = 
         );
       }
     },
-    [getOverlappingTimeline, scheduleParentContainmentResize]
+    [edges, getOverlappingTimeline, scheduleParentContainmentResize, setNodes]
   );
 
   // Drop: when drag ends over a timeline or group, reparent accordingly
@@ -3060,20 +3543,36 @@ function NodeEditorInner({ initialGraph, initialGraphVersion = 0, programCode = 
                 position: { x: draggedAbs.x - targetAbs.x, y: draggedAbs.y - targetAbs.y },
               };
             });
-            return resizeParentsToFitChildren(updated);
+            const updatedActionNode = updated.find((node) => node.id === draggedNode.id) ?? draggedNode;
+            const synced = draggedNode.type === "actionNode"
+              ? syncConditionJunctionsForAction(updated, edges, updatedActionNode)
+              : updated;
+            return resizeParentsToFitChildren(synced);
           });
         } else {
           // Already in the right parent — still resize in case position changed
-          setNodes((nds) => resizeParentsToFitChildren(nds));
+          setNodes((nds) => {
+            const liveActionNode = nds.find((node) => node.id === draggedNode.id) ?? draggedNode;
+            const synced = draggedNode.type === "actionNode"
+              ? syncConditionJunctionsForAction(nds, edges, liveActionNode)
+              : nds;
+            return resizeParentsToFitChildren(synced);
+          });
         }
         return;
       }
 
       if (currentParentId) {
-        setNodes((nds) => resizeParentsToFitChildren(nds));
+        setNodes((nds) => {
+          const liveActionNode = nds.find((node) => node.id === draggedNode.id) ?? draggedNode;
+          const synced = draggedNode.type === "actionNode"
+            ? syncConditionJunctionsForAction(nds, edges, liveActionNode)
+            : nds;
+          return resizeParentsToFitChildren(synced);
+        });
       }
     },
-    [getOverlappingTimeline, setNodes, setEdges, getIntersectingNodes, getNodes, resizeParentsToFitChildren]
+    [edges, getOverlappingTimeline, setNodes, setEdges, getIntersectingNodes, getNodes, resizeParentsToFitChildren]
   );
 
   // Context menu handler
@@ -3117,7 +3616,8 @@ function NodeEditorInner({ initialGraph, initialGraphVersion = 0, programCode = 
         targetNode &&
         isConnectableSourceHandle(nextParams.sourceHandle) &&
         (isInputBlockTargetHandle(nextParams.targetHandle) ||
-          canPromoteExecutionTargetToInput(targetNode, nextParams.targetHandle)),
+          (isOutputBlockSourceHandle(nextParams.sourceHandle) &&
+            canPromoteExecutionTargetToInput(targetNode, nextParams.targetHandle))),
       );
 
       if (sourceNode && targetNode && shouldUseAsInput) {
@@ -3144,12 +3644,20 @@ function NodeEditorInner({ initialGraph, initialGraphVersion = 0, programCode = 
             nds.map((node) => {
               if (node.id !== targetNode.id) return node;
               const nodeData = node.data as Record<string, unknown>;
+              const nextOutputBlocks = node.type === "functionNode"
+                ? appendPassthroughOutputBlockIfNeeded(
+                  nodeData.outputBlocks as BlockData[] | undefined,
+                  inputUpdate.nextInputBlock,
+                  inputUpdate.connectedFrom,
+                )
+                : nodeData.outputBlocks;
               return {
                 ...node,
                 data: {
                   ...node.data,
                   ...actionFieldPatch,
                   ...(node.type === "actionNode" ? { isExpanded: true } : {}),
+                  ...(node.type === "functionNode" ? { isExpanded: true, outputBlocks: nextOutputBlocks } : {}),
                   inputBlocks: inputUpdate.inputBlocks,
                   inputDescription: nodeData.inputDescription || `입력 데이터: ${inputUpdate.connectedFrom}`,
                 },
@@ -3163,9 +3671,24 @@ function NodeEditorInner({ initialGraph, initialGraphVersion = 0, programCode = 
 
       const isActionTarget = targetNode?.type === "actionNode" || targetNode?.type === "timelineFrame";
       const isDataFlow = isBlockToInputConnection(nextParams);
-
-      const edgeType = isActionTarget && !isDataFlow ? "delay" : "custom";
-      const edgeData = isActionTarget && !isDataFlow ? { delay: 0, waitForResult: true } : {};
+      const isTriggerFormulaActionEdge = Boolean(
+        isActionTarget &&
+        !isDataFlow &&
+        isTriggerFormulaSourceHandle(nextParams.sourceHandle),
+      );
+      const targetConditionJunctionMode =
+        targetNode?.type === "conditionJunction"
+          ? ((targetNode.data as Record<string, unknown>).mode === "OR" ? "OR" : "AND")
+          : null;
+      const edgeType = targetConditionJunctionMode || isTriggerFormulaActionEdge
+        ? "conditionMerge"
+        : isActionTarget && !isDataFlow ? "delay" : "custom";
+      const edgeData = {
+        ...(isActionTarget && !isDataFlow ? { delay: 0, waitForResult: true } : {}),
+        ...(targetConditionJunctionMode || isTriggerFormulaActionEdge
+          ? { logicMode: targetConditionJunctionMode ?? "AND" }
+          : {}),
+      };
 
       const newEdgeId = `e-${nextParams.source}-${nextParams.target}-${Date.now()}`;
       setEdges((eds) => addEdge({ ...nextParams, id: newEdgeId, type: edgeType, data: edgeData }, eds));
@@ -3316,7 +3839,7 @@ function NodeEditorInner({ initialGraph, initialGraphVersion = 0, programCode = 
   );
 
   const handleAddNode = useCallback(
-    (type: "function" | "time" | "click" | "branch" | "block" | "cex" | "dex" | "timeline" | "monitoring" | "streaming") => {
+    (type: "function" | "trigger" | "branch" | "block" | "action" | "cex" | "dex" | "streaming") => {
       const id = `${type}-${nodeIdRef.current++}`;
       let newNode: Node;
 
@@ -3337,7 +3860,6 @@ function NodeEditorInner({ initialGraph, initialGraphVersion = 0, programCode = 
                 "  return { movingAverage, signal };\n" +
                 "}",
               inputDescription: "스트리밍 블록이나 다른 지표 output을 입력으로 받습니다.",
-              logicDescription: "입력 시계열을 계산해 차트 지표와 조건 충족 구간을 만듭니다.",
               outputDescription: "출력값은 변하는 데이터이며 차트와 연결 가능한 output block으로 노출됩니다.",
               inputBlocks: [
                 {
@@ -3353,6 +3875,13 @@ function NodeEditorInner({ initialGraph, initialGraphVersion = 0, programCode = 
                   name: "signal",
                   description: "실시간으로 변하는 트리거 지표",
                   type: "output",
+                  formulaCode: "source",
+                  outputMode: "formula",
+                  condition: {
+                    metric: "signal",
+                    operator: ">",
+                    threshold: 108,
+                  },
                 },
               ],
               condition: {
@@ -3366,44 +3895,28 @@ function NodeEditorInner({ initialGraph, initialGraphVersion = 0, programCode = 
             } satisfies FunctionNodeData,
           };
           break;
-        case "time":
+        case "trigger":
           newNode = {
             id,
             type: "timeTrigger",
             position: { x: 100 + Math.random() * 100, y: 100 + Math.random() * 100 },
             data: {
-              label: "Time Trigger",
+              label: "Trigger",
+              triggerMode: "TIME",
               interval: 5,
               isActive: false,
-              outputBlocks: [
-                {
-                  id: "tick",
-                  name: "tick",
-                  description: "5초마다 true 신호를 내보냅니다.",
-                  type: "output",
-                },
-              ],
-            } satisfies TimeTriggerData,
-          };
-          break;
-        case "click":
-          newNode = {
-            id,
-            type: "clickTrigger",
-            position: { x: 100 + Math.random() * 100, y: 100 + Math.random() * 100 },
-            data: {
-              label: "Click Trigger",
               shortcut: null,
               isRecording: false,
               outputBlocks: [
                 {
-                  id: "click",
-                  name: "click",
-                  description: "클릭되면 true 신호를 내보냅니다.",
+                  id: "yes-no",
+                  name: "yes/no",
+                  description: "조건이 충족되면 yes, 아니면 no인 boolean 신호를 반환합니다.",
                   type: "output",
+                  outputKind: "boolean-data",
                 },
               ],
-            } satisfies ClickTriggerData,
+            } satisfies TimeTriggerData,
           };
           break;
         case "branch":
@@ -3427,13 +3940,30 @@ function NodeEditorInner({ initialGraph, initialGraphVersion = 0, programCode = 
             data: { label: "BLOCK" },
           };
           break;
+        case "action":
+        case "dex":
+          newNode = {
+            id,
+            type: "actionNode",
+            position: { x: 200 + Math.random() * 100, y: 200 + Math.random() * 100 },
+            data: {
+              label: `Action ${nodeIdRef.current}`,
+              actionType: "DEX",
+              contractAddress: "0x...",
+              functionName: "swap()",
+              chainId: 1,
+              inputBlocks: [],
+              outputBlocks: [{ id: `action-ob-${Date.now()}`, name: "success", type: "output" }],
+            } satisfies DEXActionData,
+          };
+          break;
         case "cex":
           newNode = {
             id,
             type: "actionNode",
             position: { x: 200 + Math.random() * 100, y: 200 + Math.random() * 100 },
             data: {
-              label: `CEX Trade ${nodeIdRef.current}`,
+              label: `Action ${nodeIdRef.current}`,
               actionType: "CEX",
               exchange: "Binance",
               symbol: "BTC/USDT",
@@ -3442,51 +3972,8 @@ function NodeEditorInner({ initialGraph, initialGraphVersion = 0, programCode = 
               amount: "0.1",
               amountType: "FIXED",
               inputBlocks: [],
-              outputBlocks: [{ id: `cex-ob-${Date.now()}`, name: "success", type: "output" }],
+              outputBlocks: [{ id: `action-ob-${Date.now()}`, name: "success", type: "output" }],
             } satisfies CEXActionData,
-          };
-          break;
-        case "dex":
-          newNode = {
-            id,
-            type: "actionNode",
-            position: { x: 200 + Math.random() * 100, y: 200 + Math.random() * 100 },
-            data: {
-              label: `DEX Trade ${nodeIdRef.current}`,
-              actionType: "DEX",
-              contractAddress: "0x...",
-              functionName: "swap()",
-              chainId: 1,
-              inputBlocks: [],
-              outputBlocks: [{ id: `dex-ob-${Date.now()}`, name: "success", type: "output" }],
-            } satisfies DEXActionData,
-          };
-          break;
-        case "timeline":
-          newNode = {
-            id,
-            type: "timelineFrame",
-            position: { x: 200 + Math.random() * 100, y: 200 + Math.random() * 100 },
-            data: {
-              label: `Timeline ${nodeIdRef.current}`,
-              timelineItems: [],
-              totalDuration: 5000,
-              isExpanded: false,
-            } satisfies TimelineFrameData,
-          };
-          break;
-        case "monitoring":
-          newNode = {
-            id,
-            type: "monitoringNode",
-            position: { x: 200 + Math.random() * 100, y: 200 + Math.random() * 100 },
-            data: {
-              label: `Visual Monitor ${nodeIdRef.current}`,
-              format: "chart",
-              selectedVariables: [],
-              showChartComparison: true,
-              chartComparisonValues: [],
-            } satisfies MonitoringNodeData,
           };
           break;
         case "streaming":
@@ -3599,6 +4086,11 @@ function NodeEditorInner({ initialGraph, initialGraphVersion = 0, programCode = 
       return;
     }
 
+    if (skipNextStrategyRelayoutRef.current) {
+      skipNextStrategyRelayoutRef.current = false;
+      return;
+    }
+
     applyMeasuredLayout(nodes, edges, { animate: true });
   }, [
     applyMeasuredLayout,
@@ -3656,10 +4148,10 @@ function NodeEditorInner({ initialGraph, initialGraphVersion = 0, programCode = 
 
     const handleLoadSnapshot = (e: any) => {
       const { nodes: snapshotNodes, edges: snapshotEdges } = e.detail;
-      const runtimeGraph = enrichGraphWithRuntimeProgram(
+      const runtimeGraph = normalizeEditorGraphEdges(enrichGraphWithRuntimeProgram(
         { nodes: snapshotNodes, edges: snapshotEdges },
         programCode,
-      );
+      ));
       activeSnapshotPersistSignatureRef.current = JSON.stringify({
         nodes: runtimeGraph.nodes,
         edges: runtimeGraph.edges,
@@ -3897,9 +4389,9 @@ function NodeEditorInner({ initialGraph, initialGraphVersion = 0, programCode = 
           ...edge,
           style: {
             ...edge.style,
-            stroke: "#60a5fa",
+            stroke: "#f0b90b",
             strokeWidth: 4,
-            filter: "drop-shadow(0 0 6px rgba(59, 130, 246, 0.8))",
+            filter: "drop-shadow(0 0 5px rgba(240, 185, 11, 0.55))",
           },
           animated: true,
           data: { ...edge.data, isHighlighted: true },
@@ -3924,14 +4416,13 @@ function NodeEditorInner({ initialGraph, initialGraphVersion = 0, programCode = 
   }, [edges, showFSMEdges, currentState, nodes, focusState]);
 
   return (
-    <div className="flex h-full w-full flex-col overflow-hidden bg-slate-100 text-slate-950 dark:bg-slate-950 dark:text-slate-100">
+    <div className="flex h-full w-full flex-col overflow-hidden bg-[#0b0e11] text-[#eaecef]">
 
 
       {/* React Flow Editor */}
       <div
         className={cn(
-          "w-full flex-1 bg-gray-100 relative overflow-hidden",
-          "dark:bg-slate-950",
+          "relative w-full flex-1 overflow-hidden bg-[#0b0e11]",
           isSequenceLayoutAnimating &&
           "[&_.react-flow__node]:transition-transform [&_.react-flow__node]:duration-[420ms] [&_.react-flow__node]:ease-[cubic-bezier(0.22,1,0.36,1)]",
         )}
@@ -3973,7 +4464,7 @@ function NodeEditorInner({ initialGraph, initialGraphVersion = 0, programCode = 
 	          panOnScrollSpeed={0.9}
           selectNodesOnDrag={false}
           multiSelectionKeyCode="Shift"
-          className="advanced-node-editor-flow bg-gray-100 dark:bg-slate-950"
+          className="advanced-node-editor-flow bg-[#0b0e11]"
         >
 	          {!previewMode ? (
 	            <Panel position="top-left" className="z-30">
@@ -3982,36 +4473,37 @@ function NodeEditorInner({ initialGraph, initialGraphVersion = 0, programCode = 
 	                onDeleteSelected={handleDeleteSelected}
 	                onUndo={handleUndo}
 	                onRedo={handleRedo}
-	                onToggleTerminal={() => setTerminalOpen((prev) => !prev)}
 	                onLayout={handleLayout}
 	              />
 	            </Panel>
 	          ) : null}
-          <Controls style={{ bottom: 90 }} position="bottom-right" className="z-30 rounded-lg border border-slate-200 bg-white/90 shadow-md backdrop-blur-sm dark:border-slate-700 dark:bg-slate-900/90" />
+          <Controls style={{ bottom: 90 }} position="bottom-right" className="z-30 rounded-md border border-[#2b3139] bg-[#181a20]/95 shadow-none backdrop-blur-sm" />
           <MiniMap
             position="bottom-left"
-            className="z-30 rounded-lg border border-slate-200 bg-white/90 shadow-md backdrop-blur-sm dark:border-slate-700 dark:bg-slate-900/90"
+            className="z-30 rounded-md border border-[#2b3139] bg-[#181a20]/95 shadow-none backdrop-blur-sm"
             maskColor="var(--advanced-minimap-mask)"
             nodeColor={(node) => {
               switch (node.type) {
                 case "timeTrigger":
-                  return "#a855f7";
+                  return "#848e9c";
                 case "clickTrigger":
-                  return "#374151";
+                  return "#5e6673";
                 case "ifTrigger":
-                  return "#22c55e";
+                  return "#0ecb81";
                 case "branchNode":
-                  return "#f97316";
+                  return "#f0b90b";
+                case "conditionJunction":
+                  return "#fcd535";
                 case "functionNode":
-                  return "#3b82f6";
+                  return "#f0b90b";
                 case "mergedFunction":
-                  return "#6366f1"; // indigo for merged
+                  return "#b7bdc6";
                 case "actionNode":
-                  return (node.data as CEXActionData | DEXActionData).actionType === "CEX" ? "#f59e0b" : "#06b6d4";
+                  return (node.data as CEXActionData | DEXActionData).actionType === "CEX" ? "#f0b90b" : "#0ecb81";
                 case "timelineFrame":
-                  return "#8b5cf6"; // purple for timeline
+                  return "#848e9c";
                 default:
-                  return "#9ca3af";
+                  return "#5e6673";
               }
             }}
           />
@@ -4022,15 +4514,6 @@ function NodeEditorInner({ initialGraph, initialGraphVersion = 0, programCode = 
             color="var(--advanced-flow-dots)"
           />
         </ReactFlow>
-
-	        {!previewMode ? (
-	          <TerminalPanel
-	            isOpen={isTerminalOpen}
-	            onClose={() => setTerminalOpen(false)}
-	            monitoringNodesData={monitoringNodesData}
-	          />
-	        ) : null}
-
 	        {/* Context Menu for group/merge/unmerge */}
 	        {!previewMode && contextMenu && (
           <ContextMenu
@@ -4039,7 +4522,7 @@ function NodeEditorInner({ initialGraph, initialGraphVersion = 0, programCode = 
             onClose={() => setContextMenu(null)}
             canMerge={canMergeNodes(contextMenu.selectedNodes)}
             canUnmerge={contextMenu.selectedNodes.some((n) => n.type === "mergedFunction")}
-            canGroup={contextMenu.selectedNodes.length >= 1}
+            canGroup={contextMenu.selectedNodes.some((node) => node.type !== "groupNode")}
             onMerge={handleMerge}
             onUnmerge={handleUnmerge}
             onGroup={handleGroup}

@@ -14,7 +14,7 @@ import {
   NodeProps,
   Position,
   ReactFlow,
-  getSmoothStepPath,
+  getBezierPath,
   useNodesState,
   useEdgesState,
   SelectionMode,
@@ -477,15 +477,14 @@ const HistoryBranchEdge = memo(function HistoryBranchEdge({
   markerEnd,
   style,
 }: EdgeProps) {
-  const [edgePath] = getSmoothStepPath({
+  const [edgePath] = getBezierPath({
     sourceX,
     sourceY,
     targetX,
     targetY,
-    sourcePosition,
-    targetPosition,
-    borderRadius: 22,
-    offset: 28,
+    sourcePosition: sourcePosition ?? Position.Right,
+    targetPosition: targetPosition ?? Position.Left,
+    curvature: 0.36,
   });
 
   return <BaseEdge id={id} path={edgePath} markerEnd={markerEnd} style={style} />;
@@ -569,7 +568,10 @@ export function StrategyHistoryModal({
       (n: any) => n.type === "groupNode" && n.data?.styleType === "solid"
     );
 
-    if (solidNodes.length === 0) return;
+    if (solidNodes.length === 0) {
+      runningStore.startNode(snapshotId, `workspace-run-${snapshotId}`, snapshot?.name ?? "전략");
+      return;
+    }
 
     if (solidNodes.length === 1) {
       // Only one strategy block — run it directly

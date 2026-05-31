@@ -126,17 +126,17 @@
 
 .advanced-node-editor-flow {
   --xy-selection-background-color: transparent;
-  --advanced-flow-bg: #f3f4f6;
-  --advanced-flow-dots: #d1d5db;
-  --advanced-flow-panel: rgba(255, 255, 255, 0.92);
-  --advanced-flow-control-border: rgba(203, 213, 225, 0.9);
-  --advanced-flow-connection: #64748b;
-  --advanced-edge-default: #888888;
-  --advanced-edge-data: #64748b;
-  --advanced-edge-shared-pipeline: #ef4444;
-  --advanced-edge-muted: #9ca3af;
-  --advanced-edge-dim: #94a3b8;
-  --advanced-minimap-mask: rgba(255, 255, 255, 0.62);
+  --advanced-flow-bg: #0b0e11;
+  --advanced-flow-dots: #2b3139;
+  --advanced-flow-panel: rgba(24, 26, 32, 0.96);
+  --advanced-flow-control-border: rgba(43, 49, 57, 0.96);
+  --advanced-flow-connection: #f0b90b;
+  --advanced-edge-default: #848e9c;
+  --advanced-edge-data: #f0b90b;
+  --advanced-edge-shared-pipeline: #f6465d;
+  --advanced-edge-muted: #474d57;
+  --advanced-edge-dim: #2b3139;
+  --advanced-minimap-mask: rgba(11, 14, 17, 0.68);
 }
 
 .advanced-node-editor-flow .react-flow__nodesselection-rect,
@@ -145,22 +145,23 @@
 }
 
 .dark .advanced-node-editor-flow {
-  --advanced-flow-bg: #020617;
-  --advanced-flow-dots: #334155;
-  --advanced-flow-panel: rgba(15, 23, 42, 0.9);
-  --advanced-flow-control-border: rgba(51, 65, 85, 0.9);
-  --advanced-flow-connection: #64748b;
-  --advanced-edge-default: #94a3b8;
-  --advanced-edge-data: #38bdf8;
-  --advanced-edge-shared-pipeline: #fb7185;
-  --advanced-edge-muted: #475569;
-  --advanced-edge-dim: #64748b;
-  --advanced-minimap-mask: rgba(2, 6, 23, 0.58);
+  --advanced-flow-bg: #0b0e11;
+  --advanced-flow-dots: #2b3139;
+  --advanced-flow-panel: rgba(24, 26, 32, 0.96);
+  --advanced-flow-control-border: rgba(43, 49, 57, 0.96);
+  --advanced-flow-connection: #f0b90b;
+  --advanced-edge-default: #848e9c;
+  --advanced-edge-data: #f0b90b;
+  --advanced-edge-shared-pipeline: #f6465d;
+  --advanced-edge-muted: #474d57;
+  --advanced-edge-dim: #2b3139;
+  --advanced-minimap-mask: rgba(11, 14, 17, 0.68);
   background:
-    radial-gradient(circle at 18% 10%, rgba(59, 130, 246, 0.16), transparent 30rem),
-    radial-gradient(circle at 82% 82%, rgba(16, 185, 129, 0.1), transparent 28rem),
-    #020617 !important;
-  color: #e2e8f0;
+    linear-gradient(rgba(43, 49, 57, 0.32) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(43, 49, 57, 0.32) 1px, transparent 1px),
+    #0b0e11 !important;
+  background-size: 28px 28px;
+  color: #eaecef;
 }
 
 .dark .advanced-node-editor-flow .react-flow__pane,
@@ -173,26 +174,26 @@
 .dark .advanced-node-editor-flow .react-flow__minimap {
   background: var(--advanced-flow-panel) !important;
   border-color: var(--advanced-flow-control-border) !important;
-  color: #e2e8f0 !important;
-  box-shadow: 0 18px 46px rgba(0, 0, 0, 0.34) !important;
+  color: #eaecef !important;
+  box-shadow: none !important;
 }
 
 .dark .advanced-node-editor-flow .react-flow__controls-button {
-  background: rgba(15, 23, 42, 0.94) !important;
-  border-color: rgba(51, 65, 85, 0.95) !important;
-  color: #cbd5e1 !important;
-  fill: #cbd5e1 !important;
+  background: #181a20 !important;
+  border-color: #2b3139 !important;
+  color: #b7bdc6 !important;
+  fill: #b7bdc6 !important;
 }
 
 .dark .advanced-node-editor-flow .react-flow__controls-button:hover {
-  background: rgba(30, 41, 59, 0.96) !important;
-  color: #f8fafc !important;
-  fill: #f8fafc !important;
+  background: #1e2329 !important;
+  color: #fcd535 !important;
+  fill: #fcd535 !important;
 }
 
 .dark .advanced-node-editor-flow .react-flow__attribution {
-  background: rgba(15, 23, 42, 0.78) !important;
-  color: #94a3b8 !important;
+  background: rgba(24, 26, 32, 0.84) !important;
+  color: #848e9c !important;
 }
 
 .dark .advanced-node-editor-flow .react-flow__node [class*="bg-white"],
@@ -200,12 +201,13 @@
 .dark .advanced-node-editor-flow .react-flow__node [class*="bg-gray-100"],
 .dark .advanced-node-editor-flow .react-flow__node [class*="bg-slate-50"],
 .dark .advanced-node-editor-flow .react-flow__node [class*="bg-slate-100"] {
-  background-color: rgba(15, 23, 42, 0.9) !important;
+  background-color: rgba(24, 26, 32, 0.94) !important;
 }
 
-.dark .advanced-node-editor-flow .react-flow__node [class*="bg-blue-50"],
-.dark .advanced-node-editor-flow .react-flow__node [class*="bg-blue-100"] {
-  background-color: rgba(30, 64, 175, 0.2) !important;
+.dark .advanced-node-editor-flow .react-flow__node [class*="bg-blue-"],
+.dark .advanced-node-editor-flow .react-flow__node [class*="bg-cyan-"],
+.dark .advanced-node-editor-flow .react-flow__node [class*="bg-sky-"] {
+  background-color: rgba(240, 185, 11, 0.12) !important;
 }
 
 .dark .advanced-node-editor-flow .react-flow__node [class*="bg-emerald-50"],
@@ -219,20 +221,10 @@
   background-color: rgba(120, 53, 15, 0.24) !important;
 }
 
-.dark .advanced-node-editor-flow .react-flow__node [class*="bg-cyan-50"],
-.dark .advanced-node-editor-flow .react-flow__node [class*="bg-cyan-100"],
-.dark .advanced-node-editor-flow .react-flow__node [class*="bg-sky-50"],
-.dark .advanced-node-editor-flow .react-flow__node [class*="bg-sky-100"] {
-  background-color: rgba(21, 94, 117, 0.24) !important;
-}
-
-.dark .advanced-node-editor-flow .react-flow__node [class*="bg-purple-50"],
-.dark .advanced-node-editor-flow .react-flow__node [class*="bg-purple-100"],
-.dark .advanced-node-editor-flow .react-flow__node [class*="bg-indigo-50"],
-.dark .advanced-node-editor-flow .react-flow__node [class*="bg-indigo-100"],
-.dark .advanced-node-editor-flow .react-flow__node [class*="bg-violet-50"],
-.dark .advanced-node-editor-flow .react-flow__node [class*="bg-violet-100"] {
-  background-color: rgba(76, 29, 149, 0.24) !important;
+.dark .advanced-node-editor-flow .react-flow__node [class*="bg-purple-"],
+.dark .advanced-node-editor-flow .react-flow__node [class*="bg-indigo-"],
+.dark .advanced-node-editor-flow .react-flow__node [class*="bg-violet-"] {
+  background-color: rgba(71, 77, 87, 0.36) !important;
 }
 
 .dark .advanced-node-editor-flow .react-flow__node [class*="bg-rose-50"],
@@ -244,11 +236,11 @@
 .dark .advanced-node-editor-flow .react-flow__node [class*="border-slate-"],
 .dark .advanced-node-editor-flow .react-flow__node [class*="border-gray-"],
 .dark .advanced-node-editor-flow .react-flow__node [class*="border-black"] {
-  border-color: rgba(51, 65, 85, 0.96) !important;
+  border-color: rgba(43, 49, 57, 0.96) !important;
 }
 
 .dark .advanced-node-editor-flow .react-flow__node [class*="border-blue-"] {
-  border-color: rgba(96, 165, 250, 0.62) !important;
+  border-color: rgba(240, 185, 11, 0.62) !important;
 }
 
 .dark .advanced-node-editor-flow .react-flow__node [class*="border-emerald-"] {
@@ -262,13 +254,13 @@
 
 .dark .advanced-node-editor-flow .react-flow__node [class*="border-cyan-"],
 .dark .advanced-node-editor-flow .react-flow__node [class*="border-sky-"] {
-  border-color: rgba(34, 211, 238, 0.62) !important;
+  border-color: rgba(240, 185, 11, 0.62) !important;
 }
 
 .dark .advanced-node-editor-flow .react-flow__node [class*="border-purple-"],
 .dark .advanced-node-editor-flow .react-flow__node [class*="border-indigo-"],
 .dark .advanced-node-editor-flow .react-flow__node [class*="border-violet-"] {
-  border-color: rgba(167, 139, 250, 0.62) !important;
+  border-color: rgba(132, 142, 156, 0.62) !important;
 }
 
 .dark .advanced-node-editor-flow .react-flow__node [class*="border-rose-"],
@@ -278,11 +270,11 @@
 
 .dark .advanced-node-editor-flow .react-flow__node [class*="text-slate-"],
 .dark .advanced-node-editor-flow .react-flow__node [class*="text-gray-"] {
-  color: #cbd5e1 !important;
+  color: #b7bdc6 !important;
 }
 
 .dark .advanced-node-editor-flow .react-flow__node [class*="text-blue-"] {
-  color: #93c5fd !important;
+  color: #fcd535 !important;
 }
 
 .dark .advanced-node-editor-flow .react-flow__node [class*="text-emerald-"] {
@@ -296,13 +288,13 @@
 
 .dark .advanced-node-editor-flow .react-flow__node [class*="text-cyan-"],
 .dark .advanced-node-editor-flow .react-flow__node [class*="text-sky-"] {
-  color: #67e8f9 !important;
+  color: #fcd535 !important;
 }
 
 .dark .advanced-node-editor-flow .react-flow__node [class*="text-purple-"],
 .dark .advanced-node-editor-flow .react-flow__node [class*="text-indigo-"],
 .dark .advanced-node-editor-flow .react-flow__node [class*="text-violet-"] {
-  color: #c4b5fd !important;
+  color: #848e9c !important;
 }
 
 .dark .advanced-node-editor-flow .react-flow__node [class*="text-rose-"],
@@ -310,26 +302,35 @@
   color: #fda4af !important;
 }
 
+.dark .advanced-node-editor-flow .react-flow__node [class*="ring-blue-"],
+.dark .advanced-node-editor-flow .react-flow__node [class*="ring-cyan-"],
+.dark .advanced-node-editor-flow .react-flow__node [class*="ring-sky-"],
+.dark .advanced-node-editor-flow .react-flow__node [class*="ring-purple-"],
+.dark .advanced-node-editor-flow .react-flow__node [class*="ring-indigo-"],
+.dark .advanced-node-editor-flow .react-flow__node [class*="ring-violet-"] {
+  --tw-ring-color: rgba(240, 185, 11, 0.52) !important;
+}
+
 .dark .advanced-node-editor-flow .react-flow__node input,
 .dark .advanced-node-editor-flow .react-flow__node textarea,
 .dark .advanced-node-editor-flow .react-flow__node select {
-  background-color: rgba(2, 6, 23, 0.48) !important;
-  border-color: rgba(51, 65, 85, 0.95) !important;
-  color: #e2e8f0 !important;
+  background-color: rgba(11, 14, 17, 0.72) !important;
+  border-color: rgba(43, 49, 57, 0.96) !important;
+  color: #eaecef !important;
 }
 
 .dark .advanced-node-editor-flow .react-flow__node input::placeholder,
 .dark .advanced-node-editor-flow .react-flow__node textarea::placeholder {
-  color: #64748b !important;
+  color: #5e6673 !important;
 }
 
 .dark .advanced-node-editor-flow .react-flow__node option {
-  background: #0f172a;
-  color: #e2e8f0;
+  background: #181a20;
+  color: #eaecef;
 }
 
 .dark .advanced-node-editor-flow .react-flow__handle {
-  box-shadow: 0 0 0 2px rgba(2, 6, 23, 0.9);
+  box-shadow: 0 0 0 2px rgba(11, 14, 17, 0.92);
 }
 
 .easy-strategy-graph {

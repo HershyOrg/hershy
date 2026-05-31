@@ -5,7 +5,7 @@ import {
   BaseEdge,
   EdgeProps,
   Position,
-  getSmoothStepPath,
+  getBezierPath,
   EdgeLabelRenderer,
   useReactFlow,
 } from "@xyflow/react";
@@ -36,14 +36,14 @@ function DelayEdgeComponent({
   const waitForResult = data?.waitForResult ?? true;
   const isHighlighted = data?.isHighlighted;
 
-  const [edgePath, labelX, labelY] = getSmoothStepPath({
+  const [edgePath, labelX, labelY] = getBezierPath({
     sourceX,
     sourceY,
     sourcePosition: Position.Right,
     targetX,
     targetY,
     targetPosition: Position.Left,
-    borderRadius: 8,
+    curvature: 0.35,
   });
 
   const handleUpdateDelay = useCallback(

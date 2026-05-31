@@ -7,17 +7,37 @@ import { cn } from "@/lib/utils";
 import { MousePointer2, Keyboard, X } from "lucide-react";
 
 const DEFAULT_CLICK_OUTPUT_BLOCK: BlockData = {
-  id: "click",
-  name: "click",
-  description: "클릭되면 true 신호를 내보냅니다.",
+  id: "yes-no",
+  name: "yes/no",
+  description: "클릭되면 yes, 아니면 no인 boolean 신호를 반환합니다.",
   type: "output",
+  outputKind: "boolean-data",
 };
 
 function ClickTriggerNodeComponent({ id, data, selected }: NodeProps<import("@xyflow/react").Node<ClickTriggerData>>) {
   const { setNodes } = useReactFlow();
   const [isRecording, setIsRecording] = useState(false);
   const recordingRef = useRef(false);
-  const outputBlocks = data.outputBlocks?.length ? data.outputBlocks : [DEFAULT_CLICK_OUTPUT_BLOCK];
+  const outputBlocks = [DEFAULT_CLICK_OUTPUT_BLOCK];
+
+  useEffect(() => {
+    const firstBlock = data.outputBlocks?.[0];
+    const needsYesNoOutput =
+      data.outputBlocks?.length !== 1 ||
+      firstBlock?.id !== DEFAULT_CLICK_OUTPUT_BLOCK.id ||
+      firstBlock?.name !== DEFAULT_CLICK_OUTPUT_BLOCK.name ||
+      firstBlock?.outputKind !== DEFAULT_CLICK_OUTPUT_BLOCK.outputKind;
+
+    if (!needsYesNoOutput) return;
+
+    setNodes((nodes) =>
+      nodes.map((node) =>
+        node.id === id
+          ? { ...node, data: { ...node.data, outputBlocks: [DEFAULT_CLICK_OUTPUT_BLOCK] } }
+          : node
+      )
+    );
+  }, [data.outputBlocks, id, setNodes]);
 
   // Handle keyboard shortcut recording
   useEffect(() => {
@@ -176,7 +196,7 @@ function ClickTriggerNodeComponent({ id, data, selected }: NodeProps<import("@xy
                 className="!h-2.5 !w-2.5 !border-gray-700 !bg-gray-700"
                 style={{ right: -17 }}
               />
-              {block.id === "click" ? (
+              {block.id === DEFAULT_CLICK_OUTPUT_BLOCK.id ? (
                 <Handle
                   type="source"
                   position={Position.Right}

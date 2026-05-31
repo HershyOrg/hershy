@@ -10,10 +10,65 @@ function cloneValue<T>(value: T): T {
   return JSON.parse(JSON.stringify(value)) as T;
 }
 
+function isTriggerFormulaSourceHandle(sourceHandle: unknown) {
+  return typeof sourceHandle === "string" && /-trigger-.+-out$/.test(sourceHandle);
+}
+
+function isConditionJunctionSourceHandle(sourceHandle: unknown) {
+  return typeof sourceHandle === "string" && sourceHandle.endsWith("-condition-out");
+}
+
+function shouldUseConditionMergeEdge(edge: any, targetNode: any) {
+  const isConditionJunctionTarget =
+    targetNode?.type === "conditionJunction" ||
+    (typeof edge.target === "string" &&
+      edge.target.startsWith("condition-junction-") &&
+      typeof edge.targetHandle === "string" &&
+      edge.targetHandle.includes("-input-"));
+  const isActionTarget = targetNode
+    ? targetNode.type === "actionNode" || targetNode.type === "timelineFrame"
+    : typeof edge.target === "string" &&
+      (edge.target.startsWith("action-") ||
+        (typeof edge.targetHandle === "string" && edge.targetHandle.startsWith("action-")));
+
+  return isConditionJunctionTarget ||
+    (isActionTarget &&
+      (isTriggerFormulaSourceHandle(edge.sourceHandle) || isConditionJunctionSourceHandle(edge.sourceHandle)));
+}
+
+function normalizePersistedEdgeTypes(nodes: any[], edges: any[]) {
+  const nodesById = new Map(nodes.map((node) => [node.id, node]));
+
+  return edges.map((edge) => {
+    const targetNode = nodesById.get(edge.target);
+    if (!shouldUseConditionMergeEdge(edge, targetNode)) return edge;
+
+    const data = edge.data && typeof edge.data === "object" ? edge.data : {};
+    const isActionTarget = targetNode
+      ? targetNode.type === "actionNode" || targetNode.type === "timelineFrame"
+      : typeof edge.target === "string" &&
+        (edge.target.startsWith("action-") ||
+          (typeof edge.targetHandle === "string" && edge.targetHandle.startsWith("action-")));
+
+    return {
+      ...edge,
+      type: "conditionMerge",
+      data: {
+        ...data,
+        ...(isActionTarget ? { delay: 0, waitForResult: true } : {}),
+        logicMode: data.logicMode === "OR" ? "OR" : "AND",
+      },
+    };
+  });
+}
+
 function cloneGraph(nodes: any[], edges: any[]) {
+  const clonedNodes = cloneValue(nodes);
+  const clonedEdges = cloneValue(edges);
+
   return {
-    nodes: cloneValue(nodes),
-    edges: cloneValue(edges),
+    nodes: clonedNodes,
+    edges: normalizePersistedEdgeTypes(clonedNodes, clonedEdges),
   };
 }
 

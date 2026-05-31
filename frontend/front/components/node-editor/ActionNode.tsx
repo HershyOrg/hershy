@@ -148,6 +148,35 @@ function ActionNodeComponent({ id, data, selected }: NodeProps) {
     [cexData.amount, cexData.chainId, cexData.polymarketOrderType, cexData.postOnly, cexData.price, cexData.side, cexData.size, cexData.tokenId, handleUpdateFields]
   );
 
+  const handleActionTypeChange = useCallback(
+    (actionType: "CEX" | "DEX") => {
+      if (typedData.actionType === actionType) return;
+
+      if (actionType === "CEX") {
+        const current = typedData as Partial<CEXActionData>;
+        handleUpdateFields({
+          actionType: "CEX",
+          exchange: current.exchange || "Binance",
+          symbol: current.symbol || "BTC/USDT",
+          side: current.side || "BUY",
+          orderType: current.orderType || "MARKET",
+          amount: current.amount || "0.1",
+          amountType: current.amountType || "FIXED",
+        });
+        return;
+      }
+
+      const current = typedData as Partial<DEXActionData>;
+      handleUpdateFields({
+        actionType: "DEX",
+        contractAddress: current.contractAddress || "0x...",
+        functionName: current.functionName || "swap()",
+        chainId: current.chainId || 1,
+      });
+    },
+    [handleUpdateFields, typedData],
+  );
+
   const handleAddInputBlock = useCallback(() => {
     setNodes((nodes) =>
       nodes.map((node) =>
@@ -226,7 +255,7 @@ function ActionNodeComponent({ id, data, selected }: NodeProps) {
         if (payload.type === "INPUT_BLOCK") {
           handleUpdateField(fieldName, `{{${payload.name}}}`);
         }
-      } catch (err) {
+      } catch {
         console.error("Failed to parse dropped input block data");
       }
     }
@@ -326,7 +355,7 @@ function ActionNodeComponent({ id, data, selected }: NodeProps) {
     return (
       <div
         className={cn(
-          "min-w-[160px] border-2 rounded-md shadow-sm transition-all",
+          "relative min-w-[160px] border-2 rounded-md shadow-sm transition-all",
           isCEX ? "bg-amber-50 border-amber-400" : "bg-cyan-50 border-cyan-400",
           selected && (isCEX ? "border-amber-500 ring-2 ring-amber-200" : "border-cyan-500 ring-2 ring-cyan-200")
         )}
@@ -342,6 +371,14 @@ function ActionNodeComponent({ id, data, selected }: NodeProps) {
           )}
           style={{ top: "50%", left: -5 }}
         />
+        <div
+          className={cn(
+            "pointer-events-none absolute left-0 top-1/2 -translate-x-[calc(100%+8px)] -translate-y-1/2 rounded px-1.5 py-0.5 text-[9px] font-black shadow-sm",
+            isCEX ? "bg-amber-500 text-white" : "bg-cyan-500 text-white",
+          )}
+        >
+          YES
+        </div>
         {typedData.inputBlocks?.map((block, index) => (
           <Handle
             key={block.id}
@@ -370,7 +407,10 @@ function ActionNodeComponent({ id, data, selected }: NodeProps) {
             ) : (
               <Globe className="w-3.5 h-3.5 text-white" />
             )}
-            <span className="text-xs font-semibold text-white">{isCEX ? "CEX" : "DEX"}</span>
+            <span className="text-xs font-semibold text-white">ACTION</span>
+            <span className="rounded bg-white/20 px-1.5 py-0.5 text-[9px] font-black text-white">
+              {typedData.actionType}
+            </span>
           </div>
           <button
             onClick={handleToggleExpand}
@@ -441,7 +481,7 @@ function ActionNodeComponent({ id, data, selected }: NodeProps) {
   return (
     <div
       className={cn(
-        "w-[420px] border-2 rounded-lg shadow-xl transition-all ring-4",
+        "relative w-[420px] border-2 rounded-lg shadow-xl transition-all ring-4",
         isCEX 
           ? "bg-amber-50 border-amber-400 ring-amber-300/50" 
           : "bg-cyan-50 border-cyan-400 ring-cyan-300/50",
@@ -459,6 +499,14 @@ function ActionNodeComponent({ id, data, selected }: NodeProps) {
         )}
         style={{ top: 36, left: -6 }}
       />
+      <div
+        className={cn(
+          "pointer-events-none absolute left-0 top-9 -translate-x-[calc(100%+9px)] rounded px-1.5 py-0.5 text-[9px] font-black shadow-sm",
+          isCEX ? "bg-amber-500 text-white" : "bg-cyan-500 text-white",
+        )}
+      >
+        YES
+      </div>
 
       {/* Header */}
       <div className={cn(
@@ -472,18 +520,37 @@ function ActionNodeComponent({ id, data, selected }: NodeProps) {
             <Globe className="w-4 h-4 text-white" />
           )}
           <span className="text-sm font-bold text-white">
-            {isCEX ? "CEX Trade" : "DEX Trade"} - {typedData.label}
+            Action - {typedData.label}
           </span>
         </div>
-        <button
-          onClick={handleToggleExpand}
-          className={cn(
-            "p-1 rounded transition-colors",
-            isCEX ? "hover:bg-amber-600" : "hover:bg-cyan-600"
-          )}
-        >
-          <Minimize2 className="w-4 h-4 text-white" />
-        </button>
+        <div className="flex items-center gap-1">
+          <div className="flex rounded border border-white/30 bg-white/12 p-0.5">
+            {(["DEX", "CEX"] as const).map((actionType) => (
+              <button
+                key={actionType}
+                type="button"
+                onClick={() => handleActionTypeChange(actionType)}
+                className={cn(
+                  "rounded px-2 py-0.5 text-[10px] font-black transition-colors",
+                  typedData.actionType === actionType
+                    ? "bg-white text-slate-900"
+                    : "text-white/80 hover:bg-white/15 hover:text-white",
+                )}
+              >
+                {actionType}
+              </button>
+            ))}
+          </div>
+          <button
+            onClick={handleToggleExpand}
+            className={cn(
+              "p-1 rounded transition-colors",
+              isCEX ? "hover:bg-amber-600" : "hover:bg-cyan-600"
+            )}
+          >
+            <Minimize2 className="w-4 h-4 text-white" />
+          </button>
+        </div>
       </div>
 
       {renderInputBlocks()}

@@ -6,7 +6,7 @@ import {
   EdgeLabelRenderer,
   EdgeProps,
   Position,
-  getSmoothStepPath,
+  getBezierPath,
 } from "@xyflow/react";
 
 export type CustomEdgeData = Record<string, unknown> & {
@@ -40,18 +40,17 @@ function CustomEdgeComponent({
 }: EdgeProps<import("@xyflow/react").Edge<CustomEdgeData>>) {
   const edgeLabel = String(data?.label ?? "").toLowerCase();
   const isStreamMonitorEdge = edgeLabel === "stream-monitor" || targetHandleId?.includes("-monitor-in");
-  const routeOffset = isStreamMonitorEdge
-    ? 8 + (hashText(`${sourceHandleId ?? ""}:${targetHandleId ?? ""}:${id}`) % 3) * 4
-    : 24 + (hashText(`${sourceHandleId ?? ""}:${targetHandleId ?? ""}:${id}`) % 5) * 12;
-  const [edgePath, labelX, labelY] = getSmoothStepPath({
+  const routeCurvature = isStreamMonitorEdge
+    ? 0.2 + (hashText(`${sourceHandleId ?? ""}:${targetHandleId ?? ""}:${id}`) % 3) * 0.03
+    : 0.28 + (hashText(`${sourceHandleId ?? ""}:${targetHandleId ?? ""}:${id}`) % 5) * 0.035;
+  const [edgePath, labelX, labelY] = getBezierPath({
     sourceX,
     sourceY,
     sourcePosition: sourcePosition ?? Position.Right,
     targetX,
     targetY,
     targetPosition: targetPosition ?? Position.Left,
-    borderRadius: 14,
-    offset: routeOffset,
+    curvature: routeCurvature,
   });
 
   const isHighlighted = data?.isHighlighted;
@@ -135,7 +134,7 @@ function CustomEdgeComponent({
           ...style,
           stroke: resolvedColor,
           strokeWidth: style.strokeWidth || strokeWidth,
-          strokeDasharray: isDataBlockEdge ? "8 7" : style.strokeDasharray,
+          strokeDasharray: style.strokeDasharray || (isDataBlockEdge ? "8 7" : undefined),
           strokeLinecap: "round",
           strokeLinejoin: "round",
           opacity: style.opacity ?? 1,

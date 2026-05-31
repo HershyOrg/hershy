@@ -1,7 +1,7 @@
 "use client";
 
 import { memo } from "react";
-import { type EdgeProps, getSmoothStepPath, EdgeLabelRenderer } from "@xyflow/react";
+import { type EdgeProps, EdgeLabelRenderer, Position, getBezierPath } from "@xyflow/react";
 import { useFSM } from "./FSMContext";
 
 export type FSMEdgeData = Record<string, unknown> & {
@@ -51,13 +51,14 @@ function FSMEdgeComponent({
   }
 
 
-  const [edgePath, labelX, labelY] = getSmoothStepPath({ borderRadius: 30, offset: 60, 
+  const [edgePath, labelX, labelY] = getBezierPath({
     sourceX,
     sourceY,
-    sourcePosition,
+    sourcePosition: sourcePosition ?? Position.Right,
     targetX,
     targetY,
-    targetPosition,
+    targetPosition: targetPosition ?? Position.Left,
+    curvature: 0.42,
   });
 
   const markerId = `fsm-arrow-${id}`;

@@ -2,9 +2,9 @@ type Listener = () => void;
 
 export type RunningEntry = {
   snapshotId: string;
-  /** The solid GroupNode id inside the canvas */
+  /** Canvas node id or workspace-level run id */
   nodeId: string;
-  /** Display name of the strategy block */
+  /** Display name of the strategy */
   label: string;
 };
 

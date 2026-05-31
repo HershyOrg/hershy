@@ -53,6 +53,9 @@ function estimateNodeSize(node: Node) {
   if (node.type === "branchNode") {
     return { width: 460, height: 180 };
   }
+  if (node.type === "conditionJunction") {
+    return { width: 1, height: 96 + Math.max(0, inputCount - 2) * 32 };
+  }
   if (node.type === "timelineFrame") {
     return { width: 560, height: 380 };
   }
@@ -117,6 +120,10 @@ function getNodeSize(node: Node) {
           width = width || 460;
           height = height || 180;
           break;
+        case "conditionJunction":
+          width = width || 1;
+          height = height || 96;
+          break;
         case "timelineFrame":
           width = width || 560;
           height = height || 380;
@@ -137,7 +144,7 @@ function getNodeSize(node: Node) {
   return { width: Number(width), height: Number(height) };
 }
 
-function shouldPreserveStrategyStack(parentId: string, parentNode: Node | undefined, childNodes: Node[]) {
+function shouldPreserveStrategyStack(parentId: string | undefined, parentNode: Node | undefined, childNodes: Node[]) {
   const parentData = parentNode?.data as Record<string, unknown> | undefined;
   const label = String(parentData?.label ?? "");
   const isStrategyLike =
@@ -250,6 +257,41 @@ function separateOverlappingSiblings(nodes: Node[], direction = "LR") {
   });
 }
 
+function compareNodesByCurrentCanvasOrder(left: Node, right: Node) {
+  return left.position.x - right.position.x ||
+    left.position.y - right.position.y ||
+    left.id.localeCompare(right.id);
+}
+
+function arrangeDisconnectedSiblingsLeftToRight(nodes: Node[]) {
+  let cursorX = 0;
+
+  [...nodes]
+    .sort(compareNodesByCurrentCanvasOrder)
+    .forEach((node) => {
+      const { width } = getNodeSize(node);
+      node.position.x = cursorX;
+      node.position.y = 0;
+      cursorX += width + RANK_SEPARATION;
+    });
+}
+
+function getDirectChildIdForParent(
+  nodeId: string,
+  parentId: string | undefined,
+  nodesById: Map<string, Node>,
+) {
+  let current = nodesById.get(nodeId);
+
+  while (current) {
+    if (current.parentId === parentId) return current.id;
+    if (!current.parentId) return parentId === undefined ? current.id : "";
+    current = nodesById.get(current.parentId);
+  }
+
+  return "";
+}
+
 function getBounds(nodes: Node[]) {
   if (nodes.length === 0) {
     return { minX: 0, minY: 0, maxX: GROUP_MIN_WIDTH, maxY: GROUP_MIN_HEIGHT };
@@ -279,6 +321,7 @@ export function getLayoutedElements(nodes: Node[], edges: Edge[], direction = "L
 
   // 부모-자식 트리 맵 생성
   const childrenMap = new Map<string | undefined, Node[]>();
+  const nodeById = new Map(newNodes.map((node) => [node.id, node]));
   newNodes.forEach((node) => {
     const parent = node.parentId;
     if (!childrenMap.has(parent)) {
@@ -310,9 +353,6 @@ export function getLayoutedElements(nodes: Node[], edges: Edge[], direction = "L
 
   // 트리 상향식(Bottom-up)으로 Dagre 레이아웃 적용
   groupIds.forEach((parentId) => {
-    // 올가미(전략) 단위 내부만 자동 정렬합니다. 최상위(올가미들 간의) 자동 정렬은 수행하지 않습니다.
-    if (parentId === undefined) return;
-
     const childNodes = childrenMap.get(parentId)!;
     if (childNodes.length === 0) return;
     const parentNodeObj = newNodes.find((n) => n.id === parentId);
@@ -360,27 +400,43 @@ export function getLayoutedElements(nodes: Node[], edges: Edge[], direction = "L
         dagreGraph.setNode(node.id, { width, height });
       });
 
-      // 이 그룹 내부 자식 노드들 간에 연결된 엣지만 세팅
+      // 현재 레벨에 직접 걸린 간선뿐 아니라 하위 자식 간선을 현재 레벨의 직접 자식 간선으로 투영합니다.
+      let projectedEdgeCount = 0;
       edges.forEach((edge) => {
-        if (childIds.has(edge.source) && childIds.has(edge.target)) {
-          dagreGraph.setEdge(edge.source, edge.target, {
+        if (edge.hidden) return;
+        const sourceChildId = getDirectChildIdForParent(edge.source, parentId, nodeById);
+        const targetChildId = getDirectChildIdForParent(edge.target, parentId, nodeById);
+
+        if (
+          sourceChildId &&
+          targetChildId &&
+          sourceChildId !== targetChildId &&
+          childIds.has(sourceChildId) &&
+          childIds.has(targetChildId)
+        ) {
+          dagreGraph.setEdge(sourceChildId, targetChildId, {
             minlen: 1,
             weight: edge.type === "fsmEdge" ? 0.5 : 1,
           });
+          projectedEdgeCount += 1;
         }
       });
 
       // 개별 서브 트리에 대해 자동 정렬 수행
-      dagre.layout(dagreGraph);
+      if (direction === "LR" && projectedEdgeCount === 0 && childNodes.length > 1) {
+        arrangeDisconnectedSiblingsLeftToRight(childNodes);
+      } else {
+        dagre.layout(dagreGraph);
 
-      // 최소 좌표를 추출하여 (0, 0) 기준으로 패딩 넣기
-      childNodes.forEach((node) => {
-        const nodeWithPosition = dagreGraph.node(node.id);
-        node.position = {
-          x: nodeWithPosition.x - nodeWithPosition.width / 2,
-          y: nodeWithPosition.y - nodeWithPosition.height / 2,
-        };
-      });
+        // 최소 좌표를 추출하여 (0, 0) 기준으로 패딩 넣기
+        childNodes.forEach((node) => {
+          const nodeWithPosition = dagreGraph.node(node.id);
+          node.position = {
+            x: nodeWithPosition.x - nodeWithPosition.width / 2,
+            y: nodeWithPosition.y - nodeWithPosition.height / 2,
+          };
+        });
+      }
 
       separateOverlappingSiblings(childNodes, direction);
     }
@@ -411,7 +467,7 @@ export function getLayoutedElements(nodes: Node[], edges: Edge[], direction = "L
       parentNodeObj.height = finalHeight;
     }
 
-    // 최종 상대 좌표 적용: 모든 자식을 Bounding Box 기준 (0, 0)부터 시작하게 하고, 패딩만큼 밀어냄
+    // 최종 좌표 적용: 부모가 있으면 상대 좌표, 루트면 작업영역 절대 좌표를 왼쪽 위 패딩부터 시작시킵니다.
     childNodes.forEach((node) => {
       node.position.x = node.position.x - minX + GROUP_PADDING_LEFT;
       node.position.y = node.position.y - minY + GROUP_PADDING_TOP;

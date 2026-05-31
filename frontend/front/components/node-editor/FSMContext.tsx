@@ -75,7 +75,7 @@ function getFallbackSequenceLabel(state: FSMState) {
 function resolveSequenceLabel(snapshotId: string, state: FSMState) {
   const snapshot = historyStore.getSnapshots().find((item) => item.id === snapshotId);
   const sequenceNodes = (snapshot?.nodes ?? []).filter((node: any) => {
-    return node.type === "groupNode" && node.parentId && node.data?.styleType !== "solid";
+    return node.type === "groupNode" && node.data?.styleType !== "solid";
   });
 
   const byPredicate = (predicate: (node: any) => boolean) => {
@@ -295,7 +295,7 @@ export function FSMProvider({ children }: { children: ReactNode }) {
 
     wasRunningRef.current = hasRunning;
     previousEntriesRef.current = runningEntries;
-  }, [hasRunning]);
+  }, [hasRunning, runningEntries]);
 
   useEffect(() => {
     return () => {
