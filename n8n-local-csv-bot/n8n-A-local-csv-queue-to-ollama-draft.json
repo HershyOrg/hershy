@@ -1,0 +1,49 @@
+{
+  "name": "A - Local CSV Queue to Ollama Draft",
+  "nodes": [
+    {
+      "parameters": {},
+      "id": "manual-trigger-a",
+      "name": "Manual Trigger",
+      "type": "n8n-nodes-base.manualTrigger",
+      "typeVersion": 1,
+      "position": [
+        0,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "command": "node /files/scripts/generate_drafts.js",
+        "cwd": "/files"
+      },
+      "id": "execute-generate-drafts",
+      "name": "Generate Drafts from queue.csv",
+      "type": "n8n-nodes-base.executeCommand",
+      "typeVersion": 1,
+      "position": [
+        260,
+        0
+      ]
+    }
+  ],
+  "connections": {
+    "Manual Trigger": {
+      "main": [
+        [
+          {
+            "node": "Generate Drafts from queue.csv",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "pinData": {},
+  "active": false,
+  "versionId": "local-csv-queue-to-ollama-draft"
+}

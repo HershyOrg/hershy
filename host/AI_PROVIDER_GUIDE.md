@@ -1,6 +1,6 @@
 # Front AI Provider Guide
 
-`front` 자립 서버(`frontend/front`)에서 AI provider를 설정하고,
+`front` 자립 서버(`front`)에서 AI provider를 설정하고,
 3계층 AI(`오케스트레이션 -> 리서치 -> 전략`)로 전략 초안을 생성하는 방법입니다.
 
 ## 1. 책임 분리 구조
@@ -105,7 +105,7 @@ Front runtime config endpoint:
   - `AI_ORCHESTRATOR_OLLAMA_ENDPOINT`, `AI_RESEARCH_OLLAMA_ENDPOINT`, `AI_STRATEGY_OLLAMA_ENDPOINT`
   - `AI_ORCHESTRATOR_OLLAMA_API_KEY` 등
 
-추가로 front server(`frontend/front/server.mjs`)는 AI 응답 전처리에서 JSON object 단일 응답을 강제하고,
+추가로 front server(`front/server.mjs`)는 AI 응답 전처리에서 JSON object 단일 응답을 강제하고,
 오케스트레이션/리서치/전략 결과를 스키마 검증합니다. 스키마를 통과하지 못하면 실패 처리됩니다.
 
 참고: 서버는 Ollama 호출 시 `stream:false`로 요청하고, 응답 본문 전체를 받은 뒤 파싱합니다.
@@ -164,7 +164,7 @@ go run cmd/main.go
 ### 5.2 Front 서버 실행 (`:9090`)
 
 ```bash
-cd frontend/front
+cd front
 export HOST_API_BASE=http://localhost:9000
 # Provider 예시
 export AI_PROVIDER=deepseek

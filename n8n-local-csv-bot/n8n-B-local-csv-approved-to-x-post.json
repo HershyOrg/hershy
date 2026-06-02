@@ -1,0 +1,49 @@
+{
+  "name": "B - Local CSV Approved to X Post",
+  "nodes": [
+    {
+      "parameters": {},
+      "id": "manual-trigger-b",
+      "name": "Manual Trigger",
+      "type": "n8n-nodes-base.manualTrigger",
+      "typeVersion": 1,
+      "position": [
+        0,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "command": "node /files/scripts/post_approved.js",
+        "cwd": "/files"
+      },
+      "id": "execute-post-approved",
+      "name": "Post Approved from queue.csv",
+      "type": "n8n-nodes-base.executeCommand",
+      "typeVersion": 1,
+      "position": [
+        260,
+        0
+      ]
+    }
+  ],
+  "connections": {
+    "Manual Trigger": {
+      "main": [
+        [
+          {
+            "node": "Post Approved from queue.csv",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "pinData": {},
+  "active": false,
+  "versionId": "local-csv-approved-to-x-post"
+}
