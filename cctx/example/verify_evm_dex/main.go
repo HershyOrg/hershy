@@ -21,13 +21,22 @@ type walletAddresser interface {
 func main() {
 	loadDotEnvFromWorkingTree()
 
-	modeFlag := flag.String("mode", "", "verification mode: smoke, balance, call, send, both (default: EVM_DEX_VERIFY_MODE or smoke)")
+	modeFlag := flag.String("mode", "", "verification mode: smoke, balance, erc20, quote, call, send, both (default: EVM_DEX_VERIFY_MODE or smoke)")
 	rpcURLFlag := flag.String("rpc-url", "", "rpc url (or EVM_DEX_RPC_URL)")
 	privateKeyFlag := flag.String("private-key", "", "EOA private key (or EVM_DEX_PRIVATE_KEY)")
 	castBinary := flag.String("cast-binary", envOrDefault("EVM_DEX_CAST_BINARY", "cast"), "foundry cast binary")
 	chainFlag := flag.String("chain", "", "optional chain slug used for rpc selection (or EVM_DEX_CHAIN)")
 	toFlag := flag.String("to", "", "target address; defaults to wallet address (or EVM_DEX_TO)")
 	calldataFlag := flag.String("calldata", "", "hex calldata (or EVM_DEX_CALLDATA)")
+	tokenFlag := flag.String("token", envOrDefault("EVM_DEX_TOKEN", ""), "ERC20 token address for erc20 mode")
+	ownerFlag := flag.String("owner", envOrDefault("EVM_DEX_OWNER", ""), "owner address for erc20 mode; defaults to wallet")
+	spenderFlag := flag.String("spender", envOrDefault("EVM_DEX_SPENDER", ""), "spender address for erc20 allowance checks")
+	routerFlag := flag.String("router", envOrDefault("EVM_DEX_ROUTER", ""), "DEX router address for quote mode")
+	protocolFlag := flag.String("protocol", envOrDefault("EVM_DEX_PROTOCOL", "uniswap_v2"), "DEX quote protocol")
+	amountInWeiFlag := flag.String("amount-in-wei", envOrDefault("EVM_DEX_AMOUNT_IN_WEI", ""), "exact input amount in wei for quote mode")
+	pathFlag := flag.String("path", envOrDefault("EVM_DEX_PATH", ""), "comma-separated token path for quote mode")
+	tokenInFlag := flag.String("token-in", envOrDefault("EVM_DEX_TOKEN_IN", ""), "token-in address for quote mode when --path is omitted")
+	tokenOutFlag := flag.String("token-out", envOrDefault("EVM_DEX_TOKEN_OUT", ""), "token-out address for quote mode when --path is omitted")
 	valueWeiFlag := flag.String("value-wei", "", "wei value used for send mode (or EVM_DEX_VALUE_WEI)")
 	gasLimit := flag.Uint64("gas-limit", envOrDefaultUint64("EVM_DEX_GAS_LIMIT", 21000), "gas limit for send mode")
 	allowSend := flag.Bool("allow-send", false, "allow a real on-chain transaction")
@@ -102,6 +111,18 @@ func main() {
 		runSmoke(raw, executor, request)
 	case "balance":
 		runBalance(raw)
+	case "erc20":
+		reader, ok := raw.(base.EVMDEXReader)
+		if !ok {
+			log.Fatal("exchange does not expose EVMDEXReader capability")
+		}
+		runERC20(reader, strings.TrimSpace(chain), strings.TrimSpace(*tokenFlag), firstNonEmpty(*ownerFlag, walletAddress), strings.TrimSpace(*spenderFlag))
+	case "quote":
+		reader, ok := raw.(base.EVMDEXReader)
+		if !ok {
+			log.Fatal("exchange does not expose EVMDEXReader capability")
+		}
+		runQuote(reader, strings.TrimSpace(chain), strings.TrimSpace(*protocolFlag), strings.TrimSpace(*routerFlag), strings.TrimSpace(*amountInWeiFlag), quotePath(*pathFlag, *tokenInFlag, *tokenOutFlag))
 	case "call":
 		runCall(executor, request)
 	case "send":
@@ -141,6 +162,84 @@ func runBalance(exchange base.Exchange) {
 	}
 }
 
+func runERC20(reader base.EVMDEXReader, chain, token, owner, spender string) {
+	if strings.TrimSpace(token) == "" {
+		log.Fatal("[erc20] token required: pass --token or set EVM_DEX_TOKEN")
+	}
+	fmt.Println("\n[erc20] reading token metadata and balance")
+	metadata, err := reader.FetchERC20Metadata(base.EVMERC20MetadataRequest{
+		Chain:        chain,
+		TokenAddress: token,
+	})
+	if err != nil {
+		log.Fatalf("[erc20] metadata failed: %v", err)
+	}
+	fmt.Printf("[erc20] metadata success\n")
+	fmt.Printf("  token:    %s\n", metadata.TokenAddress)
+	fmt.Printf("  symbol:   %s\n", metadata.Symbol)
+	fmt.Printf("  decimals: %d\n", metadata.Decimals)
+
+	balance, err := reader.FetchERC20Balance(base.EVMERC20BalanceRequest{
+		Chain:        chain,
+		TokenAddress: token,
+		OwnerAddress: owner,
+	})
+	if err != nil {
+		log.Fatalf("[erc20] balance failed: %v", err)
+	}
+	fmt.Printf("[erc20] balance success\n")
+	fmt.Printf("  owner: %s\n", balance.OwnerAddress)
+	fmt.Printf("  wei:   %s\n", balance.BalanceWei)
+	fmt.Printf("  human: %s\n", balance.BalanceFormatted)
+
+	if strings.TrimSpace(spender) == "" {
+		return
+	}
+	allowance, err := reader.FetchERC20Allowance(base.EVMERC20AllowanceRequest{
+		Chain:          chain,
+		TokenAddress:   token,
+		OwnerAddress:   owner,
+		SpenderAddress: spender,
+	})
+	if err != nil {
+		log.Fatalf("[erc20] allowance failed: %v", err)
+	}
+	fmt.Printf("[erc20] allowance success\n")
+	fmt.Printf("  spender: %s\n", allowance.SpenderAddress)
+	fmt.Printf("  wei:     %s\n", allowance.AllowanceWei)
+	fmt.Printf("  human:   %s\n", allowance.AllowanceFormatted)
+}
+
+func runQuote(reader base.EVMDEXReader, chain, protocol, router, amountInWei string, path []string) {
+	if strings.TrimSpace(router) == "" {
+		log.Fatal("[quote] router required: pass --router or set EVM_DEX_ROUTER")
+	}
+	if strings.TrimSpace(amountInWei) == "" {
+		log.Fatal("[quote] amount-in-wei required: pass --amount-in-wei or set EVM_DEX_AMOUNT_IN_WEI")
+	}
+	if len(path) < 2 {
+		log.Fatal("[quote] path requires at least 2 token addresses: pass --path or --token-in/--token-out")
+	}
+	fmt.Println("\n[quote] reading router getAmountsOut")
+	quote, err := reader.QuoteExactInput(base.EVMDEXQuoteRequest{
+		Chain:         chain,
+		Protocol:      protocol,
+		RouterAddress: router,
+		AmountInWei:   amountInWei,
+		Path:          path,
+	})
+	if err != nil {
+		log.Fatalf("[quote] failed: %v", err)
+	}
+	fmt.Printf("[quote] success\n")
+	fmt.Printf("  protocol:   %s\n", quote.Protocol)
+	fmt.Printf("  router:     %s\n", quote.RouterAddress)
+	fmt.Printf("  amount in:  %s\n", quote.AmountInWei)
+	fmt.Printf("  amount out: %s\n", quote.AmountOutWei)
+	fmt.Printf("  path:       %s\n", strings.Join(quote.Path, " -> "))
+	fmt.Printf("  amounts:    %s\n", strings.Join(quote.AmountsWei, " -> "))
+}
+
 func runCall(executor base.EVMDEXExecutor, request base.EVMDEXRequest) {
 	fmt.Println("\n[call] executing cast call")
 	result, err := executor.ExecuteEVMCall(request)
@@ -169,6 +268,23 @@ func runSend(executor base.EVMDEXExecutor, request base.EVMDEXRequest, valueWei 
 	fmt.Printf("[send] success\n")
 	fmt.Printf("  rpc:     %s\n", result.RPCURL)
 	fmt.Printf("  tx hash: %s\n", result.TxHash)
+}
+
+func quotePath(rawPath, tokenIn, tokenOut string) []string {
+	if strings.TrimSpace(rawPath) != "" {
+		parts := strings.Split(rawPath, ",")
+		out := make([]string, 0, len(parts))
+		for _, part := range parts {
+			if value := strings.TrimSpace(part); value != "" {
+				out = append(out, value)
+			}
+		}
+		return out
+	}
+	if strings.TrimSpace(tokenIn) != "" && strings.TrimSpace(tokenOut) != "" {
+		return []string{strings.TrimSpace(tokenIn), strings.TrimSpace(tokenOut)}
+	}
+	return nil
 }
 
 func envOrDefault(key, fallback string) string {

@@ -44,6 +44,9 @@ frontend/front/dist/
 **/.vercel/
 host/host-storage/
 host/cmd/host-storage/
+cctx/.scw/
+cctx/out/
+cctx/cache/
 cmd/host/test-storage/
 cmd/host/verification-logs/
 cmd/logs/

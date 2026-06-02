@@ -54,7 +54,7 @@ func loadMapConfig(name string, values map[string]string) map[string]any {
 		return map[string]any{}
 	}
 	switch name {
-	case "binance":
+	case "binance", "binance_futures", "binance-usdm", "binance_usdm":
 		out := map[string]any{
 			"api_key":    values["api_key"],
 			"api_secret": firstNonEmpty(values["api_secret"], values["hmac_secret"]),

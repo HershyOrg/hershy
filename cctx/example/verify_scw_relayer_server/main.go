@@ -1,7 +1,6 @@
 package main
 
 import (
-	"encoding/json"
 	"flag"
 	"log"
 	"net/http"
@@ -25,9 +24,12 @@ func main() {
 	)
 	flag.Parse()
 
-	bundle, err := loadBundle(strings.TrimSpace(*bundlePath))
+	bundle, err := scw.LoadBundleFile(strings.TrimSpace(*bundlePath))
 	if err != nil {
 		log.Fatalf("load bundle: %v", err)
+	}
+	if strings.TrimSpace(bundle.SmartWalletAddress) == "" {
+		log.Fatal("bundle missing smart_wallet_address; update the bundle after SCW deployment")
 	}
 	if strings.TrimSpace(*moduleAddress) == "" {
 		*moduleAddress = strings.TrimSpace(bundle.StrategyPolicyModuleAddress)
@@ -49,18 +51,6 @@ func main() {
 	if err := http.ListenAndServe(strings.TrimSpace(*listenAddr), server); err != nil {
 		log.Fatalf("listen: %v", err)
 	}
-}
-
-func loadBundle(path string) (scw.SafeProvisioningBundle, error) {
-	raw, err := os.ReadFile(path)
-	if err != nil {
-		return scw.SafeProvisioningBundle{}, err
-	}
-	var bundle scw.SafeProvisioningBundle
-	if err := json.Unmarshal(raw, &bundle); err != nil {
-		return scw.SafeProvisioningBundle{}, err
-	}
-	return bundle, nil
 }
 
 func firstNonEmpty(values ...string) string {

@@ -102,6 +102,18 @@ type SafeProvisioningRequest struct {
 	SessionDeadlineGraceSeconds int64
 }
 
+// StrategyPolicyModuleActionRequest describes post-deploy Safe actions needed
+// to enable the policy module and grant the bundle's session key.
+type StrategyPolicyModuleActionRequest struct {
+	StrategyPolicyModuleAddress string
+	SessionValidAfterUnix       int64
+	SessionValidUntilUnix       int64
+	AllowedContractAddresses    []string
+	AllowedFunctionSelectors    []string
+	MaxValueWei                 string
+	MaxGasLimit                 uint64
+}
+
 // DeploymentCall is a wallet-submittable transaction request.
 type DeploymentCall struct {
 	To    string `json:"to"`
@@ -323,6 +335,107 @@ func BuildSafeProvisioningBundle(request SafeProvisioningRequest) (SafeProvision
 	}, nil
 }
 
+// AttachStrategyPolicyModule adds Safe-executable module setup actions to an
+// existing deployed SCW bundle while preserving its owner and session key.
+func AttachStrategyPolicyModule(bundle SafeProvisioningBundle, request StrategyPolicyModuleActionRequest) (SafeProvisioningBundle, error) {
+	normalized, err := normalizeBundleForStorage(bundle)
+	if err != nil {
+		return SafeProvisioningBundle{}, err
+	}
+	smartWalletAddress, err := normalizeRequiredAddress(normalized.SmartWalletAddress, "smart wallet address")
+	if err != nil {
+		return SafeProvisioningBundle{}, err
+	}
+	sessionKeyAddress, err := normalizeRequiredAddress(normalized.SessionKeyAddress, "session key address")
+	if err != nil {
+		return SafeProvisioningBundle{}, err
+	}
+	moduleAddress, err := normalizeRequiredAddress(request.StrategyPolicyModuleAddress, "strategy policy module address")
+	if err != nil {
+		return SafeProvisioningBundle{}, err
+	}
+
+	policyID := firstTrimmed(normalized.PolicyID, normalized.RelayerPolicy.PolicyID)
+	if policyID == "" {
+		policyID = defaultPolicyID
+	}
+	allowedContracts := normalizeAddressSlice(preferStringSlice(request.AllowedContractAddresses, normalized.RelayerPolicy.AllowedContractAddresses))
+	allowedSelectors := normalizeSelectorSlice(preferStringSlice(request.AllowedFunctionSelectors, normalized.RelayerPolicy.AllowedFunctionSelectors))
+	maxValueWei := firstTrimmed(request.MaxValueWei, normalized.RelayerPolicy.MaxValueWei)
+	maxGasLimit := request.MaxGasLimit
+	if maxGasLimit == 0 {
+		maxGasLimit = normalized.RelayerPolicy.MaxGasLimit
+	}
+
+	enablePayload, err := safeModuleManagerABI.Pack("enableModule", common.HexToAddress(moduleAddress))
+	if err != nil {
+		return SafeProvisioningBundle{}, fmt.Errorf("pack safe enableModule calldata: %w", err)
+	}
+	maxValue, err := parseBundleWeiValue(maxValueWei)
+	if err != nil {
+		return SafeProvisioningBundle{}, fmt.Errorf("invalid max value wei: %w", err)
+	}
+	selectorBytes, err := selectorsToBytes4(allowedSelectors)
+	if err != nil {
+		return SafeProvisioningBundle{}, err
+	}
+	targets := make([]common.Address, 0, len(allowedContracts))
+	for _, candidate := range allowedContracts {
+		targets = append(targets, common.HexToAddress(candidate))
+	}
+	validAfter, err := normalizeUint48(request.SessionValidAfterUnix, "session validAfter")
+	if err != nil {
+		return SafeProvisioningBundle{}, err
+	}
+	validUntil, err := normalizeUint48(request.SessionValidUntilUnix, "session validUntil")
+	if err != nil {
+		return SafeProvisioningBundle{}, err
+	}
+	grantPayload, err := strategyPolicyModuleABI.Pack(
+		"grantSessionKey",
+		common.HexToAddress(sessionKeyAddress),
+		relayerPolicyHash(policyID),
+		new(big.Int).SetUint64(validAfter),
+		new(big.Int).SetUint64(validUntil),
+		maxGasLimit,
+		maxValue,
+		targets,
+		selectorBytes,
+	)
+	if err != nil {
+		return SafeProvisioningBundle{}, fmt.Errorf("pack grantSessionKey calldata: %w", err)
+	}
+
+	normalized.PolicyID = policyID
+	normalized.SmartWalletAddress = smartWalletAddress
+	normalized.SessionKeyAddress = sessionKeyAddress
+	normalized.StrategyPolicyModuleAddress = moduleAddress
+	normalized.EnableModuleAction = &SafeAction{
+		Safe:  smartWalletAddress,
+		To:    smartWalletAddress,
+		Data:  "0x" + hex.EncodeToString(enablePayload),
+		Value: "0",
+	}
+	normalized.GrantSessionKeyAction = &SafeAction{
+		Safe:  smartWalletAddress,
+		To:    moduleAddress,
+		Data:  "0x" + hex.EncodeToString(grantPayload),
+		Value: "0",
+	}
+	normalized.RelayerPolicy.SmartWalletAddress = smartWalletAddress
+	normalized.RelayerPolicy.SessionKeyAddress = sessionKeyAddress
+	normalized.RelayerPolicy.PolicyID = policyID
+	if len(normalized.RelayerPolicy.AllowedChainIDs) == 0 && normalized.ChainID > 0 {
+		normalized.RelayerPolicy.AllowedChainIDs = cloneInt64s(normalized.ChainID)
+	}
+	normalized.RelayerPolicy.AllowedContractAddresses = allowedContracts
+	normalized.RelayerPolicy.AllowedFunctionSelectors = allowedSelectors
+	normalized.RelayerPolicy.MaxValueWei = normalizeMaxValue(maxValueWei)
+	normalized.RelayerPolicy.MaxGasLimit = maxGasLimit
+	normalized.NeedsPostDeployAddressSet = false
+	return normalized, nil
+}
+
 func resolveSessionSigner(raw string) (*ecdsa.PrivateKey, string, error) {
 	if strings.TrimSpace(raw) != "" {
 		normalized := strings.TrimPrefix(strings.TrimPrefix(strings.TrimSpace(raw), "0x"), "0X")
@@ -516,6 +629,13 @@ func normalizeMaxValue(raw string) string {
 		return ""
 	}
 	return text
+}
+
+func preferStringSlice(primary, fallback []string) []string {
+	if len(primary) > 0 {
+		return primary
+	}
+	return fallback
 }
 
 func cloneInt64s(value int64) []int64 {

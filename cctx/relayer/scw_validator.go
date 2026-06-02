@@ -37,15 +37,15 @@ func (e PolicyValidationError) Error() string {
 // SCWExecutionPolicy describes relayer-side constraints that must be satisfied
 // before a session-key relay request is forwarded to an on-chain smart wallet.
 type SCWExecutionPolicy struct {
-	SmartWalletAddress       string
-	SessionKeyAddress        string
-	PolicyID                 string
-	AllowedChainIDs          []int64
-	AllowedContractAddresses []string
-	AllowedFunctionSelectors []string
-	MaxValueWei              string
-	MaxGasLimit              uint64
-	DeadlineGracePeriod      time.Duration
+	SmartWalletAddress       string        `json:"smart_wallet_address,omitempty"`
+	SessionKeyAddress        string        `json:"session_key_address,omitempty"`
+	PolicyID                 string        `json:"policy_id,omitempty"`
+	AllowedChainIDs          []int64       `json:"allowed_chain_ids,omitempty"`
+	AllowedContractAddresses []string      `json:"allowed_contract_addresses,omitempty"`
+	AllowedFunctionSelectors []string      `json:"allowed_function_selectors,omitempty"`
+	MaxValueWei              string        `json:"max_value_wei,omitempty"`
+	MaxGasLimit              uint64        `json:"max_gas_limit,omitempty"`
+	DeadlineGracePeriod      time.Duration `json:"deadline_grace_period,omitempty"`
 }
 
 // SCWValidatedRequest captures the normalized data extracted from a verified
