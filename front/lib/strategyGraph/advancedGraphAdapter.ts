@@ -560,7 +560,7 @@ export function advancedGraphToStrategyGraph(
       id: strategyId,
       name: strategyName,
     },
-    generatedAt: new Date().toISOString(),
+    generatedAt: "1970-01-01T00:00:00.000Z",
     summary: {
       blocks: blocks.length,
       connections: connections.length,

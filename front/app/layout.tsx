@@ -38,8 +38,8 @@ export default function RootLayout({
 }>) {
   return (
     <html lang="en" suppressHydrationWarning>
-      <body className={`${geist.variable} ${geistMono.variable} font-sans antialiased`}>
-        <ThemeProvider attribute="class" defaultTheme="light" enableSystem disableTransitionOnChange>
+      <body className={`${geist.variable} ${geistMono.variable} hershy-shell font-sans antialiased`}>
+        <ThemeProvider attribute="class" defaultTheme="light" enableSystem enableColorScheme disableTransitionOnChange>
           <ExternalConsoleNoiseFilter />
           {children}
           <Analytics />

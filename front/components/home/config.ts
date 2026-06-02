@@ -1,10 +1,4 @@
 import {
-  Code2,
-  Folder,
-  Network,
-  Plus,
-} from "lucide-react";
-import {
   DEFAULT_EXCHANGE_CONNECTIONS,
   DEFAULT_CEX_TRADE_EXCHANGE,
   SUPPORTED_CEX_TRADE_EXCHANGES,
@@ -28,8 +22,8 @@ export {
 };
 
 export const NAV_ITEMS = [
-  { id: "create", label: "전략 만들기", icon: Plus, active: true },
-  { id: "portfolio", label: "포트폴리오", icon: Folder },
+  { id: "create", label: "전략 만들기", shortLabel: "전", active: true },
+  { id: "portfolio", label: "포트폴리오", shortLabel: "포" },
 ];
 
 export const EXCHANGE_CONNECTIONS: ExchangeConnection[] = DEFAULT_EXCHANGE_CONNECTIONS as ExchangeConnection[];
@@ -80,8 +74,8 @@ export const GUIDE_ITEMS = [
 ];
 
 export const MAIN_VIEW_TABS = [
-  { id: "advanced" as const, label: "고급 보기", icon: Network },
-  { id: "code" as const, label: "코드 보기", icon: Code2 },
+  { id: "advanced" as const, label: "고급 보기" },
+  { id: "code" as const, label: "코드 보기" },
 ];
 
 export const STRATEGY_BUILDER_STORAGE_KEY = "thirdeye.strategy-builder-state.v2";

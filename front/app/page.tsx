@@ -4,15 +4,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   ChevronLeft,
   ChevronRight,
-  Coins,
-  FileCode2,
-  Moon,
-  Save,
-  Sparkles,
-  Sun,
-  WalletCards,
   X,
-  Zap,
 } from "lucide-react";
 import { useTheme } from "next-themes";
 import { ExchangeLibraryModal } from "@/components/home/ExchangeLibraryModal";
@@ -230,6 +222,10 @@ function compactCodeMetaForSignature(value: HistorySnapshotCodeMeta | null | und
 
 function codeMetaComparableSignature(value: HistorySnapshotCodeMeta | null | undefined) {
   return stableStringify(compactCodeMetaForSignature(value));
+}
+
+function stringArraysEqual(a: string[], b: string[]) {
+  return a.length === b.length && a.every((item, index) => item === b[index]);
 }
 
 function createAdvancedGraphSignature(graph: AdvancedGraphModel | null | undefined) {
@@ -508,6 +504,8 @@ export default function Page() {
   const programCodeRequestRef = useRef("");
   const activeSnapshotCodeMetaRef = useRef<HistorySnapshotCodeMeta | null>(null);
   const lastAppliedSnapshotCodeMetaIdRef = useRef<string | null>(null);
+  const lastAppliedSnapshotHydrationSignatureRef = useRef("");
+  const lastCodeMetaWriteSignatureRef = useRef("");
   const skipNextSnapshotCodeMetaSyncRef = useRef(false);
   const isDarkMode = isThemeMounted && resolvedTheme === "dark";
   const connectedExchangeCount = exchangeConnections.filter((item) => item.status === "연결됨").length;
@@ -982,7 +980,15 @@ export default function Page() {
 
   useEffect(() => {
     const snapshotId = activeSnapshot?.id ?? null;
-    if (lastAppliedSnapshotCodeMetaIdRef.current === snapshotId) return;
+    const snapshotHydrationSignature = activeSnapshot
+      ? stableStringify({
+        id: activeSnapshot.id,
+        name: activeSnapshot.name,
+        codeMeta: compactCodeMetaForSignature(activeSnapshot.codeMeta),
+      })
+      : "none";
+    if (lastAppliedSnapshotHydrationSignatureRef.current === snapshotHydrationSignature) return;
+    lastAppliedSnapshotHydrationSignatureRef.current = snapshotHydrationSignature;
     lastAppliedSnapshotCodeMetaIdRef.current = snapshotId;
     if (!activeSnapshot) return;
 
@@ -1002,16 +1008,31 @@ export default function Page() {
     const nextProgramCode = meta?.programCode || "";
 
     skipNextSnapshotCodeMetaSyncRef.current = true;
-    setGeneratedCode(meta?.generatedCode ?? derived.generatedCode);
-    setProgramCode(nextProgramCode);
+    setGeneratedCode((current) => {
+      const next = meta?.generatedCode ?? derived.generatedCode;
+      return current === next ? current : next;
+    });
+    setProgramCode((current) => current === nextProgramCode ? current : nextProgramCode);
     programCodeRequestRef.current = nextProgramCode
       ? meta?.programCodeSignature || derived.programCodeSignature
       : "";
-    setStrategyTitle(meta?.strategyTitle || activeSnapshot.name || EMPTY_STRATEGY_TITLE);
-    setStrategySummary(nextSummary);
-    setLastSyncedAdvancedGraphSignature(meta?.graphSignature || derived.graphSignature);
-    setAiSummary(meta?.aiSummary || `AI 요약: ${nextSummary}`);
-    setAgentSteps(meta?.agentSteps?.length ? meta.agentSteps : [...DEFAULT_AGENT_STEPS]);
+    setStrategyTitle((current) => {
+      const next = meta?.strategyTitle || activeSnapshot.name || EMPTY_STRATEGY_TITLE;
+      return current === next ? current : next;
+    });
+    setStrategySummary((current) => current === nextSummary ? current : nextSummary);
+    setLastSyncedAdvancedGraphSignature((current) => {
+      const next = meta?.graphSignature || derived.graphSignature;
+      return current === next ? current : next;
+    });
+    setAiSummary((current) => {
+      const next = meta?.aiSummary || `AI 요약: ${nextSummary}`;
+      return current === next ? current : next;
+    });
+    setAgentSteps((current) => {
+      const next = meta?.agentSteps?.length ? meta.agentSteps : [...DEFAULT_AGENT_STEPS];
+      return stringArraysEqual(current, next) ? current : next;
+    });
   }, [activeSnapshot, strategySummary, strategyTitle]);
 
   useEffect(() => {
@@ -1023,11 +1044,18 @@ export default function Page() {
     }
 
     const codeMeta = activeSnapshotCodeMetaRef.current;
-    if (activeSnapshotStoredCodeMetaSignature === codeMetaComparableSignature(codeMeta)) {
+    const nextCodeMetaSignature = codeMetaComparableSignature(codeMeta);
+    if (activeSnapshotStoredCodeMetaSignature === nextCodeMetaSignature) {
+      lastCodeMetaWriteSignatureRef.current = "";
       return;
     }
 
     if (codeMeta) {
+      const writeSignature = `${activeTabId}:${nextCodeMetaSignature}`;
+      if (lastCodeMetaWriteSignatureRef.current === writeSignature) {
+        return;
+      }
+      lastCodeMetaWriteSignatureRef.current = writeSignature;
       historyStore.updateActiveSnapshotCodeMeta(codeMeta);
     }
   }, [activeSnapshotCodeMetaSignature, activeSnapshotStoredCodeMetaSignature, activeTabId]);
@@ -1491,11 +1519,7 @@ export default function Page() {
             </button>
           ) : (
             <>
-              <div className="relative flex h-8 w-8 items-center justify-center rounded-lg border border-orange-300 bg-orange-50 dark:border-orange-400/30 dark:bg-orange-400/10">
-                <Zap className="h-5 w-5 text-orange-600" />
-                <span className="absolute inset-1 rounded-full border border-red-500/50" />
-              </div>
-              <div className="min-w-0 flex-1 truncate text-lg font-black tracking-tight">ThirdEye</div>
+              <div className="min-w-0 flex-1 truncate text-[15px] font-black tracking-[-0.01em]">ThirdEye</div>
               <button
                 type="button"
                 onClick={() => setIsLeftPanelCollapsed(true)}
@@ -1511,7 +1535,6 @@ export default function Page() {
 
         <nav className={cn("flex-1 space-y-1 overflow-y-auto py-3", isLeftPanelCollapsed ? "px-1.5" : "px-2")}>
           {NAV_ITEMS.map((item) => {
-            const Icon = item.icon;
             const workspaceId = isWorkspaceNavId(item.id) ? item.id : null;
             const isInteractive = Boolean(workspaceId);
             const isActive = workspaceId === activeWorkspace;
@@ -1522,16 +1545,19 @@ export default function Page() {
                 onClick={workspaceId ? () => setActiveWorkspace(workspaceId) : undefined}
                 title={isInteractive ? item.label : `${item.label} · 준비 중`}
                 className={cn(
-                  "flex h-10 w-full items-center rounded-lg text-[13px] font-semibold text-slate-700 transition-colors hover:bg-slate-100 dark:text-slate-300 dark:hover:bg-slate-900",
+                  "flex h-10 w-full items-center border-l-2 border-transparent text-[13px] font-semibold text-slate-700 transition-colors hover:bg-slate-50 dark:text-slate-300 dark:hover:bg-slate-900",
                   isLeftPanelCollapsed ? "justify-center px-0" : "gap-2 px-2.5",
                   !isInteractive && "cursor-default opacity-55 hover:bg-transparent",
-                  isActive && "bg-violet-600 text-white shadow-sm hover:bg-violet-600",
+                  isActive && "border-violet-600 bg-slate-50 text-slate-950 hover:bg-slate-50 dark:bg-slate-900 dark:text-slate-100",
                 )}
               >
-                <Icon className="h-4 w-4 shrink-0" />
-                {!isLeftPanelCollapsed ? <span className="truncate">{item.label}</span> : null}
+                {isLeftPanelCollapsed ? (
+                  <span className="text-xs font-black">{item.shortLabel}</span>
+                ) : (
+                  <span className="truncate">{item.label}</span>
+                )}
                 {!isLeftPanelCollapsed && !isInteractive ? (
-                  <span className="ml-auto rounded-full bg-slate-100 px-1.5 py-0.5 text-[9px] font-bold text-slate-500 dark:bg-slate-800 dark:text-slate-400">
+                  <span className="ml-auto border border-slate-200 px-1.5 py-0.5 text-[9px] font-bold text-slate-500 dark:border-slate-700 dark:text-slate-400">
                     soon
                   </span>
                 ) : null}
@@ -1548,13 +1574,13 @@ export default function Page() {
               aria-label="거래소 연결 관리"
               title="거래소 연결 관리"
               className={cn(
-                "relative inline-flex h-9 w-9 items-center justify-center rounded-lg border transition-colors",
+                "relative inline-flex h-9 w-9 items-center justify-center border text-[11px] font-black transition-colors",
                 connectedExchangeCount > 0
                   ? "border-emerald-200 bg-emerald-50 text-emerald-700 dark:border-emerald-400/25 dark:bg-emerald-400/10 dark:text-emerald-300"
                   : "border-slate-200 bg-white text-slate-600 hover:bg-slate-50 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-300 dark:hover:bg-slate-800",
               )}
             >
-              <Coins className="h-4 w-4" />
+              거
               {connectedExchangeCount > 0 ? (
                 <span className="absolute right-1 top-1 h-1.5 w-1.5 rounded-full bg-emerald-500" />
               ) : null}
@@ -1564,14 +1590,14 @@ export default function Page() {
               onClick={() => setIsLeftPanelCollapsed(false)}
               aria-label="플랜 패널 펼치기"
               title={`Plan: ${planTier}`}
-              className="inline-flex h-9 w-9 items-center justify-center rounded-lg border border-violet-200 bg-white text-violet-700 transition-colors hover:bg-violet-50 dark:border-violet-400/30 dark:bg-slate-900 dark:text-violet-200 dark:hover:bg-violet-400/10"
+              className="inline-flex h-9 w-9 items-center justify-center border border-slate-200 bg-white text-[11px] font-black text-slate-600 transition-colors hover:bg-slate-50 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-300 dark:hover:bg-slate-800"
             >
-              <Sparkles className="h-4 w-4" />
+              P
             </button>
           </div>
         ) : (
-        <div className="space-y-3 border-t border-slate-200 p-2.5 dark:border-slate-800">
-          <section className="rounded-lg border border-slate-200 bg-white p-2.5 dark:border-slate-800 dark:bg-slate-900/70">
+        <div className="border-t border-slate-200 p-2.5 dark:border-slate-800">
+          <section className="border-b border-slate-200 pb-3 dark:border-slate-800">
             <div className="mb-2 text-xs font-bold text-slate-700 dark:text-slate-300">거래소 연결</div>
             <div className="mb-2 grid grid-cols-2 gap-1">
               {exchangeConnections.map((exchange) => (
@@ -1580,7 +1606,7 @@ export default function Page() {
                   type="button"
                   onClick={() => setExchangeTab(exchange.id)}
                   className={cn(
-                    "rounded-md border px-1.5 py-1 text-[10px] font-bold capitalize",
+                    "border px-1.5 py-1 text-[10px] font-bold capitalize",
                     exchangeTab === exchange.id
                       ? "border-violet-300 bg-violet-50 text-violet-700 dark:border-violet-400/40 dark:bg-violet-400/10 dark:text-violet-200"
                       : "border-slate-200 text-slate-500 dark:border-slate-700 dark:text-slate-400",
@@ -1590,16 +1616,13 @@ export default function Page() {
                 </button>
               ))}
             </div>
-            <div className="flex items-center gap-2">
-              <Coins className="h-6 w-6 rounded-md bg-amber-100 p-1 text-amber-600" />
-              <div className="min-w-0">
-                <div className="truncate text-xs font-semibold">
-                  {selectedExchange?.name ?? "거래소 연결 필요"}
-                  {connectedExchangeCount > 0 ? ` (${connectedExchangeCount})` : ""}
-                </div>
-                <div className={cn("text-[11px] font-semibold", selectedExchange?.status === "연결됨" ? "text-emerald-600 dark:text-emerald-300" : "text-slate-500 dark:text-slate-400")}>
-                  ● {selectedExchange?.status ?? "대기"}
-                </div>
+            <div className="min-w-0">
+              <div className="truncate text-xs font-semibold">
+                {selectedExchange?.name ?? "거래소 연결 필요"}
+                {connectedExchangeCount > 0 ? ` (${connectedExchangeCount})` : ""}
+              </div>
+              <div className={cn("text-[11px] font-semibold", selectedExchange?.status === "연결됨" ? "text-emerald-600 dark:text-emerald-300" : "text-slate-500 dark:text-slate-400")}>
+                {selectedExchange?.status ?? "대기"}
               </div>
             </div>
             {selectedExchange?.rpcUrl || selectedExchange?.apiUrl || selectedExchange?.wsUrl ? (
@@ -1610,15 +1633,14 @@ export default function Page() {
             <button
               type="button"
               onClick={() => setIsExchangeLibraryOpen(true)}
-              className="mt-2 h-8 w-full rounded-lg border border-slate-200 bg-slate-50 text-xs font-bold text-slate-700 hover:bg-white dark:border-slate-700 dark:bg-slate-800 dark:text-slate-300 dark:hover:bg-slate-700"
+              className="mt-2 h-8 w-full border border-slate-200 bg-white text-xs font-bold text-slate-700 hover:bg-slate-50 dark:border-slate-700 dark:bg-slate-950 dark:text-slate-300 dark:hover:bg-slate-900"
             >
               거래소 연결 관리
             </button>
           </section>
 
-          <section className="rounded-lg border border-violet-200 bg-violet-50 p-2.5 dark:border-violet-400/30 dark:bg-violet-400/10">
-            <div className="mb-2 flex items-center gap-2 text-xs font-bold text-violet-800 dark:text-violet-200">
-              <Sparkles className="h-4 w-4" />
+          <section className="border-b border-slate-200 py-3 dark:border-slate-800">
+            <div className="mb-2 text-xs font-bold text-slate-700 dark:text-slate-300">
               Plan
             </div>
             <div className="mb-2 grid grid-cols-3 gap-1">
@@ -1628,7 +1650,7 @@ export default function Page() {
                   type="button"
                   onClick={() => setPlanTier(tier)}
                   className={cn(
-                    "rounded-md border px-1 py-1 text-[10px] font-bold uppercase",
+                    "border px-1 py-1 text-[10px] font-bold uppercase",
                     planTier === tier
                       ? "border-violet-400 bg-white text-violet-700 dark:bg-slate-950 dark:text-violet-200"
                       : "border-violet-100 bg-violet-100/60 text-violet-400 dark:border-violet-400/20 dark:bg-violet-400/10 dark:text-violet-300/70",
@@ -1638,8 +1660,8 @@ export default function Page() {
                 </button>
               ))}
             </div>
-            <div className="text-[11px] text-violet-700 dark:text-violet-300">만료일 2026-06-30</div>
-            <button className="mt-2 h-8 w-full rounded-lg border border-violet-300 bg-white text-xs font-bold text-violet-700 dark:border-violet-400/30 dark:bg-slate-950 dark:text-violet-200">
+            <div className="text-[11px] text-slate-500 dark:text-slate-400">만료일 2026-06-30</div>
+            <button className="mt-2 h-8 w-full border border-slate-200 bg-white text-xs font-bold text-slate-700 dark:border-slate-700 dark:bg-slate-950 dark:text-slate-300">
               플랜 관리
             </button>
           </section>
@@ -1650,20 +1672,18 @@ export default function Page() {
       <div className="flex min-w-0 flex-1 flex-col">
         <header className="flex h-[52px] shrink-0 items-center justify-between border-b border-slate-200 bg-white px-3 dark:border-slate-800 dark:bg-slate-950">
           {isCreateWorkspace ? (
-            <div className="flex min-w-0 overflow-x-auto rounded-lg border border-slate-200 bg-slate-50 p-1 dark:border-slate-800 dark:bg-slate-900">
+            <div className="flex min-w-0 overflow-x-auto">
               {MAIN_VIEW_TABS.map((tab) => {
-                const Icon = tab.icon;
                 return (
                   <button
                     key={tab.id}
                     type="button"
                     onClick={() => handleMainViewChange(tab.id)}
                     className={cn(
-                      "inline-flex h-9 shrink-0 items-center gap-1.5 rounded-md px-3 text-xs font-bold",
-                      mainView === tab.id ? "bg-violet-600 text-white shadow-sm" : "text-slate-600 hover:bg-white dark:text-slate-300 dark:hover:bg-slate-800",
+                      "inline-flex h-[52px] shrink-0 items-center border-b-2 border-transparent px-3 text-xs font-bold",
+                      mainView === tab.id ? "border-violet-600 text-slate-950 dark:text-slate-100" : "text-slate-500 hover:text-slate-800 dark:text-slate-400 dark:hover:text-slate-200",
                     )}
                   >
-                    <Icon className="h-3.5 w-3.5" />
                     {tab.label}
                   </button>
                 );
@@ -1684,18 +1704,16 @@ export default function Page() {
             <button
               type="button"
               onClick={() => setTheme(isDarkMode ? "light" : "dark")}
-              className="inline-flex h-9 items-center gap-2 rounded-lg border border-slate-200 bg-white px-3 text-sm font-semibold text-slate-700 transition-colors hover:bg-slate-50 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200 dark:hover:bg-slate-800"
+              className="inline-flex h-9 items-center border border-slate-200 bg-white px-3 text-sm font-semibold text-slate-700 transition-colors hover:bg-slate-50 dark:border-slate-700 dark:bg-slate-950 dark:text-slate-200 dark:hover:bg-slate-900"
               title={isDarkMode ? "라이트 모드로 전환" : "다크 모드로 전환"}
             >
-              {isDarkMode ? <Sun className="h-4 w-4 text-amber-300" /> : <Moon className="h-4 w-4 text-slate-600" />}
-              <span className="hidden sm:inline">{isDarkMode ? "라이트" : "다크"}</span>
+              <span>{isDarkMode ? "라이트" : "다크"}</span>
             </button>
             <button
               type="button"
               onClick={() => setIsExchangeLibraryOpen(true)}
-              className="inline-flex h-9 items-center gap-2 rounded-lg border border-slate-200 bg-white px-3 text-sm font-semibold text-slate-700 hover:bg-slate-50 lg:hidden dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200 dark:hover:bg-slate-800"
+              className="inline-flex h-9 items-center border border-slate-200 bg-white px-3 text-sm font-semibold text-slate-700 hover:bg-slate-50 lg:hidden dark:border-slate-700 dark:bg-slate-950 dark:text-slate-200 dark:hover:bg-slate-900"
             >
-              <Coins className="h-4 w-4 text-amber-600" />
               거래소
             </button>
             {isCreateWorkspace ? (
@@ -1703,9 +1721,8 @@ export default function Page() {
                 <button
                   type="button"
                   onClick={handleSave}
-                  className="inline-flex h-9 items-center gap-2 rounded-lg bg-violet-600 px-4 text-sm font-bold text-white shadow-sm hover:bg-violet-700"
+                  className="inline-flex h-9 items-center bg-violet-600 px-4 text-sm font-bold text-white hover:bg-violet-700"
                 >
-                  <Save className="h-4 w-4" />
                   저장
                 </button>
               </>
@@ -1713,9 +1730,8 @@ export default function Page() {
               <button
                 type="button"
                 onClick={() => setIsExchangeLibraryOpen(true)}
-                className="inline-flex h-9 items-center gap-2 rounded-lg bg-slate-950 px-4 text-sm font-bold text-white shadow-sm hover:bg-slate-800 dark:bg-slate-100 dark:text-slate-950 dark:hover:bg-white"
+                className="inline-flex h-9 items-center bg-slate-950 px-4 text-sm font-bold text-white hover:bg-slate-800 dark:bg-slate-100 dark:text-slate-950 dark:hover:bg-white"
               >
-                <Coins className="h-4 w-4 text-amber-300" />
                 거래소 연결 관리
               </button>
             )}
@@ -1744,11 +1760,11 @@ export default function Page() {
                   />
                   {openTabs.length === 0 ? (
                     <div className="pointer-events-none absolute inset-x-[180px] top-[210px] z-20 flex justify-center">
-                      <div className="pointer-events-auto rounded-lg border border-slate-200 bg-white/95 px-4 py-3 text-center text-sm shadow-lg">
+                      <div className="pointer-events-auto border border-slate-200 bg-white px-4 py-3 text-center text-sm">
                         <div className="font-bold text-slate-900">열려 있는 전략 탭이 없습니다</div>
                         <button
                           onClick={() => historyStore.createEmptyStrategy(null)}
-                          className="mt-2 rounded-lg bg-violet-600 px-3 py-1.5 text-xs font-bold text-white"
+                          className="mt-2 bg-violet-600 px-3 py-1.5 text-xs font-bold text-white"
                         >
                           빈 전략 시작
                         </button>
@@ -1762,7 +1778,6 @@ export default function Page() {
                 <div className="h-full overflow-auto bg-slate-950 p-5">
                   <div className="mb-3 flex items-center justify-between">
                     <div className="flex items-center gap-2 text-sm font-bold text-slate-100">
-                      <FileCode2 className="h-4 w-4 text-emerald-400" />
                       {codeViewTitle}
                       <span className={cn("rounded-full px-2 py-0.5 text-[10px] font-black", hasProgramCodeForCodeView ? "bg-emerald-500/15 text-emerald-300" : "bg-amber-500/15 text-amber-300")}>
                         {codeViewStatus}
@@ -1772,17 +1787,17 @@ export default function Page() {
                       type="button"
                       onClick={() => void generateRuntimeProgramCode({ force: true })}
                       disabled={!codeViewStrategyGraph || isGeneratingProgramCode}
-                      className="rounded-lg border border-slate-700 px-3 py-1.5 text-xs font-bold text-slate-300 disabled:cursor-not-allowed disabled:opacity-50"
+                      className="border border-slate-700 px-3 py-1.5 text-xs font-bold text-slate-300 disabled:cursor-not-allowed disabled:opacity-50"
                     >
                       {isGeneratingProgramCode ? "생성 중" : "Hershy Go 생성"}
                     </button>
                   </div>
                   {programCodeError ? (
-                    <div className="mb-3 rounded-lg border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-xs font-semibold text-amber-200">
+                    <div className="mb-3 border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-xs font-semibold text-amber-200">
                       {programCodeError}
                     </div>
                   ) : null}
-                  <pre className="rounded-lg border border-slate-800 bg-black/40 p-4 text-sm leading-7 text-emerald-200">
+                  <pre className="border border-slate-800 bg-black/40 p-4 text-sm leading-7 text-emerald-200">
                     {codeViewContent}
                   </pre>
                 </div>
@@ -1855,8 +1870,8 @@ export default function Page() {
       />
 
       {isGuideOpen ? (
-        <div className="fixed inset-0 z-40 flex items-center justify-center bg-slate-950/35 p-6 backdrop-blur-sm">
-          <section className="w-full max-w-lg rounded-2xl border border-slate-200 bg-white shadow-2xl">
+        <div className="fixed inset-0 z-40 flex items-center justify-center bg-slate-950/35 p-6">
+          <section className="w-full max-w-lg border border-slate-200 bg-white">
             <div className="flex items-center justify-between border-b border-slate-200 px-5 py-4">
               <div>
                 <div className="text-xs font-bold uppercase tracking-wide text-violet-600">
@@ -1870,7 +1885,7 @@ export default function Page() {
               <button
                 type="button"
                 onClick={handleCloseGuide}
-                className="rounded-lg p-2 text-slate-400 hover:bg-slate-100 hover:text-slate-700"
+                className="p-2 text-slate-400 hover:bg-slate-100 hover:text-slate-700"
                 title="튜토리얼 닫기"
               >
                 <X className="h-4 w-4" />
@@ -1878,12 +1893,8 @@ export default function Page() {
             </div>
 
             <div className="p-5">
-              <div className="rounded-xl border border-violet-100 bg-violet-50 p-4">
-                <div className="mb-3 flex h-10 w-10 items-center justify-center rounded-lg bg-white text-violet-700 shadow-sm">
-                  {guideStep === 0 ? <WalletCards className="h-5 w-5" /> : null}
-                  {guideStep === 1 ? <Sparkles className="h-5 w-5" /> : null}
-                </div>
-                <p className="text-sm leading-6 text-violet-950">
+              <div className="border-l-2 border-violet-300 bg-slate-50 px-4 py-3">
+                <p className="text-sm leading-6 text-slate-800">
                   {guideStep === 0
                     ? "좌측 거래소 연결 탭에서 API 권한을 확인하세요. 읽기/거래 권한 상태가 연결됨으로 표시되면 전략을 만들 수 있습니다."
                     : null}
@@ -1897,10 +1908,10 @@ export default function Page() {
                 {GUIDE_ITEMS.map((item, index) => (
                   <button
                     key={item}
-                    type="button"
-                    onClick={() => setGuideStep(index)}
-                    className={cn(
-                      "h-2 flex-1 rounded-full",
+                  type="button"
+                  onClick={() => setGuideStep(index)}
+                  className={cn(
+                      "h-1 flex-1",
                       index <= guideStep ? "bg-violet-600" : "bg-slate-200",
                     )}
                     title={item}
@@ -1922,14 +1933,14 @@ export default function Page() {
                   type="button"
                   onClick={() => setGuideStep((current) => Math.max(0, current - 1))}
                   disabled={guideStep === 0}
-                  className="h-9 rounded-lg border border-slate-200 px-3 text-sm font-bold text-slate-600 disabled:opacity-40"
+                  className="h-9 border border-slate-200 px-3 text-sm font-bold text-slate-600 disabled:opacity-40"
                 >
                   이전
                 </button>
                 <button
                   type="button"
                   onClick={handleGuideNext}
-                  className="h-9 rounded-lg bg-violet-600 px-4 text-sm font-bold text-white hover:bg-violet-700"
+                  className="h-9 bg-violet-600 px-4 text-sm font-bold text-white hover:bg-violet-700"
                 >
                   {guideStep === GUIDE_ITEMS.length - 1 ? "완료" : "다음"}
                 </button>
@@ -1956,7 +1967,7 @@ export default function Page() {
             templatePanelMode === "expanded" ? "w-[520px]" : "w-[440px]",
           )}
         >
-          <section className="rounded-2xl border border-slate-200 bg-white shadow-2xl dark:border-slate-800 dark:bg-slate-950 dark:shadow-[0_24px_80px_rgba(0,0,0,0.48)]">
+          <section className="border border-slate-200 bg-white dark:border-slate-800 dark:bg-slate-950">
             <div className="flex items-center justify-between border-b border-slate-200 px-4 py-3 dark:border-slate-800">
               <div>
                 <div className="text-[11px] font-bold uppercase tracking-wide text-violet-600 dark:text-violet-300">
@@ -1972,7 +1983,7 @@ export default function Page() {
                   onClick={() =>
                     setTemplatePanelMode((mode) => (mode === "compact" ? "expanded" : "compact"))
                   }
-                  className="rounded-lg border border-slate-200 px-2 py-1 text-xs font-bold text-slate-600 hover:bg-slate-50 dark:border-slate-700 dark:text-slate-300 dark:hover:bg-slate-900"
+                  className="border border-slate-200 px-2 py-1 text-xs font-bold text-slate-600 hover:bg-slate-50 dark:border-slate-700 dark:text-slate-300 dark:hover:bg-slate-900"
                 >
                   {templatePanelMode === "compact" ? "확장" : "간소화"}
                 </button>
@@ -1995,7 +2006,7 @@ export default function Page() {
                         type="button"
                         onClick={() => handleTemplateSelect(template)}
                         className={cn(
-                          "rounded-xl border border-slate-200 bg-slate-50 p-3 text-left transition-colors hover:border-violet-300 hover:bg-violet-50 dark:border-slate-800 dark:bg-slate-900 dark:hover:border-violet-400/40 dark:hover:bg-violet-400/10",
+                          "border border-slate-200 bg-white p-3 text-left transition-colors hover:border-violet-300 hover:bg-slate-50 dark:border-slate-800 dark:bg-slate-950 dark:hover:border-violet-400/40 dark:hover:bg-slate-900",
                           templatePanelMode === "compact" && "px-2 py-2",
                         )}
                       >
@@ -2008,14 +2019,11 @@ export default function Page() {
                               <div className="mt-1 truncate text-[10px] text-slate-500 dark:text-slate-400">{template.tags.join(" · ")}</div>
                             )}
                           </div>
-                          {templatePanelMode === "expanded" ? (
-                            <ChevronRight className="mt-0.5 h-4 w-4 shrink-0 text-slate-400" />
-                          ) : null}
                         </div>
                         {templatePanelMode === "expanded" ? (
                           <div className="mt-2 flex flex-wrap gap-1">
                             {template.tags.map((tag) => (
-                              <span key={tag} className="rounded-full bg-slate-100 px-2 py-0.5 text-[10px] font-bold text-slate-600 dark:bg-slate-800 dark:text-slate-300">
+                              <span key={tag} className="border border-slate-200 px-2 py-0.5 text-[10px] font-bold text-slate-600 dark:border-slate-700 dark:text-slate-300">
                                 {tag}
                               </span>
                             ))}
@@ -2027,12 +2035,12 @@ export default function Page() {
                 </div>
               </div>
 
-              <div className="mb-3 max-h-44 space-y-2 overflow-y-auto rounded-xl border border-slate-200 bg-slate-50 p-2 dark:border-slate-800 dark:bg-slate-900">
+              <div className="mb-3 max-h-44 space-y-2 overflow-y-auto border-y border-slate-200 bg-slate-50 p-2 dark:border-slate-800 dark:bg-slate-900">
                 {agentMessages.map((message, index) => (
                   <div
                     key={`${message.role}-${index}`}
                     className={cn(
-                      "whitespace-pre-wrap rounded-lg px-3 py-2 text-xs leading-5",
+                      "whitespace-pre-wrap border-l-2 px-3 py-2 text-xs leading-5",
                       message.role === "user" ? "ml-8 bg-violet-600 text-white" : "mr-8 bg-white text-slate-700 dark:bg-slate-800 dark:text-slate-200",
                     )}
                   >
@@ -2052,22 +2060,21 @@ export default function Page() {
                   value={agentPrompt}
                   onChange={(event) => setAgentPrompt(event.target.value)}
                   rows={3}
-                  className="w-full resize-none rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm outline-none placeholder:text-slate-400 focus:border-violet-300 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100 dark:placeholder:text-slate-500 dark:focus:border-violet-400"
+                  className="w-full resize-none border border-slate-200 bg-white px-3 py-2 text-sm outline-none placeholder:text-slate-400 focus:border-violet-300 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100 dark:placeholder:text-slate-500 dark:focus:border-violet-400"
                   placeholder="예) BTC 20MA 돌파와 거래량 증가를 기준으로 진입하고, 1.2% 트레일링 스톱을 넣어줘"
                 />
                 <button
                   type="submit"
                   disabled={!agentPrompt.trim() || isAgentRunning}
-                  className="inline-flex h-9 w-full items-center justify-center gap-2 rounded-lg bg-violet-600 text-sm font-black text-white disabled:cursor-not-allowed disabled:opacity-50"
+                  className="inline-flex h-9 w-full items-center justify-center bg-violet-600 text-sm font-black text-white disabled:cursor-not-allowed disabled:opacity-50"
                 >
-                  <Sparkles className="h-4 w-4" />
                   {isAgentRunning ? "에이전트 생성 중" : "에이전트에게 보내기"}
                 </button>
                 {isAgentRunning ? (
                   <button
                     type="button"
                     onClick={handleCancelAgentRun}
-                    className="inline-flex h-9 w-full items-center justify-center rounded-lg border border-violet-200 bg-white text-sm font-bold text-violet-700 transition-colors hover:bg-violet-50 dark:border-violet-400/30 dark:bg-slate-900 dark:text-violet-200 dark:hover:bg-violet-400/10"
+                    className="inline-flex h-9 w-full items-center justify-center border border-violet-200 bg-white text-sm font-bold text-violet-700 transition-colors hover:bg-violet-50 dark:border-violet-400/30 dark:bg-slate-900 dark:text-violet-200 dark:hover:bg-violet-400/10"
                   >
                     현재 생성 중단
                   </button>
@@ -2079,9 +2086,8 @@ export default function Page() {
 
           <button
             type="button"
-            className="inline-flex h-12 items-center gap-2 rounded-full bg-violet-600 px-5 text-sm font-black text-white shadow-xl shadow-violet-600/25 transition-transform hover:scale-[1.03]"
+            className="inline-flex h-10 items-center bg-violet-600 px-4 text-sm font-black text-white transition-colors hover:bg-violet-700"
           >
-            <Sparkles className="h-4 w-4" />
             {isAgentRunning ? "전략 생성 중" : "AI 전략 템플릿"}
           </button>
         </div>

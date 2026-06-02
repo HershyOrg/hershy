@@ -1,7 +1,7 @@
 "use client";
 
 import { type Dispatch, type SetStateAction } from "react";
-import { KeyRound, X } from "lucide-react";
+import { X } from "lucide-react";
 import { cn } from "@/lib/utils";
 import type { ExchangeConnection, ExchangeConnectionCredentials, ExchangeFormState } from "./types";
 
@@ -63,8 +63,8 @@ export function ExchangeLibraryModal({
   }
 
   return (
-    <div className="fixed inset-0 z-40 flex items-center justify-center bg-slate-950/35 p-4 backdrop-blur-sm">
-      <section className="flex max-h-[82vh] w-full max-w-3xl flex-col rounded-2xl border border-slate-200 bg-white shadow-2xl">
+    <div className="fixed inset-0 z-40 flex items-center justify-center bg-slate-950/35 p-4">
+      <section className="flex max-h-[82vh] w-full max-w-3xl flex-col border border-slate-200 bg-white">
         <div className="flex items-center justify-between border-b border-slate-200 px-5 py-4">
           <div>
             <div className="text-xs font-bold uppercase tracking-wide text-violet-600">Exchange Setup</div>
@@ -74,7 +74,7 @@ export function ExchangeLibraryModal({
           <button
             type="button"
             onClick={onClose}
-            className="rounded-lg p-2 text-slate-400 hover:bg-slate-100 hover:text-slate-700"
+            className="p-2 text-slate-400 hover:bg-slate-100 hover:text-slate-700"
             title="닫기"
           >
             <X className="h-4 w-4" />
@@ -82,18 +82,18 @@ export function ExchangeLibraryModal({
         </div>
 
         <div className="grid min-h-0 flex-1 grid-cols-[180px_minmax(0,1fr)] overflow-hidden">
-          <aside className="overflow-auto border-r border-slate-200 bg-slate-50 p-3">
-            <div className="grid gap-2">
+          <aside className="overflow-auto border-r border-slate-200 bg-white">
+            <div>
               {exchangeConnections.map((exchange) => (
                 <button
                   key={exchange.id}
                   type="button"
                   onClick={() => onSelectExchange(exchange)}
                   className={cn(
-                    "rounded-xl border px-3 py-2 text-left transition-colors",
+                    "w-full border-b border-slate-200 px-3 py-2 text-left transition-colors",
                     exchange.id === selectedExchangeId
-                      ? "border-violet-300 bg-violet-50"
-                      : "border-slate-200 bg-white hover:border-violet-300 hover:bg-violet-50",
+                      ? "border-l-2 border-l-violet-500 bg-slate-50"
+                      : "hover:bg-slate-50",
                   )}
                 >
                   <div className="text-sm font-black text-slate-950">{exchange.name}</div>
@@ -109,7 +109,7 @@ export function ExchangeLibraryModal({
           </aside>
 
           <div className="overflow-auto p-4">
-            <div className="rounded-xl border border-slate-200 bg-slate-50 p-4">
+            <div>
               <div className="mb-4 flex items-center justify-between gap-3">
                 <div>
                   <div className="text-sm font-black text-slate-950">{selectedExchangeName}</div>
@@ -125,7 +125,7 @@ export function ExchangeLibraryModal({
                   type="button"
                   onClick={onSaveExchangeConnection}
                   disabled={isSavingExchange || !exchangeForm.name.trim() || !hasExchangeExecutionUrl}
-                  className="h-8 rounded-lg bg-violet-600 px-3 text-xs font-bold text-white disabled:bg-slate-300"
+                  className="h-8 bg-violet-600 px-3 text-xs font-bold text-white disabled:bg-slate-300"
                 >
                   {isSavingExchange ? "저장 중" : "저장"}
                 </button>
@@ -145,13 +145,13 @@ export function ExchangeLibraryModal({
                           ? `Polymarket L1 Private Key 저장됨 · ****${selectedExchangeCredentials.privateKeyLast4 || "****"}`
                           : "L1 Private Key"
                       }
-                      className="h-9 rounded-lg border border-slate-200 bg-white px-3 text-xs outline-none focus:border-violet-300"
+                      className="h-9 border border-slate-200 bg-white px-3 text-xs outline-none focus:border-violet-300"
                     />
                     <input
                       value={exchangeForm.funder}
                       onChange={(event) => updateExchangeForm({ funder: event.target.value })}
                       placeholder="Funder 주소 예: 0x..."
-                      className="h-9 rounded-lg border border-slate-200 bg-white px-3 text-xs outline-none focus:border-violet-300"
+                      className="h-9 border border-slate-200 bg-white px-3 text-xs outline-none focus:border-violet-300"
                     />
                   </>
                 ) : (
@@ -166,7 +166,7 @@ export function ExchangeLibraryModal({
                           ? `${selectedExchangeName} API Key 저장됨 · ****${selectedExchangeCredentials.apiKeyLast4 || "****"}`
                           : "API Key"
                       }
-                      className="h-9 rounded-lg border border-slate-200 bg-white px-3 text-xs outline-none focus:border-violet-300"
+                      className="h-9 border border-slate-200 bg-white px-3 text-xs outline-none focus:border-violet-300"
                     />
                     <input
                       type="password"
@@ -178,7 +178,7 @@ export function ExchangeLibraryModal({
                           ? `${selectedExchangeName} Secret 저장됨 · 새 Secret 입력 시 교체`
                           : "API Secret"
                       }
-                      className="h-9 rounded-lg border border-slate-200 bg-white px-3 text-xs outline-none focus:border-violet-300"
+                      className="h-9 border border-slate-200 bg-white px-3 text-xs outline-none focus:border-violet-300"
                     />
                     {isSelectedExchangeOKX ? (
                       <input
@@ -191,7 +191,7 @@ export function ExchangeLibraryModal({
                             ? "OKX Passphrase 저장됨 · 새 값 입력 시 교체"
                             : "API Passphrase"
                         }
-                        className="h-9 rounded-lg border border-slate-200 bg-white px-3 text-xs outline-none focus:border-violet-300"
+                        className="h-9 border border-slate-200 bg-white px-3 text-xs outline-none focus:border-violet-300"
                       />
                     ) : null}
                   </>
@@ -203,9 +203,8 @@ export function ExchangeLibraryModal({
                   type="button"
                   onClick={onTestBinanceAuth}
                   disabled={isTestingExchangeAuth || !canTestBinanceAuth}
-                  className="mt-3 inline-flex h-8 items-center gap-1 rounded-lg border border-amber-300 bg-white px-3 text-xs font-bold text-amber-700 disabled:border-slate-200 disabled:text-slate-400"
+                  className="mt-3 inline-flex h-8 items-center border border-amber-300 bg-white px-3 text-xs font-bold text-amber-700 disabled:border-slate-200 disabled:text-slate-400"
                 >
-                  <KeyRound className="h-3.5 w-3.5" />
                   {isTestingExchangeAuth
                     ? "동기화 중"
                     : hasPendingBinanceCredentialInput
@@ -215,13 +214,13 @@ export function ExchangeLibraryModal({
               ) : null}
 
               {exchangeFormError ? (
-                <div className="mt-2 rounded-lg border border-rose-200 bg-rose-50 px-3 py-2 text-[11px] font-semibold text-rose-700">
+                <div className="mt-2 border border-rose-200 bg-rose-50 px-3 py-2 text-[11px] font-semibold text-rose-700">
                   {exchangeFormError}
                 </div>
               ) : null}
 
               {exchangeAuthMessage ? (
-                <div className="mt-2 rounded-lg border border-slate-200 bg-white px-3 py-2 text-[11px] font-semibold text-slate-700">
+                <div className="mt-2 border border-slate-200 bg-white px-3 py-2 text-[11px] font-semibold text-slate-700">
                   {exchangeAuthMessage}
                 </div>
               ) : null}

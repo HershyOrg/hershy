@@ -338,6 +338,107 @@ function createEditorHistoryGraph(nodes: Node[], edges: Edge[]) {
   });
 }
 
+type EditorHistoryGraph = ReturnType<typeof createEditorHistoryGraph>;
+
+type EditorHistoryEntityPatch<T> = {
+  id: string;
+  before: T | null;
+  after: T | null;
+  beforeIndex: number;
+  afterIndex: number;
+};
+
+type EditorHistoryEntry = {
+  nodes: EditorHistoryEntityPatch<Node>[];
+  edges: EditorHistoryEntityPatch<Edge>[];
+  beforeSignature: string;
+  afterSignature: string;
+};
+
+function cloneEditorHistoryGraph(graph: EditorHistoryGraph): EditorHistoryGraph {
+  return createEditorHistoryGraph(graph.nodes, graph.edges);
+}
+
+function createEditorHistoryEntityPatches<T extends { id: string }>(
+  beforeItems: T[],
+  afterItems: T[],
+): EditorHistoryEntityPatch<T>[] {
+  const beforeById = new Map(beforeItems.map((item, index) => [item.id, { item, index }]));
+  const afterById = new Map(afterItems.map((item, index) => [item.id, { item, index }]));
+  const ids = new Set([...beforeById.keys(), ...afterById.keys()]);
+  const patches: EditorHistoryEntityPatch<T>[] = [];
+
+  ids.forEach((id) => {
+    const before = beforeById.get(id);
+    const after = afterById.get(id);
+    if (JSON.stringify(before?.item ?? null) === JSON.stringify(after?.item ?? null)) {
+      return;
+    }
+
+    patches.push({
+      id,
+      before: before ? cloneEditorGraphValue(before.item) as T : null,
+      after: after ? cloneEditorGraphValue(after.item) as T : null,
+      beforeIndex: before?.index ?? -1,
+      afterIndex: after?.index ?? -1,
+    });
+  });
+
+  return patches;
+}
+
+function createEditorHistoryEntry(beforeGraph: EditorHistoryGraph, afterGraph: EditorHistoryGraph): EditorHistoryEntry | null {
+  const beforeSignature = JSON.stringify(beforeGraph);
+  const afterSignature = JSON.stringify(afterGraph);
+  if (beforeSignature === afterSignature) return null;
+
+  const entry: EditorHistoryEntry = {
+    nodes: createEditorHistoryEntityPatches(beforeGraph.nodes, afterGraph.nodes),
+    edges: createEditorHistoryEntityPatches(beforeGraph.edges, afterGraph.edges),
+    beforeSignature,
+    afterSignature,
+  };
+
+  return entry.nodes.length > 0 || entry.edges.length > 0 ? entry : null;
+}
+
+function applyEditorHistoryEntityPatches<T extends { id: string }>(
+  currentItems: T[],
+  patches: EditorHistoryEntityPatch<T>[],
+  direction: "undo" | "redo",
+): T[] {
+  if (patches.length === 0) return currentItems;
+
+  const patchedIds = new Set(patches.map((patch) => patch.id));
+  const baseItems = currentItems.filter((item) => !patchedIds.has(item.id));
+  const insertions = patches
+    .map((patch) => ({
+      index: direction === "undo" ? patch.beforeIndex : patch.afterIndex,
+      item: direction === "undo" ? patch.before : patch.after,
+    }))
+    .filter((entry): entry is { index: number; item: T } => entry.item !== null)
+    .sort((a, b) => a.index - b.index);
+
+  const nextItems = [...baseItems];
+  insertions.forEach(({ index, item }) => {
+    const nextIndex = index < 0 ? nextItems.length : Math.min(index, nextItems.length);
+    nextItems.splice(nextIndex, 0, cloneEditorGraphValue(item) as T);
+  });
+
+  return nextItems;
+}
+
+function applyEditorHistoryEntry(
+  currentGraph: EditorHistoryGraph,
+  entry: EditorHistoryEntry,
+  direction: "undo" | "redo",
+): EditorHistoryGraph {
+  return normalizeEditorGraphEdges({
+    nodes: applyEditorHistoryEntityPatches(currentGraph.nodes, entry.nodes, direction),
+    edges: applyEditorHistoryEntityPatches(currentGraph.edges, entry.edges, direction),
+  });
+}
+
 const INTERNAL_PREPARATION_GROUP_RE = /\b(intent|research|retrieval|rag|retrieval[-\s]*augmented|knowledge\s*retrieval|context\s*retrieval|knowledge\s*graph|kg|web\s*discovery|candidate\s*universe|pool\s*discovery|implementation\s*research|orchestration|planner|planning|ranking|ranker|solver|evidence|adapter|labeling|workflow\s*plan)\b|의도|리서치|검색|후보|지식\s*검색|지식\s*그래프|랭킹|순위|계획|근거|증거|어댑터|라벨|오케스트레이션/i;
 
 function isInternalPreparationGroup(node: Node) {
@@ -1259,11 +1360,11 @@ const CONDITION_JUNCTION_ACTION_GAP = 228;
 const RUNTIME_PROGRAM_NODE_ID = "hershy-generated-program";
 const FOCUS_NODE_TRANSITION = "opacity 140ms ease, filter 140ms ease";
 const FOCUS_NODE_FILTERS = new Set([
-  "drop-shadow(0 0 16px rgba(124, 58, 237, 0.42))",
-  "drop-shadow(0 0 10px rgba(59, 130, 246, 0.28))",
+  "drop-shadow(0 0 12px rgba(45, 212, 191, 0.26))",
+  "drop-shadow(0 0 8px rgba(94, 234, 212, 0.18))",
   "grayscale(0.72) saturate(0.55)",
 ]);
-const FOCUS_EDGE_FILTER = "drop-shadow(0 0 8px rgba(124, 58, 237, 0.72))";
+const FOCUS_EDGE_FILTER = "drop-shadow(0 0 7px rgba(45, 212, 191, 0.38))";
 
 function isStrategySequenceGroup(node: Node) {
   return node.type === "groupNode" && (node.data as any)?.styleType !== "solid";
@@ -1338,7 +1439,7 @@ function clearFocusEdgeStyle(edge: Edge): Edge {
     changed = true;
   }
 
-  if (nextStyle.stroke === "#a78bfa" || nextStyle.stroke === "var(--advanced-edge-dim)") {
+  if (nextStyle.stroke === "#5eead4" || nextStyle.stroke === "var(--advanced-edge-dim)") {
     delete nextStyle.stroke;
     changed = true;
   }
@@ -2081,9 +2182,7 @@ function NodeEditorInner({ initialGraph, initialGraphVersion = 0, programCode = 
   );
 
   // Undo/Redo history
-  const [history, setHistory] = useState<Array<{ nodes: Node[]; edges: Edge[] }>>([
-    { nodes: [], edges: [] },
-  ]);
+  const [history, setHistory] = useState<EditorHistoryEntry[]>([]);
   const [historyIndex, setHistoryIndex] = useState(0);
   const historyIndexRef = useRef(0);
   const isUndoRedoRef = useRef(false);
@@ -2095,6 +2194,8 @@ function NodeEditorInner({ initialGraph, initialGraphVersion = 0, programCode = 
   const historyCommitTimerRef = useRef<number | null>(null);
   const snapshotPersistTimerRef = useRef<number | null>(null);
   const lastHistorySignatureRef = useRef("");
+  const committedHistoryGraphRef = useRef<EditorHistoryGraph>({ nodes: [], edges: [] });
+  const lastPersistedSnapshotSignatureRef = useRef("");
   const sequenceLayoutAnimationTimerRef = useRef<number | null>(null);
   const sequenceRelayoutFrameRef = useRef<number | null>(null);
   const measuredSequenceRelayoutFrameRef = useRef<number | null>(null);
@@ -2127,20 +2228,22 @@ function NodeEditorInner({ initialGraph, initialGraphVersion = 0, programCode = 
     if (latestGraph.nodes.length === 0 && latestGraph.edges.length === 0) return;
 
     const historyGraph = createEditorHistoryGraph(latestGraph.nodes, latestGraph.edges);
-    const nextSignature = JSON.stringify(historyGraph);
-    if (lastHistorySignatureRef.current === nextSignature) return;
+    const previousHistoryGraph = committedHistoryGraphRef.current;
+    const entry = createEditorHistoryEntry(previousHistoryGraph, historyGraph);
+    if (!entry) return;
 
-    lastHistorySignatureRef.current = nextSignature;
-    const nextHistoryIndex = Math.min(historyIndexRef.current + 1, MAX_EDITOR_HISTORY_ENTRIES - 1);
+    lastHistorySignatureRef.current = entry.afterSignature;
+    committedHistoryGraphRef.current = cloneEditorHistoryGraph(historyGraph);
     setHistory((prev) => {
-      const newHistory = prev.slice(0, historyIndexRef.current + 1);
-      const nextHistory = [...newHistory, historyGraph];
-      return nextHistory.length > MAX_EDITOR_HISTORY_ENTRIES
+      const newHistory = prev.slice(0, historyIndexRef.current);
+      const nextHistory = [...newHistory, entry];
+      const trimmedHistory = nextHistory.length > MAX_EDITOR_HISTORY_ENTRIES
         ? nextHistory.slice(-MAX_EDITOR_HISTORY_ENTRIES)
         : nextHistory;
+      historyIndexRef.current = trimmedHistory.length;
+      setHistoryIndex(trimmedHistory.length);
+      return trimmedHistory;
     });
-    historyIndexRef.current = nextHistoryIndex;
-    setHistoryIndex(nextHistoryIndex);
   }, []);
 
   const persistLatestGraphToActiveSnapshot = useCallback(() => {
@@ -2150,7 +2253,14 @@ function NodeEditorInner({ initialGraph, initialGraphVersion = 0, programCode = 
     const latestGraph = latestGraphRef.current;
     if (latestGraph.nodes.length === 0) return;
 
-    historyStore.updateActiveSnapshot(latestGraph.nodes, latestGraph.edges);
+    const historyGraph = createEditorHistoryGraph(latestGraph.nodes, latestGraph.edges);
+    const nextSignature = JSON.stringify(historyGraph);
+    if (lastPersistedSnapshotSignatureRef.current === nextSignature) {
+      return;
+    }
+
+    lastPersistedSnapshotSignatureRef.current = nextSignature;
+    historyStore.updateActiveSnapshot(historyGraph.nodes, historyGraph.edges);
   }, [previewMode]);
 
   const scheduleSettledGraphCommit = useCallback(() => {
@@ -2740,9 +2850,11 @@ function NodeEditorInner({ initialGraph, initialGraphVersion = 0, programCode = 
 
     loadedInitialGraphVersionRef.current = initialGraphVersion;
     lastHistorySignatureRef.current = JSON.stringify(historyGraph);
+    committedHistoryGraphRef.current = cloneEditorHistoryGraph(historyGraph);
+    lastPersistedSnapshotSignatureRef.current = JSON.stringify(historyGraph);
     initLayoutRunRef.current = true;
     isUndoRedoRef.current = true;
-    setHistory([historyGraph]);
+    setHistory([]);
     historyIndexRef.current = 0;
     setHistoryIndex(0);
     applyMeasuredLayout(runtimeGraph.nodes, runtimeGraph.edges, { fitView: true });
@@ -3177,29 +3289,35 @@ function NodeEditorInner({ initialGraph, initialGraphVersion = 0, programCode = 
     if (historyIndex <= 0) return;
 
     const newIndex = historyIndex - 1;
-    const { nodes: historyNodes, edges: historyEdges } = history[newIndex];
+    const entry = history[newIndex];
+    if (!entry) return;
 
     isUndoRedoRef.current = true;
     historyIndexRef.current = newIndex;
     setHistoryIndex(newIndex);
-    const graph = normalizeEditorGraphEdges({ nodes: historyNodes, edges: historyEdges });
-    lastHistorySignatureRef.current = JSON.stringify(createEditorHistoryGraph(graph.nodes, graph.edges));
+    const currentGraph = createEditorHistoryGraph(latestGraphRef.current.nodes, latestGraphRef.current.edges);
+    const graph = applyEditorHistoryEntry(currentGraph, entry, "undo");
+    committedHistoryGraphRef.current = cloneEditorHistoryGraph(graph);
+    lastHistorySignatureRef.current = entry.beforeSignature;
     setNodes(graph.nodes);
     setEdges(graph.edges);
   }, [historyIndex, history, setNodes, setEdges]);
 
   // Redo handler
   const handleRedo = useCallback(() => {
-    if (historyIndex >= history.length - 1) return;
+    if (historyIndex >= history.length) return;
 
+    const entry = history[historyIndex];
+    if (!entry) return;
     const newIndex = historyIndex + 1;
-    const { nodes: historyNodes, edges: historyEdges } = history[newIndex];
 
     isUndoRedoRef.current = true;
     historyIndexRef.current = newIndex;
     setHistoryIndex(newIndex);
-    const graph = normalizeEditorGraphEdges({ nodes: historyNodes, edges: historyEdges });
-    lastHistorySignatureRef.current = JSON.stringify(createEditorHistoryGraph(graph.nodes, graph.edges));
+    const currentGraph = createEditorHistoryGraph(latestGraphRef.current.nodes, latestGraphRef.current.edges);
+    const graph = applyEditorHistoryEntry(currentGraph, entry, "redo");
+    committedHistoryGraphRef.current = cloneEditorHistoryGraph(graph);
+    lastHistorySignatureRef.current = entry.afterSignature;
     setNodes(graph.nodes);
     setEdges(graph.edges);
   }, [historyIndex, history, setNodes, setEdges]);
@@ -4362,6 +4480,13 @@ function NodeEditorInner({ initialGraph, initialGraphVersion = 0, programCode = 
     if (previewMode) return;
     if (nodesInitialized && !initLayoutRunRef.current && nodes.length > 0) {
       initLayoutRunRef.current = true;
+      const historyGraph = createEditorHistoryGraph(nodes, edges);
+      committedHistoryGraphRef.current = cloneEditorHistoryGraph(historyGraph);
+      lastHistorySignatureRef.current = JSON.stringify(historyGraph);
+      lastPersistedSnapshotSignatureRef.current = JSON.stringify(historyGraph);
+      setHistory([]);
+      historyIndexRef.current = 0;
+      setHistoryIndex(0);
       // Initialize strategy history store
       historyStore.init({
         id: "snapshot-initial",
@@ -4463,6 +4588,12 @@ function NodeEditorInner({ initialGraph, initialGraphVersion = 0, programCode = 
       ));
       const historyGraph = createEditorHistoryGraph(runtimeGraph.nodes, runtimeGraph.edges);
       lastHistorySignatureRef.current = JSON.stringify(historyGraph);
+      committedHistoryGraphRef.current = cloneEditorHistoryGraph(historyGraph);
+      lastPersistedSnapshotSignatureRef.current = JSON.stringify(historyGraph);
+      isUndoRedoRef.current = true;
+      setHistory([]);
+      historyIndexRef.current = 0;
+      setHistoryIndex(0);
       initLayoutRunRef.current = true;
       applyMeasuredLayout(runtimeGraph.nodes, runtimeGraph.edges);
     };
@@ -4552,9 +4683,9 @@ function NodeEditorInner({ initialGraph, initialGraphVersion = 0, programCode = 
           ...node.style,
           opacity: isConnected ? 1 : 0.22,
           filter: isFocused
-            ? "drop-shadow(0 0 16px rgba(124, 58, 237, 0.42))"
+            ? "drop-shadow(0 0 12px rgba(45, 212, 191, 0.26))"
             : isConnected
-              ? "drop-shadow(0 0 10px rgba(59, 130, 246, 0.28))"
+              ? "drop-shadow(0 0 8px rgba(94, 234, 212, 0.18))"
               : "grayscale(0.72) saturate(0.55)",
           transition: FOCUS_NODE_TRANSITION,
         },
@@ -4671,10 +4802,10 @@ function NodeEditorInner({ initialGraph, initialGraphVersion = 0, programCode = 
           ...edge,
           style: {
             ...edge.style,
-          stroke: "#a78bfa",
+            stroke: "#5eead4",
             strokeWidth: 4.6,
             opacity: 1,
-            filter: "drop-shadow(0 0 8px rgba(124, 58, 237, 0.72))",
+            filter: "drop-shadow(0 0 7px rgba(45, 212, 191, 0.38))",
           },
           animated: true,
           data: { ...edge.data, isHighlighted: true },
