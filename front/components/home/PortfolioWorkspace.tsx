@@ -459,7 +459,7 @@ export function PortfolioWorkspace({
   const isSyncingSelectedBalance = Boolean(selectedVenue && syncingBalanceConnectionId === selectedVenue.id);
 
   return (
-    <div className="h-full overflow-auto bg-[radial-gradient(circle_at_top_left,_rgba(251,191,36,0.12),_transparent_28%),radial-gradient(circle_at_right,_rgba(14,165,233,0.12),_transparent_24%),linear-gradient(180deg,#f8fafc_0%,#eef2ff_100%)]">
+    <div className="portfolio-workspace h-full overflow-auto bg-[radial-gradient(circle_at_top_left,_rgba(251,191,36,0.12),_transparent_28%),radial-gradient(circle_at_right,_rgba(14,165,233,0.12),_transparent_24%),linear-gradient(180deg,#f8fafc_0%,#eef2ff_100%)]">
       <div className="mx-auto flex max-w-[1600px] flex-col gap-4 p-4 lg:p-6">
         <section className="overflow-hidden rounded-[28px] border border-slate-200 bg-[linear-gradient(135deg,rgba(255,255,255,0.98),rgba(255,247,237,0.94))] shadow-sm">
           <div className="grid gap-5 p-5 xl:grid-cols-[minmax(0,1.25fr)_360px] xl:p-6">
