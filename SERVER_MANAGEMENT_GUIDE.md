@@ -80,7 +80,7 @@
 | 경로 | 크기 | 비고 |
 |---|---:|---|
 | `/Users/hongraecho/hershy/code/hershy` | 2.2 GiB | 현재 작업 저장소 |
-| `frontend/` | 445 MiB | 프론트 관련 산출물 포함 |
+| `front/` | 1.3 GiB | 독립 실행형 strategy canvas/AI orchestration UI |
 | `host/` | 262 MiB | Host 코드와 `node_modules`, `host-storage` 포함 |
 | `acp-agent/` | 198 MiB | `node_modules` 포함 |
 | `ui/` | 132 MiB | nested shadcn-ui repo |
@@ -363,9 +363,6 @@ docker system prune
 
 추적되지 않은 항목:
 
-- `frontend/hershyV1.1/`
-- `frontend/kest-ui-app/`
-- `frontend/trading-orderbook-app/`
 - `hersh/`
 
 Nested git repository:
@@ -390,7 +387,7 @@ Nested git repository:
 | `monitor/` | 시장 데이터 monitor API와 cron worker |
 | `monitor/log/` | Loki/Grafana/watcher-poller monitoring stack |
 | `acp-agent/` | Virtuals ACP Seller 연동 Node 런타임 |
-| `frontend/front/` | 독립 실행형 strategy canvas/AI orchestration UI |
+| `front/` | 독립 실행형 strategy canvas/AI orchestration UI |
 | `ui/` | shadcn-ui 기반 별도 nested repo |
 | `cctx/`, `backtest/` | 거래/백테스트 관련 보조 코드 |
 
@@ -642,7 +639,7 @@ macOS 현재 장비에서는 systemd가 없으므로 해당 service 파일은 �
 
 ### 6.9 Front standalone server
 
-소스: `frontend/front/`
+소스: `front/`
 
 역할:
 
@@ -658,7 +655,7 @@ macOS 현재 장비에서는 systemd가 없으므로 해당 service 파일은 �
 실행:
 
 ```bash
-cd /Users/hongraecho/hershy/code/hershy/frontend/front
+cd /Users/hongraecho/hershy/code/hershy/front
 npm install
 cp .env.example .env
 HOST_API_BASE=http://localhost:9000 npm run dev
@@ -667,7 +664,7 @@ HOST_API_BASE=http://localhost:9000 npm run dev
 프로덕션 방식:
 
 ```bash
-cd /Users/hongraecho/hershy/code/hershy/frontend/front
+cd /Users/hongraecho/hershy/code/hershy/front
 npm run build
 HOST_API_BASE=http://localhost:9000 npm run start
 ```
@@ -839,7 +836,7 @@ Homebrew cask:
 |---|---:|---|
 | `acp-agent/node_modules` | 198 MiB | ACP agent dependencies |
 | `host/api/web/node_modules` | 247 MiB | Host Web UI dependencies |
-| `frontend/front/node_modules` | 44 MiB | Front standalone dependencies |
+| `front/node_modules` | 44 MiB | Front standalone dependencies |
 
 ### 8.4 AWS와 SSH 관련 항목
 
@@ -1282,7 +1279,7 @@ curl -sS http://127.0.0.1:9000/watcher/endpoints
 ### 14.8 Front
 
 ```bash
-cd /Users/hongraecho/hershy/code/hershy/frontend/front
+cd /Users/hongraecho/hershy/code/hershy/front
 npm install
 HOST_API_BASE=http://localhost:9000 npm run dev
 curl -sS http://127.0.0.1:9090/api/config
@@ -1306,4 +1303,3 @@ git status --short --branch
 git log -5 --oneline --decorate
 git remote -v
 ```
-

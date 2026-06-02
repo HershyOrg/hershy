@@ -1,0 +1,358 @@
+@import 'tailwindcss';
+@import 'tw-animate-css';
+
+@custom-variant dark (&:is(.dark *));
+
+:root {
+  --background: oklch(1 0 0);
+  --foreground: oklch(0.145 0 0);
+  --card: oklch(1 0 0);
+  --card-foreground: oklch(0.145 0 0);
+  --popover: oklch(1 0 0);
+  --popover-foreground: oklch(0.145 0 0);
+  --primary: oklch(0.205 0 0);
+  --primary-foreground: oklch(0.985 0 0);
+  --secondary: oklch(0.97 0 0);
+  --secondary-foreground: oklch(0.205 0 0);
+  --muted: oklch(0.97 0 0);
+  --muted-foreground: oklch(0.556 0 0);
+  --accent: oklch(0.97 0 0);
+  --accent-foreground: oklch(0.205 0 0);
+  --destructive: oklch(0.577 0.245 27.325);
+  --destructive-foreground: oklch(0.577 0.245 27.325);
+  --border: oklch(0.922 0 0);
+  --input: oklch(0.922 0 0);
+  --ring: oklch(0.708 0 0);
+  --chart-1: oklch(0.646 0.222 41.116);
+  --chart-2: oklch(0.6 0.118 184.704);
+  --chart-3: oklch(0.398 0.07 227.392);
+  --chart-4: oklch(0.828 0.189 84.429);
+  --chart-5: oklch(0.769 0.188 70.08);
+  --radius: 0.625rem;
+  --sidebar: oklch(0.985 0 0);
+  --sidebar-foreground: oklch(0.145 0 0);
+  --sidebar-primary: oklch(0.205 0 0);
+  --sidebar-primary-foreground: oklch(0.985 0 0);
+  --sidebar-accent: oklch(0.97 0 0);
+  --sidebar-accent-foreground: oklch(0.205 0 0);
+  --sidebar-border: oklch(0.922 0 0);
+  --sidebar-ring: oklch(0.708 0 0);
+}
+
+.dark {
+  --background: oklch(0.145 0 0);
+  --foreground: oklch(0.985 0 0);
+  --card: oklch(0.145 0 0);
+  --card-foreground: oklch(0.985 0 0);
+  --popover: oklch(0.145 0 0);
+  --popover-foreground: oklch(0.985 0 0);
+  --primary: oklch(0.985 0 0);
+  --primary-foreground: oklch(0.205 0 0);
+  --secondary: oklch(0.269 0 0);
+  --secondary-foreground: oklch(0.985 0 0);
+  --muted: oklch(0.269 0 0);
+  --muted-foreground: oklch(0.708 0 0);
+  --accent: oklch(0.269 0 0);
+  --accent-foreground: oklch(0.985 0 0);
+  --destructive: oklch(0.396 0.141 25.723);
+  --destructive-foreground: oklch(0.637 0.237 25.331);
+  --border: oklch(0.269 0 0);
+  --input: oklch(0.269 0 0);
+  --ring: oklch(0.439 0 0);
+  --chart-1: oklch(0.488 0.243 264.376);
+  --chart-2: oklch(0.696 0.17 162.48);
+  --chart-3: oklch(0.769 0.188 70.08);
+  --chart-4: oklch(0.627 0.265 303.9);
+  --chart-5: oklch(0.645 0.246 16.439);
+  --sidebar: oklch(0.205 0 0);
+  --sidebar-foreground: oklch(0.985 0 0);
+  --sidebar-primary: oklch(0.488 0.243 264.376);
+  --sidebar-primary-foreground: oklch(0.985 0 0);
+  --sidebar-accent: oklch(0.269 0 0);
+  --sidebar-accent-foreground: oklch(0.985 0 0);
+  --sidebar-border: oklch(0.269 0 0);
+  --sidebar-ring: oklch(0.439 0 0);
+}
+
+@theme inline {
+  --font-sans: var(--font-geist-sans);
+  --font-mono: var(--font-geist-mono);
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-card: var(--card);
+  --color-card-foreground: var(--card-foreground);
+  --color-popover: var(--popover);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-primary: var(--primary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-secondary: var(--secondary);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-muted: var(--muted);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-accent: var(--accent);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-destructive: var(--destructive);
+  --color-destructive-foreground: var(--destructive-foreground);
+  --color-border: var(--border);
+  --color-input: var(--input);
+  --color-ring: var(--ring);
+  --color-chart-1: var(--chart-1);
+  --color-chart-2: var(--chart-2);
+  --color-chart-3: var(--chart-3);
+  --color-chart-4: var(--chart-4);
+  --color-chart-5: var(--chart-5);
+  --radius-sm: calc(var(--radius) - 4px);
+  --radius-md: calc(var(--radius) - 2px);
+  --radius-lg: var(--radius);
+  --radius-xl: calc(var(--radius) + 4px);
+  --color-sidebar: var(--sidebar);
+  --color-sidebar-foreground: var(--sidebar-foreground);
+  --color-sidebar-primary: var(--sidebar-primary);
+  --color-sidebar-primary-foreground: var(--sidebar-primary-foreground);
+  --color-sidebar-accent: var(--sidebar-accent);
+  --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
+  --color-sidebar-border: var(--sidebar-border);
+  --color-sidebar-ring: var(--sidebar-ring);
+}
+
+@layer base {
+  * {
+    @apply border-border outline-ring/50;
+  }
+  body {
+    @apply bg-background text-foreground;
+  }
+}
+
+.advanced-node-editor-flow {
+  --xy-selection-background-color: transparent;
+  --advanced-flow-bg: #0b0e11;
+  --advanced-flow-dots: #2b3139;
+  --advanced-flow-panel: rgba(24, 26, 32, 0.96);
+  --advanced-flow-control-border: rgba(43, 49, 57, 0.96);
+  --advanced-flow-connection: #f0b90b;
+  --advanced-edge-default: #848e9c;
+  --advanced-edge-data: #f0b90b;
+  --advanced-edge-shared-pipeline: #f6465d;
+  --advanced-edge-muted: #474d57;
+  --advanced-edge-dim: #2b3139;
+  --advanced-minimap-mask: rgba(11, 14, 17, 0.68);
+}
+
+.advanced-node-editor-flow .react-flow__nodesselection-rect,
+.advanced-node-editor-flow .react-flow__selection {
+  background: transparent !important;
+}
+
+.dark .advanced-node-editor-flow {
+  --advanced-flow-bg: #0b0e11;
+  --advanced-flow-dots: #2b3139;
+  --advanced-flow-panel: rgba(24, 26, 32, 0.96);
+  --advanced-flow-control-border: rgba(43, 49, 57, 0.96);
+  --advanced-flow-connection: #f0b90b;
+  --advanced-edge-default: #848e9c;
+  --advanced-edge-data: #f0b90b;
+  --advanced-edge-shared-pipeline: #f6465d;
+  --advanced-edge-muted: #474d57;
+  --advanced-edge-dim: #2b3139;
+  --advanced-minimap-mask: rgba(11, 14, 17, 0.68);
+  background:
+    linear-gradient(rgba(43, 49, 57, 0.32) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(43, 49, 57, 0.32) 1px, transparent 1px),
+    #0b0e11 !important;
+  background-size: 28px 28px;
+  color: #eaecef;
+}
+
+.dark .advanced-node-editor-flow .react-flow__pane,
+.dark .advanced-node-editor-flow .react-flow__viewport {
+  background: transparent !important;
+}
+
+.dark .advanced-node-editor-flow .react-flow__panel > div,
+.dark .advanced-node-editor-flow .react-flow__controls,
+.dark .advanced-node-editor-flow .react-flow__minimap {
+  background: var(--advanced-flow-panel) !important;
+  border-color: var(--advanced-flow-control-border) !important;
+  color: #eaecef !important;
+  box-shadow: none !important;
+}
+
+.dark .advanced-node-editor-flow .react-flow__controls-button {
+  background: #181a20 !important;
+  border-color: #2b3139 !important;
+  color: #b7bdc6 !important;
+  fill: #b7bdc6 !important;
+}
+
+.dark .advanced-node-editor-flow .react-flow__controls-button:hover {
+  background: #1e2329 !important;
+  color: #fcd535 !important;
+  fill: #fcd535 !important;
+}
+
+.dark .advanced-node-editor-flow .react-flow__attribution {
+  background: rgba(24, 26, 32, 0.84) !important;
+  color: #848e9c !important;
+}
+
+.dark .advanced-node-editor-flow .react-flow__node [class*="bg-white"],
+.dark .advanced-node-editor-flow .react-flow__node [class*="bg-gray-50"],
+.dark .advanced-node-editor-flow .react-flow__node [class*="bg-gray-100"],
+.dark .advanced-node-editor-flow .react-flow__node [class*="bg-slate-50"],
+.dark .advanced-node-editor-flow .react-flow__node [class*="bg-slate-100"] {
+  background-color: rgba(24, 26, 32, 0.94) !important;
+}
+
+.dark .advanced-node-editor-flow .react-flow__node [class*="bg-blue-"],
+.dark .advanced-node-editor-flow .react-flow__node [class*="bg-cyan-"],
+.dark .advanced-node-editor-flow .react-flow__node [class*="bg-sky-"] {
+  background-color: rgba(240, 185, 11, 0.12) !important;
+}
+
+.dark .advanced-node-editor-flow .react-flow__node [class*="bg-emerald-50"],
+.dark .advanced-node-editor-flow .react-flow__node [class*="bg-emerald-100"] {
+  background-color: rgba(6, 95, 70, 0.22) !important;
+}
+
+.dark .advanced-node-editor-flow .react-flow__node [class*="bg-amber-50"],
+.dark .advanced-node-editor-flow .react-flow__node [class*="bg-amber-100"],
+.dark .advanced-node-editor-flow .react-flow__node [class*="bg-yellow-50"] {
+  background-color: rgba(120, 53, 15, 0.24) !important;
+}
+
+.dark .advanced-node-editor-flow .react-flow__node [class*="bg-purple-"],
+.dark .advanced-node-editor-flow .react-flow__node [class*="bg-indigo-"],
+.dark .advanced-node-editor-flow .react-flow__node [class*="bg-violet-"] {
+  background-color: rgba(71, 77, 87, 0.36) !important;
+}
+
+.dark .advanced-node-editor-flow .react-flow__node [class*="bg-rose-50"],
+.dark .advanced-node-editor-flow .react-flow__node [class*="bg-rose-100"],
+.dark .advanced-node-editor-flow .react-flow__node [class*="bg-red-50"] {
+  background-color: rgba(136, 19, 55, 0.24) !important;
+}
+
+.dark .advanced-node-editor-flow .react-flow__node [class*="border-slate-"],
+.dark .advanced-node-editor-flow .react-flow__node [class*="border-gray-"],
+.dark .advanced-node-editor-flow .react-flow__node [class*="border-black"] {
+  border-color: rgba(43, 49, 57, 0.96) !important;
+}
+
+.dark .advanced-node-editor-flow .react-flow__node [class*="border-blue-"] {
+  border-color: rgba(240, 185, 11, 0.62) !important;
+}
+
+.dark .advanced-node-editor-flow .react-flow__node [class*="border-emerald-"] {
+  border-color: rgba(52, 211, 153, 0.62) !important;
+}
+
+.dark .advanced-node-editor-flow .react-flow__node [class*="border-amber-"],
+.dark .advanced-node-editor-flow .react-flow__node [class*="border-yellow-"] {
+  border-color: rgba(251, 191, 36, 0.62) !important;
+}
+
+.dark .advanced-node-editor-flow .react-flow__node [class*="border-cyan-"],
+.dark .advanced-node-editor-flow .react-flow__node [class*="border-sky-"] {
+  border-color: rgba(240, 185, 11, 0.62) !important;
+}
+
+.dark .advanced-node-editor-flow .react-flow__node [class*="border-purple-"],
+.dark .advanced-node-editor-flow .react-flow__node [class*="border-indigo-"],
+.dark .advanced-node-editor-flow .react-flow__node [class*="border-violet-"] {
+  border-color: rgba(132, 142, 156, 0.62) !important;
+}
+
+.dark .advanced-node-editor-flow .react-flow__node [class*="border-rose-"],
+.dark .advanced-node-editor-flow .react-flow__node [class*="border-red-"] {
+  border-color: rgba(251, 113, 133, 0.62) !important;
+}
+
+.dark .advanced-node-editor-flow .react-flow__node [class*="text-slate-"],
+.dark .advanced-node-editor-flow .react-flow__node [class*="text-gray-"] {
+  color: #b7bdc6 !important;
+}
+
+.dark .advanced-node-editor-flow .react-flow__node [class*="text-blue-"] {
+  color: #fcd535 !important;
+}
+
+.dark .advanced-node-editor-flow .react-flow__node [class*="text-emerald-"] {
+  color: #6ee7b7 !important;
+}
+
+.dark .advanced-node-editor-flow .react-flow__node [class*="text-amber-"],
+.dark .advanced-node-editor-flow .react-flow__node [class*="text-yellow-"] {
+  color: #fcd34d !important;
+}
+
+.dark .advanced-node-editor-flow .react-flow__node [class*="text-cyan-"],
+.dark .advanced-node-editor-flow .react-flow__node [class*="text-sky-"] {
+  color: #fcd535 !important;
+}
+
+.dark .advanced-node-editor-flow .react-flow__node [class*="text-purple-"],
+.dark .advanced-node-editor-flow .react-flow__node [class*="text-indigo-"],
+.dark .advanced-node-editor-flow .react-flow__node [class*="text-violet-"] {
+  color: #848e9c !important;
+}
+
+.dark .advanced-node-editor-flow .react-flow__node [class*="text-rose-"],
+.dark .advanced-node-editor-flow .react-flow__node [class*="text-red-"] {
+  color: #fda4af !important;
+}
+
+.dark .advanced-node-editor-flow .react-flow__node [class*="ring-blue-"],
+.dark .advanced-node-editor-flow .react-flow__node [class*="ring-cyan-"],
+.dark .advanced-node-editor-flow .react-flow__node [class*="ring-sky-"],
+.dark .advanced-node-editor-flow .react-flow__node [class*="ring-purple-"],
+.dark .advanced-node-editor-flow .react-flow__node [class*="ring-indigo-"],
+.dark .advanced-node-editor-flow .react-flow__node [class*="ring-violet-"] {
+  --tw-ring-color: rgba(240, 185, 11, 0.52) !important;
+}
+
+.dark .advanced-node-editor-flow .react-flow__node input,
+.dark .advanced-node-editor-flow .react-flow__node textarea,
+.dark .advanced-node-editor-flow .react-flow__node select {
+  background-color: rgba(11, 14, 17, 0.72) !important;
+  border-color: rgba(43, 49, 57, 0.96) !important;
+  color: #eaecef !important;
+}
+
+.dark .advanced-node-editor-flow .react-flow__node input::placeholder,
+.dark .advanced-node-editor-flow .react-flow__node textarea::placeholder {
+  color: #5e6673 !important;
+}
+
+.dark .advanced-node-editor-flow .react-flow__node option {
+  background: #181a20;
+  color: #eaecef;
+}
+
+.dark .advanced-node-editor-flow .react-flow__handle {
+  box-shadow: 0 0 0 2px rgba(11, 14, 17, 0.92);
+}
+
+.easy-strategy-graph {
+  --easy-edge-label-0: #2563eb;
+  --easy-edge-label-1: #059669;
+  --easy-edge-label-2: #e11d48;
+  --easy-edge-label-3: #d97706;
+  --easy-edge-label-4: #0891b2;
+  --easy-edge-label-5: #7c3aed;
+  --easy-edge-label-6: #475569;
+  --easy-edge-shared-pipeline: #ef4444;
+  --easy-edge-dot-ring: rgba(255, 255, 255, 0.88);
+}
+
+.dark .easy-strategy-graph {
+  --easy-edge-label-0: #60a5fa;
+  --easy-edge-label-1: #34d399;
+  --easy-edge-label-2: #fb7185;
+  --easy-edge-label-3: #fbbf24;
+  --easy-edge-label-4: #22d3ee;
+  --easy-edge-label-5: #c4b5fd;
+  --easy-edge-label-6: #94a3b8;
+  --easy-edge-shared-pipeline: #fb7185;
+  --easy-edge-dot-ring: rgba(15, 23, 42, 0.88);
+}

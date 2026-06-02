@@ -22,20 +22,20 @@
 
 # Docker
 **/app
-!frontend/front/app/
-!frontend/front/app/**
+!front/app/
+!front/app/**
 
 # Data
 data/
-!frontend/front/src/data/
-frontend/front/src/data/*
-!frontend/front/src/data/blockFixtures.js
+!front/src/data/
+front/src/data/*
+!front/src/data/blockFixtures.js
 *.jsonl
 *.csv
 .env
 
 # Generated runtime/test artifacts (do not commit)
-frontend/front/dist/
+front/dist/
 **/.next/
 **/.vite/
 **/dist/
@@ -59,20 +59,17 @@ examples/strategy-runner/generated/
 .offsets.json
 AGENTS.md
 
-# Local frontend experiments and generated bundles
-frontend/hershyV1.1/
-frontend/kest-ui-app/
-frontend/trading-orderbook-app/
-frontend/front/backend/v2_bot
-frontend/front/.local/
-frontend/front/tsconfig.tsbuildinfo
+# Local frontend generated bundles
+front/backend/v2_bot
+front/.local/
+front/tsconfig.tsbuildinfo
 
 # Local scratch scripts
-frontend/front/check_*.js
-frontend/front/fix*.js
-frontend/front/format_on_load*.js
-frontend/front/intersect_check.js
-frontend/front/test-*.js
-frontend/front/test_*.js
-frontend/front/update*.js
+front/check_*.js
+front/fix*.js
+front/format_on_load*.js
+front/intersect_check.js
+front/test-*.js
+front/test_*.js
+front/update*.js
 re.js
