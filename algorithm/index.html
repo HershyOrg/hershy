@@ -1,0 +1,76 @@
+<!doctype html>
+<html lang="ko">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>BYE 대진표 생성기</title>
+    <link rel="stylesheet" href="./styles.css" />
+  </head>
+  <body>
+    <main class="app-shell">
+      <section class="workspace" aria-label="대진표 생성기">
+        <aside class="control-panel" aria-label="대진표 설정">
+          <div class="panel-header">
+            <div>
+              <h1>BYE 대진표</h1>
+              <p>부전승 매치를 삭제하지 않고 레이아웃 노드로 유지합니다.</p>
+            </div>
+          </div>
+
+          <form class="controls" id="bracketForm">
+            <label class="field">
+              <span>참가자 수</span>
+              <input id="playerCount" type="number" min="1" max="64" value="13" />
+            </label>
+
+            <div class="field field-wide">
+              <span>참가자 이름</span>
+              <div class="participant-list" id="participantList"></div>
+            </div>
+
+            <div class="button-row">
+              <button class="button button-primary" id="applyNames" type="submit">
+                대진표 갱신
+              </button>
+              <button class="button" id="resetNames" type="button">
+                기본 시드
+              </button>
+            </div>
+          </form>
+        </aside>
+
+        <section class="bracket-panel" aria-label="대진표 결과">
+          <div class="toolbar">
+            <div class="stats" aria-label="대진표 요약">
+              <div class="stat">
+                <span>참가자</span>
+                <strong id="statPlayers">13</strong>
+              </div>
+              <div class="stat">
+                <span>브라켓</span>
+                <strong id="statSize">16</strong>
+              </div>
+              <div class="stat">
+                <span>BYE</span>
+                <strong id="statByes">3</strong>
+              </div>
+            </div>
+
+            <div class="button-row toolbar-actions">
+              <button class="button" id="downloadSvg" type="button">SVG 저장</button>
+              <button class="button" id="downloadJson" type="button">JSON 저장</button>
+            </div>
+          </div>
+
+          <div class="bracket-scroll" id="bracketScroll" tabindex="0" aria-label="대진표 스크롤 영역">
+            <svg id="bracketSvg" role="img" aria-labelledby="bracketTitle bracketDesc"></svg>
+          </div>
+
+          <div class="mobile-summary" id="roundSummary" aria-label="라운드별 요약"></div>
+        </section>
+      </section>
+    </main>
+
+    <script src="./app.js"></script>
+  </body>
+</html>

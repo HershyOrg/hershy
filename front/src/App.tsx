@@ -1,12 +1,10 @@
-"use client";
-
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   ChevronLeft,
   ChevronRight,
   X,
 } from "lucide-react";
-import { useTheme } from "next-themes";
+import { useTheme } from "@/components/theme-provider";
 import { ExchangeLibraryModal } from "@/components/home/ExchangeLibraryModal";
 import { PageRightRail } from "@/components/home/PageRightRail";
 import { PortfolioWorkspace } from "@/components/home/PortfolioWorkspace";
@@ -19,7 +17,6 @@ import {
   MAIN_VIEW_TABS,
   MARKET_ROWS,
   NAV_ITEMS,
-  STRATEGY_BUILDER_STORAGE_KEY,
   buildExchangeFormFromConnection,
   createEmptyExchangeForm,
   type StrategyTemplate,
@@ -31,7 +28,7 @@ import type {
   ExchangeFormState,
   MarketRow,
 } from "@/components/home/types";
-import { NodeEditor, type NodeEditorInitialGraph } from "@/components/node-editor/NodeEditor";
+import { NodeEditor } from "@/components/node-editor/NodeEditor";
 import {
   advancedGraphToStrategyGraph,
   createAdvancedViewFromStrategyGraph,
@@ -39,6 +36,17 @@ import {
   type StrategyGraphPayload,
 } from "@/lib/strategyGraph";
 import { historyStore, type HistorySnapshot, type HistorySnapshotCodeMeta } from "@/lib/historyStore";
+import {
+  clearStrategyBuilderState,
+  readGuideCompleted,
+  readStrategyBuilderState,
+  writeGuideCompleted,
+  writeStrategyBuilderState,
+} from "@/lib/clientStateStore";
+import type {
+  AdvancedGraphModel,
+  PersistedStrategyBuilderState,
+} from "@/lib/domain";
 import { cn } from "@/lib/utils";
 import {
   getClientUserProfile,
@@ -51,46 +59,19 @@ type ExchangeTab = string;
 type PlanTier = "free" | "pro" | "team";
 type WorkspaceView = "create" | "portfolio";
 
-type AdvancedGraphModel = NodeEditorInitialGraph;
-
-type PersistedStrategyBuilderState = {
-  version: 2;
-  savedAt: number;
-  generatedCode: string;
-  programCode: string;
-  strategyTitle: string;
-  strategySummary: string;
-  advancedGraphModel: AdvancedGraphModel | null;
-  lastSyncedAdvancedGraphSignature: string;
-  aiSummary: string;
-  agentSteps: string[];
-};
-
-const START_GUIDE_COMPLETED_STORAGE_PREFIX = "hershy-start-guide-completed";
 const EMPTY_STRATEGY_TITLE = "새 전략";
 const EMPTY_STRATEGY_SUMMARY = "아직 생성된 전략이 없습니다. AI에게 전략을 요청하거나 템플릿을 선택해 시작하세요.";
-const DEPRECATED_XRP_SEED_PATTERN = /XRPUSDT|XRPUSDT\.P|\bXRP\b/i;
 
 function isWorkspaceNavId(value: string): value is WorkspaceView {
   return value === "create" || value === "portfolio";
 }
 
-function canUseBrowserStorage() {
-  return typeof window !== "undefined" && Boolean(window.localStorage);
-}
-
-function getStartGuideStorageKey(userId: string) {
-  return `${START_GUIDE_COMPLETED_STORAGE_PREFIX}:${userId || "guest"}`;
-}
-
 function readStartGuideCompleted(userId: string) {
-  if (!canUseBrowserStorage()) return false;
-  return window.localStorage.getItem(getStartGuideStorageKey(userId)) === "1";
+  return readGuideCompleted(userId);
 }
 
 function writeStartGuideCompleted(userId: string) {
-  if (!canUseBrowserStorage()) return;
-  window.localStorage.setItem(getStartGuideStorageKey(userId), "1");
+  writeGuideCompleted(userId);
 }
 
 function isAdvancedGraphModel(value: unknown): value is AdvancedGraphModel {
@@ -111,17 +92,9 @@ function getNodeDataForAdvancedStructureSignature(node: AdvancedGraphModel["node
 }
 
 function readPersistedStrategyBuilderState(): PersistedStrategyBuilderState | null {
-  if (!canUseBrowserStorage()) return null;
-
   try {
-    const raw = window.localStorage.getItem(STRATEGY_BUILDER_STORAGE_KEY);
-    if (!raw) return null;
-    if (DEPRECATED_XRP_SEED_PATTERN.test(raw)) {
-      window.localStorage.removeItem(STRATEGY_BUILDER_STORAGE_KEY);
-      return null;
-    }
-
-    const parsed = JSON.parse(raw) as Partial<PersistedStrategyBuilderState>;
+    const parsed = readStrategyBuilderState() as Partial<PersistedStrategyBuilderState> | null;
+    if (!parsed) return null;
     if (parsed.version !== 2) return null;
 
     const advancedGraphModel = isAdvancedGraphModel(parsed.advancedGraphModel) ? parsed.advancedGraphModel : null;
@@ -156,15 +129,13 @@ function readPersistedStrategyBuilderState(): PersistedStrategyBuilderState | nu
 }
 
 function writePersistedStrategyBuilderState(state: Omit<PersistedStrategyBuilderState, "version" | "savedAt">) {
-  if (!canUseBrowserStorage()) return;
-
   try {
     const payload: PersistedStrategyBuilderState = {
       version: 2,
       savedAt: Date.now(),
       ...state,
     };
-    window.localStorage.setItem(STRATEGY_BUILDER_STORAGE_KEY, JSON.stringify(payload));
+    writeStrategyBuilderState(payload);
   } catch (error) {
     console.warn("[strategyBuilder] failed to persist strategy canvas", error);
   }
@@ -440,7 +411,7 @@ function agentStepsFromActivities(activities: AgentActivity[]) {
   return activities.map((activity) => activity.label);
 }
 
-export default function Page() {
+export default function App() {
   const { resolvedTheme, setTheme } = useTheme();
   const [isThemeMounted, setIsThemeMounted] = useState(false);
   const [openTabs, setOpenTabs] = useState<string[]>([]);
@@ -1355,7 +1326,7 @@ export default function Page() {
             ? `AI 에이전트를 실행하지 않았습니다: ${message}\n\nWebSocket/WSS 시세 URL만으로는 부족합니다. 거래소 연결 탭에서 실행 가능한 REST API URL 또는 RPC URL을 저장해야 합니다.`
             : isTimeout
               ? `AI 에이전트 응답 실패: ${message}\n\n요청 시간이 길어져 중단되었습니다. 웹 검색, KG 검색, validator 환경을 확인한 뒤 다시 시도하세요. 로컬 데모로 대체하지 않았습니다.`
-              : `AI 에이전트 응답 실패: ${message}\n\n로컬 데모로 대체하지 않았습니다. 서버의 KG_DATABASE_URL/DATABASE_URL, 웹 검색 provider, validator 상태를 확인하세요.`,
+              : `AI 에이전트 응답 실패: ${message}\n\n로컬 데모로 대체하지 않았습니다. 서버 API, 웹 검색 provider, validator 상태를 확인하세요.`,
         },
       ]);
     } finally {
@@ -1457,9 +1428,7 @@ export default function Page() {
         setActiveWorkspace("create");
 
         if (shouldReplaceExisting) {
-          if (canUseBrowserStorage()) {
-            window.localStorage.removeItem(STRATEGY_BUILDER_STORAGE_KEY);
-          }
+          clearStrategyBuilderState();
           const existingSnapshotIds = historyStore.getSnapshots().map((snapshot) => snapshot.id);
           if (existingSnapshotIds.length > 0) {
             historyStore.deleteSnapshots(existingSnapshotIds);

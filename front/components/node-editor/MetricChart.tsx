@@ -116,22 +116,35 @@ function isFiniteCondition(condition: IndicatorCondition | undefined): condition
   return Boolean(condition && typeof condition.threshold === "number" && Number.isFinite(condition.threshold));
 }
 
-function satisfiesAllConditions(value: number, conditions: IndicatorCondition[]) {
-  return conditions.every((condition) => evaluateCondition(value, condition));
+export type ConditionMergeMode = "AND" | "OR";
+
+function satisfiesConditions(value: number, conditions: IndicatorCondition[], mode: ConditionMergeMode = "AND") {
+  if (conditions.length === 0) return true;
+  return mode === "OR"
+    ? conditions.some((condition) => evaluateCondition(value, condition))
+    : conditions.every((condition) => evaluateCondition(value, condition));
 }
 
-export function buildCombinedConditionSeries(series: MetricPoint[], conditions: IndicatorCondition[]) {
+export function buildCombinedConditionSeries(
+  series: MetricPoint[],
+  conditions: IndicatorCondition[],
+  mode: ConditionMergeMode = "AND",
+) {
   const activeConditions = conditions.filter(isFiniteCondition);
   if (activeConditions.length === 0) return series;
 
   return series.map((point) =>
-    satisfiesAllConditions(point.value, activeConditions)
+    satisfiesConditions(point.value, activeConditions, mode)
       ? point
       : ({ time: point.time } as MetricWhitespacePoint),
   );
 }
 
-function buildConditionSegments(series: MetricPoint[], conditions: IndicatorCondition[]) {
+function buildConditionSegments(
+  series: MetricPoint[],
+  conditions: IndicatorCondition[],
+  mode: ConditionMergeMode = "AND",
+) {
   const activeConditions = conditions.filter(isFiniteCondition);
   if (activeConditions.length === 0) return [series];
 
@@ -139,7 +152,7 @@ function buildConditionSegments(series: MetricPoint[], conditions: IndicatorCond
   let currentSegment: MetricPoint[] = [];
 
   series.forEach((point) => {
-    if (satisfiesAllConditions(point.value, activeConditions)) {
+    if (satisfiesConditions(point.value, activeConditions, mode)) {
       currentSegment.push(point);
       return;
     }
@@ -163,6 +176,7 @@ type MetricChartProps = {
   }>;
   condition?: IndicatorCondition;
   conditions?: IndicatorCondition[];
+  conditionMode?: ConditionMergeMode;
   comparisonValues?: ChartComparisonValue[];
   height?: number;
   compact?: boolean;
@@ -261,6 +275,7 @@ export function MetricChart({
   compareSeries = [],
   condition,
   conditions = [],
+  conditionMode = "AND",
   comparisonValues = [],
   height = 180,
   compact = false,
@@ -311,8 +326,8 @@ export function MetricChart({
   );
 
   const activeSegments = useMemo(
-    () => buildConditionSegments(displaySeries, activeConditions),
-    [activeConditions, displaySeries],
+    () => buildConditionSegments(displaySeries, activeConditions, conditionMode),
+    [activeConditions, conditionMode, displaySeries],
   );
   const stats = useMemo(() => {
     const values = displaySeries.map((point) => point.value).filter((value) => Number.isFinite(value));

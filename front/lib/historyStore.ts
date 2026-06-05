@@ -1,6 +1,23 @@
+import {
+  readHistoryState,
+  writeHistoryState,
+} from "@/lib/clientStateStore";
+import type {
+  HistorySnapshot,
+  HistorySnapshotCodeMeta,
+  HistorySnapshotGroup,
+  HistoryStoreState,
+  PersistedHistoryStoreState,
+} from "@/lib/domain";
+
+export type {
+  HistorySnapshot,
+  HistorySnapshotCodeMeta,
+  HistorySnapshotGroup,
+} from "@/lib/domain";
+
 type Listener = () => void;
-const HISTORY_STORAGE_KEY = "thirdeye.strategy-history.v1";
-const DEPRECATED_XRP_SEED_PATTERN = /XRPUSDT|XRPUSDT\.P|\bXRP\b/i;
+
 const TRANSIENT_GRAPH_DATA_KEYS = new Set([
   "chartSeries",
   "chartSource",
@@ -231,18 +248,6 @@ function graphSignature(nodes: any[], edges: any[]) {
   return JSON.stringify({ nodes, edges });
 }
 
-export type HistorySnapshotCodeMeta = {
-  strategyTitle?: string;
-  strategySummary?: string;
-  generatedCode?: string;
-  programCode?: string;
-  strategyGraph?: unknown | null;
-  graphSignature?: string;
-  programCodeSignature?: string;
-  aiSummary?: string;
-  agentSteps?: string[];
-};
-
 function readOptionalString(value: unknown) {
   return typeof value === "string" ? value : undefined;
 }
@@ -289,33 +294,6 @@ function codeMetaSignature(value: HistorySnapshotCodeMeta | undefined) {
   return stableStringify(normalizeCodeMeta(value) ?? null);
 }
 
-export type HistorySnapshot = {
-  id: string;
-  name: string;
-  parentId: string | null;
-  nodes: any[];
-  edges: any[];
-  codeMeta?: HistorySnapshotCodeMeta;
-  timestamp: number;
-};
-
-export type HistorySnapshotGroup = {
-  id: string;
-  snapshotIds: string[];
-};
-
-type HistoryStoreState = {
-  snapshots: HistorySnapshot[];
-  activeId: string | null;
-  openTabs: string[];
-  hiddenGroups: HistorySnapshotGroup[];
-};
-
-type PersistedHistoryStoreState = HistoryStoreState & {
-  version: 1;
-  savedAt: number;
-};
-
 class HistoryStore {
   private snapshots: HistorySnapshot[] = [];
   private activeId: string | null = null;
@@ -329,10 +307,6 @@ class HistoryStore {
 
   constructor() {
     this.hydrateFromStorage();
-  }
-
-  private canUseStorage() {
-    return typeof window !== "undefined" && Boolean(window.localStorage);
   }
 
   private normalizeLoadedState(state: PersistedHistoryStoreState): HistoryStoreState | null {
@@ -384,17 +358,9 @@ class HistoryStore {
   }
 
   private hydrateFromStorage() {
-    if (!this.canUseStorage()) return;
-
     try {
-      const raw = window.localStorage.getItem(HISTORY_STORAGE_KEY);
-      if (!raw) return;
-      if (DEPRECATED_XRP_SEED_PATTERN.test(raw)) {
-        window.localStorage.removeItem(HISTORY_STORAGE_KEY);
-        return;
-      }
-
-      const parsed = JSON.parse(raw) as PersistedHistoryStoreState;
+      const parsed = readHistoryState();
+      if (!parsed) return;
       const loaded = this.normalizeLoadedState(parsed);
       if (!loaded) return;
 
@@ -409,8 +375,6 @@ class HistoryStore {
   }
 
   private persistToStorage() {
-    if (!this.canUseStorage()) return;
-
     try {
       const payload: PersistedHistoryStoreState = {
         version: 1,
@@ -420,7 +384,7 @@ class HistoryStore {
         openTabs: cloneValue(this.openTabs),
         hiddenGroups: cloneValue(this.hiddenGroups),
       };
-      window.localStorage.setItem(HISTORY_STORAGE_KEY, JSON.stringify(payload));
+      writeHistoryState(payload);
     } catch (error) {
       console.warn("[historyStore] failed to persist strategy history", error);
     }

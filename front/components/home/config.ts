@@ -78,5 +78,4 @@ export const MAIN_VIEW_TABS = [
   { id: "code" as const, label: "코드 보기" },
 ];
 
-export const STRATEGY_BUILDER_STORAGE_KEY = "thirdeye.strategy-builder-state.v2";
 export { DEFAULT_CEX_TRADE_EXCHANGE };

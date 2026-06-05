@@ -2,15 +2,13 @@
 
 import { memo, useCallback, useState } from "react";
 import { Handle, Position, NodeProps, useReactFlow } from "@xyflow/react";
-import type { BranchNodeData, BlockData } from "./types";
+import type { BranchNodeData } from "./types";
 import { cn } from "@/lib/utils";
-import { GitFork, Plus, X, Code, Eye, Minimize2 } from "lucide-react";
+import { GitFork, Plus, X, Code, Minimize2 } from "lucide-react";
 import Editor from "./MonacoCodeEditor";
 
 function BranchNodeComponent({ id, data, selected }: NodeProps<import("@xyflow/react").Node<BranchNodeData>>) {
   const { setNodes } = useReactFlow();
-  const typedData = data as BranchNodeData;
-  const [showCode, setShowCode] = useState(typedData.showCode || false);
   const [viewMode, setViewMode] = useState<"node" | "code">((data as any).viewMode || "node");
 
   const handleLabelChange = useCallback(
@@ -102,27 +100,6 @@ function BranchNodeComponent({ id, data, selected }: NodeProps<import("@xyflow/r
                   ...node.data,
                   branches: (node.data as BranchNodeData).branches.map((b) =>
                     b.id === branchId ? { ...b, name } : b
-                  ),
-                },
-              }
-            : node
-        )
-      );
-    },
-    [id, setNodes]
-  );
-
-  const handleConditionChange = useCallback(
-    (branchId: string, condition: string) => {
-      setNodes((nodes) =>
-        nodes.map((node) =>
-          node.id === id
-            ? {
-                ...node,
-                data: {
-                  ...node.data,
-                  branches: (node.data as BranchNodeData).branches.map((b) =>
-                    b.id === branchId ? { ...b, condition } : b
                   ),
                 },
               }
@@ -330,7 +307,7 @@ function BranchNodeComponent({ id, data, selected }: NodeProps<import("@xyflow/r
 
         {/* Branch Code Editors */}
         <div className="max-h-[400px] overflow-y-auto">
-          {data.branches.map((branch, index) => (
+          {data.branches.map((branch) => (
             <div key={branch.id} className="border-b border-gray-700 last:border-b-0">
               <div className="flex items-center justify-between px-3 py-1.5 bg-gray-800">
                 <div className="flex items-center gap-2">
@@ -436,7 +413,7 @@ function BranchNodeComponent({ id, data, selected }: NodeProps<import("@xyflow/r
       {data.inputBlocks && data.inputBlocks.length > 0 && (
         <div className="px-2 py-1 border-b border-orange-200 bg-orange-100/50">
           <div className="text-[9px] font-medium text-orange-600 mb-1">Inputs</div>
-          {data.inputBlocks.map((block, idx) => (
+          {data.inputBlocks.map((block) => (
             <div
               key={block.id}
               data-connect-target-node={id}
@@ -471,7 +448,7 @@ function BranchNodeComponent({ id, data, selected }: NodeProps<import("@xyflow/r
 
       {/* Branches */}
       <div className="py-1">
-        {data.branches.map((branch, index) => (
+        {data.branches.map((branch) => (
           <div
             key={branch.id}
             className="relative group flex items-center justify-between px-2 py-1.5 hover:bg-orange-100/50 transition-colors"

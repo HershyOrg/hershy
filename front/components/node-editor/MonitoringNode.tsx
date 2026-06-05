@@ -65,7 +65,7 @@ function MonitoringNodeComponent({ id, data, selected }: NodeProps<MonitoringNod
       });
   }, [allNodes, edges, id]);
 
-  const selectedVars = data.selectedVariables || [];
+  const selectedVars = useMemo(() => data.selectedVariables || [], [data.selectedVariables]);
   const selectedVariableObjects = useMemo(() => {
     const selectedSet = new Set(selectedVars);
     const selectedFromData = availableVariables.filter((variable) => selectedSet.has(variable.key));
