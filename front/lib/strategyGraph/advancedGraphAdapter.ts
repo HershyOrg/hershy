@@ -174,6 +174,7 @@ function advancedNodeToStrategyBlockType(node: Node) {
   if (node.type === "streamingNode") return "streaming";
   if (node.type === "actionNode") return "action";
   if (node.type === "monitoringNode") return "monitoring";
+  if (node.type === "conditionJunction") return "trigger";
   if (node.type === "timeTrigger" || node.type === "clickTrigger") return "trigger";
   return "normal";
 }
@@ -197,6 +198,49 @@ function collectAdvancedNodeText(node: Node) {
 function isRuntimeArtifactNode(node: Node) {
   const data = node.data && typeof node.data === "object" ? node.data as Record<string, unknown> : {};
   return node.type === "codeEditor" || data.isRuntimeArtifact === true;
+}
+
+function formatConditionLiteral(value: unknown) {
+  const numeric = Number(value);
+  if (Number.isFinite(numeric)) return String(numeric);
+  return JSON.stringify(String(value ?? ""));
+}
+
+function readConditionPayloadExpression(value: unknown) {
+  if (!value || typeof value !== "object") return "";
+  const record = value as Record<string, unknown>;
+  const explicit = normalizeGraphText(record.conditionExpression ?? record.expression);
+  if (explicit) return explicit;
+
+  const metric = normalizeGraphText(record.metric ?? record.field ?? record.sourceOutputBlockId, "value")
+    .replace(/[^a-zA-Z0-9_.:-]+/g, "_");
+  const sourceNodeId = normalizeGraphText(record.sourceNodeId);
+  const operator = normalizeGraphText(record.operator, ">");
+  const threshold = record.threshold;
+  if (!sourceNodeId || ![">", ">=", "<", "<="].includes(operator)) return "";
+  return `${sourceNodeId}::${metric} ${operator} ${formatConditionLiteral(threshold)}`;
+}
+
+function readConditionJunctionExpression(config: Record<string, unknown>) {
+  return normalizeGraphText(config.conditionExpression ?? config.expression ?? config.logic) ||
+    readConditionPayloadExpression(config.condition);
+}
+
+function collectConditionSourceIds(value: unknown): string[] {
+  if (!value || typeof value !== "object") return [];
+  const record = value as Record<string, unknown>;
+  const direct = Array.isArray(record.conditionSourceIds)
+    ? record.conditionSourceIds.map((item) => normalizeGraphText(item)).filter(Boolean)
+    : [];
+  const sourceNodeId = normalizeGraphText(record.sourceNodeId);
+  const nested = [
+    ...(Array.isArray(record.children) ? record.children : []),
+    record.left,
+    record.right,
+    record.conditionTree,
+  ].flatMap(collectConditionSourceIds);
+
+  return Array.from(new Set([...direct, sourceNodeId, ...nested].filter(Boolean)));
 }
 
 function sanitizeGraphId(value: string, fallback: string) {
@@ -329,6 +373,18 @@ function sanitizeAdvancedNodeConfig(node: Node) {
         type: "output",
       },
     ];
+  }
+
+  if (node.type === "conditionJunction") {
+    const conditionExpression = readConditionJunctionExpression(config);
+    config.visualNodeType = "conditionJunction";
+    config.triggerType = "condition";
+    config.name = readConfigText(config, ["name", "label", "title"], "조건 브라켓");
+    config.condition = conditionExpression;
+    config.expression = conditionExpression;
+    config.outputBlocks = normalizeTriggerOutputBlocks(
+      readOutputBlocks(config, ["trigger"]),
+    );
   }
 
   if (node.type === "functionNode") {
@@ -474,6 +530,11 @@ function normalizeAdvancedEdgeKind(edge: Edge, sourceNode?: Node, targetNode?: N
   if (targetNode?.type === "monitoringNode") return "stream-monitor";
   const sourceIsTrigger = sourceNode?.type === "timeTrigger" || sourceNode?.type === "clickTrigger";
   const targetIsTrigger = targetNode?.type === "timeTrigger" || targetNode?.type === "clickTrigger";
+  const sourceIsConditionJunction = sourceNode?.type === "conditionJunction";
+  const targetIsConditionJunction = targetNode?.type === "conditionJunction";
+  if (sourceIsConditionJunction && targetNode?.type === "actionNode") return "trigger-action";
+  if (sourceIsConditionJunction && targetIsConditionJunction) return "trigger-input";
+  if (targetIsConditionJunction) return sourceIsTrigger ? "trigger-input" : "data-flow";
   if (sourceIsTrigger && targetIsTrigger) return "trigger-input";
   if (targetNode?.type === "actionNode") {
     return sourceIsTrigger ? "trigger-action" : "action-input";
@@ -532,13 +593,59 @@ export function advancedGraphToStrategyGraph(
     })
     .map((edge, index) => {
       const connectionLabel = getAdvancedEdgeLabel(edge);
+      const data = edge.data && typeof edge.data === "object" ? edge.data as Record<string, unknown> : {};
+      const sourceOutputBlockId = normalizeGraphText(
+        data.sourceOutputBlockId ?? data.sourceBlockId ?? data.fromBlockId,
+      ) || normalizeGraphText(edge.sourceHandle?.match(/-block-(.+)-out$/)?.[1]);
+      const targetInputBlockId = normalizeGraphText(
+        data.targetInputBlockId ?? data.targetBlockId ?? data.toBlockId,
+      ) || normalizeGraphText(edge.targetHandle?.match(/-(?:input|block)-(.+)-in$/)?.[1]);
+      const logicMode = data.logicMode === "OR" ? "OR" : data.logicMode === "AND" ? "AND" : "";
       return {
         id: normalizeGraphText(edge.id, `edited-edge-${index + 1}`),
         kind: normalizeAdvancedEdgeKind(edge, nodeById.get(edge.source), nodeById.get(edge.target)),
         fromId: edge.source,
         toId: edge.target,
+        ...(sourceOutputBlockId ? { sourceOutputBlockId, sourceBlockId: sourceOutputBlockId } : {}),
+        ...(targetInputBlockId ? { targetInputBlockId, targetBlockId: targetInputBlockId } : {}),
+        ...(logicMode ? { logicMode } : {}),
         ...(connectionLabel ? { label: connectionLabel } : {}),
       };
+    });
+
+  const blockTypeById = new Map(blocks.map((block) => [normalizeGraphText(block.id), normalizeGraphText(block.type)]));
+  const hasConnection = (kind: string, fromId: string, toId: string) =>
+    connections.some((connection) =>
+      normalizeGraphText(connection.kind) === kind &&
+      normalizeGraphText(connection.fromId) === fromId &&
+      normalizeGraphText(connection.toId) === toId,
+    );
+
+  connections
+    .filter((connection) =>
+      normalizeGraphText(connection.kind) === "trigger-action" &&
+      blockTypeById.get(normalizeGraphText(connection.fromId)) === "trigger" &&
+      blockTypeById.get(normalizeGraphText(connection.toId)) === "action",
+    )
+    .forEach((connection) => {
+      const triggerNode = nodeById.get(normalizeGraphText(connection.fromId));
+      if (triggerNode?.type !== "conditionJunction") return;
+      const data = triggerNode.data && typeof triggerNode.data === "object" ? triggerNode.data as Record<string, unknown> : {};
+      const sourceIds = collectConditionSourceIds(data);
+      const actionId = normalizeGraphText(connection.toId);
+
+      sourceIds.forEach((sourceId, index) => {
+        const sourceType = blockTypeById.get(sourceId);
+        if (sourceType !== "normal" && sourceType !== "streaming") return;
+        if (hasConnection("action-input", sourceId, actionId)) return;
+        connections.push({
+          id: `${normalizeGraphText(connection.id, "condition-trigger")}-action-input-${index + 1}`,
+          kind: "action-input",
+          fromId: sourceId,
+          toId: actionId,
+          label: "조건 데이터",
+        });
+      });
     });
 
   if (connections.length === 0 && strategyNodes.length > 1) {
@@ -939,6 +1046,7 @@ const ADVANCED_NODE_TYPES = new Set([
   "functionNode",
   "timeTrigger",
   "clickTrigger",
+  "conditionJunction",
   "actionNode",
   "monitoringNode",
   "streamingNode",
@@ -972,6 +1080,7 @@ function normalizeBlockData(value: unknown, type: "input" | "output", fallbackNa
     const item = value as Record<string, unknown>;
     const name = readConfigText(item, ["name", "label", "key", "field"], fallbackName);
     return {
+      ...item,
       id: normalizeGraphText(item.id, `${type}-${index + 1}-${name.replace(/[^a-zA-Z0-9_-]/g, "-")}`),
       name,
       description: readConfigText(item, ["description", "helper", "summary"], `${name} ${type} block`),
@@ -1266,6 +1375,20 @@ function normalizeCEXTimeInForce(value: string): "GTC" | "FAK" | "FOK" {
 function parseIndicatorConditionExpression(expression: string, fallbackMetric: string, fallbackThreshold: number): IndicatorCondition | null {
   const text = expression.trim();
   if (!text) return null;
+  const boolMatch = text.match(/([a-zA-Z0-9_.:-]+)\s*(==|=|!=)\s*(true|false|yes|no|1|0)\b/i);
+  if (boolMatch) {
+    const metric = boolMatch[1].split("::").pop()?.split(".").pop() || fallbackMetric;
+    const expectedValue = boolMatch[3].toLowerCase();
+    const expectsTrue = ["true", "yes", "1"].includes(expectedValue);
+    const equalityPassesOnTrue = boolMatch[2] !== "!=" ? expectsTrue : !expectsTrue;
+    return {
+      metric,
+      operator: equalityPassesOnTrue ? ">=" : "<",
+      threshold: 0.5,
+      label: humanizeCondition(text),
+    };
+  }
+
   const match = text.match(/([a-zA-Z0-9_.:-]+)\s*(>=|<=|>|<)\s*(-?\d+(?:\.\d+)?)/);
   if (!match) {
     return {
@@ -1283,6 +1406,35 @@ function parseIndicatorConditionExpression(expression: string, fallbackMetric: s
     threshold: Number(match[3]),
     label: humanizeCondition(text),
   };
+}
+
+function splitConditionClauses(expression: string) {
+  return expression
+    .split(/\s*(?:&&|\|\||\band\b|\bor\b|그리고|또는)\s*/i)
+    .map((item) => item.trim())
+    .filter(Boolean);
+}
+
+function extractConditionClausesForBlock(expression: string, blockId: string) {
+  const clauses = splitConditionClauses(expression);
+  if (!blockId) return clauses;
+  const matching = clauses.filter((clause) => conditionMentionsBlock(clause, blockId));
+  return matching.length > 0 ? matching : clauses;
+}
+
+function inferConditionMergeModeFromExpression(expression: string): "AND" | "OR" {
+  return /\|\||\bor\b|또는/i.test(expression) ? "OR" : "AND";
+}
+
+function parseIndicatorConditionExpressions(
+  expression: string,
+  blockId: string,
+  fallbackMetric: string,
+  fallbackThreshold: number,
+) {
+  return extractConditionClausesForBlock(expression, blockId)
+    .map((clause) => parseIndicatorConditionExpression(clause, fallbackMetric, fallbackThreshold))
+    .filter((condition): condition is IndicatorCondition => condition !== null);
 }
 
 function buildIndicatorConditionConfig(config: Record<string, unknown>, outputName: string, fallbackThreshold: number): IndicatorCondition {
@@ -1306,6 +1458,40 @@ function buildIndicatorConditionConfig(config: Record<string, unknown>, outputNa
     threshold: fallbackThreshold,
     label: `${outputName} > ${fallbackThreshold}`,
   };
+}
+
+function getConditionMetricName(expression: string, blockId: string, fallbackMetric: string) {
+  const clause = extractConditionClausesForBlock(expression, blockId)[0] ?? expression;
+  const scopedMatch = blockId
+    ? clause.match(new RegExp(`${escapeRegExp(blockId)}::([a-zA-Z0-9_.:-]+)`, "i"))
+    : null;
+  const metric = scopedMatch?.[1] ?? clause.match(/([a-zA-Z0-9_.:-]+)\s*(?:>=|<=|>|<|==|=|!=)/)?.[1] ?? "";
+  return metric.split("::").pop()?.split(".").pop() || fallbackMetric;
+}
+
+function outputBlockLooksLikeTrigger(block: BlockData) {
+  return /\btrigger(?:ed)?\b|boolean-trigger|boolean-data/i.test(
+    `${block.id} ${block.name} ${String(block.outputKind ?? "")}`,
+  );
+}
+
+function findOutputBlockForCondition(outputBlocks: BlockData[], expression: string, sourceId: string) {
+  const metric = getConditionMetricName(expression, sourceId, outputBlocks[0]?.name || "value").toLowerCase();
+  const exactIndex = outputBlocks.findIndex((block) =>
+    [block.id, block.name].some((value) => String(value ?? "").toLowerCase() === metric),
+  );
+  if (exactIndex >= 0) return exactIndex;
+
+  const fuzzyIndex = outputBlocks.findIndex((block) =>
+    [block.id, block.name].some((value) => {
+      const text = String(value ?? "").toLowerCase();
+      return text.length > 0 && (metric.includes(text) || text.includes(metric));
+    }),
+  );
+  if (fuzzyIndex >= 0) return fuzzyIndex;
+
+  const nonTriggerIndex = outputBlocks.findIndex((block) => !outputBlockLooksLikeTrigger(block));
+  return Math.max(0, nonTriggerIndex);
 }
 
 function normalizeChartComparisonNumber(value: unknown, fallback: number) {
@@ -1538,15 +1724,83 @@ function getOutgoingConnections(connections: StrategyGraphConnection[], sourceId
   return connections.filter((connection) => normalizeGraphText(connection.fromId) === sourceId);
 }
 
+function isInlineTriggerInputKind(kind: string) {
+  return ["data-flow", "trigger-input", "condition", "data", "signal"].includes(kind);
+}
+
+function getInlineTriggerCondition(triggerBlock: StrategyGraphBlock) {
+  return readConfigText(getBlockConfig(triggerBlock), ["condition", "predicate", "expression", "logic"]);
+}
+
+function findInlineConditionTriggerSource(
+  triggerId: string,
+  triggerCondition: string,
+  blocksById: Map<string, StrategyGraphBlock>,
+  connections: StrategyGraphConnection[],
+) {
+  const incomingIndicatorIds = getIncomingConnections(connections, triggerId)
+    .filter((connection) => isInlineTriggerInputKind(normalizeGraphText(connection.kind, "data-flow")))
+    .map((connection) => normalizeGraphText(connection.fromId))
+    .filter((sourceId) => {
+      const sourceBlock = blocksById.get(sourceId);
+      return sourceBlock && getBlockType(sourceBlock) === "normal" && !isFixedValueBlock(sourceBlock);
+    });
+
+  const uniqueIncomingIds = Array.from(new Set(incomingIndicatorIds));
+  if (uniqueIncomingIds.length === 1) return uniqueIncomingIds[0];
+
+  const referencedIndicatorIds = Array.from(blocksById.entries())
+    .filter(([blockId, block]) =>
+      blockId !== triggerId &&
+      getBlockType(block) === "normal" &&
+      !isFixedValueBlock(block) &&
+      conditionMentionsBlock(triggerCondition, blockId),
+    )
+    .map(([blockId]) => blockId);
+
+  return referencedIndicatorIds.length === 1 ? referencedIndicatorIds[0] : "";
+}
+
+function conditionTriggerCanBeInlined(
+  triggerId: string,
+  triggerBlock: StrategyGraphBlock,
+  blocksById: Map<string, StrategyGraphBlock>,
+  connections: StrategyGraphConnection[],
+) {
+  if (getBlockType(triggerBlock) !== "trigger") return "";
+  if (isKillSwitchBlock(triggerBlock)) return "";
+  const config = getBlockConfig(triggerBlock);
+  const triggerCondition = getInlineTriggerCondition(triggerBlock);
+  if (!triggerCondition) return "";
+  if (isTimeLikeTriggerConfig(config) || isManualLikeTriggerConfig(config)) return "";
+
+  const outgoing = getOutgoingConnections(connections, triggerId);
+  const triggerActionTargets = outgoing.filter((connection) => {
+    const targetId = normalizeGraphText(connection.toId);
+    return normalizeGraphText(connection.kind) === "trigger-action" &&
+      getBlockType(blocksById.get(targetId) ?? {}) === "action";
+  });
+  if (triggerActionTargets.length === 0 || triggerActionTargets.length !== outgoing.length) return "";
+
+  return findInlineConditionTriggerSource(triggerId, triggerCondition, blocksById, connections);
+}
+
 function buildAdvancedInlineTriggerMap(blocks: StrategyGraphBlock[], connections: StrategyGraphConnection[]) {
-  // Trigger nodes must stay visible in advanced view. Older UI builds inlined
-  // a condition trigger into its indicator source, which left a visual "then"
-  // edge without an explicit "if/when" gate. Keep this function as an opt-in
-  // compatibility hook, but do not inline triggers by default.
-  void blocks;
-  void connections;
+  const blocksById = new Map(blocks.map((block, index) => [getBlockId(block, index), block]));
   const triggerById = new Map<string, InlineTriggerInfo>();
   const sourceToTrigger = new Map<string, InlineTriggerInfo>();
+
+  blocksById.forEach((block, triggerId) => {
+    const sourceId = conditionTriggerCanBeInlined(triggerId, block, blocksById, connections);
+    if (!sourceId) return;
+
+    const info = { triggerId, sourceId, triggerBlock: block };
+    triggerById.set(triggerId, info);
+    if (!sourceToTrigger.has(sourceId)) {
+      sourceToTrigger.set(sourceId, info);
+    }
+  });
+
   return { triggerById, sourceToTrigger };
 }
 
@@ -1715,9 +1969,35 @@ function withInlineTriggerConfig(config: Record<string, unknown>, info?: InlineT
     ["description", "summary"],
     condition ? `${humanizeCondition(condition)}이면 실행 신호를 냅니다.` : "조건이 충족되면 실행 신호를 냅니다.",
   );
+  const outputBlocks = readOutputBlocks(config, ["value"]);
+  const outputIndex = findOutputBlockForCondition(outputBlocks, condition, info.sourceId);
+  const outputBlock = outputBlocks[outputIndex] ?? outputBlocks[0];
+  const outputName = outputBlock?.name || "value";
+  const threshold = readConfigNumber(triggerConfig, ["threshold", "entryThreshold", "exitThreshold"], 108);
+  const parsedConditions = parseIndicatorConditionExpressions(condition, info.sourceId, outputName, threshold);
+  const primaryCondition = parsedConditions[0] ?? buildIndicatorConditionConfig({ condition }, outputName, threshold);
+  const conditionMergeMode = inferConditionMergeModeFromExpression(condition);
+  const nextOutputBlocks = outputBlocks.map((block, index) => {
+    if (index !== outputIndex) return block;
+    return {
+      ...block,
+      condition: primaryCondition,
+      conditionControls: parsedConditions.length > 1
+        ? parsedConditions.slice(0, 2).map((item, itemIndex) => ({
+          id: itemIndex === 0 ? "primary" : `range-${itemIndex + 1}`,
+          condition: item,
+        }))
+        : block.conditionControls,
+      conditionMergeMode,
+      showConditionControl: true,
+    };
+  });
 
   return {
     ...config,
+    condition: primaryCondition,
+    conditionMergeMode,
+    showConditionControl: true,
     triggerCondition: condition,
     description: readConfigText(config, ["description", "summary"], description),
     logicDescription: readConfigText(config, ["logicDescription", "description"], description),
@@ -1726,6 +2006,7 @@ function withInlineTriggerConfig(config: Record<string, unknown>, info?: InlineT
       ["outputDescription"],
       `${triggerLabel} true/false 신호를 output block 아래 trigger로 내보냅니다.`,
     ),
+    outputBlocks: nextOutputBlocks,
   };
 }
 
@@ -1773,6 +2054,10 @@ function remapInlineTriggerConnections(
         kind: normalizeGraphText(connection.kind, "trigger-action"),
         fromId: sourceInline.sourceId,
         toId: target,
+        inlineTriggerId: sourceInline.triggerId,
+        inlineTriggerCondition: getInlineTriggerCondition(sourceInline.triggerBlock),
+        inlineTriggerSourceId: sourceInline.sourceId,
+        logicMode: inferConditionMergeModeFromExpression(getInlineTriggerCondition(sourceInline.triggerBlock)),
       });
       return;
     }
@@ -1787,6 +2072,9 @@ function getAdvancedNodeType(blockType: string, config: Record<string, unknown>)
   if (blockType === "streaming") return "streamingNode";
   if (blockType === "action") return "actionNode";
   if (blockType === "monitoring") return "monitoringNode";
+  if (blockType === "trigger" && readConfigText(config, ["visualNodeType", "nodeType"], "") === "conditionJunction") {
+    return "conditionJunction";
+  }
   if (blockType === "trigger" && isManualLikeTriggerConfig(config)) {
     return "clickTrigger";
   }
@@ -1801,12 +2089,32 @@ function buildAdvancedNodeData(id: string, blockType: string, config: Record<str
   if (nodeType === "streamingNode") return buildStreamingNodeData(id, config);
   if (nodeType === "clickTrigger") return buildClickTriggerNodeData(id, config);
   if (nodeType === "timeTrigger") return buildTimeTriggerNodeData(id, config);
+  if (nodeType === "conditionJunction") return buildConditionJunctionNodeData(id, config);
   if (nodeType === "actionNode") return buildActionNodeData(id, config);
   if (nodeType === "monitoringNode") return buildMonitoringNodeData(id, config);
   return buildFunctionNodeData(id, blockType, config);
 }
 
+function buildConditionJunctionNodeData(id: string, config: Record<string, unknown>) {
+  return {
+    label: readConfigText(config, ["name", "label", "title"], "조건 브라켓"),
+    mode: readConfigText(config, ["mode", "logicMode", "conditionMergeMode"], "AND") === "OR" ? "OR" : "AND",
+    bracketGroupId: readConfigText(config, ["bracketGroupId"], ""),
+    bracketRoundNo: readConfigNumber(config, ["bracketRoundNo"], 1),
+    bracketMaxRoundNo: readConfigNumber(config, ["bracketMaxRoundNo"], 1),
+    bracketCenterY: readConfigNumber(config, ["bracketCenterY"], 48),
+    bracketHeight: readConfigNumber(config, ["bracketHeight"], 96),
+    condition: config.condition,
+    conditionExpression: readConfigText(config, ["conditionExpression", "condition", "expression"], ""),
+    conditionTree: config.conditionTree,
+    conditionSourceIds: Array.isArray(config.conditionSourceIds) ? config.conditionSourceIds : [],
+    inputBlocks: readInputBlocks(config, ["left", "right"]),
+    outputBlocks: normalizeTriggerOutputBlocks(readOutputBlocks(config, ["trigger"])),
+  };
+}
+
 function getOutputHandle(node: Node) {
+  if (node.type === "conditionJunction") return `${node.id}-condition-out`;
   const outputBlocks = (node.data as { outputBlocks?: BlockData[] })?.outputBlocks ?? [];
   const firstBlock = outputBlocks[0];
   if (!firstBlock && node.type === "timeTrigger") return `${node.id}-block-tick-out`;
@@ -1819,6 +2127,78 @@ function getConnectionSourceHandle(connection: StrategyGraphConnection, node: No
   );
   if (sourceBlockId) return `${node.id}-block-${sourceBlockId}-out`;
   return getOutputHandle(node);
+}
+
+function isInlineableIndicatorFunctionNode(sourceNode: Node) {
+  const data = sourceNode.data && typeof sourceNode.data === "object" ? sourceNode.data as Record<string, unknown> : {};
+  const runtimeBlockType = normalizeGraphText(data.runtimeBlockType ?? data.blockType ?? data.nodeCategory).toLowerCase();
+  const triggerType = normalizeGraphText(data.triggerType).toLowerCase();
+  return sourceNode.type === "functionNode" &&
+    runtimeBlockType !== "trigger" &&
+    triggerType.length === 0 &&
+    data.materializedTriggerFormula !== true;
+}
+
+function isCompressedIndicatorConditionConnection(
+  kind: string,
+  sourceNode: Node,
+  targetNode: Node,
+  hasInlineTrigger = false,
+) {
+  return kind === "trigger-action" &&
+    targetNode.type === "actionNode" &&
+    (hasInlineTrigger || isInlineableIndicatorFunctionNode(sourceNode));
+}
+
+function getIndicatorConditionExpression(connection: StrategyGraphConnection, sourceNode: Node) {
+  const inlineCondition = normalizeGraphText(connection.inlineTriggerCondition);
+  if (inlineCondition) return inlineCondition;
+  const data = sourceNode.data && typeof sourceNode.data === "object" ? sourceNode.data as Record<string, unknown> : {};
+  return readConfigText(data, ["triggerCondition", "condition", "predicate", "logic"]);
+}
+
+function getIndicatorConditionOutputBlock(connection: StrategyGraphConnection, sourceNode: Node) {
+  const data = sourceNode.data && typeof sourceNode.data === "object" ? sourceNode.data as Record<string, unknown> : {};
+  const outputBlocks = Array.isArray(data.outputBlocks)
+    ? data.outputBlocks.filter((block): block is BlockData => Boolean(block && typeof block === "object"))
+    : [];
+  const explicitBlockId = normalizeGraphText(
+    connection.sourceBlockId ?? connection.fromBlockId ?? connection.sourceOutputBlockId,
+  );
+  const explicitBlock = outputBlocks.find((block) => block.id === explicitBlockId);
+  if (explicitBlock && !outputBlockLooksLikeTrigger(explicitBlock)) return explicitBlock;
+
+  const condition = getIndicatorConditionExpression(connection, sourceNode);
+  const matchingIndex = findOutputBlockForCondition(outputBlocks, condition, sourceNode.id);
+  return outputBlocks[matchingIndex] ?? outputBlocks.find((block) => !outputBlockLooksLikeTrigger(block)) ?? outputBlocks[0] ?? null;
+}
+
+function getIndicatorConditionSourceHandle(connection: StrategyGraphConnection, sourceNode: Node) {
+  const outputBlock = getIndicatorConditionOutputBlock(connection, sourceNode);
+  return outputBlock ? `${sourceNode.id}-trigger-${outputBlock.id}-out` : getOutputHandle(sourceNode);
+}
+
+function isIndicatorCondition(value: unknown): value is IndicatorCondition {
+  if (!value || typeof value !== "object") return false;
+  const condition = value as Partial<IndicatorCondition>;
+  return [">", ">=", "<", "<="].includes(String(condition.operator)) &&
+    Number.isFinite(Number(condition.threshold));
+}
+
+function getIndicatorEdgeCondition(connection: StrategyGraphConnection, sourceNode: Node) {
+  const outputBlock = getIndicatorConditionOutputBlock(connection, sourceNode);
+  const expression = getIndicatorConditionExpression(connection, sourceNode);
+  const fallbackMetric = outputBlock?.name || "value";
+  const parsed = expression
+    ? parseIndicatorConditionExpressions(expression, sourceNode.id, fallbackMetric, 108)[0] ??
+      parseIndicatorConditionExpression(expression, fallbackMetric, 108)
+    : null;
+  if (parsed) return parsed;
+
+  const data = sourceNode.data && typeof sourceNode.data === "object" ? sourceNode.data as Record<string, unknown> : {};
+  if (isIndicatorCondition(data.condition)) return data.condition;
+  if (outputBlock && isIndicatorCondition(outputBlock.condition)) return outputBlock.condition;
+  return null;
 }
 
 function getExecutionTargetHandle(node: Node) {
@@ -1836,6 +2216,15 @@ function getDataTargetHandle(node: Node) {
   if (node.type === "monitoringNode") return `${node.id}-monitor-in`;
   const inputBlocks = (node.data as { inputBlocks?: BlockData[] })?.inputBlocks ?? [];
   return inputBlocks[0] ? `${node.id}-input-${inputBlocks[0].id}-in` : getExecutionTargetHandle(node);
+}
+
+function getConditionJunctionTargetHandle(connection: StrategyGraphConnection, node: Node) {
+  const explicitBlockId = normalizeGraphText(
+    connection.targetInputBlockId ?? connection.targetBlockId ?? connection.toBlockId,
+  );
+  const inputBlocks = (node.data as { inputBlocks?: BlockData[] })?.inputBlocks ?? [];
+  const inputBlock = inputBlocks.find((block) => block.id === explicitBlockId) ?? inputBlocks[0];
+  return inputBlock ? `${node.id}-input-${inputBlock.id}-in` : getDataTargetHandle(node);
 }
 
 function normalizeIntervalSeconds(value: unknown, label = "") {
@@ -2849,17 +3238,49 @@ function buildAdvancedGraphFromStrategyGraph(strategyGraph: StrategyGraphPayload
     const kind = normalizeGraphText(conn.kind, "sequence");
     const isDataLike = /data|result|metric|output|input|stream|monitor/i.test(kind) || targetNode.type === "monitoringNode";
     const isSharedPipelineEdge = conn.sharedDataPipeline === true || sharedPipeline.edgeKeys.has(connectionPairKey(source, target));
-    const sourceHandle = getConnectionSourceHandle(conn, sourceNode);
+    const isCompressedConditionEdge = isCompressedIndicatorConditionConnection(
+      kind,
+      sourceNode,
+      targetNode,
+      Boolean(conn.inlineTriggerId),
+    );
+    const isConditionJunctionEdge = sourceNode.type === "conditionJunction" || targetNode.type === "conditionJunction";
+    const shouldUseConditionMergeEdge = isCompressedConditionEdge || isConditionJunctionEdge;
+    const sourceHandle = isCompressedConditionEdge
+      ? getIndicatorConditionSourceHandle(conn, sourceNode)
+      : getConnectionSourceHandle(conn, sourceNode);
+    const edgeCondition = isCompressedConditionEdge ? getIndicatorEdgeCondition(conn, sourceNode) : null;
     edges.push({
       id: normalizeGraphText(conn.id, `adv-edge-${index}`),
       source,
       target,
       sourceHandle,
-      targetHandle: isDataLike ? getDataTargetHandle(targetNode) : getExecutionTargetHandle(targetNode),
-      type: "custom",
+      targetHandle: targetNode.type === "conditionJunction"
+        ? getConditionJunctionTargetHandle(conn, targetNode)
+        : isDataLike ? getDataTargetHandle(targetNode) : getExecutionTargetHandle(targetNode),
+      type: shouldUseConditionMergeEdge ? "conditionMerge" : "custom",
       animated: true,
-      data: { label: kind, ...(isSharedPipelineEdge ? { sharedDataPipeline: true } : {}) },
-      style: { strokeWidth: isSharedPipelineEdge ? 4 : 3, ...(isSharedPipelineEdge ? { stroke: "var(--advanced-edge-shared-pipeline, #ef4444)" } : {}) },
+      data: {
+        label: kind,
+        ...(isSharedPipelineEdge ? { sharedDataPipeline: true } : {}),
+        ...(shouldUseConditionMergeEdge
+          ? {
+            delay: 0,
+            waitForResult: true,
+            logicMode: conn.logicMode === "OR" ? "OR" : "AND",
+            ...(edgeCondition ? { condition: edgeCondition } : {}),
+            ...(conn.inlineTriggerId ? { inlineTriggerId: conn.inlineTriggerId } : {}),
+          }
+          : {}),
+      },
+      style: {
+        strokeWidth: isSharedPipelineEdge ? 4 : shouldUseConditionMergeEdge ? 3.25 : 3,
+        ...(isSharedPipelineEdge
+          ? { stroke: "var(--advanced-edge-shared-pipeline, #ef4444)" }
+          : shouldUseConditionMergeEdge
+            ? { stroke: "var(--advanced-edge-condition, #f0b90b)" }
+            : {}),
+      },
     });
   });
 
@@ -3001,6 +3422,12 @@ function validateAdvancedNode(node: Node, errors: string[]) {
   if (node.type === "functionNode") {
     const data = node.data as Partial<FunctionNodeData>;
     if (!data.label || !data.functionName || typeof data.code !== "string") errors.push(`${node.id} function data is incomplete`);
+    validateBlockArray(data.inputBlocks, `${node.id}.inputBlocks`, errors);
+    validateBlockArray(data.outputBlocks, `${node.id}.outputBlocks`, errors);
+  }
+
+  if (node.type === "conditionJunction") {
+    const data = node.data as Record<string, unknown>;
     validateBlockArray(data.inputBlocks, `${node.id}.inputBlocks`, errors);
     validateBlockArray(data.outputBlocks, `${node.id}.outputBlocks`, errors);
   }
@@ -3382,9 +3809,17 @@ function repairAdvancedGraph(graph: AdvancedGraph): AdvancedGraph {
       const sourceNode = nodeById.get(edge.source);
       const targetNode = nodeById.get(edge.target);
       if (!sourceNode || !targetNode) return edge;
+      const data = edge.data && typeof edge.data === "object" ? edge.data as Record<string, unknown> : {};
+      const shouldPreserveConditionMerge = edge.type === "conditionMerge" ||
+        isCompressedIndicatorConditionConnection(
+          normalizeGraphText(data.label).toLowerCase(),
+          sourceNode,
+          targetNode,
+          Boolean(data.inlineTriggerId),
+        );
       return {
         ...edge,
-        type: "custom",
+        type: shouldPreserveConditionMerge ? "conditionMerge" : "custom",
         sourceHandle: edge.sourceHandle ?? getOutputHandle(sourceNode),
         targetHandle: edge.targetHandle ?? getExecutionTargetHandle(targetNode),
         style: { ...(edge.style ?? {}), strokeWidth: 3 },

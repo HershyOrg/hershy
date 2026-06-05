@@ -7,7 +7,6 @@ import os from 'node:os';
 import path from 'node:path';
 import { promisify } from 'node:util';
 import { fileURLToPath } from 'node:url';
-import next from 'next';
 import {
   DEFAULT_EXCHANGE_CONNECTIONS,
   SUPPORTED_EXCHANGE_CONNECTION_IDS,
@@ -88,6 +87,8 @@ const HOST_API_BASE = normalizeBaseURL(process.env.HOST_API_BASE || 'http://loca
 const IS_PRODUCTION = process.env.NODE_ENV === 'production';
 const MONACO_VS_DIR = path.join(__dirname, 'node_modules', 'monaco-editor', 'min', 'vs');
 const MONACO_ASSETS_DIR = path.join(MONACO_VS_DIR, 'assets');
+const CLIENT_DIST_DIR = path.join(__dirname, 'dist');
+const CLIENT_INDEX_HTML_PATH = path.join(CLIENT_DIST_DIR, 'index.html');
 const MONACO_WORKER_ALIASES = new Map([
   ['/monaco/vs/base/worker/workerMain.js', 'editor.worker-'],
   ['/monaco/vs/editor/editor.worker.js', 'editor.worker-'],
@@ -110,12 +111,19 @@ function resolveMonacoWorkerAsset(prefix) {
   }
 }
 
-const nextApp = next({ dev: !IS_PRODUCTION });
-const nextHandler = nextApp.getRequestHandler();
-
-await nextApp.prepare();
-
 const app = express();
+let viteDevServer = null;
+
+if (!IS_PRODUCTION) {
+  const { createServer: createViteServer } = await import('vite');
+  viteDevServer = await createViteServer({
+    root: __dirname,
+    server: {
+      middlewareMode: true,
+    },
+    appType: 'spa',
+  });
+}
 
 for (const [route, assetPrefix] of MONACO_WORKER_ALIASES.entries()) {
   app.get(route, (req, res) => {
@@ -794,9 +802,28 @@ app.use('/api', (_req, res) => {
   sendError(res, 404, 'api route not found');
 });
 
-app.all(/.*/, (req, res) => {
-  return nextHandler(req, res);
-});
+if (viteDevServer) {
+  app.use(viteDevServer.middlewares);
+  app.all(/.*/, async (req, res, forwardError) => {
+    try {
+      const template = await fs.readFile(path.join(__dirname, 'index.html'), 'utf8');
+      const html = await viteDevServer.transformIndexHtml(req.originalUrl, template);
+      res.status(200).set({ 'Content-Type': 'text/html' }).end(html);
+    } catch (error) {
+      viteDevServer.ssrFixStacktrace(error);
+      forwardError(error);
+    }
+  });
+} else {
+  app.use(express.static(CLIENT_DIST_DIR, {
+    immutable: true,
+    index: false,
+    maxAge: '1y',
+  }));
+  app.all(/.*/, (_req, res) => {
+    res.sendFile(CLIENT_INDEX_HTML_PATH);
+  });
+}
 
 app.use((error, _req, res, _next) => {
   sendError(res, 500, error?.message || 'internal server error');

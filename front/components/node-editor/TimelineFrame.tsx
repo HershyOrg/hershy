@@ -11,11 +11,9 @@ import {
   Maximize2,
   Minimize2,
   Timer,
-  Zap,
   Building2,
   Globe,
   GripVertical,
-  ArrowRight,
 } from "lucide-react";
 
 function TimelineFrameComponent({ id, data, selected }: NodeProps) {

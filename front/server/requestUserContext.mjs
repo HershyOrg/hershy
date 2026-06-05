@@ -68,7 +68,7 @@ export function buildUserContextPromptSection(userContext) {
     return '';
   }
   const metadata = normalizeObject(userContext?.record);
-  let text = `User-specific session context (generated from Redis/session state and markdown, verify exchanges first):\n${trimForLog(markdown, 14000)}`;
+  let text = `User-specific session context (generated from local session files, verify exchanges first):\n${trimForLog(markdown, 14000)}`;
   if (metadata) {
     text += `\n\nUser session metadata:\n${trimForLog(
       stringifyPrettyJSON({

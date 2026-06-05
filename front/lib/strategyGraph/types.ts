@@ -14,9 +14,16 @@ export type StrategyGraphConnection = {
   sourceBlockId?: unknown;
   fromBlockId?: unknown;
   sourceOutputBlockId?: unknown;
+  targetBlockId?: unknown;
+  toBlockId?: unknown;
+  targetInputBlockId?: unknown;
   label?: unknown;
   description?: unknown;
   sharedDataPipeline?: unknown;
+  inlineTriggerId?: unknown;
+  inlineTriggerCondition?: unknown;
+  inlineTriggerSourceId?: unknown;
+  logicMode?: unknown;
 };
 
 export type StrategyGraphPayload = {

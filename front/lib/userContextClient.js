@@ -1,5 +1,8 @@
-const USER_CONTEXT_STORAGE_KEY = "hershy-user-id";
-const USER_LOGIN_NAME_STORAGE_KEY = "hershy-user-login-name";
+import {
+  clearStoredUserProfile,
+  readStoredUserProfile,
+  writeStoredUserProfile,
+} from "./clientStateStore";
 
 function sanitizeUserId(rawValue) {
   return String(rawValue || "")
@@ -8,10 +11,6 @@ function sanitizeUserId(rawValue) {
     .replace(/[^a-z0-9._-]+/g, "-")
     .replace(/^-+|-+$/g, "")
     .slice(0, 96);
-}
-
-function canUseLocalStorage() {
-  return typeof window !== "undefined" && typeof window.localStorage !== "undefined";
 }
 
 function generateUserId() {
@@ -35,23 +34,27 @@ function hashText(value) {
 }
 
 export function getOrCreateClientUserId() {
-  if (!canUseLocalStorage()) {
+  if (typeof window === "undefined") {
     return "web-anonymous";
   }
 
-  const existing = sanitizeUserId(window.localStorage.getItem(USER_CONTEXT_STORAGE_KEY));
+  const existing = sanitizeUserId(readStoredUserProfile()?.userId);
   if (existing) {
     return existing;
   }
 
   const nextUserId = generateUserId();
-  window.localStorage.setItem(USER_CONTEXT_STORAGE_KEY, nextUserId);
+  writeStoredUserProfile({
+    userId: nextUserId,
+    displayName: "",
+    isLoggedIn: false,
+  });
   return nextUserId;
 }
 
 export function getClientUserProfile() {
   const userId = getOrCreateClientUserId();
-  if (!canUseLocalStorage()) {
+  if (typeof window === "undefined") {
     return {
       userId,
       displayName: "Guest",
@@ -59,7 +62,7 @@ export function getClientUserProfile() {
     };
   }
 
-  const displayName = normalizeLoginName(window.localStorage.getItem(USER_LOGIN_NAME_STORAGE_KEY));
+  const displayName = normalizeLoginName(readStoredUserProfile()?.displayName);
   return {
     userId,
     displayName: displayName || "Guest",
@@ -75,10 +78,11 @@ export function loginClientUser(rawLoginName) {
 
   const slug = sanitizeUserId(displayName) || "account";
   const userId = sanitizeUserId(`user-${slug}-${hashText(displayName)}`) || generateUserId();
-  if (canUseLocalStorage()) {
-    window.localStorage.setItem(USER_CONTEXT_STORAGE_KEY, userId);
-    window.localStorage.setItem(USER_LOGIN_NAME_STORAGE_KEY, displayName);
-  }
+  writeStoredUserProfile({
+    userId,
+    displayName,
+    isLoggedIn: true,
+  });
   return {
     userId,
     displayName,
@@ -87,10 +91,7 @@ export function loginClientUser(rawLoginName) {
 }
 
 export function logoutClientUser() {
-  if (canUseLocalStorage()) {
-    window.localStorage.removeItem(USER_CONTEXT_STORAGE_KEY);
-    window.localStorage.removeItem(USER_LOGIN_NAME_STORAGE_KEY);
-  }
+  clearStoredUserProfile();
   return getClientUserProfile();
 }
 

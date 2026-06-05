@@ -2,7 +2,7 @@
 
 import { memo, useState, useCallback } from "react";
 import { Handle, Position, NodeProps, useReactFlow } from "@xyflow/react";
-import { Layers, ChevronDown, ChevronUp, X, Maximize2, Minimize2 } from "lucide-react";
+import { Layers, ChevronDown, X, Maximize2, Minimize2 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import type { MergedFunctionNodeData, BlockData } from "./types";
 

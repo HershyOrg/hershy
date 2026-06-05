@@ -54,7 +54,7 @@ function estimateNodeSize(node: Node) {
     return { width: 460, height: 180 };
   }
   if (node.type === "conditionJunction") {
-    return { width: 1, height: 96 + Math.max(0, inputCount - 2) * 32 };
+    return { width: 96, height: Math.max(72, 24 + inputCount * 32) };
   }
   if (node.type === "timelineFrame") {
     return { width: 560, height: 380 };
@@ -121,8 +121,8 @@ function getNodeSize(node: Node) {
           height = height || 180;
           break;
         case "conditionJunction":
-          width = width || 1;
-          height = height || 96;
+          width = width || 96;
+          height = height || 72;
           break;
         case "timelineFrame":
           width = width || 560;

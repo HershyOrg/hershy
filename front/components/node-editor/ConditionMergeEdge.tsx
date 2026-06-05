@@ -32,8 +32,11 @@ function getConditionSlotOffset(index: number, count: number) {
   return 16 + index * ((height - 32) / Math.max(count - 1, 1));
 }
 
-function getConditionJunctionCenterOffset(count: number) {
-  return Math.max(72, 24 + count * 32) / 2;
+function getConditionSharedMidOffset(count: number) {
+  if (count <= 1) return getConditionSlotOffset(0, count);
+  const firstOffset = getConditionSlotOffset(0, count);
+  const lastOffset = getConditionSlotOffset(count - 1, count);
+  return (firstOffset + lastOffset) / 2;
 }
 
 function buildOrthogonalInputPath({
@@ -55,12 +58,12 @@ function buildOrthogonalInputPath({
   const index = clamp(inputIndex, 0, count - 1);
   const direction = targetX >= sourceX ? 1 : -1;
   const slotOffset = getConditionSlotOffset(index, count);
-  const mergeY = targetY - slotOffset + getConditionJunctionCenterOffset(count);
+  const mergeY = targetY - slotOffset + getConditionSharedMidOffset(count);
   const mergeX = targetX + direction;
   const availableWidth = Math.max(36, Math.abs(mergeX - sourceX));
-  const pairIndex = Math.floor(index / 2);
+  const pairIndex = count <= 2 ? 0 : Math.floor(index / 2);
   const laneGap = clamp(availableWidth * 0.18, 22, 34);
-  const laneDistance = clamp(42 + pairIndex * laneGap, 42, Math.min(132, availableWidth - 14));
+  const laneDistance = clamp(46 + pairIndex * laneGap, 46, Math.min(132, availableWidth - 14));
   const laneX = mergeX - direction * laneDistance;
   const commands = [`M ${sourceX} ${sourceY}`, `H ${laneX}`];
 
@@ -81,7 +84,7 @@ function buildOrthogonalInputPath({
 function buildOrthogonalTerminalPath(sourceX: number, sourceY: number, targetX: number, targetY: number) {
   const direction = targetX >= sourceX ? 1 : -1;
   const availableWidth = Math.max(40, Math.abs(targetX - sourceX));
-  const trunkX = sourceX + direction * clamp(availableWidth * 0.48, 42, 128);
+  const trunkX = sourceX + direction * clamp(availableWidth * 0.42, 52, 112);
   const commands = [`M ${sourceX} ${sourceY}`, `H ${trunkX}`];
 
   if (Math.abs(sourceY - targetY) > 0.5) {
@@ -100,7 +103,6 @@ function buildOrthogonalTerminalPath(sourceX: number, sourceY: number, targetX: 
 
 function ConditionMergeEdgeComponent({
   id,
-  source,
   sourceX,
   sourceY,
   targetX,
@@ -117,7 +119,6 @@ function ConditionMergeEdgeComponent({
   const color = logicMode === "OR" ? "#f0b90b" : "#eaecef";
   const isInputLeg = Boolean(targetHandleId?.includes("-input-"));
   const isTerminalLeg = !isInputLeg;
-  const sourceNode = nodes.find((node) => node.id === source);
   const targetNode = nodes.find((node) => node.id === target);
   const inputBlocks = getConditionInputBlocks((targetNode?.data as { inputBlocks?: unknown } | undefined)?.inputBlocks);
   const siblingInputEdges = edges.filter((edge) =>
@@ -142,7 +143,6 @@ function ConditionMergeEdgeComponent({
   const markerId = `condition-merge-${id.replace(/[^a-zA-Z0-9_-]/g, "_")}`;
   const strokeDasharray = logicMode === "OR" ? "7 6" : style.strokeDasharray;
   const strokeWidth = selected ? 4 : isTerminalLeg ? 3.25 : 2.75;
-  const shouldShowMergePoint = isTerminalLeg && sourceNode?.type === "conditionJunction";
 
   return (
     <>
@@ -185,16 +185,6 @@ function ConditionMergeEdgeComponent({
           strokeLinejoin: "miter",
         }}
       />
-      {shouldShowMergePoint ? (
-        <EdgeLabelRenderer>
-          <div
-            className="pointer-events-none absolute h-3 w-3 -translate-x-1/2 -translate-y-1/2 rounded-full border-2 border-[#0b0e11] bg-[#f0b90b] shadow-[0_0_0_3px_rgba(240,185,11,0.18)]"
-            style={{
-              transform: `translate(-50%, -50%) translate(${route.mergeX}px, ${route.mergeY}px)`,
-            }}
-          />
-        </EdgeLabelRenderer>
-      ) : null}
       {isInputLeg ? (
         <EdgeLabelRenderer>
           <div

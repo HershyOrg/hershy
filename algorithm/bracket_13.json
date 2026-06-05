@@ -1,0 +1,168 @@
+{
+  "participantCount": 13,
+  "bracketSize": 16,
+  "byeCount": 3,
+  "seedOrder": [
+    1,
+    16,
+    8,
+    9,
+    4,
+    13,
+    5,
+    12,
+    2,
+    15,
+    7,
+    10,
+    3,
+    14,
+    6,
+    11
+  ],
+  "rounds": [
+    [
+      {
+        "id": "r1-m1",
+        "round": 1,
+        "index": 0,
+        "playerA": "Seed 1",
+        "playerB": "BYE",
+        "isBye": true,
+        "autoWinner": "Seed 1"
+      },
+      {
+        "id": "r1-m2",
+        "round": 1,
+        "index": 1,
+        "playerA": "Seed 8",
+        "playerB": "Seed 9",
+        "isBye": false,
+        "autoWinner": null
+      },
+      {
+        "id": "r1-m3",
+        "round": 1,
+        "index": 2,
+        "playerA": "Seed 4",
+        "playerB": "Seed 13",
+        "isBye": false,
+        "autoWinner": null
+      },
+      {
+        "id": "r1-m4",
+        "round": 1,
+        "index": 3,
+        "playerA": "Seed 5",
+        "playerB": "Seed 12",
+        "isBye": false,
+        "autoWinner": null
+      },
+      {
+        "id": "r1-m5",
+        "round": 1,
+        "index": 4,
+        "playerA": "Seed 2",
+        "playerB": "BYE",
+        "isBye": true,
+        "autoWinner": "Seed 2"
+      },
+      {
+        "id": "r1-m6",
+        "round": 1,
+        "index": 5,
+        "playerA": "Seed 7",
+        "playerB": "Seed 10",
+        "isBye": false,
+        "autoWinner": null
+      },
+      {
+        "id": "r1-m7",
+        "round": 1,
+        "index": 6,
+        "playerA": "Seed 3",
+        "playerB": "BYE",
+        "isBye": true,
+        "autoWinner": "Seed 3"
+      },
+      {
+        "id": "r1-m8",
+        "round": 1,
+        "index": 7,
+        "playerA": "Seed 6",
+        "playerB": "Seed 11",
+        "isBye": false,
+        "autoWinner": null
+      }
+    ],
+    [
+      {
+        "id": "r2-m1",
+        "round": 2,
+        "index": 0,
+        "playerA": "Seed 1",
+        "playerB": "W r1-m2",
+        "isBye": false,
+        "autoWinner": null
+      },
+      {
+        "id": "r2-m2",
+        "round": 2,
+        "index": 1,
+        "playerA": "W r1-m3",
+        "playerB": "W r1-m4",
+        "isBye": false,
+        "autoWinner": null
+      },
+      {
+        "id": "r2-m3",
+        "round": 2,
+        "index": 2,
+        "playerA": "Seed 2",
+        "playerB": "W r1-m6",
+        "isBye": false,
+        "autoWinner": null
+      },
+      {
+        "id": "r2-m4",
+        "round": 2,
+        "index": 3,
+        "playerA": "Seed 3",
+        "playerB": "W r1-m8",
+        "isBye": false,
+        "autoWinner": null
+      }
+    ],
+    [
+      {
+        "id": "r3-m1",
+        "round": 3,
+        "index": 0,
+        "playerA": "W r2-m1",
+        "playerB": "W r2-m2",
+        "isBye": false,
+        "autoWinner": null
+      },
+      {
+        "id": "r3-m2",
+        "round": 3,
+        "index": 1,
+        "playerA": "W r2-m3",
+        "playerB": "W r2-m4",
+        "isBye": false,
+        "autoWinner": null
+      }
+    ],
+    [
+      {
+        "id": "r4-m1",
+        "round": 4,
+        "index": 0,
+        "playerA": "W r3-m1",
+        "playerB": "W r3-m2",
+        "isBye": false,
+        "autoWinner": null
+      }
+    ]
+  ]
+}

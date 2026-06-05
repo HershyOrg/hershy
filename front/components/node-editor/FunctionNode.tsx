@@ -5,6 +5,7 @@ import type { ChangeEvent, DragEvent, MouseEvent as ReactMouseEvent } from "reac
 import { Handle, NodeProps, Position, useEdges, useReactFlow, useUpdateNodeInternals } from "@xyflow/react";
 import type { BlockData, ChartComparisonValue, FunctionNodeData, IndicatorCondition, NodeChartPoint } from "./types";
 import {
+  type ConditionMergeMode,
   MetricChart,
   buildMetricSeries,
   createChartComparisonValue,
@@ -109,6 +110,7 @@ type OutputChartModel = {
   latestValue: number;
   condition: IndicatorCondition;
   conditionControls: ThresholdConditionControl[];
+  conditionMergeMode: ConditionMergeMode;
   conditionMet: boolean;
   showChartComparison: boolean;
   showConditionControl: boolean;
@@ -227,6 +229,19 @@ function getThresholdControlHandleId(nodeId: string, blockId: string, controlId:
     : `${nodeId}-trigger-${blockId}-${controlId}-out`;
 }
 
+function isTriggerFormulaHandleId(nodeId: string, handleId: string) {
+  return handleId.startsWith(`${nodeId}-trigger-`) && handleId.endsWith("-out");
+}
+
+function getBlockIdFromTriggerFormulaHandle(nodeId: string, handleId: string, blocks: BlockData[]) {
+  if (!isTriggerFormulaHandleId(nodeId, handleId)) return "";
+  const body = handleId.slice(`${nodeId}-trigger-`.length, -"-out".length);
+  const block = [...blocks]
+    .sort((a, b) => b.id.length - a.id.length)
+    .find((item) => body === item.id || body.startsWith(`${item.id}-`));
+  return block?.id || body;
+}
+
 function compactBlocksForCollapsedHandles(
   blocks: BlockData[],
   connectedHandleIds: Set<string>,
@@ -292,6 +307,58 @@ function normalizeThresholdControls(
     id: "primary",
     condition: fallbackCondition,
   }];
+}
+
+function readConditionMergeMode(value: unknown): ConditionMergeMode | null {
+  const normalized = String(value ?? "").trim().toUpperCase();
+  if (normalized === "OR") return "OR";
+  if (normalized === "AND") return "AND";
+  return null;
+}
+
+function isLowerBoundCondition(condition: IndicatorCondition) {
+  return condition.operator === ">" || condition.operator === ">=";
+}
+
+function isUpperBoundCondition(condition: IndicatorCondition) {
+  return condition.operator === "<" || condition.operator === "<=";
+}
+
+function inferRangeConditionMergeMode(conditions: IndicatorCondition[]): ConditionMergeMode | null {
+  if (conditions.length <= 1) return null;
+
+  const lowerBoundThresholds = conditions
+    .filter(isLowerBoundCondition)
+    .map((condition) => Number(condition.threshold))
+    .filter(Number.isFinite);
+  const upperBoundThresholds = conditions
+    .filter(isUpperBoundCondition)
+    .map((condition) => Number(condition.threshold))
+    .filter(Number.isFinite);
+
+  if (lowerBoundThresholds.length > 0 && upperBoundThresholds.length > 0) {
+    const lowerTrigger = Math.max(...lowerBoundThresholds);
+    const upperTrigger = Math.min(...upperBoundThresholds);
+    return lowerTrigger > upperTrigger ? "OR" : "AND";
+  }
+
+  return null;
+}
+
+function getBlockConditionMergeMode(block: IndicatorOutputBlock, conditions: IndicatorCondition[]): ConditionMergeMode {
+  return inferRangeConditionMergeMode(conditions) ??
+    readConditionMergeMode(block.conditionMergeMode) ??
+    readConditionMergeMode(block.mergeMode) ??
+    readConditionMergeMode(block.logicMode) ??
+    readConditionMergeMode(block.conditionLogic) ??
+    "AND";
+}
+
+function evaluateMergedConditions(value: number, conditions: IndicatorCondition[], mode: ConditionMergeMode) {
+  if (conditions.length === 0) return false;
+  return mode === "OR"
+    ? conditions.some((condition) => evaluateCondition(value, condition))
+    : conditions.every((condition) => evaluateCondition(value, condition));
 }
 
 function createRangeMateCondition(condition: IndicatorCondition): IndicatorCondition {
@@ -1364,12 +1431,16 @@ function FunctionNodeComponent({
         const conditionControls = isBooleanChart
           ? []
           : normalizeThresholdControls(block, condition, showConditionControl);
+        const conditionList = conditionControls.length > 0
+          ? conditionControls.map((control) => control.condition)
+          : [condition];
+        const conditionMergeMode = getBlockConditionMergeMode(block, conditionList);
         const chartComparisonValues = normalizeChartComparisonValues(
           block.chartComparisonValues ?? (index === 0 ? data.chartComparisonValues : []),
         );
         const latestValue = series[series.length - 1]?.value ?? 0;
         const conditionMet = conditionControls.length > 0
-          ? conditionControls.every((control) => evaluateCondition(latestValue, control.condition))
+          ? evaluateMergedConditions(latestValue, conditionList, conditionMergeMode)
           : evaluateCondition(latestValue, condition);
 
         return {
@@ -1386,6 +1457,7 @@ function FunctionNodeComponent({
           latestValue,
           condition,
           conditionControls,
+          conditionMergeMode,
           conditionMet,
           showChartComparison,
           showConditionControl,
@@ -1507,6 +1579,39 @@ function FunctionNodeComponent({
     ),
     [connectedOutputHandleIds, id, visibleOutputBlocks],
   );
+  const collapsedTriggerHandles = useMemo(() => {
+    const topByBlockId = new Map(
+      collapsedOutputBlocks.map((block, index) => [block.id, 160 + index * 28]),
+    );
+    const handles = new Map<string, { id: string; top: number }>();
+
+    outputChartModels.forEach((model, modelIndex) => {
+      const baseTop = topByBlockId.get(model.block.id) ?? 160 + Math.min(modelIndex, collapsedOutputBlocks.length) * 28;
+      if (model.isBooleanChart) {
+        const handleId = getThresholdControlHandleId(id, model.block.id, "primary");
+        if (connectedOutputHandleIds.has(handleId)) {
+          handles.set(handleId, { id: handleId, top: baseTop });
+        }
+      }
+
+      const handleCount = model.conditionControls.length;
+      model.conditionControls.forEach((control, controlIndex) => {
+        const handleId = getThresholdControlHandleId(id, model.block.id, control.id);
+        const offset = handleCount <= 1 ? 0 : (controlIndex - (handleCount - 1) / 2) * 14;
+        handles.set(handleId, { id: handleId, top: baseTop + offset });
+      });
+    });
+
+    connectedOutputHandleIds.forEach((handleId) => {
+      if (!isTriggerFormulaHandleId(id, handleId) || handles.has(handleId)) return;
+      const blockId = getBlockIdFromTriggerFormulaHandle(id, handleId, visibleOutputBlocks);
+      const fallbackIndex = Math.max(0, collapsedOutputBlocks.findIndex((block) => block.id === blockId));
+      const top = topByBlockId.get(blockId) ?? 160 + fallbackIndex * 28;
+      handles.set(handleId, { id: handleId, top });
+    });
+
+    return [...handles.values()];
+  }, [collapsedOutputBlocks, connectedOutputHandleIds, id, outputChartModels, visibleOutputBlocks]);
   const normalVisibleOutputBlocks = useMemo(
     () => visibleOutputBlocks.filter((block) => !isTriggerDataBlock(block)),
     [visibleOutputBlocks],
@@ -1694,15 +1799,22 @@ function FunctionNodeComponent({
   );
 
   const handleToggleExpand = useCallback(() => {
-    const nextExpanded = !isExpanded;
+    const nextExpanded = !(isExpanded || viewMode === "code");
     setIsExpanded(nextExpanded);
-    updateNodeData({ isExpanded: nextExpanded });
+    if (!nextExpanded && viewMode === "code") {
+      setViewMode("node");
+      setCodeOutputId(null);
+    }
+    updateNodeData({
+      isExpanded: nextExpanded,
+      ...(viewMode === "code" && !nextExpanded ? { viewMode: "node" as const } : {}),
+    });
     window.dispatchEvent(
       new CustomEvent("nodeFocus", {
         detail: { nodeId: nextExpanded ? id : null },
       }),
     );
-  }, [id, isExpanded, updateNodeData]);
+  }, [id, isExpanded, updateNodeData, viewMode]);
 
   const handleViewModeToggle = useCallback(() => {
     const nextMode = viewMode === "node" ? "code" : "node";
@@ -1711,11 +1823,15 @@ function FunctionNodeComponent({
     if (nextMode === "code" && targetOutputId) {
       setSelectedOutputId(targetOutputId);
       setCodeOutputId(targetOutputId);
+      setIsExpanded(true);
     } else {
       setCodeOutputId(null);
     }
     setViewMode(nextMode);
-    updateNodeData({ viewMode: nextMode });
+    updateNodeData({
+      viewMode: nextMode,
+      ...(nextMode === "code" ? { isExpanded: true } : {}),
+    });
   }, [outputChartModels, selectedOutput, updateNodeData, viewMode]);
 
   const handleGroupVisualizationFormatChange = useCallback(
@@ -2159,10 +2275,15 @@ function FunctionNodeComponent({
           : control,
       );
       const primaryCondition = nextControls[0]?.condition ?? model.condition;
+      const conditionMergeMode = getBlockConditionMergeMode(
+        model.block,
+        nextControls.map((control) => control.condition),
+      );
       updateOutputBlock(model.block.id, {
         showConditionControl: true,
         condition: primaryCondition,
         conditionControls: nextControls,
+        conditionMergeMode,
       });
     },
     [updateOutputBlock],
@@ -2202,10 +2323,15 @@ function FunctionNodeComponent({
             : control,
         );
         const primaryCondition = nextControls[0]?.condition ?? model.condition;
+        const conditionMergeMode = getBlockConditionMergeMode(
+          model.block,
+          nextControls.map((control) => control.condition),
+        );
         updateOutputBlock(model.block.id, {
           showConditionControl: true,
           condition: primaryCondition,
           conditionControls: nextControls,
+          conditionMergeMode,
         });
         window.requestAnimationFrame(() => updateNodeInternals(id));
       };
@@ -2280,6 +2406,10 @@ function FunctionNodeComponent({
           ]
           : existingControls;
       const primaryCondition = nextControls[0]?.condition ?? model.condition;
+      const conditionMergeMode = getBlockConditionMergeMode(
+        model.block,
+        nextControls.map((control) => control.condition),
+      );
       const sourceHandleIds = nextControls.map((control) =>
         getThresholdControlHandleId(id, model.block.id, control.id),
       );
@@ -2289,6 +2419,7 @@ function FunctionNodeComponent({
         showConditionControl: true,
         condition: primaryCondition,
         conditionControls: nextControls,
+        conditionMergeMode,
       });
 
       window.requestAnimationFrame(() => {
@@ -2307,7 +2438,7 @@ function FunctionNodeComponent({
             chartIndex: model.index,
             condition: primaryCondition,
             conditions: nextControls.map((control) => control.condition),
-            mergeMode: nextControls.length > 1 ? "AND" : undefined,
+            mergeMode: nextControls.length > 1 ? conditionMergeMode : undefined,
           },
         }),
       );
@@ -2368,7 +2499,7 @@ function FunctionNodeComponent({
       );
     });
 
-  if (!isExpanded) {
+  if (!isExpanded && viewMode !== "code") {
     return (
       <div
         className={cn(
@@ -2379,6 +2510,16 @@ function FunctionNodeComponent({
       >
         {renderInputHandles(collapsedInputBlocks, 70)}
         {renderOutputHandles(collapsedOutputBlocks, 160)}
+        {collapsedTriggerHandles.map((handle) => (
+          <Handle
+            key={handle.id}
+            type="source"
+            position={Position.Right}
+            id={handle.id}
+            className="!h-2 !w-2 !border-[#f0b90b] !bg-[#f0b90b]"
+            style={{ right: -5, top: handle.top, opacity: 0, pointerEvents: "none" }}
+          />
+        ))}
 
         <div className="flex items-center justify-between border-b border-slate-200 bg-slate-50 px-3 py-2">
           <div className="flex min-w-0 items-center gap-2">
@@ -2394,9 +2535,9 @@ function FunctionNodeComponent({
             <button
               onClick={handleViewModeToggle}
               className="rounded p-1 text-slate-500 transition-colors hover:bg-slate-200"
-              title={viewMode === "code" ? "Show chart" : "Show code"}
+              title="Show code"
             >
-              {viewMode === "code" ? <Boxes className="h-3.5 w-3.5" /> : <Code2 className="h-3.5 w-3.5" />}
+              <Code2 className="h-3.5 w-3.5" />
             </button>
             <button
               onClick={handleToggleExpand}
@@ -2441,6 +2582,7 @@ function FunctionNodeComponent({
                 series={chartSeries}
                 condition={primaryThresholdConditions[0]}
                 conditions={primaryThresholdConditions}
+                conditionMode={primaryOutputChart?.conditionMergeMode ?? "AND"}
                 comparisonValues={primaryOutputChart?.visibleChartComparisonValues ?? []}
                 compact
                 height={132}
@@ -2899,6 +3041,7 @@ function FunctionNodeComponent({
                           series={model.series}
                           condition={thresholdConditions[0]}
                           conditions={thresholdConditions}
+                          conditionMode={model.conditionMergeMode}
                           comparisonValues={model.visibleChartComparisonValues}
                           height={160}
                           source={model.chartSource}

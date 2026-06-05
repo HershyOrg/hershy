@@ -1,4 +1,3 @@
-import { createClient } from 'redis';
 import fs from 'node:fs/promises';
 import fsSync from 'node:fs';
 import path from 'node:path';
@@ -7,17 +6,11 @@ import { fileURLToPath } from 'node:url';
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 const CONTEXT_DIR = path.resolve(__dirname, '.local', 'contexts');
-const USER_CONTEXT_PREFIX = 'user_context:';
-const DEFAULT_REDIS_URL = process.env.REDIS_URL || 'redis://localhost:6379';
 const memoryContextStore = new Map();
 
 if (!fsSync.existsSync(CONTEXT_DIR)) {
   fsSync.mkdirSync(CONTEXT_DIR, { recursive: true });
 }
-
-let redisClient = null;
-let redisConnectPromise = null;
-let redisMode = 'pending';
 
 function normalizeText(value) {
   return typeof value === 'string' ? value.trim() : '';
@@ -179,106 +172,41 @@ function buildContextMarkdown({
   return `${lines.join('\n')}\n`;
 }
 
-async function connectRedis() {
-  if (redisMode === 'memory') {
-    return null;
-  }
-  if (redisClient?.isOpen) {
-    redisMode = 'redis';
-    return redisClient;
-  }
-  if (!redisConnectPromise) {
-    redisConnectPromise = (async () => {
-      let client = null;
-      try {
-        client = createClient({
-          url: DEFAULT_REDIS_URL,
-          socket: {
-            connectTimeout: 1000,
-            reconnectStrategy: false,
-          },
-        });
-        client.on('error', (error) => {
-          console.error('[contextManager] Redis client error:', error);
-        });
-        await client.connect();
-        redisClient = client;
-        redisMode = 'redis';
-        console.log('[contextManager] Connected to Redis.');
-        return redisClient;
-      } catch (error) {
-        if (client) {
-          try {
-            client.destroy();
-          } catch {
-            // Ignore cleanup errors.
-          }
-        }
-        redisClient = null;
-        redisMode = 'memory';
-        console.warn(`[contextManager] Redis unavailable, falling back to memory store: ${error?.message || 'unknown error'}`);
-        return null;
-      } finally {
-        redisConnectPromise = null;
-      }
-    })();
-  }
-  return redisConnectPromise;
-}
-
-export async function initRedis() {
-  return connectRedis();
-}
-
-async function writeContextValue(userId, value) {
-  const client = await connectRedis();
-  const key = `${USER_CONTEXT_PREFIX}${userId}`;
-  if (client) {
-    try {
-      await client.set(key, JSON.stringify(value));
-      return 'redis';
-    } catch (error) {
-      console.warn(`[contextManager] Redis set failed, using memory store instead: ${error?.message || 'unknown error'}`);
-      redisMode = 'memory';
-      redisClient = null;
-    }
-  }
-
-  memoryContextStore.set(key, JSON.stringify(value));
-  return 'memory';
-}
-
-async function readContextValue(userId) {
-  const key = `${USER_CONTEXT_PREFIX}${userId}`;
-  const client = await connectRedis();
-  if (client) {
-    try {
-      return await client.get(key);
-    } catch (error) {
-      console.warn(`[contextManager] Redis get failed, reading memory store instead: ${error?.message || 'unknown error'}`);
-      redisMode = 'memory';
-      redisClient = null;
-    }
-  }
-  return memoryContextStore.get(key) || null;
+export function getUserContextRecordPath(userId) {
+  return path.join(CONTEXT_DIR, `${sanitizeUserContextID(userId)}_exchange_context.json`);
 }
 
 export async function saveUserContext(userId, contextData) {
   const normalizedUserId = sanitizeUserContextID(userId);
-  const backend = await writeContextValue(normalizedUserId, contextData);
-  return { backend, userId: normalizedUserId };
+  const recordPath = getUserContextRecordPath(normalizedUserId);
+  const record = {
+    ...normalizeObject(contextData),
+    userId: normalizedUserId,
+    recordPath,
+    storageBackend: 'file',
+  };
+  memoryContextStore.set(normalizedUserId, record);
+  await fs.writeFile(recordPath, `${JSON.stringify(record, null, 2)}\n`, 'utf8');
+  return { backend: 'file', userId: normalizedUserId, recordPath };
 }
 
 export async function getUserContext(userId) {
   const normalizedUserId = sanitizeUserContextID(userId);
-  const data = await readContextValue(normalizedUserId);
-  if (!data) {
-    return null;
-  }
+  const cached = memoryContextStore.get(normalizedUserId);
+  if (cached) return cached;
+
+  const recordPath = getUserContextRecordPath(normalizedUserId);
   try {
-    return JSON.parse(data);
-  } catch {
-    return null;
+    const data = await fs.readFile(recordPath, 'utf8');
+    const parsed = normalizeObject(JSON.parse(data));
+    if (!parsed) return null;
+    memoryContextStore.set(normalizedUserId, parsed);
+    return parsed;
+  } catch (error) {
+    if (error?.code === 'ENOENT') {
+      return null;
+    }
+    throw error;
   }
 }
 
@@ -335,7 +263,7 @@ export async function initUserSession({
   };
 
   const markdownPath = getUserContextMarkdownPath(normalizedUserId);
-  let storageBackend = normalizeText(previousContext?.storageBackend) || 'memory';
+  let storageBackend = 'file';
   let markdownContent = buildContextMarkdown({
     userId: normalizedUserId,
     prompt,

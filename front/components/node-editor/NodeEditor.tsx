@@ -9,6 +9,7 @@ import {
   useNodesState,
   useEdgesState,
   addEdge,
+  reconnectEdge,
   Connection,
   ConnectionMode,
   FinalConnectionState,
@@ -26,6 +27,7 @@ import {
   useNodesInitialized,
   PanOnScrollMode,
   type NodeChange,
+  type OnReconnect,
 } from "@xyflow/react";
 import "@xyflow/react/dist/style.css";
 
@@ -51,6 +53,7 @@ import { FSMProvider, useFSM } from "./FSMContext";
 import { Toolbar } from "./Toolbar";
 import { ContextMenu } from "./ContextMenu";
 import type { FunctionNodeData, TimeTriggerData, BranchNodeData, CEXActionData, DEXActionData, ActionNodeData, MergedFunctionNodeData, StreamingNodeData, NodeChartPoint, BlockData, IndicatorCondition } from "./types";
+import { buildConditionBracket } from "./conditionBracket";
 import { cn } from "@/lib/utils";
 import { historyStore } from "@/lib/historyStore";
 import { getEtfDcaStrategyNodes, getPepeHedgeStrategyNodes } from "@/mock-data/client/demo-strategies";
@@ -548,6 +551,133 @@ function getHandleBlockId(handle?: string | null, direction: "source" | "target"
   const pattern = direction === "source" ? /-block-(.+)-out$/ : /-(?:input|block)-(.+)-in$/;
   if (!handle?.endsWith(suffix)) return "";
   return handle.match(pattern)?.[1] ?? "";
+}
+
+function isIndicatorCondition(value: unknown): value is IndicatorCondition {
+  if (!value || typeof value !== "object") return false;
+  const condition = value as Partial<IndicatorCondition>;
+  return [">", ">=", "<", "<="].includes(String(condition.operator)) &&
+    Number.isFinite(Number(condition.threshold));
+}
+
+function getTriggerFormulaHandleInfo(sourceNode: Node | undefined, sourceHandle?: string | null) {
+  if (!sourceNode || !sourceHandle) return null;
+  const prefix = `${sourceNode.id}-trigger-`;
+  const suffix = "-out";
+  if (!sourceHandle.startsWith(prefix) || !sourceHandle.endsWith(suffix)) return null;
+
+  const body = sourceHandle.slice(prefix.length, -suffix.length);
+  const outputBlocks = (sourceNode.data as { outputBlocks?: BlockData[] })?.outputBlocks ?? [];
+  const matchedBlock = [...outputBlocks]
+    .sort((a, b) => b.id.length - a.id.length)
+    .find((block) => body === block.id || body.startsWith(`${block.id}-`));
+
+  if (!matchedBlock) {
+    return { outputBlock: null, outputBlockId: body, controlId: "primary" };
+  }
+
+  const rest = body === matchedBlock.id ? "" : body.slice(matchedBlock.id.length + 1);
+  return {
+    outputBlock: matchedBlock,
+    outputBlockId: matchedBlock.id,
+    controlId: rest || "primary",
+  };
+}
+
+function resolveTriggerFormulaCondition(sourceNode: Node | undefined, sourceHandle?: string | null): IndicatorCondition | null {
+  const handleInfo = getTriggerFormulaHandleInfo(sourceNode, sourceHandle);
+  if (!handleInfo?.outputBlock) return null;
+
+  const block = handleInfo.outputBlock as BlockData & {
+    condition?: unknown;
+    conditionControls?: Array<{ id?: string; condition?: unknown }>;
+  };
+  const nodeData = sourceNode?.data as { condition?: unknown };
+  const fallbackCondition = isIndicatorCondition(block.condition)
+    ? block.condition
+    : isIndicatorCondition(nodeData.condition)
+      ? nodeData.condition
+      : null;
+  const controls = Array.isArray(block.conditionControls) ? block.conditionControls : [];
+  const controlCondition = controls.find((control) => String(control.id || "primary") === handleInfo.controlId)?.condition;
+  const condition = isIndicatorCondition(controlCondition)
+    ? controlCondition
+    : controls.length > 0 && isIndicatorCondition(controls[0]?.condition)
+      ? controls[0].condition
+      : fallbackCondition;
+
+  if (!condition) return null;
+  return {
+    ...condition,
+    metric: condition.metric || block.name || handleInfo.outputBlockId,
+  };
+}
+
+function getConditionForSourceHandle(sourceNode: Node | undefined, sourceHandle?: string | null): IndicatorCondition | null {
+  const triggerCondition = resolveTriggerFormulaCondition(sourceNode, sourceHandle);
+  if (triggerCondition) return triggerCondition;
+
+  const nodeCondition = (sourceNode?.data as { condition?: unknown } | undefined)?.condition;
+  if (isIndicatorCondition(nodeCondition)) {
+    return {
+      ...nodeCondition,
+      metric: nodeCondition.metric || getSourceSignalName(sourceNode, sourceHandle),
+    };
+  }
+
+  return null;
+}
+
+function getConnectionEdgePresentation({
+  params,
+  sourceNode,
+  targetNode,
+  baseData,
+}: {
+  params: Pick<Connection, "sourceHandle" | "targetHandle">;
+  sourceNode?: Node;
+  targetNode?: Node;
+  baseData?: Record<string, unknown>;
+}) {
+  const targetConditionJunctionMode =
+    targetNode?.type === "conditionJunction"
+      ? ((targetNode.data as Record<string, unknown>).mode === "OR" ? "OR" : "AND")
+      : null;
+  const sourceConditionJunctionMode =
+    sourceNode?.type === "conditionJunction"
+      ? ((sourceNode.data as Record<string, unknown>).mode === "OR" ? "OR" : "AND")
+      : null;
+  const isActionTarget = targetNode?.type === "actionNode" || targetNode?.type === "timelineFrame";
+  const isDataFlow = isBlockToInputConnection(params);
+  const isTriggerFormulaActionEdge = Boolean(
+    isActionTarget &&
+    !isDataFlow &&
+    isTriggerFormulaSourceHandle(params.sourceHandle),
+  );
+  const isConditionJunctionActionEdge = Boolean(
+    isActionTarget &&
+    !isDataFlow &&
+    isConditionJunctionSourceHandle(params.sourceHandle),
+  );
+  const shouldUseConditionMerge =
+    Boolean(targetConditionJunctionMode) ||
+    isTriggerFormulaActionEdge ||
+    isConditionJunctionActionEdge;
+  const logicMode = targetConditionJunctionMode ?? sourceConditionJunctionMode ??
+    (baseData?.logicMode === "OR" ? "OR" : "AND");
+  const condition = getConditionForSourceHandle(sourceNode, params.sourceHandle);
+
+  return {
+    type: shouldUseConditionMerge
+      ? "conditionMerge"
+      : isActionTarget && !isDataFlow ? "delay" : "custom",
+    data: {
+      ...(baseData ?? {}),
+      ...(isActionTarget && !isDataFlow ? { delay: 0, waitForResult: true } : {}),
+      ...(shouldUseConditionMerge ? { logicMode } : {}),
+      ...(condition ? { condition } : {}),
+    },
+  };
 }
 
 function sanitizeHandlePart(value: string) {
@@ -1357,6 +1487,9 @@ const SEQUENCE_GROUP_TRANSITION =
   "width 420ms cubic-bezier(0.22,1,0.36,1), height 420ms cubic-bezier(0.22,1,0.36,1), box-shadow 280ms ease";
 const SEQUENCE_LAYOUT_MOVE_DURATION_MS = 420;
 const CONDITION_JUNCTION_ACTION_GAP = 228;
+const CONDITION_BRACKET_ROUND_GAP = 156;
+const CONDITION_BRACKET_LEAF_HEIGHT = 42;
+const CONDITION_BRACKET_ROW_GAP = 22;
 const RUNTIME_PROGRAM_NODE_ID = "hershy-generated-program";
 const FOCUS_NODE_TRANSITION = "opacity 140ms ease, filter 140ms ease";
 const FOCUS_NODE_FILTERS = new Set([
@@ -1567,7 +1700,7 @@ function estimateEditorNodeSize(node: Node) {
     case "branchNode":
       return { width: 460, height: 180 };
     case "conditionJunction":
-      return { width: 1, height: 96 + Math.max(0, inputCount - 2) * 32 };
+      return { width: 96, height: Math.max(72, 24 + inputCount * 32) };
     case "timelineFrame":
       return { width: 560, height: 380 };
     case "clickTrigger":
@@ -2105,6 +2238,60 @@ type ThresholdActionCreateDetail = {
   directSignal?: boolean;
 };
 
+type ConditionJunctionModeChangeDetail = {
+  nodeId: string;
+  mode?: "AND" | "OR";
+};
+
+type ConditionBracketLeafPayload = {
+  id: string;
+  order?: number;
+  sourceNodeId: string;
+  sourceHandleId: string;
+  outputBlockId: string;
+  blockName: string;
+  label: string;
+  condition: IndicatorCondition;
+};
+
+type ConditionLogicTree =
+  | {
+    type: "leaf";
+    sourceNodeId: string;
+    sourceHandleId: string;
+    outputBlockId: string;
+    condition: IndicatorCondition;
+    expression: string;
+  }
+  | {
+    type: "operator";
+    mode: "AND" | "OR";
+    left: ConditionLogicTree;
+    right: ConditionLogicTree;
+    expression: string;
+  };
+
+type ConditionEndpoint = {
+  id: string;
+  source: string;
+  sourceHandle: string;
+  label: string;
+  conditions: IndicatorCondition[];
+  condition: IndicatorCondition & Record<string, unknown>;
+  expression: string;
+  tree: ConditionLogicTree;
+  sourceNodeIds: string[];
+  sourceOutputBlockIds: string[];
+};
+
+type BuiltConditionBracketGraph = {
+  nodes: Node[];
+  edges: Edge[];
+  nodeIds: string[];
+  edgeIds: string[];
+  finalCondition: IndicatorCondition & Record<string, unknown>;
+};
+
 function getAbsoluteNodePosition(node: Node | undefined, nodesById: Map<string, Node>) {
   if (!node) return { x: 0, y: 0 };
   let x = node.position.x;
@@ -2122,7 +2309,209 @@ function getAbsoluteNodePosition(node: Node | undefined, nodesById: Map<string, 
   return { x, y };
 }
 
+function uniqueStrings(values: string[]) {
+  return Array.from(new Set(values.filter(Boolean)));
+}
+
+function normalizeConditionMode(value: unknown, fallback: "AND" | "OR" = "AND"): "AND" | "OR" {
+  return value === "OR" ? "OR" : value === "AND" ? "AND" : fallback;
+}
+
+function sanitizeConditionExpressionField(value: string) {
+  return sanitizeHandlePart(value || "value").replace(/-/g, "_") || "value";
+}
+
+function formatConditionExpressionValue(value: unknown) {
+  const numeric = Number(value);
+  if (Number.isFinite(numeric)) return String(numeric);
+  return JSON.stringify(String(value ?? ""));
+}
+
+function buildLeafConditionExpression(leaf: ConditionBracketLeafPayload) {
+  const field = sanitizeConditionExpressionField(leaf.outputBlockId || leaf.condition.metric || leaf.blockName);
+  return `${leaf.sourceNodeId}::${field} ${leaf.condition.operator} ${formatConditionExpressionValue(leaf.condition.threshold)}`;
+}
+
+function makeLeafConditionEndpoint(leaf: ConditionBracketLeafPayload): ConditionEndpoint {
+  const expression = buildLeafConditionExpression(leaf);
+  const condition = {
+    ...leaf.condition,
+    metric: leaf.condition.metric || leaf.blockName,
+    sourceNodeId: leaf.sourceNodeId,
+    sourceHandleId: leaf.sourceHandleId,
+    sourceOutputBlockId: leaf.outputBlockId,
+    order: leaf.order,
+    expression,
+    conditionExpression: expression,
+  };
+  const tree: ConditionLogicTree = {
+    type: "leaf",
+    sourceNodeId: leaf.sourceNodeId,
+    sourceHandleId: leaf.sourceHandleId,
+    outputBlockId: leaf.outputBlockId,
+    condition,
+    expression,
+  };
+
+  return {
+    id: leaf.id,
+    source: leaf.sourceNodeId,
+    sourceHandle: leaf.sourceHandleId,
+    label: leaf.label,
+    conditions: [condition],
+    condition,
+    expression,
+    tree,
+    sourceNodeIds: [leaf.sourceNodeId],
+    sourceOutputBlockIds: [leaf.outputBlockId],
+  };
+}
+
+function makeMergedConditionEndpoint({
+  id,
+  source,
+  sourceHandle,
+  label,
+  mode,
+  left,
+  right,
+}: {
+  id: string;
+  source: string;
+  sourceHandle: string;
+  label: string;
+  mode: "AND" | "OR";
+  left: ConditionEndpoint;
+  right: ConditionEndpoint;
+}): ConditionEndpoint {
+  const expression = `(${left.expression}) ${mode === "OR" ? "||" : "&&"} (${right.expression})`;
+  const conditions = [...left.conditions, ...right.conditions];
+  const tree: ConditionLogicTree = {
+    type: "operator",
+    mode,
+    left: left.tree,
+    right: right.tree,
+    expression,
+  };
+  const condition = {
+    ...(conditions[0] ?? {
+      metric: "condition",
+      operator: ">=" as const,
+      threshold: 1,
+    }),
+    metric: conditions[0]?.metric || "condition",
+    conditions,
+    mergeMode: mode,
+    expression,
+    conditionExpression: expression,
+    conditionTree: tree,
+    conditionSourceIds: uniqueStrings([...left.sourceNodeIds, ...right.sourceNodeIds]),
+    conditionSourceOutputBlockIds: uniqueStrings([...left.sourceOutputBlockIds, ...right.sourceOutputBlockIds]),
+  };
+
+  return {
+    id,
+    source,
+    sourceHandle,
+    label,
+    conditions,
+    condition,
+    expression,
+    tree,
+    sourceNodeIds: condition.conditionSourceIds as string[],
+    sourceOutputBlockIds: condition.conditionSourceOutputBlockIds as string[],
+  };
+}
+
+function readExistingConditionJunctionMode(nodesById: Map<string, Node>, nodeId: string, fallback: "AND" | "OR") {
+  const data = nodesById.get(nodeId)?.data as Record<string, unknown> | undefined;
+  return normalizeConditionMode(data?.mode, fallback);
+}
+
+function conditionJunctionBelongsToGroup(node: Node | undefined, groupId: string) {
+  if (!node || node.type !== "conditionJunction") return false;
+  const data = node.data as Record<string, unknown> | undefined;
+  return data?.bracketGroupId === groupId || node.id === groupId || node.id.startsWith(`${groupId}-`);
+}
+
+function makeConditionJunctionOutputBlock(): BlockData {
+  return {
+    id: "yes-no",
+    name: "yes/no",
+    description: "condition result",
+    type: "output",
+    outputKind: "boolean-data",
+  };
+}
+
+function getConditionEndpointBlock(endpoint: ConditionEndpoint, fallbackId: "left" | "right" | "input"): BlockData {
+  return {
+    id: fallbackId,
+    name: endpoint.label,
+    description: endpoint.expression,
+    type: "input",
+  };
+}
+
+function getConditionEdgeData(endpoint: ConditionEndpoint, mode: "AND" | "OR", extra: Record<string, unknown> = {}) {
+  const leafTree = endpoint.tree.type === "leaf" ? endpoint.tree : null;
+  const leafOrder = (endpoint.condition as Record<string, unknown>).order;
+  return {
+    ...extra,
+    condition: endpoint.condition,
+    conditionExpression: endpoint.expression,
+    conditionTree: endpoint.tree,
+    conditionSourceIds: endpoint.sourceNodeIds,
+    conditionSourceOutputBlockIds: endpoint.sourceOutputBlockIds,
+    conditionLeaf: leafTree
+      ? {
+        id: endpoint.id,
+        order: typeof leafOrder === "number" && Number.isFinite(leafOrder) ? leafOrder : undefined,
+        sourceNodeId: leafTree.sourceNodeId,
+        sourceHandleId: leafTree.sourceHandleId,
+        outputBlockId: leafTree.outputBlockId,
+        blockName: String(endpoint.condition.metric || leafTree.outputBlockId),
+        label: endpoint.label,
+        condition: leafTree.condition,
+      }
+      : undefined,
+    logicMode: mode,
+  };
+}
+
+function getConditionBracketPositionForAction(actionNode: Node, junctionNode: Node) {
+  const actionSize = getEditorNodeSize(actionNode);
+  const junctionSize = getEditorNodeSize(junctionNode);
+  const data = junctionNode.data as Record<string, unknown>;
+  const roundNo = Number(data.bracketRoundNo);
+  const maxRoundNo = Number(data.bracketMaxRoundNo);
+  const bracketCenterY = Number(data.bracketCenterY);
+  const bracketHeight = Number(data.bracketHeight);
+
+  if (
+    !Number.isFinite(roundNo) ||
+    !Number.isFinite(maxRoundNo) ||
+    !Number.isFinite(bracketCenterY) ||
+    !Number.isFinite(bracketHeight)
+  ) {
+    return null;
+  }
+
+  const actionCenterY = actionNode.position.y + actionSize.height / 2;
+  const centerY = actionCenterY - bracketHeight / 2 + bracketCenterY;
+
+  return {
+    x: actionNode.position.x - CONDITION_JUNCTION_ACTION_GAP - Math.max(0, maxRoundNo - roundNo) * CONDITION_BRACKET_ROUND_GAP,
+    y: centerY - junctionSize.height / 2,
+  };
+}
+
 function getConditionJunctionPositionForAction(actionNode: Node, junctionNode?: Node) {
+  if (junctionNode) {
+    const bracketPosition = getConditionBracketPositionForAction(actionNode, junctionNode);
+    if (bracketPosition) return bracketPosition;
+  }
+
   const actionSize = getEditorNodeSize(actionNode);
   const junctionSize = junctionNode ? getEditorNodeSize(junctionNode) : { width: 1, height: 96 };
 
@@ -2132,17 +2521,380 @@ function getConditionJunctionPositionForAction(actionNode: Node, junctionNode?: 
   };
 }
 
+function buildConditionBracketGraph({
+  baseId,
+  leaves,
+  actionNode,
+  actionId,
+  nodesById,
+  defaultMode,
+}: {
+  baseId: string;
+  leaves: ConditionBracketLeafPayload[];
+  actionNode: Node;
+  actionId: string;
+  nodesById: Map<string, Node>;
+  defaultMode: "AND" | "OR";
+}): BuiltConditionBracketGraph | null {
+  if (leaves.length === 0) return null;
+
+  const bracket = buildConditionBracket(
+    leaves.map((leaf) => ({ id: leaf.id, payload: leaf })),
+    {
+      baseId,
+      leafHeight: CONDITION_BRACKET_LEAF_HEIGHT,
+      rowGap: CONDITION_BRACKET_ROW_GAP,
+    },
+  );
+  const endpointByRepId = new Map<string, ConditionEndpoint>();
+
+  bracket.rounds[0].forEach((node) => {
+    if (node.type !== "leaf" || !node.leaf) return;
+    endpointByRepId.set(node.id, makeLeafConditionEndpoint(node.leaf.payload));
+  });
+
+  const conditionNodes: Node[] = [];
+  const conditionEdges: Edge[] = [];
+  const maxRoundNo = Math.max(1, bracket.rounds.length);
+  const makeNodePatch = (
+    nodeId: string,
+    mode: "AND" | "OR",
+    centerY: number,
+    roundNo: number,
+    inputBlocks: BlockData[],
+    endpoint: ConditionEndpoint,
+  ): Node => {
+    const patch: Node = {
+      id: nodeId,
+      type: "conditionJunction",
+      parentId: actionNode.parentId,
+      extent: actionNode.parentId ? ("parent" as const) : undefined,
+      expandParent: Boolean(actionNode.parentId),
+      selected: false,
+      selectable: false,
+      draggable: false,
+      focusable: false,
+      position: { x: 0, y: 0 },
+      data: {
+        label: mode,
+        mode,
+        bracketGroupId: baseId,
+        bracketRoundNo: roundNo,
+        bracketMaxRoundNo: maxRoundNo,
+        bracketCenterY: centerY,
+        bracketHeight: bracket.height,
+        passthrough: inputBlocks.length <= 1,
+        condition: endpoint.condition,
+        conditionExpression: endpoint.expression,
+        conditionTree: endpoint.tree,
+        conditionSourceIds: endpoint.sourceNodeIds,
+        inputBlocks,
+        outputBlocks: [makeConditionJunctionOutputBlock()],
+      },
+    };
+
+    return {
+      ...patch,
+      position: getConditionJunctionPositionForAction(actionNode, patch),
+    };
+  };
+  const pushInputEdge = (
+    edgeId: string,
+    endpoint: ConditionEndpoint,
+    targetId: string,
+    inputBlockId: string,
+    mode: "AND" | "OR",
+  ) => {
+    conditionEdges.push({
+      id: edgeId,
+      source: endpoint.source,
+      target: targetId,
+      sourceHandle: endpoint.sourceHandle,
+      targetHandle: `${targetId}-input-${inputBlockId}-in`,
+      type: "conditionMerge",
+      selectable: false,
+      data: getConditionEdgeData(endpoint, mode),
+    });
+  };
+
+  bracket.visibleOperators.forEach((operator) => {
+    const leftRepId = operator.left.rep?.sourceId;
+    const rightRepId = operator.right.rep?.sourceId;
+    const leftEndpoint = leftRepId ? endpointByRepId.get(leftRepId) : undefined;
+    const rightEndpoint = rightRepId ? endpointByRepId.get(rightRepId) : undefined;
+    if (!leftEndpoint || !rightEndpoint) return;
+
+    const mode = readExistingConditionJunctionMode(nodesById, operator.id, defaultMode);
+    const outputEndpoint = makeMergedConditionEndpoint({
+      id: operator.id,
+      source: operator.id,
+      sourceHandle: `${operator.id}-condition-out`,
+      label: `${mode} ${operator.roundNo}.${operator.index}`,
+      mode,
+      left: leftEndpoint,
+      right: rightEndpoint,
+    });
+    const inputBlocks = [
+      getConditionEndpointBlock(leftEndpoint, "left"),
+      getConditionEndpointBlock(rightEndpoint, "right"),
+    ];
+
+    conditionNodes.push(makeNodePatch(operator.id, mode, operator.centerY, operator.roundNo, inputBlocks, outputEndpoint));
+    pushInputEdge(`e-${leftEndpoint.id}-${operator.id}-left`, leftEndpoint, operator.id, "left", mode);
+    pushInputEdge(`e-${rightEndpoint.id}-${operator.id}-right`, rightEndpoint, operator.id, "right", mode);
+    endpointByRepId.set(operator.id, outputEndpoint);
+  });
+
+  let rootEndpoint = bracket.rootRep?.sourceId ? endpointByRepId.get(bracket.rootRep.sourceId) : undefined;
+  let rootNodeId = rootEndpoint?.source ?? "";
+  let finalMode = defaultMode;
+
+  if (!rootEndpoint) {
+    const firstLeaf = leaves[0];
+    const leafEndpoint = makeLeafConditionEndpoint(firstLeaf);
+    const nodeId = baseId;
+    finalMode = readExistingConditionJunctionMode(nodesById, nodeId, "AND");
+    const passthroughEndpoint = makeMergedConditionEndpoint({
+      id: nodeId,
+      source: nodeId,
+      sourceHandle: `${nodeId}-condition-out`,
+      label: firstLeaf.label,
+      mode: finalMode,
+      left: leafEndpoint,
+      right: leafEndpoint,
+    });
+    const condition = {
+      ...leafEndpoint.condition,
+      mergeMode: undefined,
+      conditions: [leafEndpoint.condition],
+      expression: leafEndpoint.expression,
+      conditionExpression: leafEndpoint.expression,
+      conditionTree: leafEndpoint.tree,
+      conditionSourceIds: leafEndpoint.sourceNodeIds,
+    };
+    const singleEndpoint: ConditionEndpoint = {
+      ...passthroughEndpoint,
+      condition,
+      expression: leafEndpoint.expression,
+      tree: leafEndpoint.tree,
+      conditions: [leafEndpoint.condition],
+    };
+
+    conditionNodes.push(makeNodePatch(
+      nodeId,
+      finalMode,
+      bracket.height / 2,
+      maxRoundNo,
+      [getConditionEndpointBlock(leafEndpoint, "input")],
+      singleEndpoint,
+    ));
+    pushInputEdge(`e-${leafEndpoint.id}-${nodeId}-input`, leafEndpoint, nodeId, "input", finalMode);
+    rootEndpoint = singleEndpoint;
+    rootNodeId = nodeId;
+  } else if (rootEndpoint.source === rootNodeId) {
+    finalMode = readExistingConditionJunctionMode(nodesById, rootNodeId, defaultMode);
+  }
+
+  if (!rootEndpoint || !rootNodeId) return null;
+
+  const actionEdgeId = `e-${rootNodeId}-${actionId}`;
+  conditionEdges.push({
+    id: actionEdgeId,
+    source: rootEndpoint.source,
+    target: actionId,
+    sourceHandle: rootEndpoint.sourceHandle,
+    targetHandle: `${actionId}-func-in`,
+    type: "conditionMerge",
+    data: getConditionEdgeData(rootEndpoint, finalMode, {
+      delay: 0,
+      waitForResult: true,
+      bracketGroupId: baseId,
+    }),
+  });
+
+  return {
+    nodes: conditionNodes,
+    edges: conditionEdges,
+    nodeIds: conditionNodes.map((node) => node.id),
+    edgeIds: conditionEdges.map((edge) => edge.id),
+    finalCondition: rootEndpoint.condition,
+  };
+}
+
+function readConditionLeafPayloadFromEdge(edge: Edge): ConditionBracketLeafPayload | null {
+  const data = edge.data as Record<string, unknown> | undefined;
+  const rawLeaf = data?.conditionLeaf && typeof data.conditionLeaf === "object"
+    ? data.conditionLeaf as Record<string, unknown>
+    : null;
+  const rawCondition = rawLeaf?.condition ?? data?.condition;
+  if (!rawCondition || typeof rawCondition !== "object") return null;
+
+  const condition = rawCondition as IndicatorCondition;
+  if (!condition.operator || typeof condition.threshold !== "number") return null;
+
+  const sourceNodeId = typeof rawLeaf?.sourceNodeId === "string" && rawLeaf.sourceNodeId
+    ? rawLeaf.sourceNodeId
+    : edge.source;
+  const sourceHandleId = typeof rawLeaf?.sourceHandleId === "string" && rawLeaf.sourceHandleId
+    ? rawLeaf.sourceHandleId
+    : edge.sourceHandle ?? "";
+  if (!sourceNodeId || !sourceHandleId) return null;
+
+  const outputBlockId = typeof rawLeaf?.outputBlockId === "string" && rawLeaf.outputBlockId
+    ? rawLeaf.outputBlockId
+    : typeof (condition as Record<string, unknown>).sourceOutputBlockId === "string"
+      ? (condition as Record<string, string>).sourceOutputBlockId
+      : sanitizeHandlePart(sourceHandleId.replace(/-trigger-.+$/, ""));
+  const blockName = typeof rawLeaf?.blockName === "string" && rawLeaf.blockName
+    ? rawLeaf.blockName
+    : String(condition.metric || outputBlockId || "condition");
+  const label = typeof rawLeaf?.label === "string" && rawLeaf.label
+    ? rawLeaf.label
+    : `${condition.operator} ${formatThresholdActionValue(Number(condition.threshold))}`;
+  const order = typeof rawLeaf?.order === "number" && Number.isFinite(rawLeaf.order)
+    ? rawLeaf.order
+    : typeof (condition as Record<string, unknown>).order === "number" && Number.isFinite((condition as Record<string, unknown>).order)
+      ? Number((condition as Record<string, unknown>).order)
+      : undefined;
+
+  return {
+    id: typeof rawLeaf?.id === "string" && rawLeaf.id
+      ? rawLeaf.id
+      : `condition-leaf-${sanitizeHandlePart(sourceHandleId)}`,
+    order,
+    sourceNodeId,
+    sourceHandleId,
+    outputBlockId,
+    blockName,
+    label,
+    condition: {
+      ...condition,
+      metric: condition.metric || blockName,
+    },
+  };
+}
+
+function rebuildConditionBracketGroup({
+  nodeList,
+  edgeList,
+  groupId,
+  defaultMode,
+}: {
+  nodeList: Node[];
+  edgeList: Edge[];
+  groupId: string;
+  defaultMode: "AND" | "OR";
+}) {
+  const nodesById = new Map(nodeList.map((node) => [node.id, node]));
+  const groupNodeIds = new Set(
+    nodeList
+      .filter((node) => conditionJunctionBelongsToGroup(node, groupId))
+      .map((node) => node.id),
+  );
+  if (groupNodeIds.size === 0) return null;
+
+  const actionEdge = edgeList.find((edge) =>
+    groupNodeIds.has(edge.source) &&
+    edge.sourceHandle?.endsWith("-condition-out") &&
+    nodesById.get(edge.target)?.type === "actionNode",
+  );
+  const actionNode = actionEdge ? nodesById.get(actionEdge.target) : undefined;
+  if (!actionEdge || !actionNode) return null;
+
+  const leavesByHandle = new Map<string, ConditionBracketLeafPayload>();
+  edgeList.forEach((edge) => {
+    if (!groupNodeIds.has(edge.target) || groupNodeIds.has(edge.source) || !edge.targetHandle?.includes("-input-")) return;
+    const leaf = readConditionLeafPayloadFromEdge(edge);
+    if (!leaf) return;
+    const key = `${leaf.sourceNodeId}:${leaf.sourceHandleId}`;
+    const previous = leavesByHandle.get(key);
+    if (!previous || (leaf.order ?? Number.MAX_SAFE_INTEGER) < (previous.order ?? Number.MAX_SAFE_INTEGER)) {
+      leavesByHandle.set(key, leaf);
+    }
+  });
+
+  const leaves = Array.from(leavesByHandle.values()).sort((a, b) =>
+    (a.order ?? Number.MAX_SAFE_INTEGER) - (b.order ?? Number.MAX_SAFE_INTEGER) ||
+    a.sourceHandleId.localeCompare(b.sourceHandleId),
+  );
+  if (leaves.length === 0) return null;
+
+  const bracketGraph = buildConditionBracketGraph({
+    baseId: groupId,
+    leaves,
+    actionNode,
+    actionId: actionNode.id,
+    nodesById,
+    defaultMode,
+  });
+  if (!bracketGraph) return null;
+
+  const actionData = actionNode.data as Record<string, unknown>;
+  const previousTriggerCondition = actionData.triggerCondition && typeof actionData.triggerCondition === "object"
+    ? actionData.triggerCondition as Record<string, unknown>
+    : {};
+  const nextActionNode: Node = {
+    ...actionNode,
+    data: {
+      ...actionData,
+      triggerCondition: {
+        ...bracketGraph.finalCondition,
+        directSignal: previousTriggerCondition.directSignal === true,
+        sourceOutputBlockId: previousTriggerCondition.sourceOutputBlockId ?? leaves[0]?.outputBlockId,
+      },
+    },
+  };
+
+  const nextNodes = [
+    ...nodeList
+      .filter((node) => !conditionJunctionBelongsToGroup(node, groupId))
+      .map((node) => node.id === actionNode.id ? nextActionNode : node),
+    ...bracketGraph.nodes,
+  ];
+  const nextEdges = [
+    ...edgeList.filter((edge) => {
+      if (groupNodeIds.has(edge.source) || groupNodeIds.has(edge.target)) return false;
+      const data = edge.data as Record<string, unknown> | undefined;
+      return data?.bracketGroupId !== groupId;
+    }),
+    ...bracketGraph.edges,
+  ];
+
+  return {
+    nodes: nextNodes,
+    edges: nextEdges,
+    nodeIds: bracketGraph.nodeIds,
+    actionId: actionNode.id,
+  };
+}
+
 function syncConditionJunctionsForAction(nodeList: Node[], edgeList: Edge[], actionNode: Node) {
-  const junctionIds = new Set(
+  const rootJunctionIds = new Set(
     edgeList
       .filter((edge) => edge.target === actionNode.id && edge.sourceHandle?.endsWith("-condition-out"))
       .map((edge) => edge.source),
   );
 
-  if (junctionIds.size === 0) return nodeList;
+  if (rootJunctionIds.size === 0) return nodeList;
+
+  const nodeById = new Map(nodeList.map((node) => [node.id, node]));
+  const bracketGroupIds = new Set<string>();
+  rootJunctionIds.forEach((nodeId) => {
+    const data = nodeById.get(nodeId)?.data as Record<string, unknown> | undefined;
+    if (typeof data?.bracketGroupId === "string" && data.bracketGroupId) {
+      bracketGroupIds.add(data.bracketGroupId);
+    }
+  });
+
+  const shouldMoveJunction = (node: Node) => {
+    if (node.type !== "conditionJunction") return false;
+    if (rootJunctionIds.has(node.id)) return true;
+    const data = node.data as Record<string, unknown> | undefined;
+    return typeof data?.bracketGroupId === "string" && bracketGroupIds.has(data.bracketGroupId);
+  };
 
   return nodeList.map((node) => {
-    if (!junctionIds.has(node.id) || node.type !== "conditionJunction") return node;
+    if (!shouldMoveJunction(node)) return node;
     return {
       ...node,
       parentId: actionNode.parentId,
@@ -2158,6 +2910,97 @@ function formatThresholdActionValue(value: number) {
     minimumFractionDigits: 2,
     maximumFractionDigits: 2,
   }).format(value);
+}
+
+function getEdgeConditionPayload(edge: Edge): (IndicatorCondition & Record<string, unknown>) | null {
+  const condition = (edge.data as { condition?: unknown } | undefined)?.condition;
+  if (isIndicatorCondition(condition)) return condition;
+
+  if (condition && typeof condition === "object") {
+    const record = condition as IndicatorCondition & Record<string, unknown>;
+    if (Array.isArray(record.conditions) || typeof record.expression === "string" || typeof record.conditionExpression === "string") {
+      return record;
+    }
+  }
+
+  return null;
+}
+
+function getConditionsFromPayload(payload: (IndicatorCondition & Record<string, unknown>) | null) {
+  if (!payload) return [];
+  if (Array.isArray(payload.conditions)) {
+    const nested = payload.conditions.filter(isIndicatorCondition);
+    if (nested.length > 0) return nested;
+  }
+  return isIndicatorCondition(payload) ? [payload] : [];
+}
+
+function getConditionPayloadExpression(payload: (IndicatorCondition & Record<string, unknown>) | null) {
+  if (!payload) return "";
+  return typeof payload.conditionExpression === "string"
+    ? payload.conditionExpression
+    : typeof payload.expression === "string"
+      ? payload.expression
+      : "";
+}
+
+function buildMergedJunctionCondition(junctionNode: Node | undefined, inputEdges: Edge[]) {
+  const mode = ((junctionNode?.data as Record<string, unknown> | undefined)?.mode === "OR" ? "OR" : "AND") as "AND" | "OR";
+  const payloads = inputEdges
+    .map(getEdgeConditionPayload)
+    .filter((condition): condition is IndicatorCondition & Record<string, unknown> => Boolean(condition));
+  const conditions = payloads.flatMap(getConditionsFromPayload);
+
+  if (conditions.length === 0) return null;
+
+  const expressionParts = payloads.map(getConditionPayloadExpression).filter(Boolean);
+  const expression = expressionParts.length > 0
+    ? expressionParts.map((part) => `(${part})`).join(` ${mode === "OR" ? "||" : "&&"} `)
+    : "";
+  const conditionTrees = payloads
+    .map((payload) => payload.conditionTree)
+    .filter(Boolean);
+
+  return {
+    ...conditions[0],
+    metric: conditions[0].metric || "condition",
+    conditions,
+    mergeMode: mode,
+    ...(expression ? { expression, conditionExpression: expression } : {}),
+    ...(conditionTrees.length > 0
+      ? {
+        conditionTree: conditionTrees.length === 1
+          ? conditionTrees[0]
+          : { type: "operator", mode, children: conditionTrees, expression },
+      }
+      : {}),
+  };
+}
+
+function syncConditionJunctionOutputEdges(edgeList: Edge[], nodeList: Node[], junctionId: string) {
+  const nodesById = new Map(nodeList.map((node) => [node.id, node]));
+  const junctionNode = nodesById.get(junctionId);
+  if (!junctionNode) return edgeList;
+
+  const inputEdges = edgeList.filter((edge) => edge.target === junctionId && edge.targetHandle?.includes("-input-"));
+  const mergedCondition = buildMergedJunctionCondition(junctionNode, inputEdges);
+  if (!mergedCondition) return edgeList;
+  const logicMode = mergedCondition.mergeMode;
+
+  return edgeList.map((edge) => {
+    if (edge.source !== junctionId || !edge.sourceHandle?.endsWith("-condition-out")) return edge;
+    return {
+      ...edge,
+      type: "conditionMerge",
+      data: {
+        ...edge.data,
+        delay: 0,
+        waitForResult: true,
+        condition: mergedCondition,
+        logicMode,
+      },
+    };
+  });
 }
 
 function NodeEditorInner({ initialGraph, initialGraphVersion = 0, programCode = "", previewMode = false }: NodeEditorProps) {
@@ -2979,13 +3822,35 @@ function NodeEditorInner({ initialGraph, initialGraphVersion = 0, programCode = 
         metric: condition.metric || detail.blockName,
       }));
       const isDirectSignal = detail.directSignal === true;
-      const shouldMergeConditions = !isDirectSignal && sourceHandleIds.length > 1;
+      const defaultMode = normalizeConditionMode(detail.mergeMode, "AND");
       const junctionId = `condition-junction-${sanitizeHandlePart(detail.sourceNodeId)}-${sanitizeHandlePart(detail.outputBlockId)}`;
+      const conditionLeaves: ConditionBracketLeafPayload[] = sourceHandleIds.map((sourceHandleId, index) => {
+      const condition = conditions[index] ?? conditions[0];
+        return {
+          id: `condition-leaf-${sanitizeHandlePart(sourceHandleId)}`,
+          order: index,
+          sourceNodeId: detail.sourceNodeId,
+          sourceHandleId,
+          outputBlockId: detail.outputBlockId,
+          blockName: detail.blockName,
+          label: condition
+            ? `${condition.operator} ${formatThresholdActionValue(Number(condition.threshold))}`
+            : `C${index + 1}`,
+          condition,
+        };
+      });
+      if (conditionLeaves.length === 0) return;
+
       const directActionEdge = edges.find((edge) => {
         if (edge.source !== detail.sourceNodeId || !sourceHandleIdSet.has(edge.sourceHandle ?? "")) return false;
         return nodesById.get(edge.target)?.type === "actionNode";
       });
-      const junctionActionEdge = edges.find((edge) => edge.source === junctionId && edge.sourceHandle === `${junctionId}-condition-out`);
+      const junctionActionEdge = edges.find((edge) => {
+        const source = nodesById.get(edge.source);
+        return conditionJunctionBelongsToGroup(source, junctionId) &&
+          edge.sourceHandle?.endsWith("-condition-out") &&
+          nodesById.get(edge.target)?.type === "actionNode";
+      });
       const existingTargetNode =
         (junctionActionEdge ? nodesById.get(junctionActionEdge.target) : undefined) ??
         (directActionEdge ? nodesById.get(directActionEdge.target) : undefined);
@@ -3003,22 +3868,27 @@ function NodeEditorInner({ initialGraph, initialGraphVersion = 0, programCode = 
       const parentPosition = targetParentId
         ? getAbsoluteNodePosition(nodesById.get(targetParentId), nodesById)
         : { x: 0, y: 0 };
+      const bracketRoundCount = Math.max(1, Math.ceil(Math.log2(Math.max(1, conditionLeaves.length))));
+      const actionOffsetX =
+        92 +
+        CONDITION_JUNCTION_ACTION_GAP +
+        Math.max(0, bracketRoundCount - 1) * CONDITION_BRACKET_ROUND_GAP;
       const actionPosition = {
-        x: anchorPosition.x + (shouldMergeConditions ? 320 : 92) - parentPosition.x,
+        x: anchorPosition.x + actionOffsetX - parentPosition.x,
         y: anchorPosition.y - 58 - parentPosition.y,
       };
-      const triggerCondition = {
+      const fallbackTriggerCondition = {
         ...conditions[0],
         metric: conditions[0]?.metric || detail.blockName,
         conditions,
-        mergeMode: shouldMergeConditions ? (detail.mergeMode ?? "AND") : undefined,
+        mergeMode: conditionLeaves.length > 1 ? defaultMode : undefined,
         directSignal: isDirectSignal,
       };
       const conditionSummary = conditions
         .map((condition) => `${condition.operator} ${formatThresholdActionValue(Number(condition.threshold))}`)
-        .join(` ${detail.mergeMode ?? "AND"} `);
+        .join(` ${defaultMode} `);
       const existingActionData = existingTargetNode?.data as Partial<DEXActionData> | undefined;
-      const actionData: DEXActionData = {
+      const baseActionData: DEXActionData = {
         ...(existingActionData ?? {}),
         label: isDirectSignal
           ? `Action when ${detail.blockName} YES`
@@ -3032,92 +3902,48 @@ function NodeEditorInner({ initialGraph, initialGraphVersion = 0, programCode = 
           ? existingActionData.outputBlocks
           : [{ id: `dex-ob-${now}`, name: "success", type: "output" }]),
         isExpanded: false,
-        triggerCondition,
+        triggerCondition: fallbackTriggerCondition,
         triggerOutputBlockId: detail.outputBlockId,
       };
-      const junctionInputBlocks: BlockData[] = sourceHandleIds.map((sourceHandleId, index) => ({
-        id: `range-${index + 1}`,
-        name: conditions[index]
-          ? `${conditions[index].operator} ${formatThresholdActionValue(Number(conditions[index].threshold))}`
-          : `C${index + 1}`,
-        description: sourceHandleId,
-        type: "input",
-      }));
-      const junctionData = {
-        label: "Range",
-        mode: detail.mergeMode ?? "AND",
-        inputBlocks: junctionInputBlocks,
-        outputBlocks: [
-          {
-            id: "yes-no",
-            name: "yes/no",
-            description: "range condition result",
-            type: "output",
-            outputKind: "boolean-data",
-          },
-        ],
+      const actionNodeBase: Node<DEXActionData> = {
+        id: actionId,
+        type: "actionNode",
+        parentId: targetParentId,
+        extent: targetParentId ? ("parent" as const) : undefined,
+        expandParent: Boolean(targetParentId),
+        position: actionPosition,
+        selected: true,
+        data: baseActionData,
       };
-      const nextEdge: Edge = {
-        id: `e-${detail.sourceNodeId}-${actionId}-${now}`,
-        source: detail.sourceNodeId,
-        target: actionId,
-        sourceHandle: detail.sourceHandleId,
-        targetHandle: `${actionId}-func-in`,
-        type: "conditionMerge",
-        data: {
-          delay: 0,
-          waitForResult: true,
-          sourceOutputBlockId: detail.outputBlockId,
-          condition: triggerCondition,
+      const bracketGraph = buildConditionBracketGraph({
+        baseId: junctionId,
+        leaves: conditionLeaves,
+        actionNode: actionNodeBase,
+        actionId,
+        nodesById,
+        defaultMode,
+      });
+      if (!bracketGraph) return;
+      const actionData: DEXActionData = {
+        ...baseActionData,
+        triggerCondition: {
+          ...bracketGraph.finalCondition,
           directSignal: isDirectSignal,
-          logicMode: detail.mergeMode ?? "AND",
+          sourceOutputBlockId: detail.outputBlockId,
         },
       };
-      const thresholdMergeEdges: Edge[] = sourceHandleIds.map((sourceHandleId, index) => ({
-        id: `e-${detail.sourceNodeId}-${junctionId}-${index}-${now}`,
-        source: detail.sourceNodeId,
-        target: junctionId,
-        sourceHandle: sourceHandleId,
-        targetHandle: `${junctionId}-input-${junctionInputBlocks[index].id}-in`,
-        type: "conditionMerge",
-        selectable: false,
-        data: {
-          condition: conditions[index],
-          logicMode: detail.mergeMode ?? "AND",
-        },
-      }));
-      const junctionToActionEdge: Edge = {
-        id: `e-${junctionId}-${actionId}-${now}`,
-        source: junctionId,
-        target: actionId,
-        sourceHandle: `${junctionId}-condition-out`,
-        targetHandle: `${actionId}-func-in`,
-        type: "conditionMerge",
-        data: {
-          delay: 0,
-          waitForResult: true,
-          condition: triggerCondition,
-          logicMode: detail.mergeMode ?? "AND",
-        },
+      const actionNodePatch: Node<DEXActionData> = {
+        ...actionNodeBase,
+        data: actionData,
       };
 
       skipNextStrategyRelayoutRef.current = true;
 
       setNodes((currentNodes) => {
         const hasExistingTargetInState = currentNodes.some((node) => node.id === actionId);
-        const actionNodePatch: Node<DEXActionData> = {
-          id: actionId,
-          type: "actionNode",
-          parentId: targetParentId,
-          extent: targetParentId ? ("parent" as const) : undefined,
-          expandParent: Boolean(targetParentId),
-          position: actionPosition,
-          selected: true,
-        data: actionData,
-      };
-      const junctionPosition = getConditionJunctionPositionForAction(actionNodePatch);
-      let nextNodes: Node[] = hasExistingTargetInState
-          ? currentNodes.map((node) =>
+        const withoutOldConditionNodes = currentNodes.filter((node) => !conditionJunctionBelongsToGroup(node, junctionId));
+        let nextNodes: Node[] = hasExistingTargetInState
+          ? withoutOldConditionNodes.map((node) =>
             node.id === actionId
               ? {
                 ...node,
@@ -3126,52 +3952,38 @@ function NodeEditorInner({ initialGraph, initialGraphVersion = 0, programCode = 
               : { ...node, selected: false },
           )
           : [
-            ...currentNodes.map((node) => ({ ...node, selected: false })),
+            ...withoutOldConditionNodes.map((node) => ({ ...node, selected: false })),
             actionNodePatch,
           ];
 
-        if (shouldMergeConditions) {
-          const junctionNodePatch: Node = {
-            id: junctionId,
-            type: "conditionJunction",
-            parentId: targetParentId,
-            extent: targetParentId ? ("parent" as const) : undefined,
-            expandParent: Boolean(targetParentId),
-            position: junctionPosition,
-            selected: false,
-            selectable: false,
-            draggable: false,
-            focusable: false,
-            data: junctionData,
-          };
-          const hasJunctionInState = nextNodes.some((node) => node.id === junctionId);
-          nextNodes = hasJunctionInState
-            ? nextNodes.map((node) => node.id === junctionId ? { ...node, ...junctionNodePatch } : node)
-            : [...nextNodes, junctionNodePatch];
-        }
+        nextNodes = [...nextNodes, ...bracketGraph.nodes];
 
         return resizeParentsToFitChildren(nextNodes);
       });
 
       setEdges((currentEdges) => {
+        const oldConditionNodeIds = new Set(
+          nodes
+            .filter((node) => conditionJunctionBelongsToGroup(node, junctionId))
+            .map((node) => node.id),
+        );
+        bracketGraph.nodeIds.forEach((nodeId) => oldConditionNodeIds.add(nodeId));
         const retainedEdges = currentEdges.filter((edge) => {
           if (edge.source === detail.sourceNodeId && sourceHandleIdSet.has(edge.sourceHandle ?? "")) return false;
-          if (shouldMergeConditions && (edge.source === junctionId || edge.target === junctionId)) return false;
+          if (oldConditionNodeIds.has(edge.source) || oldConditionNodeIds.has(edge.target)) return false;
           return true;
         });
 
-        return shouldMergeConditions
-          ? [...retainedEdges, ...thresholdMergeEdges, junctionToActionEdge]
-          : [...retainedEdges, nextEdge];
+        return [...retainedEdges, ...bracketGraph.edges];
       });
 
       window.requestAnimationFrame(() => {
         updateNodeInternals(detail.sourceNodeId);
-        if (shouldMergeConditions) updateNodeInternals(junctionId);
+        bracketGraph.nodeIds.forEach((nodeId) => updateNodeInternals(nodeId));
         updateNodeInternals(actionId);
         window.setTimeout(() => {
           updateNodeInternals(detail.sourceNodeId);
-          if (shouldMergeConditions) updateNodeInternals(junctionId);
+          bracketGraph.nodeIds.forEach((nodeId) => updateNodeInternals(nodeId));
           updateNodeInternals(actionId);
         }, 0);
       });
@@ -3179,10 +3991,8 @@ function NodeEditorInner({ initialGraph, initialGraphVersion = 0, programCode = 
       setFocusState({
         isActive: true,
         focusedNodeId: detail.sourceNodeId,
-        connectedNodeIds: shouldMergeConditions ? [junctionId, actionId] : [actionId],
-        connectedEdgeIds: shouldMergeConditions
-          ? [...thresholdMergeEdges.map((edge) => edge.id), junctionToActionEdge.id]
-          : [nextEdge.id],
+        connectedNodeIds: [...bracketGraph.nodeIds, actionId],
+        connectedEdgeIds: bracketGraph.edgeIds,
       });
     },
     [edges, nodes, resizeParentsToFitChildren, screenToFlowPosition, setEdges, setNodes, updateNodeInternals],
@@ -3192,6 +4002,72 @@ function NodeEditorInner({ initialGraph, initialGraphVersion = 0, programCode = 
     window.addEventListener("createThresholdActionNode", handleCreateThresholdActionNode);
     return () => window.removeEventListener("createThresholdActionNode", handleCreateThresholdActionNode);
   }, [handleCreateThresholdActionNode]);
+
+  const handleConditionJunctionModeChange = useCallback(
+    (event: Event) => {
+      const detail = (event as CustomEvent<ConditionJunctionModeChangeDetail>).detail;
+      if (!detail?.nodeId) return;
+
+      const targetNode = nodes.find((node) => node.id === detail.nodeId);
+      if (!targetNode || targetNode.type !== "conditionJunction") return;
+
+      const targetData = targetNode.data as Record<string, unknown>;
+      const groupId = typeof targetData.bracketGroupId === "string" ? targetData.bracketGroupId : "";
+      if (!groupId) return;
+
+      const currentMode = normalizeConditionMode(targetData.mode, "AND");
+      const nextMode = normalizeConditionMode(detail.mode, currentMode === "OR" ? "AND" : "OR");
+      const nodeListWithMode = nodes.map((node) =>
+        node.id === detail.nodeId
+          ? {
+            ...node,
+            data: {
+              ...(node.data as Record<string, unknown>),
+              label: nextMode,
+              mode: nextMode,
+            },
+          }
+          : node,
+      );
+      const rebuilt = rebuildConditionBracketGroup({
+        nodeList: nodeListWithMode,
+        edgeList: edges,
+        groupId,
+        defaultMode: nextMode,
+      });
+
+      if (!rebuilt) {
+        setNodes(nodeListWithMode);
+        setEdges((currentEdges) => currentEdges.map((edge) => {
+          if (edge.source !== detail.nodeId && edge.target !== detail.nodeId) return edge;
+          return {
+            ...edge,
+            data: {
+              ...(edge.data as Record<string, unknown> | undefined),
+              logicMode: nextMode,
+            },
+          };
+        }));
+        window.requestAnimationFrame(() => updateNodeInternals(detail.nodeId));
+        return;
+      }
+
+      skipNextStrategyRelayoutRef.current = true;
+      setNodes(resizeParentsToFitChildren(rebuilt.nodes));
+      setEdges(rebuilt.edges);
+
+      window.requestAnimationFrame(() => {
+        rebuilt.nodeIds.forEach((nodeId) => updateNodeInternals(nodeId));
+        updateNodeInternals(rebuilt.actionId);
+      });
+    },
+    [edges, nodes, resizeParentsToFitChildren, setEdges, setNodes, updateNodeInternals],
+  );
+
+  useEffect(() => {
+    window.addEventListener("conditionJunctionModeChange", handleConditionJunctionModeChange);
+    return () => window.removeEventListener("conditionJunctionModeChange", handleConditionJunctionModeChange);
+  }, [handleConditionJunctionModeChange]);
 
   // Calculate connected nodes and edges when focus changes.
   // A focused parent/group should keep every descendant block in the same focus set.
@@ -4088,29 +4964,22 @@ function NodeEditorInner({ initialGraph, initialGraphVersion = 0, programCode = 
         }
       }
 
-      const isActionTarget = targetNode?.type === "actionNode" || targetNode?.type === "timelineFrame";
-      const isDataFlow = isBlockToInputConnection(nextParams);
-      const isTriggerFormulaActionEdge = Boolean(
-        isActionTarget &&
-        !isDataFlow &&
-        isTriggerFormulaSourceHandle(nextParams.sourceHandle),
-      );
-      const targetConditionJunctionMode =
-        targetNode?.type === "conditionJunction"
-          ? ((targetNode.data as Record<string, unknown>).mode === "OR" ? "OR" : "AND")
-          : null;
-      const edgeType = targetConditionJunctionMode || isTriggerFormulaActionEdge
-        ? "conditionMerge"
-        : isActionTarget && !isDataFlow ? "delay" : "custom";
-      const edgeData = {
-        ...(isActionTarget && !isDataFlow ? { delay: 0, waitForResult: true } : {}),
-        ...(targetConditionJunctionMode || isTriggerFormulaActionEdge
-          ? { logicMode: targetConditionJunctionMode ?? "AND" }
-          : {}),
-      };
+      const edgePresentation = getConnectionEdgePresentation({
+        params: nextParams,
+        sourceNode,
+        targetNode,
+      });
 
       const newEdgeId = `e-${nextParams.source}-${nextParams.target}-${Date.now()}`;
-      setEdges((eds) => addEdge({ ...nextParams, id: newEdgeId, type: edgeType, data: edgeData }, eds));
+      setEdges((eds) => {
+        const nextEdges = addEdge(
+          { ...nextParams, id: newEdgeId, type: edgePresentation.type, data: edgePresentation.data },
+          eds,
+        );
+        return targetNode?.type === "conditionJunction"
+          ? syncConditionJunctionOutputEdges(nextEdges, nodes, targetNode.id)
+          : nextEdges;
+      });
 
       // ── Auto-reparent: if one end is inside a sequence, keep the connected
       //    node in that same sequence so edges never cross sequence boundaries.
@@ -4186,6 +5055,125 @@ function NodeEditorInner({ initialGraph, initialGraphVersion = 0, programCode = 
       }
     },
     [setEdges, nodes, getConnectedInfo, setNodes, resizeParentsToFitChildren, updateNodeInternals]
+  );
+
+  const handleReconnect = useCallback<OnReconnect<Edge>>(
+    (oldEdge, newConnection) => {
+      if (previewMode) return;
+
+      const normalizedConnection = normalizeConnectionDirection(newConnection);
+      if (!normalizedConnection || !isAllowedEditorConnection(normalizedConnection)) {
+        return;
+      }
+
+      const nodesById = new Map(nodes.map((node) => [node.id, node]));
+      const sourceNode = nodesById.get(normalizedConnection.source);
+      const targetNode = nodesById.get(normalizedConnection.target);
+      const sourceSequenceId = getSequenceAncestorId(normalizedConnection.source, nodesById);
+      const targetSequenceId = getSequenceAncestorId(normalizedConnection.target, nodesById);
+      if (!sequenceBoundaryCanCross(sourceSequenceId, targetSequenceId, nodesById)) {
+        return;
+      }
+
+      let nextParams: Connection = { ...normalizedConnection };
+      const currentOldEdge = edges.find((edge) => edge.id === oldEdge.id) ?? oldEdge;
+      const oldTargetNode = nodesById.get(currentOldEdge.target);
+      const shouldUseAsInput = Boolean(
+        sourceNode &&
+        targetNode &&
+        isConnectableSourceHandle(nextParams.sourceHandle) &&
+        (isInputBlockTargetHandle(nextParams.targetHandle) ||
+          (isOutputBlockSourceHandle(nextParams.sourceHandle) &&
+            canPromoteExecutionTargetToInput(targetNode, nextParams.targetHandle))),
+      );
+      const inputUpdate = sourceNode && targetNode && shouldUseAsInput
+        ? buildInputConnectionUpdate({
+          sourceNode,
+          targetNode,
+          sourceHandle: nextParams.sourceHandle,
+          targetHandle: nextParams.targetHandle,
+        })
+        : null;
+
+      if (inputUpdate) {
+        nextParams = {
+          ...nextParams,
+          targetHandle: inputUpdate.targetHandle,
+        };
+      }
+
+      const edgePresentation = getConnectionEdgePresentation({
+        params: nextParams,
+        sourceNode,
+        targetNode,
+        baseData: currentOldEdge.data as Record<string, unknown> | undefined,
+      });
+      const reconnectedEdges = reconnectEdge(
+        currentOldEdge,
+        nextParams,
+        edges,
+        { shouldReplaceId: false },
+      ).map((edge) =>
+        edge.id === currentOldEdge.id
+          ? {
+            ...edge,
+            type: edgePresentation.type,
+            data: edgePresentation.data,
+          }
+          : edge,
+      );
+
+      const junctionIdsToSync = new Set<string>();
+      if (targetNode?.type === "conditionJunction") junctionIdsToSync.add(targetNode.id);
+      if (oldTargetNode?.type === "conditionJunction") junctionIdsToSync.add(oldTargetNode.id);
+      const oldSourceNode = nodesById.get(currentOldEdge.source);
+      if (oldSourceNode?.type === "conditionJunction") junctionIdsToSync.add(oldSourceNode.id);
+
+      let nextEdges = reconnectedEdges;
+      junctionIdsToSync.forEach((junctionId) => {
+        nextEdges = syncConditionJunctionOutputEdges(nextEdges, nodes, junctionId);
+      });
+
+      const removableActionIds = new Set<string>();
+      if (
+        oldTargetNode?.type === "actionNode" &&
+        currentOldEdge.target !== nextParams.target &&
+        !nextEdges.some((edge) => edge.source === currentOldEdge.target || edge.target === currentOldEdge.target)
+      ) {
+        removableActionIds.add(currentOldEdge.target);
+      }
+
+      if (removableActionIds.size > 0) {
+        nextEdges = nextEdges.filter((edge) => !removableActionIds.has(edge.source) && !removableActionIds.has(edge.target));
+      }
+
+      setEdges(nextEdges);
+      setNodes((currentNodes) => {
+        const nextNodes = currentNodes
+          .filter((node) => !removableActionIds.has(node.id))
+          .map((node) => {
+            if (!inputUpdate || node.id !== targetNode?.id) return node;
+            const nodeData = node.data as Record<string, unknown>;
+            return {
+              ...node,
+              data: {
+                ...node.data,
+                inputBlocks: inputUpdate.inputBlocks,
+                inputDescription: nodeData.inputDescription || `입력 데이터: ${inputUpdate.connectedFrom}`,
+              },
+            };
+          });
+
+        return resizeParentsToFitChildren(nextNodes);
+      });
+
+      window.requestAnimationFrame(() => {
+        updateNodeInternals(nextParams.source);
+        updateNodeInternals(nextParams.target);
+        if (targetNode?.type === "conditionJunction") updateNodeInternals(targetNode.id);
+      });
+    },
+    [edges, nodes, previewMode, resizeParentsToFitChildren, setEdges, setNodes, updateNodeInternals],
   );
 
   const isValidConnection = useCallback(
@@ -4776,9 +5764,16 @@ function NodeEditorInner({ initialGraph, initialGraphVersion = 0, programCode = 
         .filter((node) => (node.data as any)?.conditionMet)
         .map((node) => node.id),
     );
+    const activeConditionJunctionIds = new Set(
+      outputBlockEdges
+        .filter((edge) => activeConditionSourceIds.has(edge.source) && edge.target.startsWith("condition-junction-"))
+        .map((edge) => edge.target),
+    );
+    const isActiveConditionEdge = (edge: Edge) =>
+      activeConditionSourceIds.has(edge.source) || activeConditionJunctionIds.has(edge.source);
 
     const applyConditionEdgeStyle = (edge: Edge) => {
-      if (!activeConditionSourceIds.has(edge.source)) return edge;
+      if (!isActiveConditionEdge(edge)) return edge;
 
       return {
         ...edge,
@@ -4845,7 +5840,7 @@ function NodeEditorInner({ initialGraph, initialGraphVersion = 0, programCode = 
         };
       }
 
-      if (activeConditionSourceIds.has(edge.source)) {
+      if (isActiveConditionEdge(edge)) {
         return applyConditionEdgeStyle(edge);
       }
 
@@ -4882,6 +5877,7 @@ function NodeEditorInner({ initialGraph, initialGraphVersion = 0, programCode = 
           onNodesChange={handleNodesChange}
           onEdgesChange={onEdgesChange}
           onConnect={onConnect}
+          onReconnect={handleReconnect}
           onConnectStart={onConnectStart}
           onConnectEnd={onConnectEnd}
           isValidConnection={isValidConnection}
