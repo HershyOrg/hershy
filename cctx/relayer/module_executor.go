@@ -96,7 +96,7 @@ func (e RPCModuleExecutor) SubmitModuleExecute(ctx context.Context, request base
 
 	gasLimit, err := estimateModuleExecuteGas(ctx, client, from, moduleAddress, payload)
 	if err != nil {
-		return "", err
+		return "", fmt.Errorf("%w; %s", err, moduleEstimateContext(request, moduleAddress, err))
 	}
 	if e.GasLimitMultiplier > 1 {
 		gasLimit *= e.GasLimitMultiplier
@@ -162,6 +162,59 @@ func estimateModuleExecuteGas(ctx context.Context, client *ethclient.Client, fro
 		return 0, fmt.Errorf("estimated module execute gas is zero")
 	}
 	return estimated + estimated/5, nil
+}
+
+func moduleEstimateContext(request base.SCWRelayRequest, moduleAddress common.Address, estimateErr error) string {
+	selector := "0x"
+	if calldata, err := base.NormalizeSCWRelayCalldata(request.Calldata); err == nil && len(calldata) >= 4 {
+		selector = "0x" + common.Bytes2Hex(calldata[:4])
+	}
+	revertName := strategyPolicyModuleRevertName(estimateErr)
+	if revertName != "" {
+		revertName = " likely_revert=" + revertName
+	}
+	return fmt.Sprintf(
+		"module=%s safe=%s session_key=%s policy_id=%s target=%s selector=%s gas_limit=%d%s",
+		moduleAddress.Hex(),
+		common.HexToAddress(strings.TrimSpace(request.SmartWalletAddress)).Hex(),
+		common.HexToAddress(strings.TrimSpace(request.SessionKeyAddress)).Hex(),
+		strings.TrimSpace(request.PolicyID),
+		common.HexToAddress(strings.TrimSpace(request.ContractAddress)).Hex(),
+		selector,
+		request.GasLimit,
+		revertName,
+	)
+}
+
+func strategyPolicyModuleRevertName(err error) string {
+	if err == nil {
+		return ""
+	}
+	message := strings.ToLower(err.Error())
+	reverts := map[string]string{
+		"0xbf10e9ba": "InvalidSessionKey",
+		"0x0d545fb4": "InvalidValidityWindow",
+		"0x37262f6d": "SessionPolicyMissing",
+		"0x73a269f2": "SessionKeyPausedError",
+		"0x6fcb1998": "SessionKeyInactive",
+		"0xc85eb4ec": "SessionKeyNotYetValid",
+		"0xda0700a2": "SessionKeyExpired",
+		"0xfef01cd2": "RequestExpired",
+		"0x9bb60aca": "PolicyMismatch",
+		"0x48cbf26d": "TargetNotAllowed",
+		"0xbdb518d2": "SelectorNotAllowed",
+		"0x1fb09b80": "NonceAlreadyUsed",
+		"0x2d7041e7": "ValueExceedsLimit",
+		"0xd3eaf884": "GasExceedsLimit",
+		"0x8baa579f": "InvalidSignature",
+		"0xa90a866d": "SafeExecutionFailed",
+	}
+	for selector, name := range reverts {
+		if strings.Contains(message, selector) {
+			return name
+		}
+	}
+	return ""
 }
 
 func mustParseABI(raw string) abi.ABI {

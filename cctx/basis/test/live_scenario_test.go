@@ -57,6 +57,40 @@ func TestLiveBSCBasisReadOnlyPreflight(t *testing.T) {
 	t.Logf("preflight=%s", mustJSON(preflight))
 }
 
+// TestLiveBSCBasisReconcile compares stored state with live EOA and Binance exposure.
+// It is read-only and does not submit DEX transactions or futures orders.
+func TestLiveBSCBasisReconcile(t *testing.T) {
+	loadLiveEnvFiles(t)
+	if !envBool("CCTX_LIVE_BASIS", false) {
+		t.Skip("set CCTX_LIVE_BASIS=1 to run live reconciliation")
+	}
+
+	cfg := loadLiveConfig(t, true)
+	deps := newLiveDeps(t, cfg)
+	store, err := basis.NewPositionStore(cfg.stateFile)
+	if err != nil {
+		t.Fatalf("NewPositionStore: %v", err)
+	}
+	reconciler := &basis.Reconciler{
+		Store:         store,
+		DEXReader:     deps.dexReader,
+		Futures:       deps.futures,
+		WalletAddress: deps.wallet,
+	}
+	report, err := reconciler.Reconcile(basis.ReconcileRequest{
+		PositionID:           envString("BASIS_POSITION_ID", ""),
+		IncludeClosed:        envBool("BASIS_RECONCILE_INCLUDE_CLOSED", false),
+		QuantityToleranceBps: envUint32("BASIS_RECONCILE_TOLERANCE_BPS", basis.DefaultReconcileToleranceBps),
+	})
+	if err != nil {
+		t.Fatalf("Reconcile: %v", err)
+	}
+	t.Logf("reconciliation=%s", mustJSON(report))
+	if envBool("BASIS_RECONCILE_FAIL_ON_ACTION", false) && report.Summary.NeedsAction > 0 {
+		t.Fatalf("reconciliation needs action: %s", mustJSON(report.Summary))
+	}
+}
+
 // TestLiveBSCBasisOpenClose sends real DEX swaps and real Binance futures orders.
 // It is intentionally gated harder than the read-only test.
 //
@@ -107,32 +141,33 @@ func TestLiveBSCBasisOpenClose(t *testing.T) {
 	positionID := firstNonEmpty(envString("BASIS_POSITION_ID", ""), fmt.Sprintf("%s-live-%d", cfg.asset, time.Now().Unix()))
 
 	openResult, err := executor.Open(basis.OpenRequest{
-		ID:              positionID,
-		Asset:           cfg.asset,
-		Chain:           cfg.chain,
-		NotionalQuote:   envString("BASIS_NOTIONAL_QUOTE", ""),
-		EntryDEXPrice:   envString("BASIS_ENTRY_DEX_PRICE", ""),
-		EntryCEXBid:     envString("BASIS_ENTRY_CEX_BID", ""),
-		EntryGapPct:     envString("BASIS_ENTRY_GAP_PCT", ""),
-		DEXID:           "uniswap_v3",
-		PoolAddress:     cfg.poolAddress,
-		QuoterAddress:   cfg.quoterAddress,
-		RouterAddress:   cfg.routerAddress,
-		TokenAddress:    cfg.tokenAddress,
-		QuoteAddress:    cfg.quoteAddress,
-		QuoteSymbol:     cfg.quoteSymbol,
-		UniswapV3Fee:    cfg.fee,
-		AmountInWei:     cfg.amountInWei,
-		MinTokenOutWei:  envString("BASIS_MIN_TOKEN_OUT_WEI", ""),
-		SlippageBps:     cfg.entrySlippageBps,
-		FuturesExchange: "binance_futures",
-		FuturesSymbol:   cfg.futuresSymbol,
-		FuturesQuantity: cfg.futuresQuantity,
-		Leverage:        cfg.leverage,
-		DryRun:          false,
-		RecordDryRun:    false,
-		WaitForReceipt:  true,
-		AllowMultiple:   envBool("BASIS_ALLOW_MULTIPLE", false),
+		ID:                  positionID,
+		Asset:               cfg.asset,
+		Chain:               cfg.chain,
+		NotionalQuote:       envString("BASIS_NOTIONAL_QUOTE", ""),
+		EntryDEXPrice:       envString("BASIS_ENTRY_DEX_PRICE", ""),
+		EntryCEXBid:         envString("BASIS_ENTRY_CEX_BID", ""),
+		EntryGapPct:         envString("BASIS_ENTRY_GAP_PCT", ""),
+		DEXID:               "uniswap_v3",
+		PoolAddress:         cfg.poolAddress,
+		QuoterAddress:       cfg.quoterAddress,
+		RouterAddress:       cfg.routerAddress,
+		TokenAddress:        cfg.tokenAddress,
+		QuoteAddress:        cfg.quoteAddress,
+		QuoteSymbol:         cfg.quoteSymbol,
+		UniswapV3Fee:        cfg.fee,
+		AmountInWei:         cfg.amountInWei,
+		MinTokenOutWei:      envString("BASIS_MIN_TOKEN_OUT_WEI", ""),
+		SlippageBps:         cfg.entrySlippageBps,
+		FuturesExchange:     "binance_futures",
+		FuturesSymbol:       cfg.futuresSymbol,
+		FuturesQuantity:     cfg.futuresQuantity,
+		FuturesPositionSide: base.FuturesPositionSide(cfg.futuresPositionSide),
+		Leverage:            cfg.leverage,
+		DryRun:              false,
+		RecordDryRun:        false,
+		WaitForReceipt:      true,
+		AllowMultiple:       envBool("BASIS_ALLOW_MULTIPLE", false),
 		Metadata: map[string]any{
 			"source": "live_scenario_test",
 		},
@@ -157,38 +192,117 @@ func TestLiveBSCBasisOpenClose(t *testing.T) {
 	t.Logf("live close result=%s", mustJSON(closeResult))
 }
 
+// TestLiveBSCBasisCloseOpenPosition closes an existing stored open position.
+// It is useful for recovery after the DEX spot leg succeeded but the futures leg
+// failed before an entry order was placed.
+func TestLiveBSCBasisCloseOpenPosition(t *testing.T) {
+	loadLiveEnvFiles(t)
+	if !envBool("CCTX_LIVE_BASIS_ALLOW_ORDERS", false) {
+		t.Skip("set CCTX_LIVE_BASIS_ALLOW_ORDERS=1 to send real orders")
+	}
+	if !envBool("ENABLE_LIVE_TRADING", false) || envBool("DRY_RUN", true) {
+		t.Fatal("live recovery close requires ENABLE_LIVE_TRADING=true and DRY_RUN=false")
+	}
+	if envString("CCTX_LIVE_BASIS_RISK_ACK", "") != liveRiskAck {
+		t.Fatalf("set CCTX_LIVE_BASIS_RISK_ACK=%s to acknowledge real orders", liveRiskAck)
+	}
+
+	cfg := loadLiveConfig(t, true)
+	deps := newLiveDeps(t, cfg)
+	store, err := basis.NewPositionStore(cfg.stateFile)
+	if err != nil {
+		t.Fatalf("NewPositionStore: %v", err)
+	}
+	positions, err := store.Active()
+	if err != nil {
+		t.Fatalf("Active: %v", err)
+	}
+	if len(positions) == 0 {
+		t.Fatal("no active basis position to close")
+	}
+	position := positions[0]
+	if requestedID := envString("BASIS_POSITION_ID", ""); requestedID != "" {
+		found := false
+		for _, candidate := range positions {
+			if candidate.ID == requestedID {
+				position = candidate
+				found = true
+				break
+			}
+		}
+		if !found {
+			t.Fatalf("active basis position not found: %s", requestedID)
+		}
+	}
+
+	if envBool("BASIS_REQUIRE_PREAPPROVED", true) {
+		allowance, err := deps.dexReader.FetchERC20Allowance(base.EVMERC20AllowanceRequest{
+			Chain:          position.Spot.Chain,
+			TokenAddress:   position.Spot.TokenAddress,
+			OwnerAddress:   deps.wallet,
+			SpenderAddress: position.Spot.RouterAddress,
+		})
+		if err != nil {
+			t.Fatalf("FetchERC20Allowance asset: %v", err)
+		}
+		requireAllowanceAtLeast(t, "asset token", allowance.AllowanceWei, position.Spot.TokenQtyWei)
+	}
+
+	executor := &basis.Executor{
+		DEX:     deps.dex,
+		Futures: deps.futures,
+		Store:   store,
+	}
+	skipFutures := envBool("BASIS_CLOSE_SKIP_FUTURES", strings.TrimSpace(position.Futures.EntryOrderID) == "")
+	closeResult, err := executor.Close(basis.CloseRequest{
+		PositionID:     position.ID,
+		Reason:         firstNonEmpty(envString("BASIS_CLOSE_REASON", ""), "live_recovery_close"),
+		MinQuoteOutWei: envString("BASIS_MIN_QUOTE_OUT_WEI", ""),
+		SlippageBps:    cfg.exitSlippageBps,
+		DryRun:         false,
+		RecordDryRun:   false,
+		WaitForReceipt: true,
+		SkipFutures:    skipFutures,
+	})
+	if err != nil {
+		t.Fatalf("live recovery close failed; position may remain open in %s: %v\nposition=%s", cfg.stateFile, err, mustJSON(position))
+	}
+	t.Logf("live recovery close result=%s", mustJSON(closeResult))
+}
+
 type liveConfig struct {
-	chain             string
-	chainID           int64
-	rpcURL            string
-	signerType        string
-	privateKey        string
-	smartWallet       string
-	sessionPrivateKey string
-	sessionKeyID      string
-	policyID          string
-	relayerURL        string
-	relayerAuthToken  string
-	sessionDeadline   int64
-	asset             string
-	tokenAddress      string
-	quoteAddress      string
-	quoteSymbol       string
-	poolAddress       string
-	quoterAddress     string
-	routerAddress     string
-	fee               uint32
-	amountInWei       string
-	futuresSymbol     string
-	futuresQuantity   string
-	leverage          int
-	entrySlippageBps  uint32
-	exitSlippageBps   uint32
-	binanceAPIKey     string
-	binanceAPISecret  string
-	binanceBaseURL    string
-	binanceRecvWindow int64
-	stateFile         string
+	chain               string
+	chainID             int64
+	rpcURL              string
+	signerType          string
+	privateKey          string
+	smartWallet         string
+	sessionPrivateKey   string
+	sessionKeyID        string
+	policyID            string
+	relayerURL          string
+	relayerAuthToken    string
+	sessionDeadline     int64
+	asset               string
+	tokenAddress        string
+	quoteAddress        string
+	quoteSymbol         string
+	poolAddress         string
+	quoterAddress       string
+	routerAddress       string
+	fee                 uint32
+	amountInWei         string
+	futuresSymbol       string
+	futuresQuantity     string
+	futuresPositionSide string
+	leverage            int
+	entrySlippageBps    uint32
+	exitSlippageBps     uint32
+	binanceAPIKey       string
+	binanceAPISecret    string
+	binanceBaseURL      string
+	binanceRecvWindow   int64
+	stateFile           string
 }
 
 type liveDeps struct {
@@ -214,37 +328,38 @@ type livePreflight struct {
 func loadLiveConfig(t *testing.T, requireOrders bool) liveConfig {
 	t.Helper()
 	cfg := liveConfig{
-		chain:             envString("BASIS_CHAIN", "bsc"),
-		chainID:           envInt64("EVM_DEX_CHAIN_ID", envInt64("BSC_CHAIN_ID", 56)),
-		rpcURL:            firstNonEmpty(envString("EVM_DEX_RPC_URL", ""), envString("BSC_RPC_URL", "")),
-		signerType:        envString("EVM_DEX_SIGNER_TYPE", "eoa"),
-		privateKey:        firstNonEmpty(envString("EVM_DEX_PRIVATE_KEY", ""), envString("PRIVATE_KEY", "")),
-		smartWallet:       envString("EVM_DEX_SMART_WALLET_ADDRESS", ""),
-		sessionPrivateKey: firstNonEmpty(envString("EVM_DEX_SESSION_PRIVATE_KEY", ""), envString("SESSION_PRIVATE_KEY", "")),
-		sessionKeyID:      envString("EVM_DEX_SESSION_KEY_ID", ""),
-		policyID:          envString("EVM_DEX_POLICY_ID", ""),
-		relayerURL:        envString("EVM_DEX_RELAYER_URL", ""),
-		relayerAuthToken:  envString("EVM_DEX_RELAYER_AUTH_TOKEN", ""),
-		sessionDeadline:   envInt64("EVM_DEX_SESSION_DEADLINE_SECONDS", 300),
-		asset:             envString("BASIS_ASSET", "LIVE"),
-		tokenAddress:      envString("BASIS_TOKEN_ADDRESS", ""),
-		quoteAddress:      envString("BASIS_QUOTE_ADDRESS", scenarioUSDT),
-		quoteSymbol:       envString("BASIS_QUOTE_SYMBOL", "USDT"),
-		poolAddress:       envString("BASIS_POOL_ADDRESS", ""),
-		quoterAddress:     envString("UNISWAP_V3_QUOTER", scenarioQuoterV2),
-		routerAddress:     envString("UNISWAP_V3_ROUTER", scenarioSwapRouter02),
-		fee:               envUint32("UNISWAP_V3_FEE", 0),
-		amountInWei:       envString("BASIS_AMOUNT_IN_WEI", ""),
-		futuresSymbol:     envString("BASIS_FUTURES_SYMBOL", ""),
-		futuresQuantity:   envString("BASIS_FUTURES_QUANTITY", ""),
-		leverage:          envInt("BINANCE_LEVERAGE", 1),
-		entrySlippageBps:  envUint32("BASIS_SLIPPAGE_BPS", 100),
-		exitSlippageBps:   envUint32("BASIS_EXIT_SLIPPAGE_BPS", 100),
-		binanceAPIKey:     envString("BINANCE_API_KEY", ""),
-		binanceAPISecret:  firstNonEmpty(envString("BINANCE_API_SECRET", ""), envString("BINANCE_HMAC_SECRET", "")),
-		binanceBaseURL:    envString("BINANCE_FUTURES_BASE_URL", ""),
-		binanceRecvWindow: envInt64("BINANCE_RECV_WINDOW", 5000),
-		stateFile:         envString("BASIS_STATE_FILE", ""),
+		chain:               envString("BASIS_CHAIN", "bsc"),
+		chainID:             envInt64("EVM_DEX_CHAIN_ID", envInt64("BSC_CHAIN_ID", 56)),
+		rpcURL:              firstNonEmpty(envString("EVM_DEX_RPC_URL", ""), envString("BSC_RPC_URL", "")),
+		signerType:          envString("EVM_DEX_SIGNER_TYPE", "eoa"),
+		privateKey:          firstNonEmpty(envString("EVM_DEX_PRIVATE_KEY", ""), envString("PRIVATE_KEY", "")),
+		smartWallet:         envString("EVM_DEX_SMART_WALLET_ADDRESS", ""),
+		sessionPrivateKey:   firstNonEmpty(envString("EVM_DEX_SESSION_PRIVATE_KEY", ""), envString("SESSION_PRIVATE_KEY", "")),
+		sessionKeyID:        envString("EVM_DEX_SESSION_KEY_ID", ""),
+		policyID:            envString("EVM_DEX_POLICY_ID", ""),
+		relayerURL:          envString("EVM_DEX_RELAYER_URL", ""),
+		relayerAuthToken:    envString("EVM_DEX_RELAYER_AUTH_TOKEN", ""),
+		sessionDeadline:     envInt64("EVM_DEX_SESSION_DEADLINE_SECONDS", 300),
+		asset:               envString("BASIS_ASSET", "LIVE"),
+		tokenAddress:        envString("BASIS_TOKEN_ADDRESS", ""),
+		quoteAddress:        envString("BASIS_QUOTE_ADDRESS", scenarioUSDT),
+		quoteSymbol:         envString("BASIS_QUOTE_SYMBOL", "USDT"),
+		poolAddress:         envString("BASIS_POOL_ADDRESS", ""),
+		quoterAddress:       envString("UNISWAP_V3_QUOTER", scenarioQuoterV2),
+		routerAddress:       envString("UNISWAP_V3_ROUTER", scenarioSwapRouter02),
+		fee:                 envUint32("UNISWAP_V3_FEE", 0),
+		amountInWei:         envString("BASIS_AMOUNT_IN_WEI", ""),
+		futuresSymbol:       envString("BASIS_FUTURES_SYMBOL", ""),
+		futuresQuantity:     envString("BASIS_FUTURES_QUANTITY", ""),
+		futuresPositionSide: strings.ToUpper(envString("BASIS_FUTURES_POSITION_SIDE", "")),
+		leverage:            envInt("BINANCE_LEVERAGE", 1),
+		entrySlippageBps:    envUint32("BASIS_SLIPPAGE_BPS", 100),
+		exitSlippageBps:     envUint32("BASIS_EXIT_SLIPPAGE_BPS", 100),
+		binanceAPIKey:       envString("BINANCE_API_KEY", ""),
+		binanceAPISecret:    firstNonEmpty(envString("BINANCE_API_SECRET", ""), envString("BINANCE_HMAC_SECRET", "")),
+		binanceBaseURL:      envString("BINANCE_FUTURES_BASE_URL", ""),
+		binanceRecvWindow:   envInt64("BINANCE_RECV_WINDOW", 5000),
+		stateFile:           envString("BASIS_STATE_FILE", ""),
 	}
 
 	required := map[string]string{

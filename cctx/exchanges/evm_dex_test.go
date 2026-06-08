@@ -435,6 +435,9 @@ func TestEVMDEXCreateOrderUsesSCWRelayerWithSessionKeySignature(t *testing.T) {
 	if seenRequest.PolicyID != "policy-1" || seenRequest.SessionKeyID != "session-1" || seenRequest.StrategyID != "strategy-42" {
 		t.Fatalf("unexpected relay metadata: %#v", seenRequest)
 	}
+	if seenRequest.Nonce == "" {
+		t.Fatalf("expected generated relay nonce")
+	}
 	if seenRequest.ContractAddress != "0x00000000000000000000000000000000000000AA" {
 		t.Fatalf("unexpected relay contract address: %s", seenRequest.ContractAddress)
 	}

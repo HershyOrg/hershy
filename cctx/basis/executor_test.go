@@ -102,6 +102,57 @@ func TestSlippageFloorWei(t *testing.T) {
 	}
 }
 
+func TestExecutorCloseCanSkipFutures(t *testing.T) {
+	store, err := NewPositionStore(filepath.Join(t.TempDir(), "positions.json"))
+	if err != nil {
+		t.Fatalf("NewPositionStore: %v", err)
+	}
+	position := Position{
+		ID:     "SPOT-ONLY",
+		Status: PositionStatusOpen,
+		Asset:  "TEST",
+		Spot: SpotLeg{
+			Chain:         "bsc",
+			QuoterAddress: "0x0000000000000000000000000000000000000001",
+			RouterAddress: "0x0000000000000000000000000000000000000002",
+			TokenAddress:  "0x000000000000000000000000000000000000000a",
+			QuoteAddress:  "0x000000000000000000000000000000000000000b",
+			QuoteSymbol:   "USDT",
+			UniswapV3Fee:  2500,
+			TokenQtyWei:   "2000",
+		},
+		Futures: FuturesLeg{
+			ExchangeID: "binance_futures",
+			Symbol:     "TESTUSDT",
+			Quantity:   "2.123",
+		},
+		OpenedAt: time.Unix(1700000000, 0).UTC(),
+	}
+	if err := store.Add(position); err != nil {
+		t.Fatalf("Add: %v", err)
+	}
+	dex := &fakeDEX{}
+	futures := &fakeFutures{}
+	executor := &Executor{DEX: dex, Futures: futures, Store: store}
+
+	result, err := executor.Close(CloseRequest{
+		PositionID:   "SPOT-ONLY",
+		Reason:       "recover_spot_only",
+		SlippageBps:  100,
+		RecordDryRun: true,
+		SkipFutures:  true,
+	})
+	if err != nil {
+		t.Fatalf("Close: %v", err)
+	}
+	if result.Position.Status != PositionStatusClosed {
+		t.Fatalf("status = %s, want closed", result.Position.Status)
+	}
+	if futures.orderCount != 0 {
+		t.Fatalf("futures orders = %d, want 0", futures.orderCount)
+	}
+}
+
 type fakeDEX struct {
 	lastSwap base.UniswapV3SwapExactInputSingleRequest
 	swaps    int
@@ -165,7 +216,8 @@ func (f *fakeDEX) SwapUniswapV3ExactInputSingle(request base.UniswapV3SwapExactI
 }
 
 type fakeFutures struct {
-	lastOrder base.FuturesOrderRequest
+	lastOrder  base.FuturesOrderRequest
+	orderCount int
 }
 
 func (f *fakeFutures) SetLeverage(symbol string, leverage int) (base.FuturesLeverageResult, error) {
@@ -174,6 +226,7 @@ func (f *fakeFutures) SetLeverage(symbol string, leverage int) (base.FuturesLeve
 
 func (f *fakeFutures) PlaceFuturesOrder(request base.FuturesOrderRequest) (base.FuturesOrder, error) {
 	f.lastOrder = request
+	f.orderCount++
 	return base.FuturesOrder{
 		ID:               "order-1",
 		Symbol:           request.Symbol,

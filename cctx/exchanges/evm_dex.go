@@ -3,6 +3,7 @@ package exchanges
 import (
 	"context"
 	"crypto/ecdsa"
+	"crypto/rand"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
@@ -583,9 +584,7 @@ func (e *EVMDEX) executeSCWTransaction(request base.EVMDEXRequest, route evmChai
 		StateMutability:      request.StateMutability,
 		DeadlineUnix:         time.Now().Add(time.Duration(e.sessionTTL) * time.Second).Unix(),
 	}
-	if nonce := firstNonEmptyString(strings.TrimSpace(anyString(e.Config["relay_nonce"])), strings.TrimSpace(anyString(e.Config["relayNonce"]))); nonce != "" {
-		relayRequest.Nonce = nonce
-	}
+	relayRequest.Nonce = e.resolveSCWRelayNonce()
 	signature, err := e.signSCWRelayRequest(relayRequest)
 	if err != nil {
 		return base.EVMDEXResult{}, err
@@ -611,6 +610,17 @@ func (e *EVMDEX) executeSCWTransaction(request base.EVMDEXRequest, route evmChai
 		Value:     request.Value,
 		TxHash:    response.TxHash,
 	}, nil
+}
+
+func (e *EVMDEX) resolveSCWRelayNonce() string {
+	if nonce := firstNonEmptyString(strings.TrimSpace(anyString(e.Config["relay_nonce"])), strings.TrimSpace(anyString(e.Config["relayNonce"]))); nonce != "" {
+		return nonce
+	}
+	var entropy [16]byte
+	if _, err := rand.Read(entropy[:]); err == nil {
+		return fmt.Sprintf("cctx:%s:%d:%s", strings.TrimSpace(e.sessionKeyID), time.Now().UnixNano(), hex.EncodeToString(entropy[:]))
+	}
+	return fmt.Sprintf("cctx:%s:%d", strings.TrimSpace(e.sessionKeyID), time.Now().UnixNano())
 }
 
 func (e *EVMDEX) signSCWRelayRequest(request base.SCWRelayRequest) (string, error) {

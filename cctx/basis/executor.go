@@ -42,12 +42,15 @@ type OpenRequest struct {
 	FuturesExchange string
 	FuturesSymbol   string
 	FuturesQuantity string
-	Leverage        int
-	DryRun          bool
-	RecordDryRun    bool
-	WaitForReceipt  bool
-	AllowMultiple   bool
-	Metadata        map[string]any
+	// FuturesPositionSide is optional. Leave it empty for Binance one-way mode;
+	// set SHORT/LONG only for hedge-mode accounts.
+	FuturesPositionSide base.FuturesPositionSide
+	Leverage            int
+	DryRun              bool
+	RecordDryRun        bool
+	WaitForReceipt      bool
+	AllowMultiple       bool
+	Metadata            map[string]any
 }
 
 // OpenResult captures each executed leg.
@@ -70,6 +73,7 @@ type CloseRequest struct {
 	DryRun           bool
 	RecordDryRun     bool
 	WaitForReceipt   bool
+	SkipFutures      bool
 }
 
 // CloseResult captures the close-leg execution results.
@@ -142,6 +146,7 @@ func (e *Executor) Open(request OpenRequest) (OpenResult, error) {
 		SpenderAddress: request.RouterAddress,
 		AmountWei:      request.AmountInWei,
 		DryRun:         request.DryRun,
+		WaitForReceipt: request.WaitForReceipt,
 	})
 	if err != nil {
 		return result, err
@@ -188,7 +193,7 @@ func (e *Executor) Open(request OpenRequest) (OpenResult, error) {
 		Side:             models.OrderSideSell,
 		Type:             base.FuturesOrderTypeMarket,
 		Quantity:         quantity,
-		PositionSide:     base.FuturesPositionSideShort,
+		PositionSide:     request.FuturesPositionSide,
 		NewOrderRespType: "RESULT",
 		Test:             request.DryRun,
 	})
@@ -254,6 +259,7 @@ func (e *Executor) Close(request CloseRequest) (CloseResult, error) {
 		SpenderAddress: position.Spot.RouterAddress,
 		AmountWei:      tokenAmountInWei,
 		DryRun:         request.DryRun,
+		WaitForReceipt: request.WaitForReceipt,
 	})
 	if err != nil {
 		return result, err
@@ -276,20 +282,23 @@ func (e *Executor) Close(request CloseRequest) (CloseResult, error) {
 	}
 	result.Swap = swap
 
-	order, err := e.Futures.PlaceFuturesOrder(base.FuturesOrderRequest{
-		Symbol:           position.Futures.Symbol,
-		Side:             models.OrderSideBuy,
-		Type:             base.FuturesOrderTypeMarket,
-		Quantity:         position.Futures.Quantity,
-		ReduceOnly:       true,
-		PositionSide:     base.FuturesPositionSideShort,
-		NewOrderRespType: "RESULT",
-		Test:             request.DryRun,
-	})
-	if err != nil {
-		return result, err
+	order := base.FuturesOrder{}
+	if !request.SkipFutures {
+		order, err = e.Futures.PlaceFuturesOrder(base.FuturesOrderRequest{
+			Symbol:           position.Futures.Symbol,
+			Side:             models.OrderSideBuy,
+			Type:             base.FuturesOrderTypeMarket,
+			Quantity:         position.Futures.Quantity,
+			ReduceOnly:       true,
+			PositionSide:     base.FuturesPositionSide(position.Futures.PositionSide),
+			NewOrderRespType: "RESULT",
+			Test:             request.DryRun,
+		})
+		if err != nil {
+			return result, err
+		}
+		result.FuturesOrder = order
 	}
-	result.FuturesOrder = order
 
 	now := e.now()
 	position.Status = PositionStatusClosed
@@ -365,7 +374,7 @@ func (e *Executor) newOpenPosition(request OpenRequest, fee uint32, tokenQtyWei 
 			ExchangeID:   firstNonEmpty(request.FuturesExchange, "binance_futures"),
 			Symbol:       request.FuturesSymbol,
 			Quantity:     request.FuturesQuantity,
-			PositionSide: string(base.FuturesPositionSideShort),
+			PositionSide: string(request.FuturesPositionSide),
 		},
 		Metadata: request.Metadata,
 	}

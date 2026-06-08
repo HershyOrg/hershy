@@ -51,6 +51,7 @@ type ERC20ApprovalRequest struct {
 	AmountWei      string `json:"amount_wei"`
 	ApproveWei     string `json:"approve_wei,omitempty"`
 	DryRun         bool   `json:"dry_run,omitempty"`
+	WaitForReceipt bool   `json:"wait_for_receipt,omitempty"`
 }
 
 // ERC20ApprovalResult reports whether approval was already sufficient or submitted.

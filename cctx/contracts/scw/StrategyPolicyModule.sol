@@ -194,7 +194,7 @@ contract StrategyPolicyModule {
         if (callData.length >= 4) {
             bytes4 selector;
             assembly {
-                selector := shr(224, calldataload(callData.offset))
+                selector := calldataload(callData.offset)
             }
             if (!allowedSelectors[safe][sessionKey][selector]) revert SelectorNotAllowed();
         }

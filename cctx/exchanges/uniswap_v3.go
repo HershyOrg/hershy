@@ -208,6 +208,19 @@ func (e *EVMDEX) EnsureERC20Approval(request base.ERC20ApprovalRequest) (base.ER
 		return base.ERC20ApprovalResult{}, err
 	}
 	result.TxHash = tx.TxHash
+	if !request.WaitForReceipt {
+		return result, nil
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 180*time.Second)
+	defer cancel()
+	receipt, err := e.waitForReceipt(ctx, route, tx.TxHash)
+	if err != nil {
+		return base.ERC20ApprovalResult{}, err
+	}
+	if receipt.Status != types.ReceiptStatusSuccessful {
+		return result, base.ExchangeError{Message: fmt.Sprintf("erc20 approve reverted: %s", tx.TxHash)}
+	}
 	return result, nil
 }
 
