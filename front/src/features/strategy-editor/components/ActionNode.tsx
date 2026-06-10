@@ -1,0 +1,1254 @@
+"use client";
+
+import { memo, useCallback, useEffect, useState } from "react";
+import type { ChangeEvent, DragEvent } from "react";
+import { Handle, Position, NodeProps, useReactFlow, useEdges } from "@xyflow/react";
+import type { ActionNodeData, CEXActionData, DEXActionData, BlockData } from "../types/editorTypes";
+import { cn } from "@/shared/utils/utils";
+import {
+  SUPPORTED_CEX_TRADE_EXCHANGES,
+  isPolymarketExchangeName,
+} from "@/shared/api/exchangeCatalog.mjs";
+import {
+  Maximize2, 
+  Minimize2, 
+  Plus, 
+  X,
+  Building2,
+  Globe
+} from "lucide-react";
+
+const CEX_TIME_IN_FORCE_OPTIONS = [
+  { value: "GTC", label: "GTC" },
+  { value: "FAK", label: "FAK / IOC" },
+  { value: "FOK", label: "FOK" },
+] as const;
+
+function normalizeCEXTimeInForceValue(value: unknown): NonNullable<CEXActionData["timeInForce"]> {
+  const text = typeof value === "string" ? value.trim().toUpperCase() : "";
+  if (text === "FOK") return "FOK";
+  if (text === "FAK" || text === "IOC") return "FAK";
+  return "GTC";
+}
+
+type ABIInput = {
+  name?: string;
+  type?: string;
+  internalType?: string;
+  components?: ABIInput[];
+};
+
+type ABIFunction = {
+  type?: string;
+  name?: string;
+  inputs?: ABIInput[];
+  stateMutability?: string;
+};
+
+function sanitizeParamId(value: string, fallback: string) {
+  return value
+    .trim()
+    .replace(/[^a-zA-Z0-9_-]/g, "-")
+    .replace(/-+/g, "-")
+    .replace(/^-|-$/g, "") || fallback;
+}
+
+function createUniqueBlockId(prefix: string, blocks: Array<{ id?: string }>, seed = String(Date.now())) {
+  const existingIds = new Set(blocks.map((block) => block.id).filter(Boolean));
+  let id = `${prefix}-${seed}`;
+  let attempt = 1;
+
+  while (existingIds.has(id)) {
+    id = `${prefix}-${seed}-${attempt}`;
+    attempt += 1;
+  }
+
+  return id;
+}
+
+function parseABIText(value: unknown): ABIFunction[] {
+  if (Array.isArray(value)) {
+    return value.filter((item): item is ABIFunction => Boolean(item && typeof item === "object"));
+  }
+  if (typeof value !== "string" || !value.trim()) return [];
+  try {
+    const parsed = JSON.parse(value);
+    if (Array.isArray(parsed)) return parseABIText(parsed);
+    if (parsed && typeof parsed === "object" && Array.isArray((parsed as { abi?: unknown }).abi)) {
+      return parseABIText((parsed as { abi?: unknown }).abi);
+    }
+  } catch {
+    return [];
+  }
+  return [];
+}
+
+function parseFunctionSignature(value: unknown) {
+  const text = typeof value === "string" ? value.trim() : "";
+  const match = text.match(/^([A-Za-z_$][\w$]*)\s*\((.*)\)$/);
+  if (!match) {
+    return { name: text.replace(/\(.*/, "").trim(), types: [] as string[], signature: "" };
+  }
+  const types = match[2].trim()
+    ? match[2].split(",").map((part) => part.trim()).filter(Boolean)
+    : [];
+  return { name: match[1], types, signature: `${match[1]}(${types.join(",")})` };
+}
+
+function getABIFunctionSignature(fn: ABIFunction) {
+  const types = Array.isArray(fn.inputs) ? fn.inputs.map((input) => input.type || "unknown") : [];
+  return `${fn.name || "function"}(${types.join(",")})`;
+}
+
+function findABIFunction(functionName: string, abiFunctions: ABIFunction[]) {
+  const parsed = parseFunctionSignature(functionName);
+  const targetName = parsed.name || functionName;
+  const functionItems = abiFunctions.filter((item) => item.type === "function" && item.name);
+  if (functionItems.length === 0) return null;
+
+  const exactSignature = parsed.signature
+    ? functionItems.find((item) => getABIFunctionSignature(item) === parsed.signature)
+    : null;
+  if (exactSignature) return exactSignature;
+
+  return functionItems.find((item) => item.name === targetName) ?? functionItems[0] ?? null;
+}
+
+function buildSignatureInputs(functionName: string): ABIInput[] {
+  const parsed = parseFunctionSignature(functionName);
+  return parsed.types.map((type, index) => ({
+    name: `param${index + 1}`,
+    type,
+  }));
+}
+
+function buildDEXParameterBlocks(functionName: string, abiText: unknown, currentBlocks: BlockData[]) {
+  const abiFunctions = parseABIText(abiText);
+  const abiFunction = findABIFunction(functionName, abiFunctions);
+  const inputs = abiFunction?.inputs?.length ? abiFunction.inputs : buildSignatureInputs(functionName);
+  if (!inputs.length) return { blocks: [] as BlockData[], method: abiFunction, abiFunctions };
+
+  const currentByName = new Map(currentBlocks.map((block) => [block.name, block]));
+  const nextBlocks = inputs.map((input, index) => {
+    const paramName = input.name?.trim() || `param${index + 1}`;
+    const abiType = input.type || input.internalType || "unknown";
+    const existing = currentByName.get(paramName);
+    return {
+      ...(existing ?? {}),
+      id: existing?.id ?? `abi-${index + 1}-${sanitizeParamId(paramName, `param-${index + 1}`)}`,
+      name: paramName,
+      description: abiType,
+      type: "input" as const,
+      abiType,
+      autoGenerated: "abi",
+    };
+  });
+  const generatedNames = new Set(nextBlocks.map((block) => block.name));
+  const manualBlocks = currentBlocks.filter((block) =>
+    block.autoGenerated !== "abi" && !generatedNames.has(block.name),
+  );
+
+  return { blocks: [...nextBlocks, ...manualBlocks], method: abiFunction, abiFunctions };
+}
+
+function getParameterBlockSignature(blocks: BlockData[]) {
+  return blocks.map((block) =>
+    [
+      block.id,
+      block.name,
+      block.description ?? "",
+      String(block.abiType ?? ""),
+      String(block.autoGenerated ?? ""),
+    ].join(":"),
+  ).join("|");
+}
+
+function ActionNodeComponent({ id, data, selected }: NodeProps) {
+  const typedData = data as ActionNodeData;
+  const isCEX = typedData.actionType === "CEX";
+  const cexData = typedData as CEXActionData;
+  const dexData = typedData as DEXActionData;
+  const isPolymarketCEX = isCEX && isPolymarketExchangeName(cexData.exchange);
+  const dexABIText = typeof dexData.contractAbi === "string"
+    ? dexData.contractAbi
+    : typeof dexData.abi === "string"
+      ? dexData.abi
+      : "";
+  const dexFunctionSignature = parseFunctionSignature(dexData.functionName || "");
+  const dexParameterInfo = isCEX
+    ? { blocks: [] as BlockData[], method: null as ABIFunction | null, abiFunctions: [] as ABIFunction[] }
+    : buildDEXParameterBlocks(dexData.functionName || "", dexABIText, typedData.inputBlocks ?? []);
+  const dexFunctionOptions = dexParameterInfo.abiFunctions
+    .filter((item) => item.type === "function" && item.name)
+    .map((item) => ({
+      name: item.name || "",
+      signature: getABIFunctionSignature(item),
+      stateMutability: item.stateMutability || "",
+    }));
+  const { setNodes, getNodes } = useReactFlow();
+  const edges = useEdges();
+  const [isExpanded, setIsExpanded] = useState(typedData.isExpanded || false);
+  const primaryOutputBlock = typedData.outputBlocks[0];
+  const runtimeCode = typeof typedData.runtimeCode === "string" ? typedData.runtimeCode : "";
+
+  useEffect(() => {
+    setIsExpanded(Boolean(typedData.isExpanded));
+  }, [typedData.isExpanded]);
+
+  useEffect(() => {
+    if (isCEX || dexParameterInfo.blocks.length === 0) return;
+    const currentBlocks = typedData.inputBlocks ?? [];
+    if (getParameterBlockSignature(currentBlocks) === getParameterBlockSignature(dexParameterInfo.blocks)) return;
+
+    const parsedSignature = parseFunctionSignature(dexData.functionName || "");
+    setNodes((nodes) =>
+      nodes.map((node) =>
+        node.id === id
+          ? {
+              ...node,
+              data: {
+                ...node.data,
+                inputBlocks: dexParameterInfo.blocks,
+                contractAbi: dexABIText,
+                abi: dexABIText,
+                evmFunctionName: dexParameterInfo.method?.name || parsedSignature.name,
+                evmFunctionSignature: dexParameterInfo.method
+                  ? getABIFunctionSignature(dexParameterInfo.method)
+                  : parsedSignature.signature,
+                evmFunctionStateMutability: dexParameterInfo.method?.stateMutability || "",
+              },
+            }
+          : node,
+      ),
+    );
+  }, [
+    dexABIText,
+    dexData.functionName,
+    dexParameterInfo.blocks,
+    dexParameterInfo.method,
+    id,
+    isCEX,
+    setNodes,
+    typedData.inputBlocks,
+  ]);
+
+  // Get connected source info for input blocks
+  const getConnectedSourceInfo = useCallback(
+    (blockId: string) => {
+      const allNodes = getNodes();
+      const connectedEdges = edges.filter(
+        (edge) => edge.target === id && edge.targetHandle?.includes(blockId)
+      );
+
+      return connectedEdges.map((edge) => {
+        const sourceNode = allNodes.find((n) => n.id === edge.source);
+        if (!sourceNode) return null;
+
+        const sourceLabel =
+          (sourceNode.data as { label?: string; functionName?: string })?.label ||
+          (sourceNode.data as { label?: string; functionName?: string })?.functionName ||
+          sourceNode.id;
+
+        const blockId = edge.sourceHandle?.match(/-block-(.+)-out$/)?.[1];
+        const sourceBlocks = (sourceNode.data as { outputBlocks?: BlockData[] })?.outputBlocks ?? [];
+        const blockName = sourceBlocks.find((block) => block.id === blockId)?.name || blockId || "out";
+
+        return `${sourceLabel}.${blockName}`;
+      }).filter(Boolean);
+    },
+    [edges, getNodes, id]
+  );
+
+  const handleToggleExpand = useCallback(() => {
+    const newExpanded = !isExpanded;
+    setIsExpanded(newExpanded);
+
+    window.dispatchEvent(
+      new CustomEvent("nodeFocus", {
+        detail: { nodeId: newExpanded ? id : null },
+      })
+    );
+
+    setNodes((nodes) =>
+      nodes.map((node) =>
+        node.id === id
+          ? { ...node, data: { ...node.data, isExpanded: newExpanded } }
+          : node
+      )
+    );
+  }, [id, isExpanded, setNodes]);
+
+  const handleLabelChange = useCallback(
+    (e: ChangeEvent<HTMLTextAreaElement>) => {
+      setNodes((nodes) =>
+        nodes.map((node) =>
+          node.id === id ? { ...node, data: { ...node.data, label: e.target.value } } : node
+        )
+      );
+    },
+    [id, setNodes]
+  );
+
+  const handleUpdateField = useCallback(
+    (field: string, value: string | number | boolean) => {
+      setNodes((nodes) =>
+        nodes.map((node) =>
+          node.id === id
+            ? { ...node, data: { ...node.data, [field]: value } }
+            : node
+        )
+      );
+    },
+    [id, setNodes]
+  );
+
+  const handleUpdateFields = useCallback(
+    (patch: Record<string, string | number | boolean>) => {
+      setNodes((nodes) =>
+        nodes.map((node) =>
+          node.id === id
+            ? { ...node, data: { ...node.data, ...patch } }
+            : node
+        )
+      );
+    },
+    [id, setNodes]
+  );
+
+  const handleCEXExchangeChange = useCallback(
+    (exchange: string) => {
+      if (isPolymarketExchangeName(exchange)) {
+        const postOnly = typeof cexData.postOnly === "boolean"
+          ? cexData.postOnly
+          : String(cexData.postOnly || "").toLowerCase() === "true";
+        handleUpdateFields({
+          exchange,
+          dexProtocol: "polymarket",
+          executionMode: "api",
+          apiUrl: "https://clob.polymarket.com",
+          chainId: cexData.chainId || 137,
+          side: cexData.side || "BUY",
+          polymarketOrderType: normalizeCEXTimeInForceValue(cexData.polymarketOrderType || cexData.timeInForce),
+          postOnly,
+          tokenId: cexData.tokenId || "",
+          price: cexData.price || "",
+          size: cexData.size || cexData.amount || "",
+        });
+        return;
+      }
+
+      handleUpdateFields({
+        exchange,
+        dexProtocol: "generic",
+        executionMode: "address",
+        apiUrl: "",
+        timeInForce: normalizeCEXTimeInForceValue(cexData.timeInForce || cexData.polymarketOrderType),
+      });
+    },
+    [cexData.amount, cexData.chainId, cexData.polymarketOrderType, cexData.postOnly, cexData.price, cexData.side, cexData.size, cexData.timeInForce, cexData.tokenId, handleUpdateFields]
+  );
+
+  const handleDEXFunctionNameChange = useCallback(
+    (functionName: string) => {
+      const method = findABIFunction(functionName, parseABIText(dexABIText));
+      const parsedSignature = parseFunctionSignature(functionName);
+      handleUpdateFields({
+        functionName,
+        evmFunctionName: method?.name || parsedSignature.name,
+        evmFunctionSignature: method ? getABIFunctionSignature(method) : parsedSignature.signature,
+        evmFunctionStateMutability: method?.stateMutability || "",
+      });
+    },
+    [dexABIText, handleUpdateFields],
+  );
+
+  const handleDEXABIChange = useCallback(
+    (abiText: string) => {
+      const method = findABIFunction(dexData.functionName || "", parseABIText(abiText));
+      const parsedSignature = parseFunctionSignature(dexData.functionName || "");
+      handleUpdateFields({
+        abi: abiText,
+        contractAbi: abiText,
+        evmFunctionName: method?.name || parsedSignature.name,
+        evmFunctionSignature: method ? getABIFunctionSignature(method) : parsedSignature.signature,
+        evmFunctionStateMutability: method?.stateMutability || "",
+      });
+    },
+    [dexData.functionName, handleUpdateFields],
+  );
+
+  const handleActionTypeChange = useCallback(
+    (actionType: "CEX" | "DEX") => {
+      if (typedData.actionType === actionType) return;
+
+      if (actionType === "CEX") {
+        const current = typedData as Partial<CEXActionData>;
+        handleUpdateFields({
+          actionType: "CEX",
+          exchange: current.exchange || "Binance",
+          symbol: current.symbol || "BTC/USDT",
+          side: current.side || "BUY",
+          orderType: current.orderType || "MARKET",
+          timeInForce: normalizeCEXTimeInForceValue(current.timeInForce),
+          amount: current.amount || "0.1",
+          amountType: current.amountType || "FIXED",
+        });
+        return;
+      }
+
+      const current = typedData as Partial<DEXActionData>;
+      handleUpdateFields({
+        actionType: "DEX",
+        contractAddress: current.contractAddress || "0x...",
+        functionName: current.functionName || "swap()",
+        chainId: current.chainId || 1,
+        abi: current.abi || current.contractAbi || "",
+        contractAbi: current.contractAbi || current.abi || "",
+      });
+    },
+    [handleUpdateFields, typedData],
+  );
+
+  const handleAddInputBlock = useCallback(() => {
+    setNodes((nodes) =>
+      nodes.map((node) =>
+        node.id === id
+          ? {
+              ...node,
+              data: {
+                ...node.data,
+                inputBlocks: [
+                  ...(node.data as ActionNodeData).inputBlocks,
+                  {
+                    id: createUniqueBlockId("ib", (node.data as ActionNodeData).inputBlocks),
+                    name: "param",
+                    description: "",
+                    type: "input" as const,
+                  },
+                ],
+              },
+            }
+          : node
+      )
+    );
+  }, [id, setNodes]);
+
+  const handleRemoveInputBlock = useCallback(
+    (blockId: string) => {
+      setNodes((nodes) =>
+        nodes.map((node) =>
+          node.id === id
+            ? {
+                ...node,
+                data: {
+                  ...node.data,
+                  inputBlocks: (node.data as ActionNodeData).inputBlocks.filter(
+                    (b: BlockData) => b.id !== blockId
+                  ),
+                },
+              }
+            : node
+        )
+      );
+    },
+    [id, setNodes]
+  );
+
+  const handleBlockChange = useCallback(
+    (blockType: "input" | "output", blockId: string, patch: Partial<BlockData>) => {
+      const key = blockType === "input" ? "inputBlocks" : "outputBlocks";
+      setNodes((nodes) =>
+        nodes.map((node) =>
+          node.id === id
+            ? {
+                ...node,
+                data: {
+                  ...node.data,
+                  [key]: ((node.data as ActionNodeData)[key] as BlockData[]).map((block) =>
+                    block.id === blockId ? { ...block, ...patch } : block
+                  ),
+                },
+              }
+            : node
+        )
+      );
+    },
+    [id, setNodes]
+  );
+
+
+
+  const handleDragStart = (e: DragEvent, sourceInfo: string) => {
+    e.dataTransfer.setData("application/json", JSON.stringify({ type: "INPUT_BLOCK", name: sourceInfo }));
+    e.dataTransfer.effectAllowed = "copy";
+  };
+
+  const handleDropOnField = (e: DragEvent, fieldName: string) => {
+    e.preventDefault();
+    const dataStr = e.dataTransfer.getData("application/json");
+    if (dataStr) {
+      try {
+        const payload = JSON.parse(dataStr);
+        if (payload.type === "INPUT_BLOCK") {
+          handleUpdateField(fieldName, `{{${payload.name}}}`);
+        }
+      } catch {
+        console.error("Failed to parse dropped input block data");
+      }
+    }
+  };
+
+  const handleDragOver = (e: DragEvent) => {
+    e.preventDefault();
+    e.dataTransfer.dropEffect = "copy";
+  };
+
+  const renderInputBlocks = () => {
+    const inputBlocks = typedData.inputBlocks ?? [];
+    return (
+      <div className={cn(
+        "p-2 border-b grid gap-1",
+        isCEX ? "border-amber-200 bg-amber-50/50" : "border-cyan-200 bg-cyan-50/50"
+      )}>
+        <div className={cn(
+          "text-[10px] font-semibold uppercase mb-1",
+          isCEX ? "text-amber-700" : "text-cyan-700"
+        )}>Input Blocks <span className="font-normal opacity-70">(blocks only)</span></div>
+        {inputBlocks.length === 0 ? (
+          <div className={cn(
+            "text-xs italic",
+            isCEX ? "text-amber-400" : "text-cyan-400"
+          )}>
+            No input parameters
+          </div>
+        ) : inputBlocks.map((block) => {
+          const connectedInfos = getConnectedSourceInfo(block.id);
+          const dragName = connectedInfos.length > 0 ? connectedInfos[0] ?? block.name : block.name;
+          
+          return (
+            <div
+              key={block.id}
+              data-connect-target-node={id}
+              data-connect-target-handle={`${id}-input-${block.id}-in`}
+              className="nodrag relative group px-2 py-1.5 bg-white border border-gray-200 rounded shadow-sm cursor-grab active:cursor-grabbing"
+              draggable
+              onDragStart={(e) => handleDragStart(e, dragName)}
+            >
+              <Handle
+                type="target"
+                position={Position.Left}
+                id={`${id}-input-${block.id}-in`}
+                className="!w-2 !h-2 !bg-blue-400 !border-blue-500"
+                style={{ left: -5 }}
+              />
+              <input
+                type="text"
+                value={block.name}
+                onChange={(e) => handleBlockChange("input", block.id, { name: e.target.value })}
+                className="w-full bg-transparent text-xs font-semibold text-blue-800 outline-none placeholder:text-blue-300"
+                placeholder="블록 이름"
+              />
+              <input
+                type="text"
+                value={block.description ?? ""}
+                onChange={(e) =>
+                  handleBlockChange("input", block.id, { description: e.target.value })
+                }
+                className="mt-0.5 w-full bg-transparent text-[11px] text-blue-500 outline-none placeholder:text-blue-300"
+                placeholder="블록 설명 한 줄"
+              />
+              {block.abiType ? (
+                <div className="mt-1 inline-flex rounded bg-cyan-50 px-1.5 py-0.5 font-mono text-[9px] font-black text-cyan-700">
+                  {String(block.abiType)}
+                </div>
+              ) : null}
+              {!isCEX ? (
+                <input
+                  type="text"
+                  value={typeof block.value === "string" || typeof block.value === "number" ? String(block.value) : ""}
+                  onChange={(e) => handleBlockChange("input", block.id, { value: e.target.value })}
+                  className="mt-1 w-full rounded border border-cyan-100 bg-cyan-50/80 px-1.5 py-1 font-mono text-[10px] text-cyan-900 outline-none placeholder:text-cyan-300 focus:border-cyan-300"
+                  placeholder={`${block.name} value`}
+                />
+              ) : null}
+              {block.connectedFrom ? (
+                <div className="mt-1 truncate rounded bg-blue-50 px-1.5 py-0.5 text-[10px] font-semibold text-blue-700">
+                  {String(block.connectedFrom)}
+                </div>
+              ) : null}
+              <button
+                onClick={() => handleRemoveInputBlock(block.id)}
+                className="absolute right-4 top-1.5 opacity-0 group-hover:opacity-100 p-0.5 hover:bg-red-50 rounded"
+              >
+                <X className="w-3 h-3 text-red-500" />
+              </button>
+            </div>
+          );
+        })}
+        <button
+          onClick={handleAddInputBlock}
+          className={cn(
+            "w-full mt-1 px-2 py-1 text-[10px] flex items-center justify-center gap-1 rounded border border-dashed transition-colors",
+            isCEX 
+              ? "text-amber-600 border-amber-300 hover:bg-amber-100" 
+              : "text-cyan-600 border-cyan-300 hover:bg-cyan-100"
+          )}
+        >
+          <Plus className="w-3 h-3" />
+          Add Block
+        </button>
+      </div>
+    );
+  };
+
+  // Collapsed View
+  if (!isExpanded) {
+    return (
+      <div
+        className={cn(
+          "relative min-w-[160px] border-2 rounded-md shadow-sm transition-all",
+          isCEX ? "bg-amber-50 border-amber-400" : "bg-cyan-50 border-cyan-400",
+          selected && (isCEX ? "border-amber-500 ring-2 ring-amber-200" : "border-cyan-500 ring-2 ring-cyan-200")
+        )}
+      >
+        {/* Input Handle */}
+        <Handle
+          type="target"
+          position={Position.Left}
+          id={`${id}-func-in`}
+          className={cn(
+            "!w-2.5 !h-2.5",
+            isCEX ? "!bg-amber-400 !border-amber-500" : "!bg-cyan-400 !border-cyan-500"
+          )}
+          style={{ top: "50%", left: -5 }}
+        />
+        <div
+          className={cn(
+            "pointer-events-none absolute left-0 top-1/2 -translate-x-[calc(100%+8px)] -translate-y-1/2 rounded px-1.5 py-0.5 text-[9px] font-black shadow-sm",
+            isCEX ? "bg-amber-500 text-white" : "bg-cyan-500 text-white",
+          )}
+        >
+          YES
+        </div>
+        {typedData.inputBlocks?.map((block, index) => (
+          <Handle
+            key={block.id}
+            type="target"
+            position={Position.Left}
+            id={`${id}-input-${block.id}-in`}
+            className={cn(
+              "!h-2 !w-2 opacity-0",
+              isCEX ? "!border-amber-500 !bg-amber-400" : "!border-cyan-500 !bg-cyan-400"
+            )}
+            style={{
+              top: `calc(50% + ${(index - (typedData.inputBlocks.length - 1) / 2) * 10}px)`,
+              left: -5,
+            }}
+          />
+        ))}
+
+        {/* Header */}
+        <div className={cn(
+          "flex items-center justify-between gap-2 px-2 py-1.5 rounded-t-sm",
+          isCEX ? "bg-amber-500" : "bg-cyan-500"
+        )}>
+          <div className="flex items-center gap-1.5">
+            {isCEX ? (
+              <Building2 className="w-3.5 h-3.5 text-white" />
+            ) : (
+              <Globe className="w-3.5 h-3.5 text-white" />
+            )}
+            <span className="text-xs font-semibold text-white">ACTION</span>
+            <span className="rounded bg-white/20 px-1.5 py-0.5 text-[9px] font-black text-white">
+              {typedData.actionType}
+            </span>
+          </div>
+          <button
+            onClick={handleToggleExpand}
+            className={cn(
+              "p-0.5 rounded transition-colors",
+              isCEX ? "hover:bg-amber-600" : "hover:bg-cyan-600"
+            )}
+          >
+            <Maximize2 className="w-3 h-3 text-white" />
+          </button>
+        </div>
+
+        {/* Function Name / Action Summary */}
+        <div className={cn(
+          "px-2 py-1.5 text-[11px] font-medium border-b",
+          isCEX ? "text-amber-900 border-amber-200 bg-amber-100/50" : "text-cyan-900 border-cyan-200 bg-cyan-100/50"
+        )}>
+          <textarea
+            value={typedData.label}
+            onChange={handleLabelChange}
+            className="w-full bg-transparent border-none text-center resize-none focus:outline-none placeholder:text-gray-400"
+            rows={2}
+            placeholder="동작 설명 입력"
+          />
+        </div>
+
+        {/* Output Block */}
+        <div className="relative px-2 py-1.5 rounded-b-sm">
+          <div className={cn(
+            "text-[10px] font-semibold",
+            isCEX ? "text-amber-700" : "text-cyan-700"
+          )}>
+            {primaryOutputBlock?.name || "success"}
+          </div>
+          <div className={cn(
+            "mt-0.5 min-h-[13px] text-[10px]",
+            isCEX ? "text-amber-500" : "text-cyan-500"
+          )}>
+            {primaryOutputBlock?.description || ""}
+          </div>
+          {primaryOutputBlock ? (
+            <>
+              <Handle
+                type="source"
+                position={Position.Right}
+                id={`${id}-block-${primaryOutputBlock.id}-out`}
+                className={cn(
+                  "!w-2.5 !h-2.5",
+                  isCEX ? "!bg-amber-500 !border-amber-600" : "!bg-cyan-500 !border-cyan-600"
+                )}
+                style={{ right: -5 }}
+              />
+              <Handle
+                type="source"
+                position={Position.Right}
+                id={`${id}-success-out`}
+                className="!h-1 !w-1 !border-transparent !bg-transparent"
+                style={{ right: -5 }}
+              />
+            </>
+          ) : null}
+        </div>
+      </div>
+    );
+  }
+
+  // Expanded View
+  return (
+    <div
+      className={cn(
+        "relative w-[420px] border-2 rounded-lg shadow-xl transition-all ring-4",
+        isCEX 
+          ? "bg-amber-50 border-amber-400 ring-amber-300/50" 
+          : "bg-cyan-50 border-cyan-400 ring-cyan-300/50",
+        selected && (isCEX ? "border-amber-500" : "border-cyan-500")
+      )}
+    >
+      {/* Input Handle */}
+      <Handle
+        type="target"
+        position={Position.Left}
+        id={`${id}-func-in`}
+        className={cn(
+          "!w-3 !h-3",
+          isCEX ? "!bg-amber-400 !border-amber-500" : "!bg-cyan-400 !border-cyan-500"
+        )}
+        style={{ top: 36, left: -6 }}
+      />
+      <div
+        className={cn(
+          "pointer-events-none absolute left-0 top-9 -translate-x-[calc(100%+9px)] rounded px-1.5 py-0.5 text-[9px] font-black shadow-sm",
+          isCEX ? "bg-amber-500 text-white" : "bg-cyan-500 text-white",
+        )}
+      >
+        YES
+      </div>
+
+      {/* Header */}
+      <div className={cn(
+        "flex items-center justify-between gap-2 px-3 py-2 rounded-t-md",
+        isCEX ? "bg-amber-500" : "bg-cyan-500"
+      )}>
+        <div className="flex items-center gap-2">
+          {isCEX ? (
+            <Building2 className="w-4 h-4 text-white" />
+          ) : (
+            <Globe className="w-4 h-4 text-white" />
+          )}
+          <span className="text-sm font-bold text-white">
+            Action - {typedData.label}
+          </span>
+        </div>
+        <div className="flex items-center gap-1">
+          <div className="flex rounded border border-white/30 bg-white/12 p-0.5">
+            {(["DEX", "CEX"] as const).map((actionType) => (
+              <button
+                key={actionType}
+                type="button"
+                onClick={() => handleActionTypeChange(actionType)}
+                className={cn(
+                  "rounded px-2 py-0.5 text-[10px] font-black transition-colors",
+                  typedData.actionType === actionType
+                    ? "bg-white text-slate-900"
+                    : "text-white/80 hover:bg-white/15 hover:text-white",
+                )}
+              >
+                {actionType}
+              </button>
+            ))}
+          </div>
+          <button
+            onClick={handleToggleExpand}
+            className={cn(
+              "p-1 rounded transition-colors",
+              isCEX ? "hover:bg-amber-600" : "hover:bg-cyan-600"
+            )}
+          >
+            <Minimize2 className="w-4 h-4 text-white" />
+          </button>
+        </div>
+      </div>
+
+      {renderInputBlocks()}
+
+      {/* CEX Specific Fields */}
+	      {isCEX && (
+	        <div className="p-3 border-b border-amber-200">
+	          <div className="grid grid-cols-2 gap-2">
+	            {/* Exchange */}
+	            <div className={isPolymarketCEX ? "col-span-2" : ""}>
+	              <label className="text-[10px] font-semibold text-amber-700 uppercase">Exchange</label>
+	              <select
+	                value={cexData.exchange}
+	                onChange={(e) => handleCEXExchangeChange(e.target.value)}
+	                className="w-full mt-1 px-2 py-1.5 text-xs bg-white border border-amber-200 rounded focus:outline-none focus:ring-1 focus:ring-amber-400"
+	              >
+	                {SUPPORTED_CEX_TRADE_EXCHANGES.map((exchange) => (
+	                  <option key={exchange.id} value={exchange.name}>{exchange.name}</option>
+	                ))}
+	              </select>
+	            </div>
+	
+	            {!isPolymarketCEX && (
+	              <div>
+	                <label className="text-[10px] font-semibold text-amber-700 uppercase">Symbol</label>
+	                <input
+	                  type="text"
+	                  value={cexData.symbol}
+	                  onChange={(e) => handleUpdateField("symbol", e.target.value)}
+	                  className="w-full mt-1 px-2 py-1.5 text-xs bg-white border border-amber-200 rounded focus:outline-none focus:ring-1 focus:ring-amber-400 font-mono"
+	                  placeholder="BTC/USDT"
+	                />
+	              </div>
+	            )}
+	          </div>
+
+	          {isPolymarketCEX ? (
+	            <div className="mt-2 rounded border border-cyan-200 bg-cyan-50/80 p-2">
+	              <div className="mb-2 flex items-center justify-between gap-2">
+	                <span className="text-[10px] font-bold uppercase tracking-wide text-cyan-700">Polymarket CLOB</span>
+	                <span className="rounded-full bg-white px-2 py-0.5 text-[10px] font-bold text-cyan-700">
+	                  Chain {cexData.chainId || 137}
+	                </span>
+	              </div>
+	              <div className="grid grid-cols-2 gap-2">
+	                <div>
+	                  <label className="text-[10px] font-semibold text-cyan-700 uppercase">Market Label</label>
+	                  <input
+	                    type="text"
+	                    value={cexData.polymarketMarketTitle || ""}
+	                    onChange={(e) => handleUpdateField("polymarketMarketTitle", e.target.value)}
+	                    className="w-full mt-1 px-2 py-1.5 text-xs bg-white border border-cyan-200 rounded focus:outline-none focus:ring-1 focus:ring-cyan-400"
+	                    placeholder="e.g. Fed 25bp Cut"
+	                  />
+	                </div>
+	                <div>
+	                  <label className="text-[10px] font-semibold text-cyan-700 uppercase">Outcome</label>
+	                  <input
+	                    type="text"
+	                    value={cexData.polymarketOutcomeLabel || ""}
+	                    onChange={(e) => handleUpdateField("polymarketOutcomeLabel", e.target.value)}
+	                    className="w-full mt-1 px-2 py-1.5 text-xs bg-white border border-cyan-200 rounded focus:outline-none focus:ring-1 focus:ring-cyan-400"
+	                    placeholder="YES"
+	                  />
+	                </div>
+	                <div className="col-span-2">
+	                  <label className="text-[10px] font-semibold text-cyan-700 uppercase">Outcome Token ID</label>
+	                  <input
+	                    type="text"
+	                    value={cexData.tokenId || ""}
+	                    onChange={(e) => handleUpdateField("tokenId", e.target.value)}
+	                    className="w-full mt-1 px-2 py-1.5 text-xs bg-white border border-cyan-200 rounded focus:outline-none focus:ring-1 focus:ring-cyan-400 font-mono"
+	                    placeholder="Polymarket token_id"
+	                  />
+	                </div>
+	                <div>
+	                  <label className="text-[10px] font-semibold text-cyan-700 uppercase">Side</label>
+	                  <div className="flex gap-1 mt-1">
+	                    {(["BUY", "SELL"] as const).map((side) => (
+	                      <button
+	                        key={side}
+	                        onClick={() => handleUpdateField("side", side)}
+	                        className={cn(
+	                          "flex-1 px-2 py-1.5 text-xs font-semibold rounded transition-colors",
+	                          cexData.side === side
+	                            ? side === "BUY" ? "bg-green-500 text-white" : "bg-red-500 text-white"
+	                            : "bg-white border border-cyan-200 text-cyan-700 hover:bg-cyan-100"
+	                        )}
+	                      >
+	                        {side}
+	                      </button>
+	                    ))}
+	                  </div>
+	                </div>
+	                <div>
+	                  <label className="text-[10px] font-semibold text-cyan-700 uppercase">Order Type</label>
+	                  <select
+	                    value={cexData.polymarketOrderType || "GTC"}
+	                    onChange={(e) => handleUpdateField("polymarketOrderType", e.target.value)}
+	                    className="w-full mt-1 px-2 py-1.5 text-xs bg-white border border-cyan-200 rounded focus:outline-none focus:ring-1 focus:ring-cyan-400"
+	                  >
+	                    <option value="GTC">GTC</option>
+	                    <option value="FAK">FAK</option>
+	                    <option value="FOK">FOK</option>
+	                  </select>
+	                </div>
+	                <div>
+	                  <label className="text-[10px] font-semibold text-cyan-700 uppercase">Price</label>
+	                  <input
+	                    type="number"
+	                    min="0"
+	                    max="1"
+	                    step="0.01"
+	                    value={cexData.price || ""}
+	                    onChange={(e) => handleUpdateField("price", e.target.value)}
+	                    className="w-full mt-1 px-2 py-1.5 text-xs bg-white border border-cyan-200 rounded focus:outline-none focus:ring-1 focus:ring-cyan-400 font-mono"
+	                    placeholder="0.52"
+	                  />
+	                </div>
+	                <div>
+	                  <label className="text-[10px] font-semibold text-cyan-700 uppercase">Size</label>
+	                  <input
+	                    type="number"
+	                    min="0"
+	                    step="0.01"
+	                    value={cexData.size || ""}
+	                    onChange={(e) => handleUpdateField("size", e.target.value)}
+	                    className="w-full mt-1 px-2 py-1.5 text-xs bg-white border border-cyan-200 rounded focus:outline-none focus:ring-1 focus:ring-cyan-400 font-mono"
+	                    placeholder="10"
+	                  />
+	                </div>
+	                <div>
+	                  <label className="text-[10px] font-semibold text-cyan-700 uppercase">Post Only</label>
+	                  <select
+	                    value={String(cexData.postOnly ?? false)}
+	                    onChange={(e) => handleUpdateField("postOnly", e.target.value === "true")}
+	                    className="w-full mt-1 px-2 py-1.5 text-xs bg-white border border-cyan-200 rounded focus:outline-none focus:ring-1 focus:ring-cyan-400"
+	                  >
+	                    <option value="false">Off</option>
+	                    <option value="true">On</option>
+	                  </select>
+	                </div>
+	                <div>
+	                  <label className="text-[10px] font-semibold text-cyan-700 uppercase">Chain ID</label>
+	                  <input
+	                    type="number"
+	                    value={cexData.chainId || 137}
+	                    onChange={(e) => handleUpdateField("chainId", parseInt(e.target.value, 10) || 137)}
+	                    className="w-full mt-1 px-2 py-1.5 text-xs bg-white border border-cyan-200 rounded focus:outline-none focus:ring-1 focus:ring-cyan-400 font-mono"
+	                    placeholder="137"
+	                  />
+	                </div>
+	              </div>
+	            </div>
+	          ) : (
+	          <div className="grid grid-cols-2 gap-2 mt-2">
+	            {/* Amount with Drag and Drop Support */}
+	            <div 
+              onDragOver={handleDragOver}
+              onDrop={(e) => handleDropOnField(e, "amount")}
+            >
+              <label className="text-[10px] font-semibold text-amber-700 uppercase flex items-center justify-between">
+                Amount <span className="text-[8px] text-amber-500 font-normal">(Drop block here)</span>
+              </label>
+              <div className="flex flex-col mt-1 gap-1">
+                {(() => {
+                  const val = (typedData as CEXActionData).amount;
+                  if (typeof val === "string" && val.startsWith("{{") && val.endsWith("}}")) {
+                    const varName = val.slice(2, -2);
+                    return (
+                      <div className="flex items-center justify-between w-full px-2 py-1 bg-white border border-amber-300 rounded shadow-inner">
+                        <div className="flex items-center gap-1.5 bg-amber-100 text-amber-900 border border-amber-200 px-2 py-0.5 rounded font-mono text-[10px] truncate max-w-[130px]">
+                          <div className="w-1.5 h-1.5 rounded-full bg-amber-500 flex-shrink-0 shadow-sm" />
+                          <span className="truncate">{varName}</span>
+                        </div>
+                        <button
+                          onClick={() => handleUpdateField("amount", "")}
+                          className="p-0.5 hover:bg-amber-100 rounded text-amber-500 transition-colors"
+                          title="Remove block"
+                        >
+                          <X className="w-3 h-3" />
+                        </button>
+                      </div>
+                    );
+                  }
+                  return (
+                    <input
+                      type="text"
+                      value={val}
+                      onChange={(e) => handleUpdateField("amount", e.target.value)}
+                      className="w-full px-2 py-1.5 text-xs bg-white border border-amber-200 rounded focus:outline-none focus:ring-1 focus:ring-amber-400 font-mono"
+                      placeholder="e.g. 500 or Drop block"
+                    />
+                  );
+                })()}
+              </div>
+            </div>
+            
+            {/* Side */}
+            <div>
+              <label className="text-[10px] font-semibold text-amber-700 uppercase">Side</label>
+              <div className="flex gap-1 mt-1">
+                <button
+                  onClick={() => handleUpdateField("side", "BUY")}
+                  className={cn(
+                    "flex-1 px-2 py-1.5 text-xs font-semibold rounded transition-colors",
+                    (typedData as CEXActionData).side === "BUY"
+                      ? "bg-green-500 text-white"
+                      : "bg-white border border-amber-200 text-amber-600 hover:bg-green-50"
+                  )}
+                >
+                  BUY
+                </button>
+                <button
+                  onClick={() => handleUpdateField("side", "SELL")}
+                  className={cn(
+                    "flex-1 px-2 py-1.5 text-xs font-semibold rounded transition-colors",
+                    (typedData as CEXActionData).side === "SELL"
+                      ? "bg-red-500 text-white"
+                      : "bg-white border border-amber-200 text-amber-600 hover:bg-red-50"
+                  )}
+                >
+                  SELL
+                </button>
+              </div>
+            </div>
+
+            {/* Order Type */}
+            <div>
+              <label className="text-[10px] font-semibold text-amber-700 uppercase">Order Type</label>
+              <select
+                value={(typedData as CEXActionData).orderType}
+                onChange={(e) => handleUpdateField("orderType", e.target.value)}
+                className="w-full mt-1 px-2 py-1.5 text-xs bg-white border border-amber-200 rounded focus:outline-none focus:ring-1 focus:ring-amber-400"
+              >
+                <option value="MARKET">Market</option>
+                <option value="LIMIT">Limit</option>
+              </select>
+            </div>
+
+            {/* Fill Policy */}
+            <div>
+              <label className="text-[10px] font-semibold text-amber-700 uppercase">Fill Policy</label>
+              <select
+                value={normalizeCEXTimeInForceValue((typedData as CEXActionData).timeInForce)}
+                onChange={(e) => handleUpdateField("timeInForce", e.target.value)}
+                className="w-full mt-1 px-2 py-1.5 text-xs bg-white border border-amber-200 rounded focus:outline-none focus:ring-1 focus:ring-amber-400"
+              >
+                {CEX_TIME_IN_FORCE_OPTIONS.map((option) => (
+                  <option key={option.value} value={option.value}>{option.label}</option>
+                ))}
+              </select>
+            </div>
+
+            {/* Amount Type */}
+            <div>
+              <label className="text-[10px] font-semibold text-amber-700 uppercase">Amount Type</label>
+              <select
+                value={(typedData as CEXActionData).amountType}
+                onChange={(e) => handleUpdateField("amountType", e.target.value)}
+                className="w-full mt-1 px-2 py-1.5 text-xs bg-white border border-amber-200 rounded focus:outline-none focus:ring-1 focus:ring-amber-400"
+              >
+                <option value="FIXED">Fixed</option>
+                <option value="PERCENT">Percent (%)</option>
+              </select>
+            </div>
+
+            {/* Price (for limit orders) */}
+            {(typedData as CEXActionData).orderType === "LIMIT" && (
+              <div className="col-span-2">
+                <label className="text-[10px] font-semibold text-amber-700 uppercase">Limit Price</label>
+                <input
+                  type="text"
+                  value={(typedData as CEXActionData).price || ""}
+                  onChange={(e) => handleUpdateField("price", e.target.value)}
+                  className="w-full mt-1 px-2 py-1.5 text-xs bg-white border border-amber-200 rounded focus:outline-none focus:ring-1 focus:ring-amber-400 font-mono"
+                  placeholder="50000"
+                />
+	              </div>
+	            )}
+	          </div>
+	          )}
+	        </div>
+	      )}
+
+      {/* DEX Specific Fields */}
+      {!isCEX && (
+        <div className="p-3 border-b border-cyan-200">
+          <div className="space-y-2">
+            {/* Contract Address */}
+            <div>
+              <label className="text-[10px] font-semibold text-cyan-700 uppercase">Contract Address</label>
+              <input
+                type="text"
+                value={(typedData as DEXActionData).contractAddress}
+                onChange={(e) => handleUpdateField("contractAddress", e.target.value)}
+                className="w-full mt-1 px-2 py-1.5 text-xs bg-white border border-cyan-200 rounded focus:outline-none focus:ring-1 focus:ring-cyan-400 font-mono"
+                placeholder="0x..."
+              />
+            </div>
+
+            {/* Function Name */}
+            <div>
+              <label className="text-[10px] font-semibold text-cyan-700 uppercase">Function Name</label>
+              <input
+                type="text"
+                value={(typedData as DEXActionData).functionName}
+                onChange={(e) => handleDEXFunctionNameChange(e.target.value)}
+                className="w-full mt-1 px-2 py-1.5 text-xs bg-white border border-cyan-200 rounded focus:outline-none focus:ring-1 focus:ring-cyan-400 font-mono"
+                placeholder="swap(address,uint256)"
+              />
+            </div>
+
+            {dexFunctionOptions.length > 0 ? (
+              <div>
+                <label className="text-[10px] font-semibold text-cyan-700 uppercase">ABI Function</label>
+                <select
+                  value={dexParameterInfo.method ? getABIFunctionSignature(dexParameterInfo.method) : dexFunctionSignature.signature}
+                  onChange={(event) => handleDEXFunctionNameChange(event.target.value)}
+                  className="w-full mt-1 px-2 py-1.5 text-xs bg-white border border-cyan-200 rounded focus:outline-none focus:ring-1 focus:ring-cyan-400 font-mono"
+                >
+                  {dexFunctionOptions.map((option) => (
+                    <option key={option.signature} value={option.signature}>
+                      {option.signature}{option.stateMutability ? ` · ${option.stateMutability}` : ""}
+                    </option>
+                  ))}
+                </select>
+              </div>
+            ) : null}
+
+            <div>
+              <label className="text-[10px] font-semibold text-cyan-700 uppercase">Contract ABI</label>
+              <textarea
+                value={dexABIText}
+                onChange={(event) => handleDEXABIChange(event.target.value)}
+                className="nodrag nowheel mt-1 min-h-[76px] w-full resize-y rounded border border-cyan-200 bg-white px-2 py-1.5 font-mono text-[10px] leading-4 text-cyan-950 outline-none focus:ring-1 focus:ring-cyan-400"
+                placeholder='[{"type":"function","name":"swap","inputs":[...]}]'
+              />
+              {dexParameterInfo.blocks.length > 0 ? (
+                <div className="mt-1 flex items-center justify-between gap-2 rounded bg-cyan-50 px-2 py-1 text-[10px] font-semibold text-cyan-700">
+                  <span className="truncate">
+                    {dexParameterInfo.method
+                      ? `${getABIFunctionSignature(dexParameterInfo.method)}`
+                      : `${dexData.functionName || "function"} signature`}
+                  </span>
+                  <span className="shrink-0 rounded bg-white px-1.5 py-0.5 font-black">
+                    params {dexParameterInfo.blocks.length}
+                  </span>
+                </div>
+              ) : null}
+            </div>
+
+            {/* Chain ID */}
+            <div>
+              <label className="text-[10px] font-semibold text-cyan-700 uppercase">Chain</label>
+              <select
+                value={(typedData as DEXActionData).chainId}
+                onChange={(e) => handleUpdateField("chainId", parseInt(e.target.value))}
+                className="w-full mt-1 px-2 py-1.5 text-xs bg-white border border-cyan-200 rounded focus:outline-none focus:ring-1 focus:ring-cyan-400"
+              >
+                <option value={1}>Ethereum (1)</option>
+                <option value={56}>BSC (56)</option>
+                <option value={137}>Polygon (137)</option>
+                <option value={42161}>Arbitrum (42161)</option>
+                <option value={10}>Optimism (10)</option>
+                <option value={8453}>Base (8453)</option>
+              </select>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Output Section */}
+      <div className="p-3">
+        <div className={cn(
+          "text-[10px] font-semibold mb-2 uppercase tracking-wide",
+          isCEX ? "text-amber-700" : "text-cyan-700"
+        )}>
+          Output (반환값)
+        </div>
+        <div className="space-y-2">
+          {typedData.outputBlocks.map((block, index) => (
+            <div
+              key={block.id}
+              className={cn(
+                "relative rounded px-3 py-2 border",
+                isCEX ? "bg-amber-100 border-amber-300" : "bg-cyan-100 border-cyan-300"
+              )}
+            >
+              <input
+                type="text"
+                value={block.name}
+                onChange={(e) => handleBlockChange("output", block.id, { name: e.target.value })}
+                className={cn(
+                  "w-full bg-transparent text-xs font-semibold outline-none placeholder:text-gray-400",
+                  isCEX ? "text-amber-800" : "text-cyan-800"
+                )}
+                placeholder="블록 이름"
+              />
+              <input
+                type="text"
+                value={block.description ?? ""}
+                onChange={(e) =>
+                  handleBlockChange("output", block.id, { description: e.target.value })
+                }
+                className={cn(
+                  "mt-0.5 w-full bg-transparent text-[11px] outline-none placeholder:text-gray-400",
+                  isCEX ? "text-amber-600" : "text-cyan-600"
+                )}
+                placeholder="블록 설명 한 줄"
+              />
+              <Handle
+                type="source"
+                position={Position.Right}
+                id={`${id}-block-${block.id}-out`}
+                className={cn(
+                  "!w-3 !h-3",
+                  isCEX ? "!bg-amber-500 !border-amber-600" : "!bg-cyan-500 !border-cyan-600"
+                )}
+                style={{ right: -10 }}
+              />
+              {index === 0 ? (
+                <Handle
+                  type="source"
+                  position={Position.Right}
+                  id={`${id}-success-out`}
+                  className="!h-1 !w-1 !border-transparent !bg-transparent"
+                  style={{ right: -10 }}
+                />
+              ) : null}
+            </div>
+          ))}
+        </div>
+      </div>
+
+      {runtimeCode ? (
+        <div className={cn("border-t p-3", isCEX ? "border-amber-200 bg-amber-950" : "border-cyan-200 bg-cyan-950")}>
+          <div className={cn("mb-1 text-[10px] font-semibold uppercase", isCEX ? "text-amber-200" : "text-cyan-200")}>
+            generated_strategy.go
+          </div>
+          <pre className="max-h-32 overflow-auto rounded bg-black/30 p-2 text-[10px] leading-4 text-slate-100">
+            {runtimeCode}
+          </pre>
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
+export const ActionNode = memo(ActionNodeComponent);

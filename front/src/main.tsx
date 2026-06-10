@@ -1,7 +1,7 @@
 import { StrictMode } from "react";
 import { createRoot } from "react-dom/client";
-import { ExternalConsoleNoiseFilter } from "@/components/ExternalConsoleNoiseFilter";
-import { ThemeProvider } from "@/components/theme-provider";
+import { ExternalConsoleNoiseFilter } from "@/shared/components/ExternalConsoleNoiseFilter";
+import { ThemeProvider } from "@/shared/components/theme-provider";
 import App from "./App";
 import "./globals.css";
 

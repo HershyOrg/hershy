@@ -4,10 +4,9 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "dev": "NODE_ENV=development node server.mjs",
-    "dev:ui": "vite --host 0.0.0.0",
+    "dev": "vite --host 0.0.0.0",
     "build": "tsc --noEmit && vite build",
-    "start": "NODE_ENV=production node server.mjs",
+    "start": "vite preview --host 0.0.0.0",
     "lint": "eslint ."
   },
   "dependencies": {
@@ -48,7 +47,6 @@
     "dagre": "^0.8.5",
     "date-fns": "4.1.0",
     "embla-carousel-react": "8.6.0",
-    "express": "^5.2.1",
     "framer-motion": "^12.38.0",
     "input-otp": "1.4.2",
     "lightweight-charts": "^5.2.0",
@@ -62,7 +60,6 @@
     "sonner": "^1.7.1",
     "tailwind-merge": "^3.3.1",
     "vaul": "^1.1.2",
-    "viem": "^2.50.4",
     "zod": "^3.24.1"
   },
   "devDependencies": {
