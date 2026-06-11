@@ -231,6 +231,14 @@ func normalizeBundleForStorage(bundle SafeProvisioningBundle) (SafeProvisioningB
 		bundle.SessionKeyAddress = sessionKey
 		bundle.RelayerPolicy.SessionKeyAddress = sessionKey
 	}
+	if moduleCandidate := firstTrimmed(bundle.StrategyPolicyModuleAddress, bundle.RelayerPolicy.StrategyPolicyModule); moduleCandidate != "" {
+		moduleAddress, err := normalizeRequiredAddress(moduleCandidate, "strategy policy module address")
+		if err != nil {
+			return SafeProvisioningBundle{}, err
+		}
+		bundle.StrategyPolicyModuleAddress = moduleAddress
+		bundle.RelayerPolicy.StrategyPolicyModule = moduleAddress
+	}
 	bundle.RelayerPolicy.PolicyID = strings.TrimSpace(bundle.PolicyID)
 	return bundle, nil
 }

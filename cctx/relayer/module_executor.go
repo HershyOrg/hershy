@@ -44,13 +44,21 @@ type RPCModuleExecutor struct {
 }
 
 func (e RPCModuleExecutor) SubmitModuleExecute(ctx context.Context, request base.SCWRelayRequest) (string, error) {
+	return e.SubmitModuleExecuteWithPolicy(ctx, request, SCWExecutionPolicy{})
+}
+
+func (e RPCModuleExecutor) SubmitModuleExecuteWithPolicy(ctx context.Context, request base.SCWRelayRequest, policy SCWExecutionPolicy) (string, error) {
 	client, err := ethclient.DialContext(ctx, strings.TrimSpace(e.RPCURL))
 	if err != nil {
 		return "", fmt.Errorf("dial rpc: %w", err)
 	}
 	defer client.Close()
 
-	moduleAddress := common.HexToAddress(strings.TrimSpace(e.ModuleAddress))
+	moduleAddressText := firstNonEmpty(policy.StrategyPolicyModule, e.ModuleAddress)
+	if !common.IsHexAddress(moduleAddressText) {
+		return "", fmt.Errorf("strategy policy module address required")
+	}
+	moduleAddress := common.HexToAddress(moduleAddressText)
 	signer, err := crypto.HexToECDSA(strings.TrimPrefix(strings.TrimSpace(e.RelayerPrivateKey), "0x"))
 	if err != nil {
 		return "", fmt.Errorf("invalid relayer private key: %w", err)

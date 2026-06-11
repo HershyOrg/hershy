@@ -81,6 +81,90 @@ func TestPackUniswapV3ExactInputSingleParams(t *testing.T) {
 	}
 }
 
+func TestPackUniswapV3SinglePairAdapterActions(t *testing.T) {
+	tests := []struct {
+		name       string
+		action     base.UniswapV3AdapterAction
+		amountIn   *big.Int
+		minOut     *big.Int
+		methodName string
+	}{
+		{
+			name:       "open",
+			action:     base.UniswapV3AdapterActionOpenPosition,
+			amountIn:   big.NewInt(1000),
+			minOut:     big.NewInt(900),
+			methodName: "openPosition",
+		},
+		{
+			name:       "close",
+			action:     base.UniswapV3AdapterActionClosePosition,
+			amountIn:   big.NewInt(1000),
+			minOut:     big.NewInt(900),
+			methodName: "closePosition",
+		},
+		{
+			name:       "emergency",
+			action:     base.UniswapV3AdapterActionEmergencyExit,
+			amountIn:   big.NewInt(0),
+			minOut:     big.NewInt(900),
+			methodName: "emergencyExit",
+		},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			payload, functionName, err := packUniswapV3AdapterAction(test.action, test.amountIn, test.minOut)
+			if err != nil {
+				t.Fatalf("packUniswapV3AdapterAction: %v", err)
+			}
+			if functionName != test.methodName {
+				t.Fatalf("functionName = %s, want %s", functionName, test.methodName)
+			}
+			method := evmDEXUniswapV3SinglePairAdapterABI.Methods[test.methodName]
+			if len(payload) <= 4 || common.Bytes2Hex(payload[:4]) != common.Bytes2Hex(method.ID) {
+				t.Fatalf("unexpected selector: got=0x%s want=0x%s", common.Bytes2Hex(payload[:4]), common.Bytes2Hex(method.ID))
+			}
+		})
+	}
+}
+
+func TestNormalizeUniswapV3AdapterActionRequest(t *testing.T) {
+	ex := &EVMDEX{
+		address: "0x00000000000000000000000000000000000000aa",
+		rpcURL:  "http://127.0.0.1:8545",
+		chainID: 56,
+	}
+	adapter, action, amountIn, minOut, observedTokenOut, recipient, valueWei, route, err := ex.normalizeUniswapV3AdapterActionRequest(base.UniswapV3AdapterActionRequest{
+		Chain:                   "bsc",
+		AdapterAddress:          "0x0000000000000000000000000000000000000001",
+		Action:                  base.UniswapV3AdapterActionOpenPosition,
+		AmountInWei:             "1000",
+		AmountOutMinimumWei:     "900",
+		ObservedTokenOutAddress: "0x0000000000000000000000000000000000000002",
+	})
+	if err != nil {
+		t.Fatalf("normalizeUniswapV3AdapterActionRequest: %v", err)
+	}
+	if adapter.Hex() != "0x0000000000000000000000000000000000000001" {
+		t.Fatalf("adapter = %s", adapter.Hex())
+	}
+	if action != base.UniswapV3AdapterActionOpenPosition {
+		t.Fatalf("action = %s", action)
+	}
+	if amountIn.String() != "1000" || minOut.String() != "900" || valueWei.Sign() != 0 {
+		t.Fatalf("amounts = %s %s %s", amountIn, minOut, valueWei)
+	}
+	if observedTokenOut.Hex() != "0x0000000000000000000000000000000000000002" {
+		t.Fatalf("observed token out = %s", observedTokenOut.Hex())
+	}
+	if recipient.Hex() != "0x00000000000000000000000000000000000000AA" {
+		t.Fatalf("recipient = %s", recipient.Hex())
+	}
+	if route.Chain != "bsc" || route.ChainID != 56 {
+		t.Fatalf("route = %#v", route)
+	}
+}
+
 func TestObservedERC20TransfersTo(t *testing.T) {
 	token := common.HexToAddress("0x0000000000000000000000000000000000000001")
 	recipient := common.HexToAddress("0x0000000000000000000000000000000000000002")

@@ -106,10 +106,60 @@ type UniswapV3SwapExactInputSingleResult struct {
 	DryRun               bool   `json:"dry_run"`
 }
 
+// UniswapV3AdapterAction identifies an action exposed by a strategy adapter.
+type UniswapV3AdapterAction string
+
+const (
+	UniswapV3AdapterActionOpenPosition  UniswapV3AdapterAction = "open_position"
+	UniswapV3AdapterActionClosePosition UniswapV3AdapterAction = "close_position"
+	UniswapV3AdapterActionEmergencyExit UniswapV3AdapterAction = "emergency_exit"
+)
+
+// UniswapV3AdapterActionRequest executes a constrained Uniswap V3 strategy
+// adapter action instead of calling the DEX router directly.
+type UniswapV3AdapterActionRequest struct {
+	Chain                   string                 `json:"chain,omitempty"`
+	AdapterAddress          string                 `json:"adapter_address"`
+	Action                  UniswapV3AdapterAction `json:"action"`
+	AmountInWei             string                 `json:"amount_in_wei,omitempty"`
+	AmountOutMinimumWei     string                 `json:"amount_out_minimum_wei"`
+	ObservedTokenOutAddress string                 `json:"observed_token_out_address,omitempty"`
+	Recipient               string                 `json:"recipient,omitempty"`
+	ValueWei                string                 `json:"value_wei,omitempty"`
+	DryRun                  bool                   `json:"dry_run,omitempty"`
+	WaitForReceipt          bool                   `json:"wait_for_receipt,omitempty"`
+}
+
+// UniswapV3AdapterActionResult captures submitted adapter transaction details
+// and, when available, the observed tokenOut transfer amount to the SCW.
+type UniswapV3AdapterActionResult struct {
+	Chain                   string                 `json:"chain,omitempty"`
+	ChainID                 int64                  `json:"chain_id"`
+	AdapterAddress          string                 `json:"adapter_address"`
+	Action                  UniswapV3AdapterAction `json:"action"`
+	AmountInWei             string                 `json:"amount_in_wei,omitempty"`
+	AmountOutMinimumWei     string                 `json:"amount_out_minimum_wei"`
+	ObservedTokenOutAddress string                 `json:"observed_token_out_address,omitempty"`
+	Recipient               string                 `json:"recipient,omitempty"`
+	ValueWei                string                 `json:"value_wei"`
+	TxHash                  string                 `json:"tx_hash,omitempty"`
+	ObservedAmountOutWei    string                 `json:"observed_amount_out_wei,omitempty"`
+	GasUsed                 uint64                 `json:"gas_used,omitempty"`
+	EffectiveGasPriceWei    string                 `json:"effective_gas_price_wei,omitempty"`
+	ReceiptStatus           uint64                 `json:"receipt_status,omitempty"`
+	DryRun                  bool                   `json:"dry_run"`
+}
+
 // UniswapV3Executor is an optional capability for Uniswap V3-compatible DEXs.
 type UniswapV3Executor interface {
 	FetchUniswapV3PoolInfo(request UniswapV3PoolRequest) (UniswapV3PoolInfo, error)
 	QuoteUniswapV3ExactInputSingle(request UniswapV3QuoteExactInputSingleRequest) (UniswapV3QuoteExactInputSingle, error)
 	EnsureERC20Approval(request ERC20ApprovalRequest) (ERC20ApprovalResult, error)
 	SwapUniswapV3ExactInputSingle(request UniswapV3SwapExactInputSingleRequest) (UniswapV3SwapExactInputSingleResult, error)
+}
+
+// UniswapV3AdapterExecutor is an optional capability for strategy-adapter
+// backed Uniswap V3-compatible DEX execution.
+type UniswapV3AdapterExecutor interface {
+	ExecuteUniswapV3AdapterAction(request UniswapV3AdapterActionRequest) (UniswapV3AdapterActionResult, error)
 }

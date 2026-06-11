@@ -28,6 +28,11 @@ var (
 	evmDEXUniswapV3RouterABI = evmDEXMustParseABI(`[
 		{"inputs":[{"components":[{"internalType":"address","name":"tokenIn","type":"address"},{"internalType":"address","name":"tokenOut","type":"address"},{"internalType":"uint24","name":"fee","type":"uint24"},{"internalType":"address","name":"recipient","type":"address"},{"internalType":"uint256","name":"amountIn","type":"uint256"},{"internalType":"uint256","name":"amountOutMinimum","type":"uint256"},{"internalType":"uint160","name":"sqrtPriceLimitX96","type":"uint160"}],"internalType":"struct IV3SwapRouter.ExactInputSingleParams","name":"params","type":"tuple"}],"name":"exactInputSingle","outputs":[{"internalType":"uint256","name":"amountOut","type":"uint256"}],"stateMutability":"payable","type":"function"}
 	]`)
+	evmDEXUniswapV3SinglePairAdapterABI = evmDEXMustParseABI(`[
+		{"inputs":[{"internalType":"uint256","name":"amountIn","type":"uint256"},{"internalType":"uint256","name":"minAmountOut","type":"uint256"}],"name":"openPosition","outputs":[{"internalType":"uint256","name":"amountOut","type":"uint256"}],"stateMutability":"nonpayable","type":"function"},
+		{"inputs":[{"internalType":"uint256","name":"amountIn","type":"uint256"},{"internalType":"uint256","name":"minAmountOut","type":"uint256"}],"name":"closePosition","outputs":[{"internalType":"uint256","name":"amountOut","type":"uint256"}],"stateMutability":"nonpayable","type":"function"},
+		{"inputs":[{"internalType":"uint256","name":"minAmountOut","type":"uint256"}],"name":"emergencyExit","outputs":[{"internalType":"uint256","name":"amountOut","type":"uint256"}],"stateMutability":"nonpayable","type":"function"}
+	]`)
 	evmDEXERC20ApprovalABI = evmDEXMustParseABI(`[
 		{"inputs":[{"internalType":"address","name":"spender","type":"address"},{"internalType":"uint256","name":"amount","type":"uint256"}],"name":"approve","outputs":[{"internalType":"bool","name":"","type":"bool"}],"stateMutability":"nonpayable","type":"function"}
 	]`)
@@ -56,6 +61,7 @@ type uniswapV3SwapExactInputSingleParams struct {
 }
 
 var _ base.UniswapV3Executor = (*EVMDEX)(nil)
+var _ base.UniswapV3AdapterExecutor = (*EVMDEX)(nil)
 
 // FetchUniswapV3PoolInfo returns fee/token0/token1 for a Uniswap V3-compatible pool.
 func (e *EVMDEX) FetchUniswapV3PoolInfo(request base.UniswapV3PoolRequest) (base.UniswapV3PoolInfo, error) {
@@ -298,6 +304,78 @@ func (e *EVMDEX) SwapUniswapV3ExactInputSingle(request base.UniswapV3SwapExactIn
 	return result, nil
 }
 
+// ExecuteUniswapV3AdapterAction submits a constrained strategy-adapter action.
+func (e *EVMDEX) ExecuteUniswapV3AdapterAction(request base.UniswapV3AdapterActionRequest) (base.UniswapV3AdapterActionResult, error) {
+	adapter, action, amountIn, amountOutMinimum, observedTokenOut, recipient, valueWei, route, err := e.normalizeUniswapV3AdapterActionRequest(request)
+	if err != nil {
+		return base.UniswapV3AdapterActionResult{}, err
+	}
+	result := base.UniswapV3AdapterActionResult{
+		Chain:                   route.Chain,
+		ChainID:                 route.ChainID,
+		AdapterAddress:          adapter.Hex(),
+		Action:                  action,
+		AmountInWei:             amountIn.String(),
+		AmountOutMinimumWei:     amountOutMinimum.String(),
+		ObservedTokenOutAddress: observedTokenOut.Hex(),
+		Recipient:               recipient.Hex(),
+		ValueWei:                valueWei.String(),
+		DryRun:                  request.DryRun,
+	}
+	if observedTokenOut == (common.Address{}) {
+		result.ObservedTokenOutAddress = ""
+	}
+	if request.Action == base.UniswapV3AdapterActionEmergencyExit {
+		result.AmountInWei = ""
+	}
+	if request.DryRun {
+		return result, nil
+	}
+
+	payload, functionName, err := packUniswapV3AdapterAction(action, amountIn, amountOutMinimum)
+	if err != nil {
+		return base.UniswapV3AdapterActionResult{}, err
+	}
+	txValue := ""
+	if valueWei.Sign() > 0 {
+		txValue = valueWei.String() + "wei"
+	}
+	tx, err := e.ExecuteEVMTransaction(base.EVMDEXRequest{
+		Chain:           route.Chain,
+		ContractAddress: adapter.Hex(),
+		Calldata:        "0x" + common.Bytes2Hex(payload),
+		Value:           txValue,
+		FunctionName:    functionName,
+		StateMutability: "nonpayable",
+	})
+	if err != nil {
+		return base.UniswapV3AdapterActionResult{}, err
+	}
+	result.TxHash = tx.TxHash
+	if !request.WaitForReceipt {
+		return result, nil
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 180*time.Second)
+	defer cancel()
+	receipt, err := e.waitForReceipt(ctx, route, tx.TxHash)
+	if err != nil {
+		return base.UniswapV3AdapterActionResult{}, err
+	}
+	result.GasUsed = receipt.GasUsed
+	result.ReceiptStatus = receipt.Status
+	if receipt.EffectiveGasPrice != nil {
+		result.EffectiveGasPriceWei = receipt.EffectiveGasPrice.String()
+	}
+	if observedTokenOut != (common.Address{}) {
+		result.ObservedAmountOutWei = observedERC20TransfersTo(receipt, observedTokenOut, recipient).String()
+	}
+	if receipt.Status != types.ReceiptStatusSuccessful {
+		return result, base.ExchangeError{Message: fmt.Sprintf("uniswap v3 adapter %s reverted: %s", action, tx.TxHash)}
+	}
+	return result, nil
+}
+
 func (e *EVMDEX) normalizeUniswapV3QuoteRequest(request base.UniswapV3QuoteExactInputSingleRequest) (common.Address, common.Address, common.Address, *big.Int, *big.Int, evmChainRoute, error) {
 	if !common.IsHexAddress(strings.TrimSpace(request.QuoterAddress)) {
 		return common.Address{}, common.Address{}, common.Address{}, nil, nil, evmChainRoute{}, base.InvalidOrder{Message: "invalid Uniswap V3 quoter address"}
@@ -366,6 +444,72 @@ func (e *EVMDEX) normalizeUniswapV3SwapRequest(request base.UniswapV3SwapExactIn
 		return common.Address{}, common.Address{}, common.Address{}, common.Address{}, nil, nil, nil, nil, evmChainRoute{}, err
 	}
 	return common.HexToAddress(request.RouterAddress), tokenIn, tokenOut, common.HexToAddress(recipientText), amountIn, amountOutMinimum, sqrtPriceLimit, valueWei, route, nil
+}
+
+func (e *EVMDEX) normalizeUniswapV3AdapterActionRequest(request base.UniswapV3AdapterActionRequest) (common.Address, base.UniswapV3AdapterAction, *big.Int, *big.Int, common.Address, common.Address, *big.Int, evmChainRoute, error) {
+	if !common.IsHexAddress(strings.TrimSpace(request.AdapterAddress)) {
+		return common.Address{}, "", nil, nil, common.Address{}, common.Address{}, nil, evmChainRoute{}, base.InvalidOrder{Message: "invalid Uniswap V3 adapter address"}
+	}
+	action := request.Action
+	if action == "" {
+		return common.Address{}, "", nil, nil, common.Address{}, common.Address{}, nil, evmChainRoute{}, base.InvalidOrder{Message: "adapter action is required"}
+	}
+	amountIn := big.NewInt(0)
+	var err error
+	if action != base.UniswapV3AdapterActionEmergencyExit {
+		amountIn, err = parseExactWei(request.AmountInWei)
+		if err != nil || amountIn.Sign() <= 0 {
+			return common.Address{}, "", nil, nil, common.Address{}, common.Address{}, nil, evmChainRoute{}, base.InvalidOrder{Message: fmt.Sprintf("invalid amount_in_wei: %v", err)}
+		}
+	}
+	amountOutMinimum, err := parseExactWei(request.AmountOutMinimumWei)
+	if err != nil {
+		return common.Address{}, "", nil, nil, common.Address{}, common.Address{}, nil, evmChainRoute{}, base.InvalidOrder{Message: fmt.Sprintf("invalid amount_out_minimum_wei: %v", err)}
+	}
+	if amountOutMinimum.Sign() < 0 {
+		return common.Address{}, "", nil, nil, common.Address{}, common.Address{}, nil, evmChainRoute{}, base.InvalidOrder{Message: "amount_out_minimum_wei cannot be negative"}
+	}
+	observedTokenOut := common.Address{}
+	if strings.TrimSpace(request.ObservedTokenOutAddress) != "" {
+		if !common.IsHexAddress(strings.TrimSpace(request.ObservedTokenOutAddress)) {
+			return common.Address{}, "", nil, nil, common.Address{}, common.Address{}, nil, evmChainRoute{}, base.InvalidOrder{Message: "invalid observed token out address"}
+		}
+		observedTokenOut = common.HexToAddress(request.ObservedTokenOutAddress)
+	}
+	recipientText := firstNonEmptyString(request.Recipient, e.address)
+	if !common.IsHexAddress(strings.TrimSpace(recipientText)) {
+		return common.Address{}, "", nil, nil, common.Address{}, common.Address{}, nil, evmChainRoute{}, base.InvalidOrder{Message: "invalid adapter recipient address"}
+	}
+	valueWei, err := parseOptionalWei(request.ValueWei)
+	if err != nil {
+		return common.Address{}, "", nil, nil, common.Address{}, common.Address{}, nil, evmChainRoute{}, base.InvalidOrder{Message: fmt.Sprintf("invalid value_wei: %v", err)}
+	}
+	route, err := e.resolveChainRoute(request.Chain)
+	if err != nil {
+		return common.Address{}, "", nil, nil, common.Address{}, common.Address{}, nil, evmChainRoute{}, err
+	}
+	switch action {
+	case base.UniswapV3AdapterActionOpenPosition, base.UniswapV3AdapterActionClosePosition, base.UniswapV3AdapterActionEmergencyExit:
+	default:
+		return common.Address{}, "", nil, nil, common.Address{}, common.Address{}, nil, evmChainRoute{}, base.InvalidOrder{Message: fmt.Sprintf("unsupported Uniswap V3 adapter action: %s", action)}
+	}
+	return common.HexToAddress(request.AdapterAddress), action, amountIn, amountOutMinimum, observedTokenOut, common.HexToAddress(recipientText), valueWei, route, nil
+}
+
+func packUniswapV3AdapterAction(action base.UniswapV3AdapterAction, amountIn *big.Int, amountOutMinimum *big.Int) ([]byte, string, error) {
+	switch action {
+	case base.UniswapV3AdapterActionOpenPosition:
+		payload, err := evmDEXUniswapV3SinglePairAdapterABI.Pack("openPosition", amountIn, amountOutMinimum)
+		return payload, "openPosition", err
+	case base.UniswapV3AdapterActionClosePosition:
+		payload, err := evmDEXUniswapV3SinglePairAdapterABI.Pack("closePosition", amountIn, amountOutMinimum)
+		return payload, "closePosition", err
+	case base.UniswapV3AdapterActionEmergencyExit:
+		payload, err := evmDEXUniswapV3SinglePairAdapterABI.Pack("emergencyExit", amountOutMinimum)
+		return payload, "emergencyExit", err
+	default:
+		return nil, "", base.InvalidOrder{Message: fmt.Sprintf("unsupported Uniswap V3 adapter action: %s", action)}
+	}
 }
 
 func (e *EVMDEX) normalizeApprovalRequest(request base.ERC20ApprovalRequest) (common.Address, common.Address, common.Address, *big.Int, *big.Int, evmChainRoute, error) {

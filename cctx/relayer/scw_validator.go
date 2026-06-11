@@ -40,6 +40,7 @@ type SCWExecutionPolicy struct {
 	SmartWalletAddress       string        `json:"smart_wallet_address,omitempty"`
 	SessionKeyAddress        string        `json:"session_key_address,omitempty"`
 	PolicyID                 string        `json:"policy_id,omitempty"`
+	StrategyPolicyModule     string        `json:"strategy_policy_module_address,omitempty"`
 	AllowedChainIDs          []int64       `json:"allowed_chain_ids,omitempty"`
 	AllowedContractAddresses []string      `json:"allowed_contract_addresses,omitempty"`
 	AllowedFunctionSelectors []string      `json:"allowed_function_selectors,omitempty"`

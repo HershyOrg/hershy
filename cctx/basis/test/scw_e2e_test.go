@@ -146,6 +146,129 @@ func TestLiveSCWUniswapV3ApproveSwapE2E(t *testing.T) {
 	t.Logf("SCW round-trip result=%s", mustJSON(result))
 }
 
+// TestLiveSCWUniswapV3AdapterApproveSwapE2E sends real SCW transactions through
+// the StrategyPolicyModule, but targets the Uniswap V3 strategy adapter instead
+// of the DEX router. The adapter must already be deployed and allowed by policy.
+func TestLiveSCWUniswapV3AdapterApproveSwapE2E(t *testing.T) {
+	loadLiveEnvFiles(t)
+	if !envBool("CCTX_LIVE_SCW_DEX_ALLOW_TX", false) {
+		t.Skip("set CCTX_LIVE_SCW_DEX_ALLOW_TX=1 to send real SCW DEX transactions")
+	}
+	if !envBool("ENABLE_LIVE_TRADING", false) || envBool("DRY_RUN", true) {
+		t.Fatal("SCW DEX adapter E2E requires ENABLE_LIVE_TRADING=true and DRY_RUN=false")
+	}
+	if envString("CCTX_LIVE_SCW_DEX_RISK_ACK", "") != scwDEXRiskAck {
+		t.Fatalf("set CCTX_LIVE_SCW_DEX_RISK_ACK=%s to acknowledge real SCW transactions", scwDEXRiskAck)
+	}
+
+	cfg := loadSCWDEXConfig(t, true)
+	if strings.TrimSpace(cfg.adapterAddress) == "" {
+		t.Fatal("missing required env: SCW_DEX_UNISWAP_V3_ADAPTER")
+	}
+	cfg.approvalSpender = cfg.adapterAddress
+	deps := newSCWDEXDeps(t, cfg)
+	adapter, ok := deps.exchange.(base.UniswapV3AdapterExecutor)
+	if !ok {
+		t.Fatal("EVMDEX does not implement UniswapV3AdapterExecutor")
+	}
+	preflight := runSCWDEXPreflight(t, cfg, deps)
+	requireWeiAtLeast(t, "SCW quote-token balance", preflight.QuoteBalance.BalanceWei, cfg.amountInWei)
+
+	result := scwDEXAdapterE2EResult{Preflight: preflight}
+	if envBool("SCW_DEX_REQUIRE_PREAPPROVED", false) {
+		requireAllowanceAtLeast(t, "SCW quote token to adapter", preflight.QuoteAllowance.AllowanceWei, cfg.amountInWei)
+	} else if !weiAtLeast(preflight.QuoteAllowance.AllowanceWei, cfg.amountInWei) {
+		entryApproval, err := deps.dex.EnsureERC20Approval(base.ERC20ApprovalRequest{
+			Chain:          cfg.chain,
+			TokenAddress:   cfg.quoteAddress,
+			OwnerAddress:   deps.wallet,
+			SpenderAddress: cfg.adapterAddress,
+			AmountWei:      cfg.amountInWei,
+			DryRun:         false,
+			WaitForReceipt: true,
+		})
+		if err != nil {
+			t.Fatalf("SCW quote approval to adapter failed: %v\npartial=%s", err, mustJSON(result))
+		}
+		result.EntryApproval = &entryApproval
+	}
+
+	entryMinOut := firstNonEmpty(envString("SCW_DEX_MIN_TOKEN_OUT_WEI", ""), slippageFloorWei(t, preflight.EntryQuote.AmountOutWei, cfg.slippageBps))
+	entrySwap, err := adapter.ExecuteUniswapV3AdapterAction(base.UniswapV3AdapterActionRequest{
+		Chain:                   cfg.chain,
+		AdapterAddress:          cfg.adapterAddress,
+		Action:                  base.UniswapV3AdapterActionOpenPosition,
+		AmountInWei:             cfg.amountInWei,
+		AmountOutMinimumWei:     entryMinOut,
+		ObservedTokenOutAddress: cfg.tokenAddress,
+		Recipient:               deps.wallet,
+		DryRun:                  false,
+		WaitForReceipt:          true,
+	})
+	if err != nil {
+		t.Fatalf("SCW adapter entry swap failed: %v\npartial=%s", err, mustJSON(result))
+	}
+	result.EntrySwap = &entrySwap
+
+	if envBool("SCW_DEX_SKIP_EXIT", false) {
+		t.Logf("SCW adapter entry-only result=%s", mustJSON(result))
+		return
+	}
+	if !positiveWei(entrySwap.ObservedAmountOutWei) {
+		t.Fatalf("SCW adapter entry swap reported no observed output; refusing to guess exit amount\nresult=%s", mustJSON(result))
+	}
+
+	exitQuote, err := deps.dex.QuoteUniswapV3ExactInputSingle(base.UniswapV3QuoteExactInputSingleRequest{
+		Chain:         cfg.chain,
+		QuoterAddress: cfg.quoterAddress,
+		TokenIn:       cfg.tokenAddress,
+		TokenOut:      cfg.quoteAddress,
+		Fee:           preflight.EntryQuote.Fee,
+		AmountInWei:   entrySwap.ObservedAmountOutWei,
+	})
+	if err != nil {
+		t.Fatalf("SCW adapter exit quote failed: %v\npartial=%s", err, mustJSON(result))
+	}
+	result.ExitQuote = &exitQuote
+
+	if envBool("SCW_DEX_REQUIRE_PREAPPROVED", false) {
+		requireAllowanceAtLeast(t, "SCW token to adapter", preflight.TokenAllowance.AllowanceWei, entrySwap.ObservedAmountOutWei)
+	} else if !weiAtLeast(preflight.TokenAllowance.AllowanceWei, entrySwap.ObservedAmountOutWei) {
+		exitApproval, err := deps.dex.EnsureERC20Approval(base.ERC20ApprovalRequest{
+			Chain:          cfg.chain,
+			TokenAddress:   cfg.tokenAddress,
+			OwnerAddress:   deps.wallet,
+			SpenderAddress: cfg.adapterAddress,
+			AmountWei:      entrySwap.ObservedAmountOutWei,
+			DryRun:         false,
+			WaitForReceipt: true,
+		})
+		if err != nil {
+			t.Fatalf("SCW token approval to adapter failed: %v\npartial=%s", err, mustJSON(result))
+		}
+		result.ExitApproval = &exitApproval
+	}
+
+	exitMinOut := firstNonEmpty(envString("SCW_DEX_MIN_QUOTE_OUT_WEI", ""), slippageFloorWei(t, exitQuote.AmountOutWei, cfg.exitSlippageBps))
+	exitSwap, err := adapter.ExecuteUniswapV3AdapterAction(base.UniswapV3AdapterActionRequest{
+		Chain:                   cfg.chain,
+		AdapterAddress:          cfg.adapterAddress,
+		Action:                  base.UniswapV3AdapterActionClosePosition,
+		AmountInWei:             entrySwap.ObservedAmountOutWei,
+		AmountOutMinimumWei:     exitMinOut,
+		ObservedTokenOutAddress: cfg.quoteAddress,
+		Recipient:               deps.wallet,
+		DryRun:                  false,
+		WaitForReceipt:          true,
+	})
+	if err != nil {
+		t.Fatalf("SCW adapter exit swap failed; token may remain in SCW: %v\npartial=%s", err, mustJSON(result))
+	}
+	result.ExitSwap = &exitSwap
+
+	t.Logf("SCW adapter round-trip result=%s", mustJSON(result))
+}
+
 // TestLiveSCWUniswapV3ExitTokenBalance is a recovery helper for a failed
 // entry-only/round-trip run. It swaps either SCW_DEX_EXIT_AMOUNT_IN_WEI or the
 // SCW's current token balance back into the quote token.
@@ -235,6 +358,7 @@ type scwDEXConfig struct {
 	poolAddress       string
 	quoterAddress     string
 	routerAddress     string
+	adapterAddress    string
 	approvalSpender   string
 	fee               uint32
 	amountInWei       string
@@ -271,6 +395,15 @@ type scwDEXE2EResult struct {
 	ExitSwap      *base.UniswapV3SwapExactInputSingleResult `json:"exit_swap,omitempty"`
 }
 
+type scwDEXAdapterE2EResult struct {
+	Preflight     scwDEXPreflight                      `json:"preflight"`
+	EntryApproval *base.ERC20ApprovalResult            `json:"entry_approval,omitempty"`
+	EntrySwap     *base.UniswapV3AdapterActionResult   `json:"entry_swap,omitempty"`
+	ExitQuote     *base.UniswapV3QuoteExactInputSingle `json:"exit_quote,omitempty"`
+	ExitApproval  *base.ERC20ApprovalResult            `json:"exit_approval,omitempty"`
+	ExitSwap      *base.UniswapV3AdapterActionResult   `json:"exit_swap,omitempty"`
+}
+
 func loadSCWDEXConfig(t *testing.T, requireRelayer bool) scwDEXConfig {
 	t.Helper()
 	cfg := scwDEXConfig{
@@ -292,6 +425,7 @@ func loadSCWDEXConfig(t *testing.T, requireRelayer bool) scwDEXConfig {
 		poolAddress:       envString("BASIS_POOL_ADDRESS", ""),
 		quoterAddress:     envString("UNISWAP_V3_QUOTER", scenarioQuoterV2),
 		routerAddress:     envString("UNISWAP_V3_ROUTER", scenarioSwapRouter02),
+		adapterAddress:    envString("SCW_DEX_UNISWAP_V3_ADAPTER", ""),
 		fee:               envUint32("UNISWAP_V3_FEE", 0),
 		amountInWei:       envString("BASIS_AMOUNT_IN_WEI", ""),
 		slippageBps:       envUint32("BASIS_SLIPPAGE_BPS", 100),
@@ -477,4 +611,16 @@ func slippageFloorWei(t *testing.T, amountWei string, bps uint32) string {
 func positiveWei(value string) bool {
 	parsed, ok := new(big.Int).SetString(strings.TrimSpace(value), 10)
 	return ok && parsed.Sign() > 0
+}
+
+func weiAtLeast(actualWei string, requiredWei string) bool {
+	actual, ok := new(big.Int).SetString(strings.TrimSpace(actualWei), 10)
+	if !ok {
+		return false
+	}
+	required, ok := new(big.Int).SetString(strings.TrimSpace(requiredWei), 10)
+	if !ok {
+		return false
+	}
+	return actual.Cmp(required) >= 0
 }

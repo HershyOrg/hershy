@@ -315,6 +315,7 @@ func BuildSafeProvisioningBundle(request SafeProvisioningRequest) (SafeProvision
 			}
 		}
 		moduleAddressText = moduleAddress
+		policy.StrategyPolicyModule = moduleAddress
 	}
 
 	return SafeProvisioningBundle{
@@ -425,6 +426,7 @@ func AttachStrategyPolicyModule(bundle SafeProvisioningBundle, request StrategyP
 	normalized.RelayerPolicy.SmartWalletAddress = smartWalletAddress
 	normalized.RelayerPolicy.SessionKeyAddress = sessionKeyAddress
 	normalized.RelayerPolicy.PolicyID = policyID
+	normalized.RelayerPolicy.StrategyPolicyModule = moduleAddress
 	if len(normalized.RelayerPolicy.AllowedChainIDs) == 0 && normalized.ChainID > 0 {
 		normalized.RelayerPolicy.AllowedChainIDs = cloneInt64s(normalized.ChainID)
 	}
