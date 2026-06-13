@@ -7,6 +7,7 @@ import {
 import { useTheme } from "@/shared/components/theme-provider";
 import { ExchangeLibraryModal } from "@/features/home/components/ExchangeLibraryModal";
 import { PortfolioWorkspace } from "@/features/home/components/PortfolioWorkspace";
+import { ScwOnboardingPanel } from "@/features/scw-onboarding";
 import {
   AI_STRATEGY_TEMPLATES,
   DEFAULT_CEX_TRADE_EXCHANGE,
@@ -1513,6 +1514,8 @@ export default function App() {
               거래소 연결 관리
             </button>
           </section>
+
+          <ScwOnboardingPanel />
 
           <section className="border-b border-slate-200 py-3 dark:border-slate-800">
             <div className="mb-2 text-xs font-bold text-slate-700 dark:text-slate-300">
