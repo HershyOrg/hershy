@@ -47,6 +47,8 @@ export type ScwOnboardingResponse = {
 
 export type ScwOnboardingConfirmRequest = {
   owner_address: string;
+  chain_id?: number;
+  policy_id?: string;
   kind: string;
   tx_hash: HexString;
   smart_wallet_address?: string;
@@ -56,5 +58,5 @@ export type ScwActionExecutionResult = {
   txHash: HexString;
   approvalTxHash?: HexString;
   safeExecTxHash?: HexString;
-  mode: "direct" | "safe";
+  mode: "direct" | "safe" | "privy_smart_wallet";
 };

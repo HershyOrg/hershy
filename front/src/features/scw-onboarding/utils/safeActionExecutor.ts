@@ -1,10 +1,10 @@
 import type { ConnectedWallet, EIP1193Provider } from "@privy-io/react-auth";
+import type { SmartWalletClientType } from "@privy-io/react-auth/smart-wallets";
 import {
   concatHex,
   createPublicClient,
   createWalletClient,
   custom,
-  defineChain,
   encodeFunctionData,
   getAddress,
   http,
@@ -16,6 +16,7 @@ import {
   type Address,
   type Hex,
 } from "viem";
+import { createScwChain } from "@/shared/config/scwConfig";
 import type {
   ScwActionExecutionResult,
   ScwTransactionAction,
@@ -27,8 +28,6 @@ const SAFE_ABI = parseAbi([
   "function approveHash(bytes32 hashToApprove)",
   "function execTransaction(address to,uint256 value,bytes data,uint8 operation,uint256 safeTxGas,uint256 baseGas,uint256 gasPrice,address gasToken,address refundReceiver,bytes signatures) payable returns (bool success)",
 ]);
-
-const BSC_CHAIN_ID = 56;
 
 function normalizeAddress(value: string, label: string): Address {
   if (!isAddress(value)) {
@@ -44,27 +43,6 @@ function normalizeHex(value: string, label: string): Hex {
   }
 
   return value as Hex;
-}
-
-function createChain(chainId: number, rpcUrl: string) {
-  return defineChain({
-    id: chainId,
-    name: chainId === BSC_CHAIN_ID ? "BNB Smart Chain" : `EVM ${chainId}`,
-    nativeCurrency: chainId === BSC_CHAIN_ID
-      ? { decimals: 18, name: "BNB", symbol: "BNB" }
-      : { decimals: 18, name: "Native Token", symbol: "ETH" },
-    rpcUrls: {
-      default: { http: [rpcUrl] },
-    },
-    blockExplorers: chainId === BSC_CHAIN_ID
-      ? {
-          default: {
-            name: "BscScan",
-            url: "https://bscscan.com",
-          },
-        }
-      : undefined,
-  });
 }
 
 function approvedHashSignature(owner: Address): Hex {
@@ -98,7 +76,7 @@ async function ensureWalletChain(wallet: ConnectedWallet, provider: EIP1193Provi
     const code = typeof error === "object" && error && "code" in error
       ? Number((error as { code?: unknown }).code)
       : undefined;
-    if (chainId !== BSC_CHAIN_ID || code !== 4902) {
+    if (chainId !== 56 || code !== 4902) {
       throw error;
     }
 
@@ -150,7 +128,7 @@ export async function executeScwOnboardingAction({
   await ensureWalletChain(wallet, initialProvider, chainId, rpcUrl);
   const provider = await wallet.getEthereumProvider();
 
-  const chain = createChain(action.chain_id ?? chainId, rpcUrl);
+  const chain = createScwChain(action.chain_id ?? chainId, rpcUrl);
   const owner = normalizeAddress(ownerAddress, "owner address");
   const to = normalizeAddress(action.to, "action target");
   const data = normalizeHex(action.data, "action data");
@@ -248,5 +226,48 @@ export async function executeScwOnboardingAction({
     approvalTxHash,
     safeExecTxHash,
     mode: "safe",
+  };
+}
+
+type ExecutePrivySmartWalletActionInput = {
+  smartWalletClient: SmartWalletClientType;
+  action: ScwTransactionAction;
+  rpcUrl: string;
+  chainId: number;
+};
+
+export async function executePrivySmartWalletAction({
+  smartWalletClient,
+  action,
+  rpcUrl,
+  chainId,
+}: ExecutePrivySmartWalletActionInput): Promise<ScwActionExecutionResult> {
+  const targetChainId = action.chain_id ?? chainId;
+  const chain = createScwChain(targetChainId, rpcUrl);
+  const to = normalizeAddress(action.to, "action target");
+  const data = normalizeHex(action.data, "action data");
+  const value = BigInt(action.value || "0");
+
+  const switchableClient = smartWalletClient as SmartWalletClientType & {
+    switchChain?: (args: { id: number }) => Promise<void>;
+  };
+  if (typeof switchableClient.switchChain === "function") {
+    await switchableClient.switchChain({ id: targetChainId });
+  }
+
+  const txHash = await smartWalletClient.sendTransaction({
+    to,
+    data,
+    value,
+  } as Parameters<SmartWalletClientType["sendTransaction"]>[0]);
+  const publicClient = createPublicClient({
+    chain,
+    transport: http(rpcUrl),
+  });
+  await publicClient.waitForTransactionReceipt({ hash: txHash });
+
+  return {
+    txHash,
+    mode: "privy_smart_wallet",
   };
 }

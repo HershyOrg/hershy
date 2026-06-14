@@ -1,10 +1,12 @@
 import { useCallback, useEffect, useState } from "react";
 import type { ConnectedWallet } from "@privy-io/react-auth";
+import type { SmartWalletClientType } from "@privy-io/react-auth/smart-wallets";
 import {
   confirmScwOnboardingAction,
   fetchScwOnboardingStatus,
   prepareScwOnboarding,
 } from "../api/scwOnboardingClient";
+import { getScwChainId, getScwRpcUrl } from "@/shared/config/scwConfig";
 import type {
   ScwActionExecutionResult,
   ScwNextAction,
@@ -12,29 +14,24 @@ import type {
   ScwOnboardingStatus,
 } from "../types/scwOnboardingTypes";
 import {
+  executePrivySmartWalletAction,
   executeScwOnboardingAction,
   getConfirmKindForAction,
 } from "../utils/safeActionExecutor";
 
-const DEFAULT_CHAIN_ID = 56;
-const DEFAULT_RPC_URL = "https://bsc-dataseed.binance.org";
-
-function getScwChainId() {
-  const raw = import.meta.env.VITE_SCW_CHAIN_ID?.trim();
-  const parsed = raw ? Number(raw) : DEFAULT_CHAIN_ID;
-  return Number.isFinite(parsed) && parsed > 0 ? parsed : DEFAULT_CHAIN_ID;
-}
-
-function getScwRpcUrl() {
-  return import.meta.env.VITE_SCW_RPC_URL?.trim() || DEFAULT_RPC_URL;
-}
-
 type UseScwOnboardingInput = {
   ownerAddress: string;
+  smartWalletAddress?: string;
+  smartWalletClient?: SmartWalletClientType | null;
   wallet: ConnectedWallet | null;
 };
 
-export function useScwOnboarding({ ownerAddress, wallet }: UseScwOnboardingInput) {
+export function useScwOnboarding({
+  ownerAddress,
+  smartWalletAddress = "",
+  smartWalletClient = null,
+  wallet,
+}: UseScwOnboardingInput) {
   const [response, setResponse] = useState<ScwOnboardingResponse | null>(null);
   const [isLoading, setIsLoading] = useState(false);
   const [pendingActionId, setPendingActionId] = useState("");
@@ -52,7 +49,7 @@ export function useScwOnboarding({ ownerAddress, wallet }: UseScwOnboardingInput
     setIsLoading(true);
     setError("");
     try {
-      const next = await prepareScwOnboarding(ownerAddress);
+      const next = await prepareScwOnboarding(ownerAddress, smartWalletAddress);
       setResponse(next);
       return next;
     } catch (caught) {
@@ -62,7 +59,7 @@ export function useScwOnboarding({ ownerAddress, wallet }: UseScwOnboardingInput
     } finally {
       setIsLoading(false);
     }
-  }, [ownerAddress]);
+  }, [ownerAddress, smartWalletAddress]);
 
   const refresh = useCallback(async () => {
     if (!ownerAddress) return null;
@@ -70,7 +67,7 @@ export function useScwOnboarding({ ownerAddress, wallet }: UseScwOnboardingInput
     setIsLoading(true);
     setError("");
     try {
-      const next = await fetchScwOnboardingStatus(ownerAddress);
+      const next = await fetchScwOnboardingStatus(ownerAddress, smartWalletAddress);
       setResponse(next);
       return next;
     } catch {
@@ -78,10 +75,10 @@ export function useScwOnboarding({ ownerAddress, wallet }: UseScwOnboardingInput
     } finally {
       setIsLoading(false);
     }
-  }, [ownerAddress, prepare]);
+  }, [ownerAddress, prepare, smartWalletAddress]);
 
   const executeAction = useCallback(async (nextAction: ScwNextAction) => {
-    if (!ownerAddress || !wallet) {
+    if (!ownerAddress || (!wallet && !smartWalletClient)) {
       setError("Privy 지갑 연결이 필요합니다.");
       return null;
     }
@@ -90,20 +87,27 @@ export function useScwOnboarding({ ownerAddress, wallet }: UseScwOnboardingInput
     setError("");
     setLastExecution(null);
     try {
-      const execution = await executeScwOnboardingAction({
-        wallet,
-        ownerAddress,
-        action: nextAction.action,
-        rpcUrl,
-        chainId,
-      });
+      const execution = smartWalletClient
+        ? await executePrivySmartWalletAction({
+            smartWalletClient,
+            action: nextAction.action,
+            rpcUrl,
+            chainId,
+          })
+        : await executeScwOnboardingAction({
+            wallet: wallet as ConnectedWallet,
+            ownerAddress,
+            action: nextAction.action,
+            rpcUrl,
+            chainId,
+          });
       setLastExecution(execution);
 
       const confirmed = await confirmScwOnboardingAction({
         owner_address: ownerAddress,
         kind: getConfirmKindForAction(nextAction.id),
         tx_hash: execution.txHash,
-        smart_wallet_address: status?.smart_wallet_address || nextAction.action.safe || undefined,
+        smart_wallet_address: smartWalletAddress || status?.smart_wallet_address || nextAction.action.safe || undefined,
       });
       setResponse(confirmed);
       await refresh();
@@ -115,7 +119,7 @@ export function useScwOnboarding({ ownerAddress, wallet }: UseScwOnboardingInput
     } finally {
       setPendingActionId("");
     }
-  }, [chainId, ownerAddress, refresh, rpcUrl, status, wallet]);
+  }, [chainId, ownerAddress, refresh, rpcUrl, smartWalletAddress, smartWalletClient, status, wallet]);
 
   useEffect(() => {
     if (!ownerAddress) {

@@ -1,5 +1,6 @@
 import { Component, createContext, useContext, type ErrorInfo, type ReactNode } from "react";
 import { PrivyProvider } from "@privy-io/react-auth";
+import { createScwChain } from "@/shared/config/scwConfig";
 
 type PrivyAppProviderProps = {
   children: ReactNode;
@@ -76,7 +77,13 @@ export function PrivyAppProvider({ children }: PrivyAppProviderProps) {
   return (
     <PrivyProviderBoundary fallbackChildren={children}>
       <PrivyRuntimeContext.Provider value={{ isConfigured: true, providerError: "" }}>
-        <PrivyProvider appId={PRIVY_APP_ID}>
+        <PrivyProvider
+          appId={PRIVY_APP_ID}
+          config={{
+            defaultChain: createScwChain(),
+            supportedChains: [createScwChain()],
+          }}
+        >
           {children}
         </PrivyProvider>
       </PrivyRuntimeContext.Provider>
