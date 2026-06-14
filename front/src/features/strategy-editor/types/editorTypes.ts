@@ -161,6 +161,10 @@ export type DEXActionData = Record<string, unknown> & RuntimeArtifactData & {
   contractAddress: string;
   functionName: string; // e.g., "swap()", "addLiquidity()"
   chainId: number;
+  calldata?: string;
+  valueWei?: string;
+  txHash?: string;
+  watchToken?: string;
   // Parameters shown when expanded
   inputBlocks: BlockData[];
   // Return values

@@ -5,6 +5,17 @@ import type { ChangeEvent, DragEvent } from "react";
 import { Handle, Position, NodeProps, useReactFlow, useEdges } from "@xyflow/react";
 import type { ActionNodeData, CEXActionData, DEXActionData, BlockData } from "../types/editorTypes";
 import { cn } from "@/shared/utils/utils";
+import { usePrivy, useWallets } from "@privy-io/react-auth";
+import {
+  encodeFunctionData,
+  getAddress,
+  parseAbi,
+} from "viem";
+import {
+  MANTLE_SEPOLIA_CHAIN_ID,
+  MANTLE_SEPOLIA_EXPLORER_URL,
+  executeMantleCall,
+} from "@/features/scw-onboarding/utils/mantleCallExecutor";
 import {
   SUPPORTED_CEX_TRADE_EXCHANGES,
   isPolymarketExchangeName,
@@ -15,7 +26,10 @@ import {
   Plus, 
   X,
   Building2,
-  Globe
+  Globe,
+  CheckCircle2,
+  ExternalLink,
+  Loader2
 } from "lucide-react";
 
 const CEX_TIME_IN_FORCE_OPTIONS = [
@@ -24,11 +38,36 @@ const CEX_TIME_IN_FORCE_OPTIONS = [
   { value: "FOK", label: "FOK" },
 ] as const;
 
+const DEX_DEMO_INPUT_TOKEN = getAddress("0x65CB9F57D82262F110831c9050b1a50A351dF9C7");
+const DEX_DEMO_OUTPUT_TOKEN = getAddress("0xdbb2E0E5c99aaf00638f35867df0F59ED4521E2C");
+const DEX_DEMO_ADAPTER = getAddress("0x2ba41Cac5C209e0e252480a0d003B44dC33CDDfb");
+const DEX_DEMO_AMOUNT = BigInt("1000000000000000000");
+
+const MOCK_ROUTER_ABI = parseAbi([
+  "function mockSwap(address inputToken,address outputToken,address recipient,uint256 amountIn,uint256 amountOut)",
+]);
+
+const DEX_CALL_ADAPTER_ABI = parseAbi([
+  "function callDex(uint256 amountIn,uint256 minAmountOut,bytes routerCalldata)",
+]);
+
 function normalizeCEXTimeInForceValue(value: unknown): NonNullable<CEXActionData["timeInForce"]> {
   const text = typeof value === "string" ? value.trim().toUpperCase() : "";
   if (text === "FOK") return "FOK";
   if (text === "FAK" || text === "IOC") return "FAK";
   return "GTC";
+}
+
+function mantleTxUrl(hash: string) {
+  return `${MANTLE_SEPOLIA_EXPLORER_URL}/tx/${hash}`;
+}
+
+function getDexExecutionErrorMessage(error: unknown) {
+  const message = error instanceof Error ? error.message : String(error);
+  if (/insufficient|fund|gas|balance/i.test(message)) {
+    return `${message}\nPrivy EOA에 Mantle Sepolia MNT가 필요합니다.`;
+  }
+  return message;
 }
 
 type ABIInput = {
@@ -165,9 +204,13 @@ function getParameterBlockSignature(blocks: BlockData[]) {
 
 function ActionNodeComponent({ id, data, selected }: NodeProps) {
   const typedData = data as ActionNodeData;
+  const { authenticated, user } = usePrivy();
+  const { wallets } = useWallets();
   const isCEX = typedData.actionType === "CEX";
   const cexData = typedData as CEXActionData;
   const dexData = typedData as DEXActionData;
+  const primaryWallet = wallets[0] ?? null;
+  const ownerAddress = primaryWallet?.address || user?.wallet?.address || "";
   const isPolymarketCEX = isCEX && isPolymarketExchangeName(cexData.exchange);
   const dexABIText = typeof dexData.contractAbi === "string"
     ? dexData.contractAbi
@@ -188,6 +231,8 @@ function ActionNodeComponent({ id, data, selected }: NodeProps) {
   const { setNodes, getNodes } = useReactFlow();
   const edges = useEdges();
   const [isExpanded, setIsExpanded] = useState(typedData.isExpanded || false);
+  const [isDexExecuting, setIsDexExecuting] = useState(false);
+  const [dexExecutionError, setDexExecutionError] = useState("");
   const primaryOutputBlock = typedData.outputBlocks[0];
   const runtimeCode = typeof typedData.runtimeCode === "string" ? typedData.runtimeCode : "";
 
@@ -314,6 +359,78 @@ function ActionNodeComponent({ id, data, selected }: NodeProps) {
     },
     [id, setNodes]
   );
+
+  const handleFillDexAdapterExample = useCallback(() => {
+    if (!ownerAddress) {
+      setDexExecutionError("DexCallAdapter 예시 calldata를 만들려면 먼저 Privy EOA를 연결해야 합니다.");
+      return;
+    }
+
+    const account = getAddress(ownerAddress);
+    const routerCalldata = encodeFunctionData({
+      abi: MOCK_ROUTER_ABI,
+      functionName: "mockSwap",
+      args: [
+        DEX_DEMO_INPUT_TOKEN,
+        DEX_DEMO_OUTPUT_TOKEN,
+        account,
+        DEX_DEMO_AMOUNT,
+        DEX_DEMO_AMOUNT,
+      ],
+    });
+    const adapterCalldata = encodeFunctionData({
+      abi: DEX_CALL_ADAPTER_ABI,
+      functionName: "callDex",
+      args: [DEX_DEMO_AMOUNT, DEX_DEMO_AMOUNT, routerCalldata],
+    });
+
+    handleUpdateFields({
+      contractAddress: DEX_DEMO_ADAPTER,
+      chainId: MANTLE_SEPOLIA_CHAIN_ID,
+      functionName: "callDex(uint256,uint256,bytes)",
+      calldata: adapterCalldata,
+      valueWei: "0",
+    });
+    setDexExecutionError("");
+  }, [handleUpdateFields, ownerAddress]);
+
+  const handleExecuteDexCall = useCallback(async () => {
+    if (isCEX) return;
+    if (!authenticated || !primaryWallet || !ownerAddress) {
+      setDexExecutionError("먼저 사이드바에서 Privy EOA 지갑을 연결해야 합니다.");
+      return;
+    }
+
+    setIsDexExecuting(true);
+    setDexExecutionError("");
+    try {
+      const result = await executeMantleCall({
+        wallet: primaryWallet,
+        accountAddress: ownerAddress,
+        to: dexData.contractAddress,
+        data: dexData.calldata || "0x",
+        valueWei: dexData.valueWei || "0",
+      });
+      handleUpdateFields({
+        chainId: result.chainId,
+        txHash: result.txHash,
+        watchToken: result.watchToken,
+      });
+    } catch (error) {
+      setDexExecutionError(getDexExecutionErrorMessage(error));
+    } finally {
+      setIsDexExecuting(false);
+    }
+  }, [
+    authenticated,
+    dexData.calldata,
+    dexData.contractAddress,
+    dexData.valueWei,
+    handleUpdateFields,
+    isCEX,
+    ownerAddress,
+    primaryWallet,
+  ]);
 
   const handleCEXExchangeChange = useCallback(
     (exchange: string) => {
@@ -1093,7 +1210,7 @@ function ActionNodeComponent({ id, data, selected }: NodeProps) {
           <div className="space-y-2">
             {/* Contract Address */}
             <div>
-              <label className="text-[10px] font-semibold text-cyan-700 uppercase">Contract Address</label>
+              <label className="text-[10px] font-semibold text-cyan-700 uppercase">Contract Address / to</label>
               <input
                 type="text"
                 value={(typedData as DEXActionData).contractAddress}
@@ -1162,6 +1279,7 @@ function ActionNodeComponent({ id, data, selected }: NodeProps) {
                 onChange={(e) => handleUpdateField("chainId", parseInt(e.target.value))}
                 className="w-full mt-1 px-2 py-1.5 text-xs bg-white border border-cyan-200 rounded focus:outline-none focus:ring-1 focus:ring-cyan-400"
               >
+                <option value={5003}>Mantle Sepolia (5003)</option>
                 <option value={1}>Ethereum (1)</option>
                 <option value={56}>BSC (56)</option>
                 <option value={137}>Polygon (137)</option>
@@ -1169,6 +1287,84 @@ function ActionNodeComponent({ id, data, selected }: NodeProps) {
                 <option value={10}>Optimism (10)</option>
                 <option value={8453}>Base (8453)</option>
               </select>
+            </div>
+
+            <div className="rounded border border-cyan-200 bg-cyan-50/80 p-2">
+              <div className="mb-2 flex items-center justify-between gap-2">
+                <div>
+                  <div className="text-[10px] font-black uppercase tracking-wide text-cyan-700">
+                    Mantle Call
+                  </div>
+                  <div className="text-[10px] font-semibold text-cyan-500">
+                    Watch 입력값은 이 DEX 블록에서 관리합니다.
+                  </div>
+                </div>
+                <span className="shrink-0 rounded-full bg-white px-2 py-0.5 font-mono text-[10px] font-black text-cyan-700">
+                  {MANTLE_SEPOLIA_CHAIN_ID}
+                </span>
+              </div>
+
+              <div>
+                <label className="text-[10px] font-semibold text-cyan-700 uppercase">calldata / data</label>
+                <textarea
+                  value={dexData.calldata || ""}
+                  onChange={(event) => handleUpdateField("calldata", event.target.value)}
+                  className="nodrag nowheel mt-1 min-h-[76px] w-full resize-y rounded border border-cyan-200 bg-white px-2 py-1.5 font-mono text-[10px] leading-4 text-cyan-950 outline-none focus:ring-1 focus:ring-cyan-400"
+                  placeholder="0x encoded calldata"
+                />
+              </div>
+
+              <div className="mt-2">
+                <label className="text-[10px] font-semibold text-cyan-700 uppercase">valueWei</label>
+                <input
+                  type="text"
+                  value={dexData.valueWei || "0"}
+                  onChange={(event) => handleUpdateField("valueWei", event.target.value)}
+                  className="w-full mt-1 px-2 py-1.5 text-xs bg-white border border-cyan-200 rounded focus:outline-none focus:ring-1 focus:ring-cyan-400 font-mono"
+                  placeholder="0"
+                />
+              </div>
+
+              <div className="mt-2 grid grid-cols-2 gap-2">
+                <button
+                  type="button"
+                  onClick={handleFillDexAdapterExample}
+                  disabled={isDexExecuting}
+                  className="rounded border border-cyan-300 bg-white px-2 py-1.5 text-[10px] font-bold text-cyan-700 transition-colors hover:bg-cyan-100 disabled:cursor-not-allowed disabled:opacity-50"
+                >
+                  Adapter 예시 채우기
+                </button>
+                <button
+                  type="button"
+                  onClick={() => void handleExecuteDexCall()}
+                  disabled={isDexExecuting}
+                  className="inline-flex items-center justify-center gap-1 rounded bg-cyan-600 px-2 py-1.5 text-[10px] font-black text-white transition-colors hover:bg-cyan-700 disabled:cursor-not-allowed disabled:opacity-50"
+                >
+                  {isDexExecuting ? <Loader2 className="h-3 w-3 animate-spin" /> : <CheckCircle2 className="h-3 w-3" />}
+                  실행
+                </button>
+              </div>
+
+              {dexData.txHash ? (
+                <a
+                  href={mantleTxUrl(dexData.txHash)}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="mt-2 flex items-center justify-between gap-2 rounded border border-emerald-200 bg-emerald-50 px-2 py-1.5 text-[10px] leading-4 text-emerald-700 hover:bg-emerald-100"
+                >
+                  <span className="font-bold">txHash / watchToken</span>
+                  <span className="inline-flex min-w-0 items-center gap-1 font-mono">
+                    <span className="truncate">{dexData.watchToken || dexData.txHash}</span>
+                    <ExternalLink className="h-3 w-3 shrink-0" />
+                  </span>
+                </a>
+              ) : null}
+
+              {dexExecutionError ? (
+                <div className="mt-2 whitespace-pre-wrap rounded border border-rose-200 bg-rose-50 px-2 py-1.5 text-[10px] leading-4 text-rose-700">
+                  {dexExecutionError}
+                </div>
+              ) : null}
             </div>
           </div>
         </div>
