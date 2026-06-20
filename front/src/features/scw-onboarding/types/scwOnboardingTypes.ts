@@ -20,6 +20,7 @@ export type ScwOnboardingStatus = {
   state?: string;
   ready_for_relay?: boolean;
   verification_mode?: string;
+  bundle_path?: string;
   owner_address?: string;
   chain_id?: number;
   policy_id?: string;
@@ -37,12 +38,25 @@ export type ScwOnboardingStatus = {
   session_policy_paused?: boolean;
   session_policy_valid?: boolean;
   checked_at?: string;
+  error?: string;
 };
 
 export type ScwOnboardingResponse = {
   status?: ScwOnboardingStatus;
   message?: string;
   next_actions?: ScwNextAction[];
+};
+
+export type ScwOnboardingListItem = {
+  status?: ScwOnboardingStatus;
+  next_actions?: ScwNextAction[];
+};
+
+export type ScwOnboardingListResponse = {
+  owner_address?: string;
+  chain_id?: number;
+  count?: number;
+  items?: ScwOnboardingListItem[];
 };
 
 export type ScwOnboardingConfirmRequest = {

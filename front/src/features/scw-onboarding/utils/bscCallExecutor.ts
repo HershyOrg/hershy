@@ -12,11 +12,11 @@ import {
 } from "viem";
 import { createScwChain } from "@/shared/config/scwConfig";
 
-export const MANTLE_SEPOLIA_CHAIN_ID = 5003;
-export const MANTLE_SEPOLIA_RPC_URL = "https://rpc.sepolia.mantle.xyz";
-export const MANTLE_SEPOLIA_EXPLORER_URL = "https://explorer.sepolia.mantle.xyz";
+export const BSC_CHAIN_ID = 56;
+export const BSC_RPC_URL = "https://bsc-dataseed.binance.org";
+export const BSC_EXPLORER_URL = "https://bscscan.com";
 
-export type MantleCallInput = {
+export type BscCallInput = {
   wallet: ConnectedWallet;
   accountAddress: string;
   to: string;
@@ -25,8 +25,8 @@ export type MantleCallInput = {
   rpcUrl?: string;
 };
 
-export type MantleCallResult = {
-  chainId: typeof MANTLE_SEPOLIA_CHAIN_ID;
+export type BscCallResult = {
+  chainId: typeof BSC_CHAIN_ID;
   txHash: Hex;
   watchToken: Hex;
 };
@@ -58,15 +58,15 @@ function normalizeValueWei(valueWei = "0") {
   return BigInt(trimmed);
 }
 
-async function ensureMantleSepolia(wallet: ConnectedWallet, provider: EIP1193Provider, rpcUrl: string) {
-  const targetChainId = numberToHex(MANTLE_SEPOLIA_CHAIN_ID);
+async function ensureBsc(wallet: ConnectedWallet, provider: EIP1193Provider, rpcUrl: string) {
+  const targetChainId = numberToHex(BSC_CHAIN_ID);
 
-  if (wallet.chainId === `eip155:${MANTLE_SEPOLIA_CHAIN_ID}` || wallet.chainId === targetChainId) {
+  if (wallet.chainId === `eip155:${BSC_CHAIN_ID}` || wallet.chainId === targetChainId) {
     return;
   }
 
   try {
-    await wallet.switchChain(MANTLE_SEPOLIA_CHAIN_ID);
+    await wallet.switchChain(BSC_CHAIN_ID);
     return;
   } catch {
     // Some embedded wallet providers only expose the raw EIP-1193 chain methods.
@@ -87,33 +87,33 @@ async function ensureMantleSepolia(wallet: ConnectedWallet, provider: EIP1193Pro
       params: [
         {
           chainId: targetChainId,
-          chainName: "Mantle Sepolia Testnet",
-          nativeCurrency: { decimals: 18, name: "MNT", symbol: "MNT" },
+          chainName: "BNB Smart Chain",
+          nativeCurrency: { decimals: 18, name: "BNB", symbol: "BNB" },
           rpcUrls: [rpcUrl],
-          blockExplorerUrls: [MANTLE_SEPOLIA_EXPLORER_URL],
+          blockExplorerUrls: [BSC_EXPLORER_URL],
         },
       ],
     });
   }
 }
 
-export async function executeMantleCall({
+export async function executeBscCall({
   wallet,
   accountAddress,
   to,
   data,
   valueWei = "0",
-  rpcUrl = MANTLE_SEPOLIA_RPC_URL,
-}: MantleCallInput): Promise<MantleCallResult> {
+  rpcUrl = BSC_RPC_URL,
+}: BscCallInput): Promise<BscCallResult> {
   if (!isAddress(to)) {
     throw new Error("to must be a valid contract address");
   }
 
   const initialProvider = await wallet.getEthereumProvider();
-  await ensureMantleSepolia(wallet, initialProvider, rpcUrl);
+  await ensureBsc(wallet, initialProvider, rpcUrl);
   const provider = await wallet.getEthereumProvider();
   const account = getAddress(accountAddress);
-  const chain = createScwChain(MANTLE_SEPOLIA_CHAIN_ID, rpcUrl);
+  const chain = createScwChain(BSC_CHAIN_ID, rpcUrl);
   const walletClient = createWalletClient({
     account,
     chain,
@@ -133,12 +133,12 @@ export async function executeMantleCall({
   await publicClient.waitForTransactionReceipt({ hash: txHash });
 
   return {
-    chainId: MANTLE_SEPOLIA_CHAIN_ID,
+    chainId: BSC_CHAIN_ID,
     txHash,
     watchToken: txHash,
   };
 }
 
 export const watch = {
-  useMantleCall: executeMantleCall,
+  useBscCall: executeBscCall,
 } as const;

@@ -12,10 +12,10 @@ import {
   parseAbi,
 } from "viem";
 import {
-  MANTLE_SEPOLIA_CHAIN_ID,
-  MANTLE_SEPOLIA_EXPLORER_URL,
-  executeMantleCall,
-} from "@/features/scw-onboarding/utils/mantleCallExecutor";
+  BSC_CHAIN_ID,
+  BSC_EXPLORER_URL,
+  executeBscCall,
+} from "@/features/scw-onboarding/utils/bscCallExecutor";
 import {
   SUPPORTED_CEX_TRADE_EXCHANGES,
   isPolymarketExchangeName,
@@ -38,17 +38,14 @@ const CEX_TIME_IN_FORCE_OPTIONS = [
   { value: "FOK", label: "FOK" },
 ] as const;
 
-const DEX_DEMO_INPUT_TOKEN = getAddress("0x65CB9F57D82262F110831c9050b1a50A351dF9C7");
-const DEX_DEMO_OUTPUT_TOKEN = getAddress("0xdbb2E0E5c99aaf00638f35867df0F59ED4521E2C");
-const DEX_DEMO_ADAPTER = getAddress("0x2ba41Cac5C209e0e252480a0d003B44dC33CDDfb");
+const BSC_USDT_TOKEN = getAddress("0x55d398326f99059fF775485246999027B3197955");
+const BSC_ETH_TOKEN = getAddress("0x2170Ed0880ac9A755fd29B2688956BD959F933F8");
+const BSC_UNISWAP_V3_ROUTER = getAddress("0xB971eF87ede563556b2ED4b1C0b0019111Dd85d2");
 const DEX_DEMO_AMOUNT = BigInt("1000000000000000000");
+const BSC_ETH_USDT_POOL_FEE = 3000;
 
-const MOCK_ROUTER_ABI = parseAbi([
-  "function mockSwap(address inputToken,address outputToken,address recipient,uint256 amountIn,uint256 amountOut)",
-]);
-
-const DEX_CALL_ADAPTER_ABI = parseAbi([
-  "function callDex(uint256 amountIn,uint256 minAmountOut,bytes routerCalldata)",
+const UNISWAP_V3_ROUTER_ABI = parseAbi([
+  "function exactInputSingle((address,address,uint24,address,uint256,uint256,uint160) params) payable returns (uint256 amountOut)",
 ]);
 
 function normalizeCEXTimeInForceValue(value: unknown): NonNullable<CEXActionData["timeInForce"]> {
@@ -58,14 +55,14 @@ function normalizeCEXTimeInForceValue(value: unknown): NonNullable<CEXActionData
   return "GTC";
 }
 
-function mantleTxUrl(hash: string) {
-  return `${MANTLE_SEPOLIA_EXPLORER_URL}/tx/${hash}`;
+function bscTxUrl(hash: string) {
+  return `${BSC_EXPLORER_URL}/tx/${hash}`;
 }
 
 function getDexExecutionErrorMessage(error: unknown) {
   const message = error instanceof Error ? error.message : String(error);
   if (/insufficient|fund|gas|balance/i.test(message)) {
-    return `${message}\nPrivy EOA에 Mantle Sepolia MNT가 필요합니다.`;
+    return `${message}\nBSC 실행 지갑에 BNB 가스가 필요합니다.`;
   }
   return message;
 }
@@ -362,33 +359,30 @@ function ActionNodeComponent({ id, data, selected }: NodeProps) {
 
   const handleFillDexAdapterExample = useCallback(() => {
     if (!ownerAddress) {
-      setDexExecutionError("DexCallAdapter 예시 calldata를 만들려면 먼저 Privy EOA를 연결해야 합니다.");
+      setDexExecutionError("BSC swap 예시 calldata를 만들려면 먼저 SCW 지갑을 연결해야 합니다.");
       return;
     }
 
     const account = getAddress(ownerAddress);
-    const routerCalldata = encodeFunctionData({
-      abi: MOCK_ROUTER_ABI,
-      functionName: "mockSwap",
-      args: [
-        DEX_DEMO_INPUT_TOKEN,
-        DEX_DEMO_OUTPUT_TOKEN,
+    const swapCalldata = encodeFunctionData({
+      abi: UNISWAP_V3_ROUTER_ABI,
+      functionName: "exactInputSingle",
+      args: [[
+        BSC_USDT_TOKEN,
+        BSC_ETH_TOKEN,
+        BSC_ETH_USDT_POOL_FEE,
         account,
         DEX_DEMO_AMOUNT,
-        DEX_DEMO_AMOUNT,
-      ],
-    });
-    const adapterCalldata = encodeFunctionData({
-      abi: DEX_CALL_ADAPTER_ABI,
-      functionName: "callDex",
-      args: [DEX_DEMO_AMOUNT, DEX_DEMO_AMOUNT, routerCalldata],
+        BigInt(0),
+        BigInt(0),
+      ]],
     });
 
     handleUpdateFields({
-      contractAddress: DEX_DEMO_ADAPTER,
-      chainId: MANTLE_SEPOLIA_CHAIN_ID,
-      functionName: "callDex(uint256,uint256,bytes)",
-      calldata: adapterCalldata,
+      contractAddress: BSC_UNISWAP_V3_ROUTER,
+      chainId: BSC_CHAIN_ID,
+      functionName: "exactInputSingle((address,address,uint24,address,uint256,uint256,uint160))",
+      calldata: swapCalldata,
       valueWei: "0",
     });
     setDexExecutionError("");
@@ -397,14 +391,14 @@ function ActionNodeComponent({ id, data, selected }: NodeProps) {
   const handleExecuteDexCall = useCallback(async () => {
     if (isCEX) return;
     if (!authenticated || !primaryWallet || !ownerAddress) {
-      setDexExecutionError("먼저 사이드바에서 Privy EOA 지갑을 연결해야 합니다.");
+      setDexExecutionError("먼저 사이드바에서 SCW 지갑을 연결해야 합니다.");
       return;
     }
 
     setIsDexExecuting(true);
     setDexExecutionError("");
     try {
-      const result = await executeMantleCall({
+      const result = await executeBscCall({
         wallet: primaryWallet,
         accountAddress: ownerAddress,
         to: dexData.contractAddress,
@@ -1279,9 +1273,8 @@ function ActionNodeComponent({ id, data, selected }: NodeProps) {
                 onChange={(e) => handleUpdateField("chainId", parseInt(e.target.value))}
                 className="w-full mt-1 px-2 py-1.5 text-xs bg-white border border-cyan-200 rounded focus:outline-none focus:ring-1 focus:ring-cyan-400"
               >
-                <option value={5003}>Mantle Sepolia (5003)</option>
-                <option value={1}>Ethereum (1)</option>
                 <option value={56}>BSC (56)</option>
+                <option value={1}>Ethereum (1)</option>
                 <option value={137}>Polygon (137)</option>
                 <option value={42161}>Arbitrum (42161)</option>
                 <option value={10}>Optimism (10)</option>
@@ -1293,14 +1286,14 @@ function ActionNodeComponent({ id, data, selected }: NodeProps) {
               <div className="mb-2 flex items-center justify-between gap-2">
                 <div>
                   <div className="text-[10px] font-black uppercase tracking-wide text-cyan-700">
-                    Mantle Call
+                    BSC Call
                   </div>
                   <div className="text-[10px] font-semibold text-cyan-500">
                     Watch 입력값은 이 DEX 블록에서 관리합니다.
                   </div>
                 </div>
                 <span className="shrink-0 rounded-full bg-white px-2 py-0.5 font-mono text-[10px] font-black text-cyan-700">
-                  {MANTLE_SEPOLIA_CHAIN_ID}
+                  {BSC_CHAIN_ID}
                 </span>
               </div>
 
@@ -1332,7 +1325,7 @@ function ActionNodeComponent({ id, data, selected }: NodeProps) {
                   disabled={isDexExecuting}
                   className="rounded border border-cyan-300 bg-white px-2 py-1.5 text-[10px] font-bold text-cyan-700 transition-colors hover:bg-cyan-100 disabled:cursor-not-allowed disabled:opacity-50"
                 >
-                  Adapter 예시 채우기
+                  BSC swap 예시
                 </button>
                 <button
                   type="button"
@@ -1347,7 +1340,7 @@ function ActionNodeComponent({ id, data, selected }: NodeProps) {
 
               {dexData.txHash ? (
                 <a
-                  href={mantleTxUrl(dexData.txHash)}
+                  href={bscTxUrl(dexData.txHash)}
                   target="_blank"
                   rel="noreferrer"
                   className="mt-2 flex items-center justify-between gap-2 rounded border border-emerald-200 bg-emerald-50 px-2 py-1.5 text-[10px] leading-4 text-emerald-700 hover:bg-emerald-100"

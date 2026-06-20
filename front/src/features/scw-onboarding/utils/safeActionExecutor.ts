@@ -5,6 +5,7 @@ import {
   createPublicClient,
   createWalletClient,
   custom,
+  decodeEventLog,
   encodeFunctionData,
   getAddress,
   http,
@@ -12,6 +13,7 @@ import {
   numberToHex,
   padHex,
   parseAbi,
+  parseAbiItem,
   zeroAddress,
   type Address,
   type Hex,
@@ -28,6 +30,10 @@ const SAFE_ABI = parseAbi([
   "function approveHash(bytes32 hashToApprove)",
   "function execTransaction(address to,uint256 value,bytes data,uint8 operation,uint256 safeTxGas,uint256 baseGas,uint256 gasPrice,address gasToken,address refundReceiver,bytes signatures) payable returns (bool success)",
 ]);
+
+const SAFE_PROXY_CREATION_EVENT = parseAbiItem(
+  "event ProxyCreation(address indexed proxy, address singleton)",
+);
 
 function normalizeAddress(value: string, label: string): Address {
   if (!isAddress(value)) {
@@ -107,6 +113,45 @@ function getActionKind(actionId: string) {
 
 export function getConfirmKindForAction(actionId: string) {
   return getActionKind(actionId);
+}
+
+export async function readSafeProxyCreationAddress({
+  chainId,
+  factoryAddress,
+  rpcUrl,
+  txHash,
+}: {
+  chainId: number;
+  factoryAddress: string;
+  rpcUrl: string;
+  txHash: Hex;
+}) {
+  const factory = normalizeAddress(factoryAddress, "safe factory address");
+  const chain = createScwChain(chainId, rpcUrl);
+  const publicClient = createPublicClient({
+    chain,
+    transport: http(rpcUrl),
+  });
+  const receipt = await publicClient.getTransactionReceipt({ hash: txHash });
+
+  for (const log of receipt.logs) {
+    if (log.address.toLowerCase() !== factory.toLowerCase()) continue;
+
+    try {
+      const decoded = decodeEventLog({
+        abi: [SAFE_PROXY_CREATION_EVENT],
+        data: log.data,
+        topics: log.topics,
+      });
+      if (decoded.eventName !== "ProxyCreation") continue;
+      const proxy = decoded.args.proxy;
+      return normalizeAddress(proxy, "deployed smart wallet address");
+    } catch {
+      // Ignore unrelated factory logs.
+    }
+  }
+
+  return "";
 }
 
 type ExecuteScwOnboardingActionInput = {

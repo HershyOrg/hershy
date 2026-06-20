@@ -19,7 +19,7 @@ yarn-error.log*
 # env files
 .env*
 
-# local wallet/private-key JSON files
+# local generated files
 .local/
 
 # local user secrets / generated AI context

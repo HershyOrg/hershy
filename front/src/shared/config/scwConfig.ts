@@ -1,9 +1,8 @@
 import { defineChain, type Chain } from "viem";
-import { mantle, mantleSepoliaTestnet } from "viem/chains";
 
-const DEFAULT_SCW_CHAIN_ID = 5003;
-const DEFAULT_SCW_POLICY_ID = "mantle-sepolia-dex-adapter";
-const DEFAULT_SCW_RPC_URL = "https://rpc.sepolia.mantle.xyz";
+const DEFAULT_SCW_CHAIN_ID = 56;
+const DEFAULT_SCW_POLICY_ID = "bsc-eth-usdt-swap";
+const DEFAULT_SCW_RPC_URL = "https://bsc-dataseed.binance.org";
 
 export function getScwChainId() {
   const raw = import.meta.env.VITE_SCW_CHAIN_ID?.trim();
@@ -20,26 +19,6 @@ export function getScwRpcUrl() {
 }
 
 export function createScwChain(chainId = getScwChainId(), rpcUrl = getScwRpcUrl()): Chain {
-  if (chainId === mantle.id) {
-    return {
-      ...mantle,
-      rpcUrls: {
-        ...mantle.rpcUrls,
-        default: { http: [rpcUrl] },
-      },
-    };
-  }
-
-  if (chainId === mantleSepoliaTestnet.id) {
-    return {
-      ...mantleSepoliaTestnet,
-      rpcUrls: {
-        ...mantleSepoliaTestnet.rpcUrls,
-        default: { http: [rpcUrl] },
-      },
-    };
-  }
-
   if (chainId === 56) {
     return defineChain({
       id: 56,

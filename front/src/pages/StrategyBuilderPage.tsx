@@ -7,7 +7,7 @@ import {
 import { useTheme } from "@/shared/components/theme-provider";
 import { ExchangeLibraryModal } from "@/features/home/components/ExchangeLibraryModal";
 import { PortfolioWorkspace } from "@/features/home/components/PortfolioWorkspace";
-import { ScwOnboardingPanel } from "@/features/scw-onboarding";
+import { ScwOnboardingManagerModal, ScwOnboardingPanel } from "@/features/scw-onboarding";
 import {
   AI_STRATEGY_TEMPLATES,
   DEFAULT_CEX_TRADE_EXCHANGE,
@@ -409,6 +409,7 @@ export default function App() {
   const [guideDone, setGuideDone] = useState<Set<number>>(new Set());
   const [isGuideOpen, setIsGuideOpen] = useState(false);
   const [isExchangeLibraryOpen, setIsExchangeLibraryOpen] = useState(false);
+  const [isWalletManagerOpen, setIsWalletManagerOpen] = useState(false);
   const [guideStep, setGuideStep] = useState(0);
   const [isAgentRunning, setIsAgentRunning] = useState(false);
   const [isTemplatePanelOpen, setIsTemplatePanelOpen] = useState(false);
@@ -1463,6 +1464,15 @@ export default function App() {
             </button>
             <button
               type="button"
+              onClick={() => setIsWalletManagerOpen(true)}
+              aria-label="지갑 연결 관리"
+              title="지갑 연결 관리"
+              className="relative inline-flex h-9 w-9 items-center justify-center border border-slate-200 bg-white text-[11px] font-black text-slate-600 transition-colors hover:bg-slate-50 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-300 dark:hover:bg-slate-800"
+            >
+              지
+            </button>
+            <button
+              type="button"
               onClick={() => setIsLeftPanelCollapsed(false)}
               aria-label="플랜 패널 펼치기"
               title={`Plan: ${planTier}`}
@@ -1515,7 +1525,7 @@ export default function App() {
             </button>
           </section>
 
-          <ScwOnboardingPanel />
+          <ScwOnboardingPanel onManage={() => setIsWalletManagerOpen(true)} />
 
           <section className="border-b border-slate-200 py-3 dark:border-slate-800">
             <div className="mb-2 text-xs font-bold text-slate-700 dark:text-slate-300">
@@ -1714,6 +1724,11 @@ export default function App() {
         onTestBinanceAuth={testBinanceAuth}
         onSaveExchangeConnection={saveExchangeConnection}
         onClose={() => setIsExchangeLibraryOpen(false)}
+      />
+
+      <ScwOnboardingManagerModal
+        isOpen={isWalletManagerOpen}
+        onClose={() => setIsWalletManagerOpen(false)}
       />
 
       {isGuideOpen ? (

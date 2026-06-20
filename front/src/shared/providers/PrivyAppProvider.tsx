@@ -1,5 +1,10 @@
-import { Component, createContext, useContext, type ErrorInfo, type ReactNode } from "react";
-import { PrivyProvider } from "@privy-io/react-auth";
+import { Component, createContext, useContext, useEffect, useRef, type ErrorInfo, type ReactNode } from "react";
+import { PrivyProvider, usePrivy } from "@privy-io/react-auth";
+import { SmartWalletsProvider, useSmartWallets } from "@privy-io/react-auth/smart-wallets";
+import {
+  createScwPolicyId,
+  prepareScwOnboarding,
+} from "@/features/scw-onboarding/api/scwOnboardingClient";
 import { createScwChain } from "@/shared/config/scwConfig";
 
 type PrivyAppProviderProps = {
@@ -23,6 +28,33 @@ export function isPrivyConfigured() {
 
 export function usePrivyRuntime() {
   return useContext(PrivyRuntimeContext);
+}
+
+function ScwOnboardingSync() {
+  const { authenticated, ready, user } = usePrivy();
+  const { client } = useSmartWallets();
+  const syncedKeyRef = useRef("");
+  const ownerAddress = user?.wallet?.address || "";
+  const smartWalletAddress = client?.account?.address || "";
+
+  useEffect(() => {
+    if (!ready || !authenticated || !ownerAddress || !smartWalletAddress) return;
+
+    const syncKey = `${ownerAddress}:${smartWalletAddress}`;
+    if (syncedKeyRef.current === syncKey) return;
+    syncedKeyRef.current = syncKey;
+
+    void prepareScwOnboarding(
+      ownerAddress,
+      smartWalletAddress,
+      createScwPolicyId(smartWalletAddress),
+    ).catch((error) => {
+      syncedKeyRef.current = "";
+      console.error("[scw] onboarding sync failed", error);
+    });
+  }, [authenticated, ownerAddress, ready, smartWalletAddress]);
+
+  return null;
 }
 
 type PrivyProviderBoundaryProps = {
@@ -82,9 +114,17 @@ export function PrivyAppProvider({ children }: PrivyAppProviderProps) {
           config={{
             defaultChain: createScwChain(),
             supportedChains: [createScwChain()],
+            embeddedWallets: {
+              ethereum: {
+                createOnLogin: "users-without-wallets",
+              },
+            },
           }}
         >
-          {children}
+          <SmartWalletsProvider>
+            <ScwOnboardingSync />
+            {children}
+          </SmartWalletsProvider>
         </PrivyProvider>
       </PrivyRuntimeContext.Provider>
     </PrivyProviderBoundary>

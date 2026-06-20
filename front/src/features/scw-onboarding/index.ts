@@ -1,1 +1,4 @@
-export { ScwOnboardingPanel } from "./components/ScwOnboardingPanel";
+export {
+  ScwOnboardingManagerModal,
+  ScwOnboardingPanel,
+} from "./components/ScwOnboardingPanel";
