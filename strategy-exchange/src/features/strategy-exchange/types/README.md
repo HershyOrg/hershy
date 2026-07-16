@@ -8,6 +8,6 @@ Examples:
 - `Sector`
 - `BrowseFilter`
 - `AddressRoute`
-- `VaultViewMode`
+- `AdapterViewMode`
 
 Types used by several unrelated features should move to `shared/types/`.

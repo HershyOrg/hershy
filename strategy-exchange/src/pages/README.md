@@ -7,5 +7,5 @@ Pages compose feature components and shared components into full screens. They m
 Current page:
 - `DashboardPage.tsx`: main strategy exchange page and hash/path route coordinator.
 - `LaunchLogicPage.tsx`: route page for launching user strategy logic.
-- `MyPage.tsx`: current user profile, active vaults, and saved logic.
+- `MyPage.tsx`: current user profile, active adapters, and saved logic.
 - `EditMyPage.tsx`: current user profile edit form.

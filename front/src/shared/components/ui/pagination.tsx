@@ -3,7 +3,7 @@ import {
   ChevronLeftIcon,
   ChevronRightIcon,
   MoreHorizontalIcon,
-} from 'lucide-react'
+} from "@/shared/components/icons"
 
 import { cn } from '@/shared/utils/utils'
 import { Button, buttonVariants } from '@/shared/components/ui/button'

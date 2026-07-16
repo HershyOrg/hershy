@@ -1,16 +1,16 @@
 import type { Strategy } from "../types/strategyTypes";
 
 const shareSymbols: Record<string, string> = {
-  "btc-funding-carry": "BFC",
-  "usdc-depeg-router": "UDR",
-  "eth-lst-basis": "ELB",
-  "sol-momentum-ladder": "SML",
-  "gmx-basis-hedge": "GBH",
-  "stable-loop-yield": "SLY",
-  "kimchi-spread-watch": "KSW",
-  "lp-delta-neutral": "LDN",
-  "eth-perp-basis-sweep": "EPB",
-  "arb-bridge-latency": "ABL",
+  "hl-majors-index": "HMI",
+  "hl-alt-rotation-index": "HAI",
+  "hl-defensive-collateral-index": "HDI",
+  "hl-btc-funding-carry": "BFC",
+  "hl-eth-basis-carry": "EBC",
+  "hl-market-neutral-grid": "MNG",
+  "hl-liquidation-reversal": "HLR",
+  "hl-vol-breakout": "HVB",
+  "hl-orderflow-scalp": "HOS",
+  "hl-margin-risk-hedge": "CMH",
 };
 
 export const vaultSharePalettes = [

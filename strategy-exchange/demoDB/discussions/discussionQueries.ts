@@ -6,22 +6,22 @@ function sqlString(value: string) {
 }
 
 export function buildVaultDiscussionEndpoint(address: string) {
-  return `/api/strategy-exchange/discussions/vaults/${encodeURIComponent(address)}`;
+  return `/api/strategy-exchange/discussions/adapters/${encodeURIComponent(address)}`;
 }
 
 export function buildVaultDiscussionSql(address: string) {
   return [
     "select",
-    "  m.id, m.vault_address, m.author_name, m.author_address, m.body, m.created_at",
-    "from vault_discussion_messages m",
-    `where lower(m.vault_address) = lower(${sqlString(address)})`,
+    "  m.id, m.adapter_address, m.author_name, m.author_address, m.body, m.created_at",
+    "from adapter_discussion_messages m",
+    `where lower(m.adapter_address) = lower(${sqlString(address)})`,
     "order by m.created_at asc;",
   ].join("\n");
 }
 
 export function selectDiscussionMessagesByVaultAddress(address: string): DiscussionMessageRow[] {
   return vaultDiscussionMessagesTable
-    .filter((message) => message.vaultAddress.toLowerCase() === address.toLowerCase())
+    .filter((message) => message.adapterAddress.toLowerCase() === address.toLowerCase())
     .sort((a, b) => Date.parse(a.createdAt) - Date.parse(b.createdAt));
 }
 
@@ -39,7 +39,7 @@ export async function requestVaultDiscussion(address: string): Promise<VaultDisc
         return (await response.json()) as VaultDiscussionResponse;
       }
     } catch {
-      // Static previews can render without the Vite mock API; keep vault discussions usable.
+      // Static previews can render without the Vite mock API; keep adapter discussions usable.
     }
   }
 

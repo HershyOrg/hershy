@@ -95,6 +95,67 @@ export type BalanceMyDataSnapshot = {
   };
 };
 
+export type HistoricalDataStorageMode = "inline" | "metadata";
+
+export type HistoricalMissingDateRange = {
+  symbol: string;
+  startDate: string;
+  endDate: string;
+  count: number;
+};
+
+export type HistoricalDataDataset = {
+  id: string;
+  fileName: string;
+  format: "csv" | "json";
+  byteSize: number;
+  sourceFiles?: Array<{
+    fileName: string;
+    byteSize: number;
+    rowCount: number;
+    format: "csv" | "json";
+  }>;
+  rowCount: number;
+  droppedRows: number;
+  duplicateRows: number;
+  startDate: string;
+  endDate: string;
+  symbols: string[];
+  intervalLabel: string;
+  detectedMetrics: string[];
+  warnings: string[];
+  errors: string[];
+  rawPreviewText: string;
+  normalizedPreviewRows: Array<Record<string, number | string>>;
+  missingDateCount: number;
+  missingDatesPreview: Array<{
+    symbol: string;
+    date: string;
+  }>;
+  missingDateRanges: HistoricalMissingDateRange[];
+  uploadedAt: number;
+  updatedAt: number;
+  storageMode: HistoricalDataStorageMode;
+  rawText?: string;
+};
+
+export type ApiHistoricalDataMapping = {
+  id: string;
+  apiId: string;
+  apiName: string;
+  datasetId: string;
+  createdAt: number;
+  updatedAt: number;
+};
+
+export type PersistedHistoricalDataState = {
+  version: 1;
+  savedAt: number;
+  datasets: HistoricalDataDataset[];
+  mappings: ApiHistoricalDataMapping[];
+  activeApiId?: string;
+};
+
 export type ExchangeFormState = {
   id: string;
   name: string;
@@ -192,4 +253,5 @@ export type ClientAppState = {
   };
   strategyBuilder?: PersistedStrategyBuilderState | null;
   history?: PersistedHistoryStoreState | null;
+  historicalData?: PersistedHistoricalDataState | null;
 };

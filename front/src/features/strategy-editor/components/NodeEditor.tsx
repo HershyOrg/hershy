@@ -43,13 +43,12 @@ import { MonitoringNode } from "./MonitoringNode";
 import { GroupNode } from "./GroupNode";
 import { StreamingNode } from "./StreamingNode";
 import { CodeEditorNode } from "./CodeEditorNode";
+import { SequenceMonitorPanel } from "./SequenceMonitorPanel";
 import { withExplanation } from "./withExplanation";
 import { getLayoutedElements } from "../utils/layout";
 import { CustomEdge } from "./CustomEdge";
 import { DelayEdge } from "./DelayEdge";
-import { FSMEdge } from "./FSMEdge";
 import { ConditionMergeEdge } from "./ConditionMergeEdge";
-import { FSMProvider, useFSM } from "./FSMContext";
 import { Toolbar } from "./Toolbar";
 import { ContextMenu } from "./ContextMenu";
 import type { FunctionNodeData, TimeTriggerData, BranchNodeData, CEXActionData, DEXActionData, ActionNodeData, MergedFunctionNodeData, StreamingNodeData, NodeChartPoint, BlockData, IndicatorCondition } from "../types/editorTypes";
@@ -65,6 +64,7 @@ import {
   createBinanceFuturesUserDataStreamData,
   createBinanceSpotPriceStreamData,
 } from "@/features/strategy-editor/mock-data/binance-demo-api";
+import { Activity } from "@/shared/components/icons";
 
 const nodeTypes: NodeTypes = {
   functionNode: withExplanation(FunctionNode),
@@ -85,7 +85,6 @@ const nodeTypes: NodeTypes = {
 const edgeTypes: EdgeTypes = {
   custom: CustomEdge,
   delay: DelayEdge,
-  fsmEdge: FSMEdge,
   conditionMerge: ConditionMergeEdge,
 };
 
@@ -142,7 +141,9 @@ function shouldUseConditionMergeEdge(edge: Pick<Edge, "sourceHandle" | "target" 
 
 function normalizeConditionMergeEdge(edge: Edge, nodesById: Map<string, Node>) {
   const targetNode = nodesById.get(edge.target);
-  if (!shouldUseConditionMergeEdge(edge, targetNode)) return edge;
+  if (!shouldUseConditionMergeEdge(edge, targetNode)) {
+    return edge.type === "conditionMerge" ? { ...edge, type: "custom" } : edge;
+  }
 
   const data = (edge.data ?? {}) as Record<string, unknown>;
   const logicMode = data.logicMode === "OR" ? "OR" : "AND";
@@ -247,10 +248,13 @@ function sanitizeEditorGraph<T extends { nodes: Node[]; edges: Edge[] }>(graph: 
   if (ordered.changed) changed = true;
 
   const orderedNodeIds = new Set(ordered.nodes.map((node) => node.id));
+  const orderedNodesById = new Map(ordered.nodes.map((node) => [node.id, node]));
   const seenEdgeIds = new Set<string>();
   const edges: Edge[] = [];
 
   for (const edge of graph.edges) {
+    const sourceNode = typeof edge?.source === "string" ? orderedNodesById.get(edge.source) : undefined;
+    const targetNode = typeof edge?.target === "string" ? orderedNodesById.get(edge.target) : undefined;
     const isValidEdge =
       edge &&
       typeof edge.id === "string" &&
@@ -259,6 +263,9 @@ function sanitizeEditorGraph<T extends { nodes: Node[]; edges: Edge[] }>(graph: 
       typeof edge.target === "string" &&
       orderedNodeIds.has(edge.source) &&
       orderedNodeIds.has(edge.target) &&
+      edge.type !== "fsmEdge" &&
+      sourceNode?.type !== "groupNode" &&
+      targetNode?.type !== "groupNode" &&
       !seenEdgeIds.has(edge.id);
 
     if (!isValidEdge) {
@@ -284,7 +291,6 @@ const TRANSIENT_GRAPH_DATA_KEYS = new Set([
   "chartWarning",
   "conditionMet",
   "isHighlighted",
-  "revealTick",
   "runtimeCode",
   "runtimeCodeLabel",
 ]);
@@ -446,7 +452,7 @@ function applyEditorHistoryEntry(
   });
 }
 
-const INTERNAL_PREPARATION_GROUP_RE = /\b(intent|research|retrieval|rag|retrieval[-\s]*augmented|knowledge\s*retrieval|context\s*retrieval|knowledge\s*graph|kg|web\s*discovery|candidate\s*universe|pool\s*discovery|implementation\s*research|orchestration|planner|planning|ranking|ranker|solver|evidence|adapter|labeling|workflow\s*plan)\b|의도|리서치|검색|후보|지식\s*검색|지식\s*그래프|랭킹|순위|계획|근거|증거|어댑터|라벨|오케스트레이션/i;
+const INTERNAL_PREPARATION_GROUP_RE = /\b(intent|research|retrieval|rag|retrieval[-\s]*augmented|knowledge\s*retrieval|context\s*retrieval|knowledge\s*graph|kg|web\s*discovery|candidate\s*universe|pool\s*discovery|implementation\s*research|orchestration|planner|planning|ranking|ranker|solver|evidence|adapter|labeling|workflow\s*plan)\b/i;
 
 function isInternalPreparationGroup(node: Node) {
   if (node.type !== "groupNode") return false;
@@ -458,7 +464,6 @@ function isInternalPreparationGroup(node: Node) {
     data.purpose,
     data.description,
     data.sequenceType,
-    data.summaryWord,
   ].map((value) => String(value ?? "")).join(" "));
 }
 
@@ -491,7 +496,7 @@ function normalizeEditorGraphEdges<T extends { nodes: Node[]; edges: Edge[] }>(g
 }
 
 function isConnectableSourceHandle(sourceHandle?: string | null) {
-  return isOutputBlockSourceHandle(sourceHandle) || isControlSourceHandle(sourceHandle);
+  return isOutputBlockSourceHandle(sourceHandle) || isControlSourceHandle(sourceHandle) || isCollapsedSourceHandle(sourceHandle);
 }
 
 function isInputBlockTargetHandle(targetHandle?: string | null) {
@@ -510,8 +515,24 @@ function isExecutionTargetHandle(targetHandle?: string | null) {
   );
 }
 
+function getCollapsedSourceHandle(nodeId: string) {
+  return `${nodeId}-collapsed-out`;
+}
+
+function getCollapsedTargetHandle(nodeId: string) {
+  return `${nodeId}-collapsed-in`;
+}
+
+function isCollapsedSourceHandle(sourceHandle?: string | null) {
+  return Boolean(sourceHandle?.endsWith("-collapsed-out"));
+}
+
+function isCollapsedTargetHandle(targetHandle?: string | null) {
+  return Boolean(targetHandle?.endsWith("-collapsed-in"));
+}
+
 function isConnectableTargetHandle(targetHandle?: string | null) {
-  return isInputBlockTargetHandle(targetHandle) || isExecutionTargetHandle(targetHandle);
+  return isInputBlockTargetHandle(targetHandle) || isExecutionTargetHandle(targetHandle) || isCollapsedTargetHandle(targetHandle);
 }
 
 function canPromoteExecutionTargetToInput(targetNode: Node | undefined, targetHandle?: string | null) {
@@ -747,6 +768,64 @@ function getInputBlockForHandle(targetNode: Node | undefined, targetHandle?: str
   return inputBlocks.find((block) => block.id === blockId) ?? null;
 }
 
+function getPrimarySourceHandleForNode(node: Node | undefined) {
+  if (!node) return null;
+  const data = node.data as { outputBlocks?: BlockData[]; branches?: Array<{ id: string }> } | undefined;
+  const outputBlock = data?.outputBlocks?.[0];
+  if (outputBlock?.id) return `${node.id}-block-${outputBlock.id}-out`;
+
+  if (node.type === "timeTrigger" || node.type === "clickTrigger") {
+    return `${node.id}-trigger-out`;
+  }
+
+  const branch = data?.branches?.[0];
+  if (node.type === "branchNode" && branch?.id) {
+    return `${node.id}-branch-${branch.id}-out`;
+  }
+
+  if (node.type === "actionNode") return `${node.id}-success-out`;
+  if (node.type === "codeEditor") return `${node.id}-func-out`;
+  return null;
+}
+
+function getPrimaryTargetHandleForNode(node: Node | undefined, sourceBlockName = "source") {
+  if (!node) return null;
+  const inputBlocks = getInputBlocksForNode(node, sourceBlockName);
+  const inputBlock = inputBlocks[0];
+  if (inputBlock?.id) {
+    const targetInputPrefix = getTargetInputHandlePrefix(node, `${node.id}-input-${inputBlock.id}-in`);
+    return `${node.id}-${targetInputPrefix}-${inputBlock.id}-in`;
+  }
+
+  if (node.type === "branchNode") return `${node.id}-branch-in`;
+  if (node.type === "timeTrigger" || node.type === "clickTrigger") return `${node.id}-trigger-in`;
+  if (node.type === "monitoringNode") return `${node.id}-monitor-in`;
+  if (node.type === "functionNode" || node.type === "actionNode" || node.type === "mergedFunction") {
+    return `${node.id}-func-in`;
+  }
+  return null;
+}
+
+function resolveCollapsedConnectionHandles(
+  params: Connection,
+  sourceNode: Node | undefined,
+  targetNode: Node | undefined,
+) {
+  const sourceHandle = isCollapsedSourceHandle(params.sourceHandle)
+    ? getPrimarySourceHandleForNode(sourceNode) ?? params.sourceHandle
+    : params.sourceHandle;
+  const sourceBlockName = getSourceSignalName(sourceNode, sourceHandle);
+  const targetHandle = isCollapsedTargetHandle(params.targetHandle)
+    ? getPrimaryTargetHandleForNode(targetNode, sourceBlockName) ?? params.targetHandle
+    : params.targetHandle;
+
+  return {
+    ...params,
+    sourceHandle,
+    targetHandle,
+  };
+}
+
 function getChartSeriesForOutputHandle(sourceNode: Node, sourceHandle?: string | null) {
   const sourceBlock = getOutputBlockForHandle(sourceNode, sourceHandle) as (BlockData & { chartSeries?: NodeChartPoint[] }) | null;
   const blockSeries = sourceBlock?.chartSeries;
@@ -757,19 +836,19 @@ function getChartSeriesForOutputHandle(sourceNode: Node, sourceHandle?: string |
 
 function getFallbackInputBlocksForNode(node: Node, sourceBlockName: string): BlockData[] {
   if (node.type === "functionNode") {
-    return [{ id: "source", name: "source", description: "차트 계산에 들어오는 스트림 또는 지표 블록", type: "input" }];
+    return [{ id: "source", name: "source", description: "Incoming stream or indicator block for chart calculations", type: "input" }];
   }
 
   if (node.type === "branchNode") {
-    return [{ id: "signal", name: "signal", description: "분기 판단에 들어오는 신호", type: "input" }];
+    return [{ id: "signal", name: "signal", description: "Signal used for branch evaluation", type: "input" }];
   }
 
   if (node.type === "actionNode") {
-    return [{ id: "signal", name: sourceBlockName || "signal", description: "실행에 사용할 입력 신호", type: "input" }];
+    return [{ id: "signal", name: sourceBlockName || "signal", description: "Input signal used for execution", type: "input" }];
   }
 
   if (node.type === "mergedFunction") {
-    return [{ id: "source", name: "source", description: "병합 로직에 들어오는 입력", type: "input" }];
+    return [{ id: "source", name: "source", description: "Input used by merge logic", type: "input" }];
   }
 
   return [];
@@ -886,7 +965,7 @@ function buildPassthroughOutputBlock(inputBlock: BlockData, connectedFrom: strin
   return {
     id: createUniqueBlockId(`ob-pass-${sanitizeHandlePart(inputBlock.id || baseName)}`, existingOutputBlocks),
     name: inputBlock.name || baseName,
-    description: `입력 ${connectedFrom}을 그대로 반환`,
+    description: `Returns input ${connectedFrom} unchanged`,
     type: "output",
     outputMode: "passthrough",
     passthroughInputBlockId: inputBlock.id,
@@ -952,10 +1031,32 @@ function normalizeMarketSymbol(value: string) {
   return /^[A-Z0-9]{5,20}$/.test(cleaned) ? cleaned : "";
 }
 
+function getURL(value: string) {
+  try {
+    return new URL(value);
+  } catch {
+    return null;
+  }
+}
+
+function isYahooFinanceChartUrl(value?: string) {
+  const url = getURL(String(value || "").trim());
+  if (!url) return false;
+  return /(^|\.)query1\.finance\.yahoo\.com$/i.test(url.hostname) &&
+    url.pathname.startsWith("/v8/finance/chart/");
+}
+
+function getYahooFinanceFetchUrl(value: string) {
+  const url = getURL(value.trim());
+  if (!url || !isYahooFinanceChartUrl(value)) return value;
+  return `/yahoo-finance${url.pathname}${url.search}`;
+}
+
 function inferNodeChartRequest(node: Node) {
   const data = node.data && typeof node.data === "object" ? node.data as Record<string, unknown> : {};
   const explicitSymbol = readNodeText(data, ["chartSymbol", "symbol", "market", "pair", "instrument"]);
   const endpoint = readNodeText(data, ["url", "sourceUrl", "endpoint", "apiReference"]);
+  if (isYahooFinanceChartUrl(endpoint)) return null;
   const label = readNodeText(data, ["label", "name", "title"]);
   const rawText = `${explicitSymbol} ${endpoint} ${label}`;
   const querySymbol = endpoint.match(/[?&]symbol=([A-Za-z0-9._/-]+)/i)?.[1] ?? "";
@@ -963,7 +1064,7 @@ function inferNodeChartRequest(node: Node) {
   const symbol = normalizeMarketSymbol(querySymbol || explicitSymbol || tickerMatch);
   if (!symbol) return null;
 
-  const market = /perp|future|futures|swap|\.p\b|선물/i.test(rawText) ? "futures" : "spot";
+  const market = /perp|future|futures|swap|\.p\b/i.test(rawText) ? "futures" : "spot";
   return { symbol, market };
 }
 
@@ -1055,6 +1156,110 @@ function buildStreamSampleChartPoint(payload: unknown): { point: NodeChartPoint;
     },
     field: selected.field,
   };
+}
+
+function normalizeChartFieldKey(value: unknown) {
+  return String(value ?? "").toLowerCase().replace(/[^a-z0-9]/g, "");
+}
+
+function buildSeriesForField(timestamps: unknown[], values: unknown[], volumes?: unknown[]) {
+  return timestamps
+    .map((timestamp, index): NodeChartPoint | null => {
+      const time = Number(timestamp);
+      const value = toChartNumber(values[index]);
+      const volume = volumes ? toChartNumber(volumes[index]) : null;
+      if (!Number.isFinite(time) || value === null) return null;
+      return {
+        time,
+        value,
+        ...(volume !== null ? { volume } : {}),
+      };
+    })
+    .filter((point): point is NodeChartPoint => Boolean(point));
+}
+
+function parseYahooFinanceChartPayload(payload: unknown) {
+  const root = payload && typeof payload === "object" ? payload as Record<string, any> : {};
+  const chart = root.chart && typeof root.chart === "object" ? root.chart as Record<string, any> : {};
+  const result = Array.isArray(chart.result) ? chart.result[0] : null;
+  if (!result || typeof result !== "object") {
+    const errorDescription = chart.error?.description || chart.error?.message;
+    throw new Error(typeof errorDescription === "string" ? errorDescription : "Yahoo chart result was empty");
+  }
+
+  const timestamps = Array.isArray(result.timestamp) ? result.timestamp : [];
+  const quote = Array.isArray(result.indicators?.quote) ? result.indicators.quote[0] : null;
+  if (timestamps.length === 0 || !quote || typeof quote !== "object") {
+    throw new Error("Yahoo chart payload did not include timestamp and quote arrays");
+  }
+
+  const seriesByField: Record<string, NodeChartPoint[]> = {};
+  ["open", "high", "low", "close", "volume"].forEach((field) => {
+    const values = Array.isArray(quote[field]) ? quote[field] : [];
+    if (values.length === 0) return;
+    const series = buildSeriesForField(
+      timestamps,
+      values,
+      field === "volume" ? undefined : quote.volume,
+    );
+    if (series.length > 0) {
+      seriesByField[normalizeChartFieldKey(field)] = series;
+    }
+  });
+
+  const adjustedClose = Array.isArray(result.indicators?.adjclose)
+    ? result.indicators.adjclose[0]?.adjclose
+    : null;
+  if (Array.isArray(adjustedClose)) {
+    const adjustedSeries = buildSeriesForField(timestamps, adjustedClose, quote.volume);
+    if (adjustedSeries.length > 0) {
+      seriesByField.adjustedclose = adjustedSeries;
+      seriesByField.adjclose = adjustedSeries;
+    }
+  }
+
+  const primarySeries = seriesByField.close ?? seriesByField.adjustedclose ?? Object.values(seriesByField)[0] ?? [];
+  if (primarySeries.length === 0) {
+    throw new Error("Yahoo chart payload did not include numeric OHLC values");
+  }
+
+  const symbol = typeof result.meta?.symbol === "string" ? result.meta.symbol : "Yahoo";
+  return {
+    symbol,
+    series: primarySeries,
+    seriesByField,
+  };
+}
+
+function applyStreamingOutputChartSeries(
+  outputBlocks: BlockData[] | undefined,
+  fallbackSeries: NodeChartPoint[],
+  seriesByField: Record<string, NodeChartPoint[]> = {},
+) {
+  const blocks = Array.isArray(outputBlocks) ? outputBlocks : [];
+  let changed = false;
+  const nextBlocks = blocks.map((block, index) => {
+    const candidates = [
+      normalizeChartFieldKey(block.id),
+      normalizeChartFieldKey(block.name),
+    ];
+    const matchedSeries = candidates
+      .map((key) => seriesByField[key])
+      .find((series) => Array.isArray(series) && series.length > 0) ??
+      (index === 0 ? fallbackSeries : null);
+
+    if (!matchedSeries || matchedSeries.length === 0) return block;
+    const currentSeries = (block as Record<string, unknown>).chartSeries as NodeChartPoint[] | undefined;
+    if (chartSeriesEqual(currentSeries, matchedSeries)) return block;
+    changed = true;
+    return {
+      ...block,
+      chartSeries: matchedSeries,
+      visualizationFormat: block.visualizationFormat ?? (index === 0 ? "chart" : block.visualizationFormat),
+    };
+  });
+
+  return changed ? nextBlocks : blocks;
 }
 
 function chartSeriesEqual(left?: NodeChartPoint[], right?: NodeChartPoint[]) {
@@ -1310,11 +1515,11 @@ function deriveFunctionChartSeries(node: Node, incoming: ReactiveIncomingSeries[
     outputBlock?.description ?? "",
   ].join(" ").toLowerCase();
 
-  if (incoming.length >= 2 && /basis|spread|gap|premium|차익|가격차|괴리|현선/.test(text)) {
+  if (incoming.length >= 2 && /basis|spread|gap|premium/.test(text)) {
     const ordered = [...incoming].sort((a, b) => {
       const aText = `${a.node.id} ${readNodeText(a.node.data as Record<string, unknown>, ["label", "name", "symbol", "market"])}`.toLowerCase();
       const bText = `${b.node.id} ${readNodeText(b.node.data as Record<string, unknown>, ["label", "name", "symbol", "market"])}`.toLowerCase();
-      const score = (value: string) => (/perp|future|선물|\.p/.test(value) ? -1 : /spot|현물/.test(value) ? 1 : 0);
+      const score = (value: string) => (/perp|future|\.p/.test(value) ? -1 : /spot/.test(value) ? 1 : 0);
       return score(aText) - score(bText);
     });
     const aligned = alignSeries([ordered[0].series, ordered[1].series]);
@@ -1330,7 +1535,7 @@ function deriveFunctionChartSeries(node: Node, incoming: ReactiveIncomingSeries[
     };
   }
 
-  if (/ma|moving average|sma|ema|이동평균|평균/.test(text)) {
+  if (/ma|moving average|sma|ema/.test(text)) {
     return {
       series: movingAverageSeries(incoming[0].series),
       source: "heuristic: moving average",
@@ -1380,38 +1585,6 @@ const FOCUS_EDGE_FILTER = "drop-shadow(0 0 7px rgba(45, 212, 191, 0.38))";
 
 function isStrategySequenceGroup(node: Node) {
   return node.type === "groupNode" && (node.data as any)?.styleType !== "solid";
-}
-
-function getSequenceBoundaryKind(sequenceId: string, nodesById: Map<string, Node>) {
-  const sequenceNode = nodesById.get(sequenceId);
-  const data = sequenceNode?.data as Record<string, unknown> | undefined;
-  const styleType = String(data?.styleType ?? "");
-  const sequenceType = String(data?.sequenceType ?? "").toLowerCase();
-  if (styleType === "pipeline" || sequenceType === "data-pipeline" || sequenceType === "pipeline" || data?.sharedDataPipeline === true) {
-    return "pipeline";
-  }
-  if (sequenceType === "monitoring") {
-    return "monitoring";
-  }
-  return "sequence";
-}
-
-function sequenceBoundaryCanCross(
-  sourceSequenceId: string,
-  targetSequenceId: string,
-  nodesById: Map<string, Node>,
-  edge?: Pick<Edge, "data">,
-) {
-  if (!sourceSequenceId || !targetSequenceId || sourceSequenceId === targetSequenceId) return true;
-  const data = edge?.data as Record<string, unknown> | undefined;
-  if (data?.sharedDataPipeline === true) return true;
-  const sourceKind = getSequenceBoundaryKind(sourceSequenceId, nodesById);
-  const targetKind = getSequenceBoundaryKind(targetSequenceId, nodesById);
-  return sourceKind === "pipeline" || targetKind === "pipeline" || sourceKind === "monitoring" || targetKind === "monitoring";
-}
-
-function nodeCanLiveInsidePipeline(node: Node) {
-  return node.type === "streamingNode" || node.type === "functionNode";
 }
 
 function clearFocusNodeStyle(node: Node): Node {
@@ -1474,18 +1647,44 @@ function clearFocusEdgeStyle(edge: Edge): Edge {
   return changed ? { ...edge, style: nextStyle } : edge;
 }
 
-function getSequenceAncestorId(nodeId: string | undefined | null, nodesById: Map<string, Node>) {
-  if (!nodeId) return "";
-  let currentNode = nodesById.get(nodeId);
+function shouldRenderCollapsedPort(node: Node | undefined) {
+  if (!node) return false;
+  const data = node.data as Record<string, unknown> | undefined;
 
-  while (currentNode?.parentId) {
-    const parentNode = nodesById.get(currentNode.parentId);
-    if (!parentNode) return "";
-    if (isStrategySequenceGroup(parentNode)) return parentNode.id;
-    currentNode = parentNode;
+  if (node.type === "functionNode" || node.type === "actionNode" || node.type === "mergedFunction") {
+    return data?.isExpanded !== true;
   }
 
-  return "";
+  if (node.type === "streamingNode") {
+    return data?.isExpanded === false;
+  }
+
+  return false;
+}
+
+function buildCollapsedPortRenderEdges(nodes: Node[], edges: Edge[]) {
+  const nodeById = new Map(nodes.map((node) => [node.id, node]));
+
+  return edges.map((edge) => {
+    const sourceNode = nodeById.get(edge.source);
+    const targetNode = nodeById.get(edge.target);
+    const useCollapsedSource = shouldRenderCollapsedPort(sourceNode) && isConnectableSourceHandle(edge.sourceHandle);
+    const useCollapsedTarget = shouldRenderCollapsedPort(targetNode) && isConnectableTargetHandle(edge.targetHandle);
+
+    if (!useCollapsedSource && !useCollapsedTarget) return edge;
+
+    return {
+      ...edge,
+      sourceHandle: useCollapsedSource ? getCollapsedSourceHandle(edge.source) : edge.sourceHandle,
+      targetHandle: useCollapsedTarget ? getCollapsedTargetHandle(edge.target) : edge.targetHandle,
+      data: {
+        ...(edge.data as Record<string, unknown> | undefined),
+        collapsedProxy: true,
+        originalSourceHandle: edge.sourceHandle,
+        originalTargetHandle: edge.targetHandle,
+      },
+    };
+  });
 }
 
 function getNodeTreeDepth(node: Node | undefined, nodesById: Map<string, Node>) {
@@ -1504,21 +1703,6 @@ function pickDeepestStrategySequenceGroup(nodes: Node[], nodesById: Map<string, 
   return nodes
     .filter(isStrategySequenceGroup)
     .sort((a, b) => getNodeTreeDepth(b, nodesById) - getNodeTreeDepth(a, nodesById))[0];
-}
-
-function edgeRespectsSequenceBoundary(edge: Edge, nodesById: Map<string, Node>) {
-  const sourceNode = nodesById.get(edge.source);
-  const targetNode = nodesById.get(edge.target);
-  if (!sourceNode || !targetNode) return false;
-  if (sourceNode.type === "groupNode" || targetNode.type === "groupNode") return true;
-
-  const sourceSequenceId = getSequenceAncestorId(edge.source, nodesById);
-  const targetSequenceId = getSequenceAncestorId(edge.target, nodesById);
-
-  if (sourceSequenceId && targetSequenceId) {
-    return sequenceBoundaryCanCross(sourceSequenceId, targetSequenceId, nodesById, edge);
-  }
-  return true;
 }
 
 function getCollectionSize(value: unknown) {
@@ -1686,21 +1870,9 @@ function applyParentContainmentRules(inputNodes: Node[]) {
   });
 }
 
-function readOriginalEdgeText(edge: Edge, key: string, fallback: string) {
-  const data = edge.data as Record<string, unknown> | undefined;
-  const value = data?.[key];
-  return typeof value === "string" && value ? value : fallback;
-}
-
-function readOriginalEdgeHandle(edge: Edge, key: string, fallback?: string | null) {
-  const data = edge.data as Record<string, unknown> | undefined;
-  const value = data?.[key];
-  return typeof value === "string" && value ? value : fallback;
-}
-
 function applySequenceCollapsedState(inputNodes: Node[], inputEdges: Edge[]) {
   const containedNodes = applyParentContainmentRules(inputNodes);
-  const decoratedNodes = containedNodes.map((node) => {
+  const nodes = containedNodes.map((node) => {
     if (!isStrategySequenceGroup(node)) return { ...node };
 
     return {
@@ -1711,65 +1883,7 @@ function applySequenceCollapsedState(inputNodes: Node[], inputEdges: Edge[]) {
       },
     };
   });
-
-  const hiddenNodeIds = new Set<string>();
-  const hiddenNodeToCollapsedGroupId = new Map<string, string>();
-
-  decoratedNodes.forEach((node) => {
-    if (!isStrategySequenceGroup(node)) return;
-    if (!(node.data as any)?.isCollapsed) return;
-
-    collectDescendantIds(decoratedNodes, node.id).forEach((id) => {
-      hiddenNodeIds.add(id);
-      hiddenNodeToCollapsedGroupId.set(id, node.id);
-    });
-  });
-
-  const nodes = decoratedNodes.map((node) => {
-    const isHidden = hiddenNodeIds.has(node.id);
-
-    return {
-      ...node,
-      hidden: isHidden,
-      extent: isHidden ? undefined : node.extent,
-      expandParent: isHidden ? undefined : node.expandParent,
-    };
-  });
-
-  const nodesById = new Map(nodes.map((node) => [node.id, node]));
-  const normalizedInputEdges = normalizeConditionMergeEdges(nodes, inputEdges);
-  const edges = normalizedInputEdges
-    .map((edge) => {
-      const originalSource = readOriginalEdgeText(edge, "originalSource", edge.source);
-      const originalTarget = readOriginalEdgeText(edge, "originalTarget", edge.target);
-      const originalSourceHandle = readOriginalEdgeHandle(edge, "originalSourceHandle", edge.sourceHandle);
-      const originalTargetHandle = readOriginalEdgeHandle(edge, "originalTargetHandle", edge.targetHandle);
-      const sourceProxyGroupId = hiddenNodeToCollapsedGroupId.get(originalSource);
-      const targetProxyGroupId = hiddenNodeToCollapsedGroupId.get(originalTarget);
-      const source = sourceProxyGroupId ?? originalSource;
-      const target = targetProxyGroupId ?? originalTarget;
-      const collapsedProxy = Boolean(sourceProxyGroupId || targetProxyGroupId);
-      const displayEdge: Edge = {
-        ...edge,
-        source,
-        target,
-        sourceHandle: sourceProxyGroupId ? `${sourceProxyGroupId}-fsm-source` : originalSourceHandle,
-        targetHandle: targetProxyGroupId ? `${targetProxyGroupId}-fsm-target` : originalTargetHandle,
-        data: {
-          ...(edge.data as Record<string, unknown> | undefined),
-          originalSource,
-          originalTarget,
-          originalSourceHandle,
-          originalTargetHandle,
-          collapsedProxy,
-        },
-      };
-
-      return {
-        ...displayEdge,
-        hidden: source === target || !edgeRespectsSequenceBoundary(displayEdge, nodesById),
-      };
-    });
+  const edges = normalizeConditionMergeEdges(nodes, inputEdges);
 
   return { nodes, edges };
 }
@@ -1780,7 +1894,7 @@ const initialNodes: Node[] = [
     id: "g_strategy",
     type: "groupNode",
     position: { x: 50, y: 50 },
-    data: { label: "V2 유동성 봇 전략", styleType: "solid" } as any,
+    data: { label: "V2 Liquidity Bot Strategy", styleType: "solid" } as any,
     style: { width: 1200, height: 750 },
   },
   {
@@ -1789,16 +1903,8 @@ const initialNodes: Node[] = [
     parentId: "g_strategy",
     position: { x: 40, y: 50 },
     data: {
-      label: "초기 진입 시퀸스 (Init)",
+      label: "Initial Entry Sequence (Init)",
       styleType: "dashed-init",
-      requiredStates: ["IDLE"],
-      executingStates: ["IDLE"],
-      isCollapsed: true,
-      summaryWord: "진입",
-      summaryEmoji: "🚀",
-      summaryGlyph: "입",
-      collapsedWidth: 196,
-      collapsedHeight: 118,
     } as any,
     style: { width: 1100, height: 160 },
   },
@@ -1808,16 +1914,8 @@ const initialNodes: Node[] = [
     parentId: "g_strategy",
     position: { x: 40, y: 220 },
     data: {
-      label: "1시간 모니터링: 비율 맞춤 유동성 공급 (Trigger)",
+      label: "1h Monitoring: Ratio-Matched Liquidity Supply (Trigger)",
       styleType: "dashed-trigger",
-      requiredStates: ["ACTIVE"],
-      executingStates: [],
-      isCollapsed: true,
-      summaryWord: "공급",
-      summaryEmoji: "💧",
-      summaryGlyph: "공",
-      collapsedWidth: 196,
-      collapsedHeight: 118,
     } as any,
     style: { width: 1100, height: 160 },
   },
@@ -1827,16 +1925,8 @@ const initialNodes: Node[] = [
     parentId: "g_strategy",
     position: { x: 40, y: 390 },
     data: {
-      label: "상시 모니터링: 위기 감지 리밸런싱 (Trigger)",
+      label: "Continuous Monitoring: Risk-Detection Rebalancing (Trigger)",
       styleType: "dashed-trigger",
-      requiredStates: ["ACTIVE", "REBALANCING"],
-      executingStates: ["REBALANCING"],
-      isCollapsed: true,
-      summaryWord: "조정",
-      summaryEmoji: "⚖️",
-      summaryGlyph: "조",
-      collapsedWidth: 196,
-      collapsedHeight: 118,
     } as any,
     style: { width: 1100, height: 160 },
   },
@@ -1846,16 +1936,8 @@ const initialNodes: Node[] = [
     parentId: "g_strategy",
     position: { x: 40, y: 560 },
     data: {
-      label: "수동 긴급 종료 시퀸스 (Trigger)",
+      label: "Manual Emergency Exit Sequence (Trigger)",
       styleType: "dashed-emergency",
-      requiredStates: ["ACTIVE", "CLOSED"],
-      executingStates: ["CLOSED"],
-      isCollapsed: true,
-      summaryWord: "정리",
-      summaryEmoji: "🧯",
-      summaryGlyph: "정",
-      collapsedWidth: 196,
-      collapsedHeight: 118,
     } as any,
     style: { width: 1100, height: 160 },
   },
@@ -1866,7 +1948,7 @@ const initialNodes: Node[] = [
     type: "clickTrigger",
     parentId: "g_init",
     position: { x: 20, y: 60 },
-    data: { label: "리밸런싱 봇 시작", shortcut: null, isRecording: false } as any,
+    data: { label: "Start Rebalancing Bot", shortcut: null, isRecording: false } as any,
   },
   {
     id: "n_init_prepare",
@@ -1874,7 +1956,7 @@ const initialNodes: Node[] = [
     parentId: "g_init",
     position: { x: 300, y: 60 },
     data: {
-      label: "기초자산 비율 재조정 (최소값 기준)",
+      label: "Rebalance Base Asset Ratio (Minimum Basis)",
       functionName: "prepareFunds()",
       inputBlocks: [],
       outputBlocks: [{ id: "out-1", name: "baseAsset", type: "output" }],
@@ -1887,7 +1969,7 @@ const initialNodes: Node[] = [
     parentId: "g_init",
     position: { x: 650, y: 40 },
     data: {
-      label: "초과 USDT를 ETH로 스왑",
+      label: "Swap Excess USDT to ETH",
       actionType: "DEX",
       contractAddress: "swap",
       functionName: "swapUSDTtoETH()",
@@ -1903,7 +1985,7 @@ const initialNodes: Node[] = [
     parentId: "g_init",
     position: { x: 950, y: 40 },
     data: {
-      label: "실행: DEX 유동성 공급 + CEX 숏",
+      label: "Execute: DEX Liquidity Supply + CEX Short",
       actionType: "CEX",
       exchange: "Binance",
       symbol: "ETH/USDT",
@@ -1921,7 +2003,7 @@ const initialNodes: Node[] = [
     type: "timeTrigger",
     parentId: "g_trigger1",
     position: { x: 20, y: 60 },
-    data: { label: "데이터 감지 (1h)", interval: 3600, isActive: true } as any,
+    data: { label: "Data Detection (1h)", interval: 3600, isActive: true } as any,
   },
   {
     id: "n_t1_branch",
@@ -1929,8 +2011,8 @@ const initialNodes: Node[] = [
     parentId: "g_trigger1",
     position: { x: 300, y: 60 },
     data: {
-      label: "조건 대기: 양측 자금 비율 충족 시",
-      branches: [{ id: "b1", name: "비율 충족 시", active: true }],
+      label: "Condition Wait: Both-Side Capital Ratio Met",
+      branches: [{ id: "b1", name: "Ratio Met", active: true }],
       inputBlocks: [],
     } as any,
   },
@@ -1940,7 +2022,7 @@ const initialNodes: Node[] = [
     parentId: "g_trigger1",
     position: { x: 650, y: 40 },
     data: {
-      label: "실행: DEX 유동성 공급 + CEX 숏",
+      label: "Execute: DEX Liquidity Supply + CEX Short",
       actionType: "CEX",
       exchange: "Binance",
       symbol: "ETH/USDT",
@@ -1958,7 +2040,7 @@ const initialNodes: Node[] = [
     type: "timeTrigger",
     parentId: "g_trigger2",
     position: { x: 20, y: 60 },
-    data: { label: "데이터 감지 (1h)", interval: 0, isActive: true } as any,
+    data: { label: "Data Detection (1h)", interval: 0, isActive: true } as any,
   },
   {
     id: "n_t2_branch",
@@ -1966,8 +2048,8 @@ const initialNodes: Node[] = [
     parentId: "g_trigger2",
     position: { x: 300, y: 60 },
     data: {
-      label: "위기 감지: ETH 가격 10% 이상 상승 시",
-      branches: [{ id: "b1", name: "상승 시", active: true }],
+      label: "Risk Detection: ETH Price Rises 10% or More",
+      branches: [{ id: "b1", name: "On Rise", active: true }],
       inputBlocks: [],
     } as any,
   },
@@ -1977,7 +2059,7 @@ const initialNodes: Node[] = [
     parentId: "g_trigger2",
     position: { x: 650, y: 40 },
     data: {
-      label: "실행: 델타 뉴트럴 재정렬",
+      label: "Execute: Delta-Neutral Realignment",
       actionType: "CEX",
       exchange: "Binance",
       symbol: "ETH/USDT",
@@ -1995,7 +2077,7 @@ const initialNodes: Node[] = [
     type: "clickTrigger",
     parentId: "g_emergency",
     position: { x: 20, y: 60 },
-    data: { label: "긴급: 모든 포지션 종료", shortcut: null, isRecording: false } as any,
+    data: { label: "Emergency: Close All Positions", shortcut: null, isRecording: false } as any,
   },
   {
     id: "n_em_stream",
@@ -2003,7 +2085,7 @@ const initialNodes: Node[] = [
     parentId: "g_emergency",
     position: { x: 240, y: 36 },
     data: createBinanceFuturesUserDataStreamData({
-      label: "Binance 선물 포지션 스트림",
+      label: "Binance Futures Position Stream",
       outputBlocks: [
         { id: "short-qty", name: "ethShortQty", type: "output" },
         { id: "wallet-usdt", name: "futuresWalletUsdt", type: "output" },
@@ -2016,13 +2098,13 @@ const initialNodes: Node[] = [
     parentId: "g_emergency",
     position: { x: 560, y: 40 },
     data: {
-      label: "청산: Binance ETH 숏 전량 정리",
+      label: "Close: Fully Close Binance ETH Short",
       actionType: "CEX",
       exchange: "Binance",
       symbol: "ETH/USDT",
       side: "BUY",
       orderType: "MARKET",
-      amount: "{{Binance 선물 포지션 스트림.ethShortQty}}",
+      amount: "{{Binance Futures Position Stream.ethShortQty}}",
       amountType: "FIXED",
       inputBlocks: [
         { id: "ib-short-qty", name: "ethShortQty", type: "input" },
@@ -2038,7 +2120,7 @@ const initialNodes: Node[] = [
     parentId: "g_emergency",
     position: { x: 860, y: 40 },
     data: {
-      label: "청산: LP 회수 및 전체 USDT 변환",
+      label: "Close: Withdraw LP and Convert All to USDT",
       actionType: "DEX",
       contractAddress: "swap",
       functionName: "liquidate()",
@@ -2066,15 +2148,6 @@ const initialEdges: Edge[] = [
   { id: "e_em_data1", source: "n_em_stream", target: "n_em_cex", sourceHandle: "n_em_stream-block-short-qty-out", targetHandle: "n_em_cex-input-ib-short-qty-in", type: "custom" },
   { id: "e_em_data2", source: "n_em_stream", target: "n_em_cex", sourceHandle: "n_em_stream-block-wallet-usdt-out", targetHandle: "n_em_cex-input-ib-wallet-usdt-in", type: "custom" },
   { id: "e_em_3", source: "n_em_cex", target: "n_em_execute", sourceHandle: "n_em_cex-success-out", targetHandle: "n_em_execute-func-in", type: "custom" },
-
-  // --- FSM STATE TRANSITION EDGES ---
-  // g_init 완료 → ACTIVE 상태 진입 (trigger1, trigger2 활성화)
-  { id: "fsm-1", source: "g_init", target: "g_trigger1", sourceHandle: "g_init-fsm-source", targetHandle: "g_trigger1-fsm-target", type: "fsmEdge", data: { label: "완료 시 ACTIVE 진입", color: "#10b981" }, selectable: false, focusable: false, deletable: false } as any,
-  { id: "fsm-2", source: "g_init", target: "g_trigger2", sourceHandle: "g_init-fsm-source", targetHandle: "g_trigger2-fsm-target", type: "fsmEdge", data: { label: "완료 시 ACTIVE 진입", color: "#10b981" }, selectable: false, focusable: false, deletable: false } as any,
-  // 리밸런싱 완료 → ACTIVE 유지 (종료 아님)
-  { id: "fsm-3", source: "g_trigger2", target: "g_trigger1", sourceHandle: "g_trigger2-fsm-source", targetHandle: "g_trigger1-fsm-target", type: "fsmEdge", data: { label: "재정렬 완료 → ACTIVE 유지", color: "#a78bfa" }, selectable: false, focusable: false, deletable: false } as any,
-  // 긴급 종료는 ACTIVE 중 수동으로만 가능
-  { id: "fsm-4", source: "g_trigger1", target: "g_emergency", sourceHandle: "g_trigger1-fsm-source", targetHandle: "g_emergency-fsm-target", type: "fsmEdge", data: { label: "ACTIVE 중 수동 종료 가능", color: "#ef4444" }, selectable: false, focusable: false, deletable: false } as any,
 ];
 
 export interface FocusState {
@@ -2096,6 +2169,38 @@ type NodeEditorProps = {
 };
 
 type CanvasPoint = { x: number; y: number };
+
+type CreateHistoricalApiBlockDetail = {
+  sourceNodeId?: string;
+  label: string;
+  url: string;
+  method?: StreamingNodeData["method"];
+  streamKind?: StreamingNodeData["streamKind"];
+  outputFields?: string[];
+  datasetId?: string;
+  datasetFileName?: string;
+  normalizedPreviewRows?: Array<Record<string, number | string>>;
+};
+
+function buildHistoricalPreviewChartSeries(rows: CreateHistoricalApiBlockDetail["normalizedPreviewRows"]): NodeChartPoint[] {
+  if (!Array.isArray(rows)) return [];
+  return rows
+    .map((row): NodeChartPoint | null => {
+      const timeValue = row.date ?? row.timestamp ?? row.time;
+      const parsedTime = typeof timeValue === "number" ? timeValue : Date.parse(String(timeValue ?? ""));
+      const value = Number(row.close ?? row.price ?? row.last ?? row.value);
+      if (!Number.isFinite(parsedTime) || !Number.isFinite(value)) return null;
+      const point: NodeChartPoint = {
+        time: parsedTime,
+        value,
+      };
+      if (Number.isFinite(Number(row.volume))) {
+        point.volume = Number(row.volume);
+      }
+      return point;
+    })
+    .filter((point): point is NodeChartPoint => point !== null);
+}
 
 type ThresholdActionCreateDetail = {
   sourceNodeId: string;
@@ -2879,10 +2984,9 @@ function syncConditionJunctionOutputEdges(edgeList: Edge[], nodeList: Node[], ju
 function NodeEditorInner({ initialGraph, initialGraphVersion = 0, previewMode = false }: NodeEditorProps) {
   const { fitView, getIntersectingNodes, getNodes, screenToFlowPosition } = useReactFlow();
   const updateNodeInternals = useUpdateNodeInternals();
-  const { showFSMEdges, isAvailable, currentState } = useFSM();
   const nodesInitialized = useNodesInitialized();
   const initialSnapshot = useMemo(() => {
-    if (initialGraph && initialGraph.nodes.length > 0) {
+    if (initialGraph) {
       return normalizeEditorGraphEdges(initialGraph);
     }
     if (previewMode) return null;
@@ -2922,6 +3026,7 @@ function NodeEditorInner({ initialGraph, initialGraphVersion = 0, previewMode = 
     connectedNodeIds: [],
     connectedEdgeIds: [],
   });
+  const [isSequenceMonitorOpen, setIsSequenceMonitorOpen] = useState(true);
   const [contextMenu, setContextMenu] = useState<{
     x: number;
     y: number;
@@ -2935,8 +3040,6 @@ function NodeEditorInner({ initialGraph, initialGraphVersion = 0, previewMode = 
 
   const commitLatestGraphToHistory = useCallback(() => {
     const latestGraph = latestGraphRef.current;
-    if (latestGraph.nodes.length === 0 && latestGraph.edges.length === 0) return;
-
     const historyGraph = createEditorHistoryGraph(latestGraph.nodes, latestGraph.edges);
     const previousHistoryGraph = committedHistoryGraphRef.current;
     const entry = createEditorHistoryEntry(previousHistoryGraph, historyGraph);
@@ -2956,14 +3059,11 @@ function NodeEditorInner({ initialGraph, initialGraphVersion = 0, previewMode = 
     });
   }, []);
 
-  const persistLatestGraphToActiveSnapshot = useCallback(() => {
+  const persistGraphToActiveSnapshot = useCallback((graph: { nodes: Node[]; edges: Edge[] }) => {
     if (previewMode) return;
     if (!historyStore.getActiveId()) return;
 
-    const latestGraph = latestGraphRef.current;
-    if (latestGraph.nodes.length === 0) return;
-
-    const historyGraph = createEditorHistoryGraph(latestGraph.nodes, latestGraph.edges);
+    const historyGraph = createEditorHistoryGraph(graph.nodes, graph.edges);
     const nextSignature = JSON.stringify(historyGraph);
     if (lastPersistedSnapshotSignatureRef.current === nextSignature) {
       return;
@@ -2972,6 +3072,10 @@ function NodeEditorInner({ initialGraph, initialGraphVersion = 0, previewMode = 
     lastPersistedSnapshotSignatureRef.current = nextSignature;
     historyStore.updateActiveSnapshot(historyGraph.nodes, historyGraph.edges);
   }, [previewMode]);
+
+  const persistLatestGraphToActiveSnapshot = useCallback(() => {
+    persistGraphToActiveSnapshot(latestGraphRef.current);
+  }, [persistGraphToActiveSnapshot]);
 
   const scheduleSettledGraphCommit = useCallback(() => {
     window.requestAnimationFrame(() => {
@@ -3189,6 +3293,146 @@ function NodeEditorInner({ initialGraph, initialGraphVersion = 0, previewMode = 
     return JSON.stringify(requests);
   }, [nodes]);
 
+  const yahooChartRequestPayload = useMemo(() => {
+    const requests = nodes
+      .filter((node) => node.type === "streamingNode")
+      .map((node) => {
+        const data = node.data as StreamingNodeData;
+        if (!isYahooFinanceChartUrl(data.url)) return null;
+        return {
+          nodeId: node.id,
+          url: data.url,
+          intervalMs: data.intervalMs ?? 60_000,
+        };
+      })
+      .filter((item): item is { nodeId: string; url: string; intervalMs: number } => Boolean(item));
+
+    return JSON.stringify(requests);
+  }, [nodes]);
+
+  useEffect(() => {
+    const requests = JSON.parse(yahooChartRequestPayload) as Array<{
+      nodeId: string;
+      url: string;
+      intervalMs: number;
+    }>;
+    if (requests.length === 0) return;
+
+    let cancelled = false;
+    let inFlight = false;
+    const intervalMs = Math.max(
+      30_000,
+      Math.min(...requests.map((request) => Math.max(30_000, Number(request.intervalMs) || 60_000))),
+    );
+
+    const loadYahooCharts = async () => {
+      if (inFlight) return;
+      inFlight = true;
+      const results = await Promise.all(
+        requests.map(async (request) => {
+          try {
+            const response = await fetch(getYahooFinanceFetchUrl(request.url), {
+              headers: { Accept: "application/json" },
+            });
+            if (!response.ok) {
+              throw new Error(`Yahoo Finance returned ${response.status}`);
+            }
+            const payload = await response.json();
+            const parsed = parseYahooFinanceChartPayload(payload);
+            return {
+              ...request,
+              ok: true,
+              series: parsed.series,
+              seriesByField: parsed.seriesByField,
+              symbol: parsed.symbol,
+              source: `Yahoo Finance chart: ${parsed.symbol}`,
+              updatedAt: new Date().toISOString(),
+              warning: "",
+            };
+          } catch (error) {
+            return {
+              ...request,
+              ok: false,
+              series: [] as NodeChartPoint[],
+              seriesByField: {} as Record<string, NodeChartPoint[]>,
+              symbol: "",
+              source: "Yahoo Finance chart endpoint",
+              updatedAt: new Date().toISOString(),
+              warning: error instanceof Error ? error.message : "Yahoo chart fetch failed",
+            };
+          }
+        }),
+      ).finally(() => {
+        inFlight = false;
+      });
+
+      if (cancelled) return;
+
+      setNodes((currentNodes) => {
+        const resultByNodeId = new Map(results.map((result) => [result.nodeId, result]));
+        let changed = false;
+
+        const nextNodes = currentNodes.map((node) => {
+          if (node.type !== "streamingNode") return node;
+          const result = resultByNodeId.get(node.id);
+          if (!result) return node;
+          const currentData = node.data as StreamingNodeData;
+
+          if (!result.ok) {
+            if (currentData.chartWarning === result.warning && currentData.chartSource === result.source) return node;
+            changed = true;
+            return {
+              ...node,
+              data: {
+                ...node.data,
+                chartSource: result.source,
+                chartUpdatedAt: result.updatedAt,
+                chartWarning: result.warning,
+              },
+            };
+          }
+
+          const outputBlocks = applyStreamingOutputChartSeries(
+            currentData.outputBlocks,
+            result.series,
+            result.seriesByField,
+          );
+          if (
+            chartSeriesEqual(currentData.chartSeries, result.series) &&
+            outputBlocks === currentData.outputBlocks &&
+            currentData.chartSource === result.source &&
+            currentData.chartWarning === ""
+          ) {
+            return node;
+          }
+
+          changed = true;
+          return {
+            ...node,
+            data: {
+              ...node.data,
+              chartSeries: result.series,
+              outputBlocks,
+              chartSource: result.source,
+              chartUpdatedAt: result.updatedAt,
+              chartSymbol: result.symbol,
+              chartWarning: "",
+            },
+          };
+        });
+
+        return changed ? nextNodes : currentNodes;
+      });
+    };
+
+    void loadYahooCharts();
+    const timer = window.setInterval(() => void loadYahooCharts(), intervalMs);
+    return () => {
+      cancelled = true;
+      window.clearInterval(timer);
+    };
+  }, [setNodes, yahooChartRequestPayload]);
+
   useEffect(() => {
     const requests = JSON.parse(marketChartRequestPayload) as Array<{ nodeIds: string[]; symbol: string; market: string }>;
     if (requests.length === 0) return;
@@ -3263,17 +3507,20 @@ function NodeEditorInner({ initialGraph, initialGraphVersion = 0, previewMode = 
           const currentData = node.data as StreamingNodeData;
           if (
             chartSeriesEqual(currentData.chartSeries, series) &&
+            chartSeriesEqual(((currentData.outputBlocks?.[0] as Record<string, unknown> | undefined)?.chartSeries as NodeChartPoint[] | undefined), series) &&
             currentData.chartSource === meta.source &&
             currentData.chartWarning === meta.warning
           ) {
             return node;
           }
+          const outputBlocks = applyStreamingOutputChartSeries(currentData.outputBlocks, series ?? []);
           changed = true;
           return {
             ...node,
             data: {
               ...node.data,
               chartSeries: series,
+              outputBlocks,
               chartSource: meta.source,
               chartUpdatedAt: meta.updatedAt,
               chartSymbol: meta.symbol,
@@ -3393,6 +3640,7 @@ function NodeEditorInner({ initialGraph, initialGraphVersion = 0, previewMode = 
           const series = existing.length === 0
             ? [{ time: point.time - 1, value: point.value }, point]
             : [...existing, point].slice(-96);
+          const outputBlocks = applyStreamingOutputChartSeries(currentData.outputBlocks, series);
 
           changed = true;
           return {
@@ -3400,6 +3648,7 @@ function NodeEditorInner({ initialGraph, initialGraphVersion = 0, previewMode = 
             data: {
               ...node.data,
               chartSeries: series,
+              outputBlocks,
               chartSource: `${result.streamKind === "evm-rpc" ? "evm rpc" : result.method === "WEBSOCKET" ? "websocket" : "url"} sample: ${result.field}`,
               chartUpdatedAt: result.updatedAt,
               chartWarning: "",
@@ -3534,7 +3783,7 @@ function NodeEditorInner({ initialGraph, initialGraphVersion = 0, previewMode = 
   const loadedInitialGraphVersionRef = useRef<number | null>(null);
 
   useEffect(() => {
-    if (!initialGraph || initialGraph.nodes.length === 0) {
+    if (!initialGraph) {
       return;
     }
     if (loadedInitialGraphVersionRef.current === initialGraphVersion) {
@@ -3971,6 +4220,107 @@ function NodeEditorInner({ initialGraph, initialGraphVersion = 0, previewMode = 
     };
   }, [getConnectedInfo]);
 
+  const handleCreateHistoricalApiBlock = useCallback((event: Event) => {
+    const detail = (event as CustomEvent<CreateHistoricalApiBlockDetail>).detail;
+    if (!detail?.label) return;
+
+    const normalizedFields = Array.from(new Set(
+      (detail.outputFields ?? [])
+        .map((field) => String(field).trim())
+        .filter(Boolean),
+    ));
+    const fallbackFields = detail.normalizedPreviewRows?.[0]
+      ? Object.keys(detail.normalizedPreviewRows[0]).filter((key) => !["date", "time", "timestamp", "symbol"].includes(key))
+      : [];
+    const outputFields = (normalizedFields.length > 0 ? normalizedFields : fallbackFields).slice(0, 8);
+    const chartSeries = buildHistoricalPreviewChartSeries(detail.normalizedPreviewRows);
+    const datasetData = {
+      historicalDatasetId: detail.datasetId,
+      historicalDatasetFileName: detail.datasetFileName,
+      dataNormalizationMode: "ai-normalized",
+      chartSeries,
+      chartSource: detail.datasetFileName
+        ? `AI normalized historical dataset: ${detail.datasetFileName}`
+        : "AI normalized historical dataset",
+      chartUpdatedAt: new Date().toISOString(),
+    };
+    let focusNodeId = detail.sourceNodeId || "";
+
+    setNodes((currentNodes) => {
+      const existingNode = detail.sourceNodeId
+        ? currentNodes.find((node) => node.id === detail.sourceNodeId)
+        : null;
+      const outputBlocks = outputFields.map((field) => ({
+        id: `${existingNode?.id ?? "historical-api"}-ob-${field.toLowerCase().replace(/[^a-z0-9]+/g, "-") || "value"}`,
+        name: field,
+        type: "output" as const,
+      }));
+
+      if (existingNode) {
+        return currentNodes.map((node) => {
+          if (node.id !== existingNode.id) return node;
+          const currentData = node.data && typeof node.data === "object" ? node.data as Partial<StreamingNodeData> : {};
+          return {
+            ...node,
+            data: {
+              ...currentData,
+              ...datasetData,
+              label: detail.label,
+              url: detail.url || currentData.url || "",
+              method: detail.method || currentData.method || "POLLING",
+              streamKind: detail.streamKind || currentData.streamKind || "url",
+              intervalMs: currentData.intervalMs ?? 86_400_000,
+              isActive: currentData.isActive ?? false,
+              outputBlocks: outputBlocks.length > 0
+                ? outputBlocks
+                : currentData.outputBlocks ?? [{ id: `${existingNode.id}-ob-close`, name: "close", type: "output" }],
+              isExpanded: true,
+            } satisfies StreamingNodeData,
+          };
+        });
+      }
+
+      const { id } = createUniqueNodeId("historical-api", currentNodes, nodeIdRef);
+      focusNodeId = id;
+      const maxX = currentNodes.reduce((max, node) => Math.max(max, Number(node.position?.x ?? 0)), 0);
+      const newNode: Node = {
+        id,
+        type: "streamingNode",
+        position: { x: maxX + 360, y: 120 },
+        data: {
+          label: detail.label,
+          method: detail.method || "POLLING",
+          url: detail.url,
+          intervalMs: 86_400_000,
+          isActive: false,
+          streamKind: detail.streamKind || "url",
+          outputBlocks: outputBlocks.length > 0
+            ? outputBlocks.map((block) => ({ ...block, id: `${id}-${block.id}` }))
+            : [{ id: `${id}-ob-close`, name: "close", type: "output" }],
+          isExpanded: true,
+          apiReference: detail.url,
+          requestHint: detail.datasetFileName
+            ? `Use AI-normalized historical dataset ${detail.datasetFileName} as the backtest source.`
+            : "Use AI-normalized historical data as the backtest source.",
+          ...datasetData,
+        } satisfies StreamingNodeData,
+      };
+      return [...currentNodes, newNode];
+    });
+
+    window.setTimeout(() => {
+      if (focusNodeId) {
+        window.dispatchEvent(new CustomEvent("nodeFocus", { detail: { nodeId: focusNodeId } }));
+      }
+      fitView({ duration: 600, padding: 0.2 });
+    }, 80);
+  }, [fitView, setNodes]);
+
+  useEffect(() => {
+    window.addEventListener("createHistoricalApiBlock", handleCreateHistoricalApiBlock);
+    return () => window.removeEventListener("createHistoricalApiBlock", handleCreateHistoricalApiBlock);
+  }, [handleCreateHistoricalApiBlock]);
+
   useEffect(() => {
     const normalizedEdges = normalizeConditionMergeEdges(nodes, edges);
     if (normalizedEdges === edges) return;
@@ -4095,14 +4445,37 @@ function NodeEditorInner({ initialGraph, initialGraphVersion = 0, previewMode = 
   // ------------------------------------------
   // Group Feature
   // ------------------------------------------
-  const handleGroup = useCallback(() => {
-    const selectedNodes = nodes.filter((n) => n.selected && n.type !== "groupNode");
+  const getGroupableSelectedNodes = useCallback((
+    groupKind: "sequence" | "master",
+    selection: Node[] = nodes.filter((node) => node.selected),
+  ) => {
+    const rawSelectedIds = new Set(selection.map((node) => node.id));
+    const nodesById = new Map(nodes.map((node) => [node.id, node]));
+    const hasSelectedAncestor = (node: Node) => {
+      let parentId = node.parentId;
+      while (parentId) {
+        if (rawSelectedIds.has(parentId)) return true;
+        parentId = nodesById.get(parentId)?.parentId;
+      }
+      return false;
+    };
+    return selection.filter((node) => {
+      if (hasSelectedAncestor(node)) return false;
+      if (groupKind === "sequence") return node.type !== "groupNode";
+      if (node.type !== "groupNode") return true;
+      return (node.data as Record<string, unknown> | undefined)?.styleType !== "solid";
+    });
+  }, [nodes]);
+
+  const handleGroup = useCallback((groupKind: "sequence" | "master" = "sequence") => {
+    const selectedNodes = getGroupableSelectedNodes(groupKind);
     if (selectedNodes.length < 1) return;
 
-    const groupLabel = "새로운 시퀀스 (Sequence)";
-    const styleType = "dashed-trigger";
+    const isMasterGroup = groupKind === "master";
+    const groupLabel = isMasterGroup ? "New Master Group" : "New Sequence Group";
+    const styleType = isMasterGroup ? "solid" : "dashed-trigger";
 
-    const newGroupId = `group-${Date.now()}`;
+    const newGroupId = `${isMasterGroup ? "master" : "sequence"}-group-${Date.now()}`;
     const selectedIds = new Set(selectedNodes.map(n => n.id));
 
     // Helper: get absolute position of a node (walking up the parentId chain)
@@ -4145,7 +4518,9 @@ function NodeEditorInner({ initialGraph, initialGraphVersion = 0, previewMode = 
       data: {
         label: groupLabel,
         styleType: styleType,
-        explanation: `${groupLabel} 노드 집합입니다.`,
+        explanation: isMasterGroup
+          ? "Master group owns the run control for the selected strategy area."
+          : "Sequence group organizes related logic for monitoring and readability.",
       } as any,
       style: { width: groupWidth, height: groupHeight },
     };
@@ -4173,19 +4548,14 @@ function NodeEditorInner({ initialGraph, initialGraphVersion = 0, previewMode = 
       return [...otherNodes, newGroupNode, ...groupedChildren];
     });
 
-    // ── AI auto-summary for newly created SEQUENCE ─────────────────────
+    // AI auto-summary for newly created group.
     const nodeLabels = selectedNodes
       .map(n => (n.data as any)?.label || (n.data as any)?.functionName || n.id)
       .filter(Boolean);
 
-    const dummySummaries = [
-      `가격 모니터링 후 자동 실행: ${nodeLabels.join(" → ")} 순서로 실행되며, USDC/ETH 페어의 가격 변동을 실시간 감시하고 부충 조건 충족 시 자동 매수/매도 심호를 발송합니다.`,
-      `유동성 리밸런싱 시퀀스: ${nodeLabels.join(", ")} 노드가 페어를 확인하고 명목 포지션 차이(delta)가 넘어졌을 때 LP에 다시 추가하여 슬리피지를 줄입니다.`,
-      `연속 ${nodeLabels.length}단계 실행 파이프라인: 시장 신호 감지 → 조건 평가 → 주문 실행의 잊년없는 흐름으로 구성되어 있습니다. EMa 크로스오버 + 볼린저 스파이크 신호를 결합해 순간 진입 타이밍을 계산합니다.`,
-      `리스크 관리 시퀀스: 변보성 ATR 기반 스톱로스 자동 조정, 노드 (${nodeLabels.join(" · ")})를 통해 PnL 누적 후 추의 취득 조정이 일어납니다.`,
-    ];
-
-    const summary = dummySummaries[nodeLabels.length % dummySummaries.length];
+    const summary = isMasterGroup
+      ? `Master group for ${nodeLabels.join(", ")}. It owns the run button while child blocks keep their own logic.`
+      : `Sequence group for ${nodeLabels.join(", ")}. It only separates the monitor panel and labels this logic area.`;
 
     const words = summary.split("");
     let built = "";
@@ -4212,7 +4582,7 @@ function NodeEditorInner({ initialGraph, initialGraphVersion = 0, previewMode = 
     }, 18);
 
     setContextMenu(null);
-  }, [nodes, setNodes]);
+  }, [getGroupableSelectedNodes, nodes, setNodes]);
 
   // G-key shortcut: group selected nodes (placed after handleGroup declaration)
   useEffect(() => {
@@ -4221,7 +4591,7 @@ function NodeEditorInner({ initialGraph, initialGraphVersion = 0, previewMode = 
       if (tag === "INPUT" || tag === "TEXTAREA" || (e.target as HTMLElement)?.isContentEditable) return;
       if (e.key === "g" || e.key === "G") {
         e.preventDefault();
-        handleGroup();
+        handleGroup("sequence");
       }
     };
     window.addEventListener("keydown", onKeyDown);
@@ -4236,7 +4606,7 @@ function NodeEditorInner({ initialGraph, initialGraphVersion = 0, previewMode = 
     const nodeLabels = selectedNodes.map(n => n.data?.label || n.data?.functionName || n.id).join(", ");
 
     // Trigger AI popup
-    window.dispatchEvent(new CustomEvent("aiExplainGroup", { detail: { groupId: "multi-selection", label: `선택된 노드들 (${nodeLabels})` } }));
+    window.dispatchEvent(new CustomEvent("aiExplainGroup", { detail: { groupId: "multi-selection", label: `Selected nodes (${nodeLabels})` } }));
     setContextMenu(null);
   }, [nodes]);
 
@@ -4663,10 +5033,6 @@ function NodeEditorInner({ initialGraph, initialGraphVersion = 0, previewMode = 
       const target = pickDeepestStrategySequenceGroup(intersections, nodesById);
 
       if (target) {
-        if ((target.data as any)?.styleType === "pipeline" && !nodeCanLiveInsidePipeline(currentDraggedNode)) {
-          setNodes((nds) => resizeParentsToFitChildren(nds));
-          return;
-        }
         if (currentParentId !== target.id) {
           const draggedAbs = getAbsolutePosition(draggedNode.id);
           const targetAbs = getAbsolutePosition(target.id);
@@ -4744,13 +5110,11 @@ function NodeEditorInner({ initialGraph, initialGraphVersion = 0, previewMode = 
 
       const targetNode = nodes.find((n) => n.id === normalizedParams.target);
       const sourceNode = nodes.find((n) => n.id === normalizedParams.source);
-      const nodesById = new Map(nodes.map((node) => [node.id, node]));
-      const sourceSequenceId = getSequenceAncestorId(normalizedParams.source, nodesById);
-      const targetSequenceId = getSequenceAncestorId(normalizedParams.target, nodesById);
-      if (!sequenceBoundaryCanCross(sourceSequenceId, targetSequenceId, nodesById)) {
-        return;
-      }
-      let nextParams: Connection = { ...normalizedParams };
+      let nextParams: Connection = resolveCollapsedConnectionHandles(
+        { ...normalizedParams },
+        sourceNode,
+        targetNode,
+      );
 
       const shouldUseAsInput = Boolean(
         sourceNode &&
@@ -4800,7 +5164,7 @@ function NodeEditorInner({ initialGraph, initialGraphVersion = 0, previewMode = 
                   ...(node.type === "actionNode" ? { isExpanded: true } : {}),
                   ...(node.type === "functionNode" ? { isExpanded: true, outputBlocks: nextOutputBlocks } : {}),
                   inputBlocks: inputUpdate.inputBlocks,
-                  inputDescription: nodeData.inputDescription || `입력 데이터: ${inputUpdate.connectedFrom}`,
+                  inputDescription: nodeData.inputDescription || `Input data: ${inputUpdate.connectedFrom}`,
                 },
               };
             }),
@@ -4827,60 +5191,6 @@ function NodeEditorInner({ initialGraph, initialGraphVersion = 0, previewMode = 
           : nextEdges;
       });
 
-      // ── Auto-reparent: if one end is inside a sequence, keep the connected
-      //    node in that same sequence so edges never cross sequence boundaries.
-      const getAbsPos = (id: string, nds: Node[]): { x: number; y: number } => {
-        const n = nds.find(nd => nd.id === id);
-        if (!n) return { x: 0, y: 0 };
-        if (!n.parentId) return { ...n.position };
-        const pAbs = getAbsPos(n.parentId, nds);
-        return { x: pAbs.x + n.position.x, y: pAbs.y + n.position.y };
-      };
-
-      setNodes((nds) => {
-        // Determine which node is the "new" unparented one and which has a parent
-        const src = nds.find(n => n.id === nextParams.source);
-        const tgt = nds.find(n => n.id === nextParams.target);
-        if (!src || !tgt) return nds;
-
-        // Only reparent non-groupNode nodes
-        const candidates: Array<{ mover: Node; anchor: Node }> = [];
-        if (!sourceSequenceId && targetSequenceId && src.type !== "groupNode") {
-          candidates.push({ mover: src, anchor: tgt });
-        } else if (!targetSequenceId && sourceSequenceId && tgt.type !== "groupNode") {
-          candidates.push({ mover: tgt, anchor: src });
-        }
-
-        if (candidates.length === 0) return nds;
-
-        const { mover, anchor } = candidates[0];
-        const liveNodesById = new Map(nds.map((node) => [node.id, node]));
-        const targetParentId = getSequenceAncestorId(anchor.id, liveNodesById);
-        const targetParent = nds.find(n => n.id === targetParentId);
-        // Only reparent into sequence (dashed) group nodes, not strategy (solid)
-        if (!targetParent || (targetParent.data as any)?.styleType === "solid") return nds;
-        if ((targetParent.data as any)?.styleType === "pipeline" && !nodeCanLiveInsidePipeline(mover)) return nds;
-
-        const moverAbs = getAbsPos(mover.id, nds);
-        const parentAbs = getAbsPos(targetParentId, nds);
-
-        const updated: Node[] = nds.map(n => {
-          if (n.id !== mover.id) return n;
-          return {
-            ...n,
-            parentId: targetParentId,
-            extent: "parent" as const,
-            expandParent: false,
-            position: {
-              x: moverAbs.x - parentAbs.x,
-              y: moverAbs.y - parentAbs.y,
-            },
-          };
-        });
-
-        return resizeParentsToFitChildren(updated);
-      });
-
       // Auto-focus on the source node after connection
       if (sourceNode) {
         const connInfo = getConnectedInfo(sourceNode.id);
@@ -4900,7 +5210,7 @@ function NodeEditorInner({ initialGraph, initialGraphVersion = 0, previewMode = 
         );
       }
     },
-    [setEdges, nodes, getConnectedInfo, setNodes, resizeParentsToFitChildren, updateNodeInternals]
+    [setEdges, nodes, getConnectedInfo, setNodes, updateNodeInternals]
   );
 
   const handleReconnect = useCallback<OnReconnect<Edge>>(
@@ -4915,13 +5225,12 @@ function NodeEditorInner({ initialGraph, initialGraphVersion = 0, previewMode = 
       const nodesById = new Map(nodes.map((node) => [node.id, node]));
       const sourceNode = nodesById.get(normalizedConnection.source);
       const targetNode = nodesById.get(normalizedConnection.target);
-      const sourceSequenceId = getSequenceAncestorId(normalizedConnection.source, nodesById);
-      const targetSequenceId = getSequenceAncestorId(normalizedConnection.target, nodesById);
-      if (!sequenceBoundaryCanCross(sourceSequenceId, targetSequenceId, nodesById)) {
-        return;
-      }
 
-      let nextParams: Connection = { ...normalizedConnection };
+      let nextParams: Connection = resolveCollapsedConnectionHandles(
+        { ...normalizedConnection },
+        sourceNode,
+        targetNode,
+      );
       const currentOldEdge = edges.find((edge) => edge.id === oldEdge.id) ?? oldEdge;
       const oldTargetNode = nodesById.get(currentOldEdge.target);
       const shouldUseAsInput = Boolean(
@@ -5005,7 +5314,7 @@ function NodeEditorInner({ initialGraph, initialGraphVersion = 0, previewMode = 
               data: {
                 ...node.data,
                 inputBlocks: inputUpdate.inputBlocks,
-                inputDescription: nodeData.inputDescription || `입력 데이터: ${inputUpdate.connectedFrom}`,
+                inputDescription: nodeData.inputDescription || `Input data: ${inputUpdate.connectedFrom}`,
               },
             };
           });
@@ -5031,12 +5340,9 @@ function NodeEditorInner({ initialGraph, initialGraphVersion = 0, previewMode = 
 
       if (!normalizedConnection || !isAllowedEditorConnection(normalizedConnection)) return false;
 
-      const nodesById = new Map(nodes.map((node) => [node.id, node]));
-      const sourceSequenceId = getSequenceAncestorId(normalizedConnection.source, nodesById);
-      const targetSequenceId = getSequenceAncestorId(normalizedConnection.target, nodesById);
-      return sequenceBoundaryCanCross(sourceSequenceId, targetSequenceId, nodesById);
+      return true;
     },
-    [nodes]
+    []
   );
 
   const onConnectStart = useCallback(
@@ -5092,7 +5398,7 @@ function NodeEditorInner({ initialGraph, initialGraphVersion = 0, previewMode = 
   );
 
   const handleAddNode = useCallback(
-    (type: "function" | "trigger" | "branch" | "block" | "action" | "cex" | "dex" | "streaming") => {
+    (type: "function" | "trigger" | "branch" | "action" | "cex" | "dex" | "streaming") => {
       setNodes((currentNodes) => {
         const { id, index } = createUniqueNodeId(type, currentNodes, nodeIdRef);
         let newNode: Node | null = null;
@@ -5105,7 +5411,7 @@ function NodeEditorInner({ initialGraph, initialGraphVersion = 0, previewMode = 
               position: { x: 200 + Math.random() * 100, y: 200 + Math.random() * 100 },
               data: {
                 label: `Indicator Logic ${index}`,
-                description: "차트로 확인하고 조건 구간을 트리거로 쓰는 지표 로직",
+                description: "Indicator logic visualized as a chart and used as a trigger over matching condition ranges",
                 functionName: `indicator${index}()`,
                 code:
                   "function indicator({ price, volume }) {\n" +
@@ -5113,13 +5419,13 @@ function NodeEditorInner({ initialGraph, initialGraphVersion = 0, previewMode = 
                   "  const signal = price.at(-1) > movingAverage.at(-1);\n" +
                   "  return { movingAverage, signal };\n" +
                   "}",
-                inputDescription: "스트리밍 블록이나 다른 지표 output을 입력으로 받습니다.",
-                outputDescription: "출력값은 변하는 데이터이며 차트와 연결 가능한 output block으로 노출됩니다.",
+                inputDescription: "Receives streaming blocks or other indicator outputs as input.",
+                outputDescription: "Outputs changing data exposed as chart-connectable output blocks.",
                 inputBlocks: [
                   {
                     id: `${id}-ib-source`,
                     name: "source",
-                    description: "가격/거래량 또는 이전 지표 output",
+                    description: "Price/volume or previous indicator output",
                     type: "input",
                   },
                 ],
@@ -5127,7 +5433,7 @@ function NodeEditorInner({ initialGraph, initialGraphVersion = 0, previewMode = 
                   {
                     id: `${id}-ob-signal`,
                     name: "signal",
-                    description: "실시간으로 변하는 트리거 지표",
+                    description: "Real-time changing trigger indicator",
                     type: "output",
                     formulaCode: "source",
                     outputMode: "formula",
@@ -5165,7 +5471,7 @@ function NodeEditorInner({ initialGraph, initialGraphVersion = 0, previewMode = 
                   {
                     id: `${id}-ob-yes-no`,
                     name: "yes/no",
-                    description: "조건이 충족되면 yes, 아니면 no인 boolean 신호를 반환합니다.",
+                    description: "Returns a boolean yes/no signal when the condition is met.",
                     type: "output",
                     outputKind: "boolean-data",
                   },
@@ -5181,17 +5487,9 @@ function NodeEditorInner({ initialGraph, initialGraphVersion = 0, previewMode = 
               data: {
                 label: "Branch",
                 branches: [
-                  { id: `${id}-branch-1`, name: "분기 1", active: false },
+                  { id: `${id}-branch-1`, name: "Branch 1", active: false },
                 ],
               } satisfies BranchNodeData,
-            };
-            break;
-          case "block":
-            newNode = {
-              id,
-              type: "block",
-              position: { x: 100 + Math.random() * 100, y: 100 + Math.random() * 100 },
-              data: { label: "BLOCK" },
             };
             break;
           case "action":
@@ -5236,7 +5534,7 @@ function NodeEditorInner({ initialGraph, initialGraphVersion = 0, previewMode = 
               type: "streamingNode",
               position: { x: 200 + Math.random() * 100, y: 200 + Math.random() * 100 },
               data: createBinanceSpotPriceStreamData({
-                label: `Binance 현물 가격 스트림 ${index}`,
+                label: `Binance Spot Price Stream ${index}`,
                 outputBlocks: [{ id: `${id}-ob-last-price`, name: "lastPrice", type: "output" }],
                 symbols: ["BTCUSDT"],
               }) satisfies StreamingNodeData,
@@ -5253,12 +5551,31 @@ function NodeEditorInner({ initialGraph, initialGraphVersion = 0, previewMode = 
   );
 
   const handleDeleteSelected = useCallback(() => {
-    setNodes((nds) => sanitizeEditorGraph({
-      nodes: nds.filter((node) => !node.selected),
-      edges: [],
-    }).nodes);
-    setEdges((eds) => eds.filter((edge) => !edge.selected));
-  }, [setNodes, setEdges]);
+    const currentGraph = latestGraphRef.current;
+    const selectedNodeIds = new Set(
+      currentGraph.nodes
+        .filter((node) => node.selected)
+        .map((node) => node.id),
+    );
+    const hasSelectedEdges = currentGraph.edges.some((edge) => edge.selected);
+
+    if (selectedNodeIds.size === 0 && !hasSelectedEdges) return;
+
+    const nextGraph = sanitizeEditorGraph({
+      nodes: currentGraph.nodes.filter((node) => !selectedNodeIds.has(node.id)),
+      edges: currentGraph.edges.filter((edge) =>
+        !edge.selected &&
+        !selectedNodeIds.has(edge.source) &&
+        !selectedNodeIds.has(edge.target),
+      ),
+    });
+
+    latestGraphRef.current = nextGraph;
+    setNodes(nextGraph.nodes);
+    setEdges(nextGraph.edges);
+    commitLatestGraphToHistory();
+    persistGraphToActiveSnapshot(nextGraph);
+  }, [commitLatestGraphToHistory, persistGraphToActiveSnapshot, setNodes, setEdges]);
 
   const handleLayout = useCallback(() => {
     applyMeasuredLayout(nodes, edges, { fitView: true });
@@ -5268,35 +5585,6 @@ function NodeEditorInner({ initialGraph, initialGraphVersion = 0, previewMode = 
     window.addEventListener("runAutoLayout", handleLayout);
     return () => window.removeEventListener("runAutoLayout", handleLayout);
   }, [handleLayout]);
-
-  const handleToggleSequenceCollapse = useCallback(
-    (groupId: string, collapsed: boolean) => {
-      const nextNodes = nodes.map((node) => {
-        if (node.id !== groupId) return { ...node };
-
-        return {
-          ...node,
-          data: {
-            ...node.data,
-            isCollapsed: collapsed,
-            revealTick: collapsed ? undefined : Date.now(),
-          },
-          style: {
-            ...node.style,
-            transition: SEQUENCE_GROUP_TRANSITION,
-          },
-        };
-      });
-
-      const affectedNodeIds = [groupId, ...collectDescendantIds(nextNodes, groupId)];
-
-      applyMeasuredLayout(nextNodes, edges, {
-        animate: true,
-        affectedNodeIds,
-      });
-    },
-    [applyMeasuredLayout, nodes, edges],
-  );
 
   // Demo AI Generation Event Listener
   useEffect(() => {
@@ -5326,7 +5614,7 @@ function NodeEditorInner({ initialGraph, initialGraphVersion = 0, previewMode = 
       // Initialize strategy history store
       historyStore.init({
         id: "snapshot-initial",
-        name: "V2 유동성 봇-1",
+        name: "V2 Liquidity Bot-1",
         parentId: null,
         nodes: nodes,
         edges: edges,
@@ -5410,62 +5698,34 @@ function NodeEditorInner({ initialGraph, initialGraphVersion = 0, previewMode = 
       const latestGraph = latestGraphRef.current;
       historyStore.saveSnapshot(latestGraph.nodes, latestGraph.edges);
     };
-    const handleToggleSequenceCollapseEvent = (e: any) => {
-      const { groupId, collapsed } = e.detail ?? {};
-      if (!groupId || typeof collapsed !== "boolean") return;
-      handleToggleSequenceCollapse(groupId, collapsed);
-    };
-
-    const handleUngroupNode = (e: any) => {
-      const { groupId } = e.detail;
-      setNodes((currentNodes) => {
-        const groupNode = currentNodes.find(n => n.id === groupId);
-        return currentNodes.map(node => {
-          if (node.parentId === groupId) {
-            const parentX = groupNode?.position.x || 0;
-            const parentY = groupNode?.position.y || 0;
-            return {
-              ...node,
-              parentId: undefined,
-              position: {
-                x: node.position.x + parentX,
-                y: node.position.y + parentY
-              }
-            };
-          }
-          return node;
-        }).filter(n => n.id !== groupId);
-      });
-    };
-
     window.addEventListener("loadSnapshot", handleLoadSnapshot);
     window.addEventListener("saveHistorySnapshot", handleSaveSnapshot);
     window.addEventListener("persistActiveHistorySnapshot", persistLatestGraphToActiveSnapshot);
     window.addEventListener("beforeunload", persistBeforePageLeave);
     document.addEventListener("visibilitychange", persistWhenHidden);
-    window.addEventListener("toggleSequenceCollapse", handleToggleSequenceCollapseEvent);
-    window.addEventListener("ungroupNode", handleUngroupNode);
     return () => {
+      persistLatestGraphToActiveSnapshot();
+      if (snapshotPersistTimerRef.current !== null) {
+        window.clearTimeout(snapshotPersistTimerRef.current);
+        snapshotPersistTimerRef.current = null;
+      }
       window.removeEventListener("loadSnapshot", handleLoadSnapshot);
       window.removeEventListener("saveHistorySnapshot", handleSaveSnapshot);
       window.removeEventListener("persistActiveHistorySnapshot", persistLatestGraphToActiveSnapshot);
       window.removeEventListener("beforeunload", persistBeforePageLeave);
       document.removeEventListener("visibilitychange", persistWhenHidden);
-      window.removeEventListener("toggleSequenceCollapse", handleToggleSequenceCollapseEvent);
-      window.removeEventListener("ungroupNode", handleUngroupNode);
     };
-  }, [applyMeasuredLayout, handleToggleSequenceCollapse, persistLatestGraphToActiveSnapshot, setNodes, previewMode]);
+  }, [applyMeasuredLayout, persistLatestGraphToActiveSnapshot, previewMode]);
 
   const renderGraph = useMemo(() => sanitizeEditorGraph({ nodes, edges }), [nodes, edges]);
   const renderNodes = renderGraph.nodes;
-  const renderEdges = renderGraph.edges;
+  const renderEdges = useMemo(
+    () => buildCollapsedPortRenderEdges(renderGraph.nodes, renderGraph.edges),
+    [renderGraph.edges, renderGraph.nodes],
+  );
 
-  // Process nodes with focus state + FSM locked state styling
+  // Process nodes with focus state styling.
   const styledNodes = useMemo(() => {
-    if (!focusState.isActive && !showFSMEdges) {
-      return renderNodes;
-    }
-
     const focusNodeIds = new Set(focusState.connectedNodeIds);
     if (focusState.focusedNodeId) {
       focusNodeIds.add(focusState.focusedNodeId);
@@ -5492,35 +5752,7 @@ function NodeEditorInner({ initialGraph, initialGraphVersion = 0, previewMode = 
       };
     };
 
-    // Build set of locked group IDs
-    const lockedGroupIds = new Set<string>();
-    if (showFSMEdges) {
-      renderNodes.forEach((n) => {
-        if (n.type === "groupNode") {
-          const d = n.data as any;
-          if (d.requiredStates && !isAvailable(d.requiredStates)) {
-            lockedGroupIds.add(n.id);
-          }
-        }
-      });
-    }
-
     const result = renderNodes.map((node) => {
-      // Keep child nodes fully visible even when the parent sequence is state-locked
-      if (node.parentId && lockedGroupIds.has(node.parentId)) {
-        return applyFocusStyle({
-          ...node,
-          selectable: true,
-          focusable: true,
-          draggable: true,
-          zIndex: getNodeLayer(node),
-          style: {
-            ...node.style,
-            pointerEvents: "auto" as const,
-          },
-        });
-      }
-
       if (node.type === "groupNode") {
         return applyFocusStyle({
           ...node,
@@ -5545,31 +5777,12 @@ function NodeEditorInner({ initialGraph, initialGraphVersion = 0, previewMode = 
       });
     });
     return result;
-  }, [renderNodes, showFSMEdges, isAvailable, focusState]);
+  }, [renderNodes, focusState]);
 
   // Process edges with focus state styling
   const styledEdges = useMemo(() => {
     const outputBlockEdges = renderEdges.filter(isOutputBlockEdge);
     const focusedEdgeIds = new Set(focusState.connectedEdgeIds);
-    const executingEdgeIds = new Set<string>();
-    let hasFsmActive = false;
-
-    if (showFSMEdges) {
-      const executingGroupIds = new Set<string>();
-      renderNodes.forEach(n => {
-        const groupData = n.data as any;
-        if (n.type === 'groupNode' && groupData.executingStates?.includes(currentState)) {
-          executingGroupIds.add(n.id);
-        }
-      });
-      outputBlockEdges.forEach(edge => {
-        // 현재 발동중인 노드가 시작점으로 연결된 간선
-        if (executingGroupIds.has(edge.source)) {
-          executingEdgeIds.add(edge.id);
-        }
-      });
-      hasFsmActive = executingEdgeIds.size > 0;
-    }
 
     const activeConditionSourceIds = new Set(
       renderNodes
@@ -5633,41 +5846,8 @@ function NodeEditorInner({ initialGraph, initialGraphVersion = 0, previewMode = 
       };
     };
 
-    if (!hasFsmActive) return outputBlockEdges.map(applyConditionEdgeStyle).map(applyFocusEdgeStyle);
-
-    return outputBlockEdges.map((edge) => {
-      const isConnected = showFSMEdges && executingEdgeIds.has(edge.id);
-
-      if (isConnected) {
-        return {
-          ...edge,
-          style: {
-            ...edge.style,
-            stroke: "#f0b90b",
-            strokeWidth: 4,
-            filter: "drop-shadow(0 0 5px rgba(240, 185, 11, 0.55))",
-          },
-          animated: true,
-          data: { ...edge.data, isHighlighted: true },
-        };
-      }
-
-      if (isActiveConditionEdge(edge)) {
-        return applyConditionEdgeStyle(edge);
-      }
-
-      return {
-        ...edge,
-        style: {
-          ...edge.style,
-          stroke: "var(--advanced-edge-muted)",
-          strokeWidth: 2.2,
-          opacity: 0.2,
-        },
-        data: { ...edge.data, isHighlighted: false },
-      };
-    }).map(applyFocusEdgeStyle);
-  }, [renderEdges, showFSMEdges, currentState, renderNodes, focusState]);
+    return outputBlockEdges.map(applyConditionEdgeStyle).map(applyFocusEdgeStyle);
+  }, [renderEdges, renderNodes, focusState]);
 
   return (
     <div className="flex h-full w-full flex-col overflow-hidden bg-[#0b0e11] text-[#eaecef]">
@@ -5676,11 +5856,12 @@ function NodeEditorInner({ initialGraph, initialGraphVersion = 0, previewMode = 
       {/* React Flow Editor */}
       <div
         className={cn(
-          "relative w-full flex-1 overflow-hidden bg-[#0b0e11]",
+          "relative flex w-full flex-1 overflow-hidden bg-[#0b0e11]",
           isSequenceLayoutAnimating &&
           "[&_.react-flow__node]:transition-transform [&_.react-flow__node]:duration-[420ms] [&_.react-flow__node]:ease-[cubic-bezier(0.22,1,0.36,1)]",
         )}
       >
+        <div className="relative min-w-0 flex-1 overflow-hidden">
         <ReactFlow
           nodes={styledNodes}
           edges={styledEdges}
@@ -5732,36 +5913,53 @@ function NodeEditorInner({ initialGraph, initialGraphVersion = 0, previewMode = 
 	              />
 	            </Panel>
 	          ) : null}
+          <Panel position="top-right" className="z-30">
+            <button
+              type="button"
+              onClick={() => setIsSequenceMonitorOpen((current) => !current)}
+              className={cn(
+                "inline-flex h-9 items-center gap-2 rounded-md border px-3 text-xs font-black shadow-sm backdrop-blur",
+                isSequenceMonitorOpen
+                  ? "border-[#f0b90b] bg-[#f0b90b] text-[#0b0e11]"
+                  : "border-[#2b3139] bg-[#181a20]/95 text-[#fcd535] hover:border-[#f0b90b]",
+              )}
+            >
+              <Activity className="h-3.5 w-3.5" />
+              Monitor
+            </button>
+          </Panel>
           <Controls style={{ bottom: 90 }} position="bottom-right" className="z-30 rounded-md border border-[#2b3139] bg-[#181a20]/95 shadow-none backdrop-blur-sm" />
-          <MiniMap
-            position="bottom-left"
-            className="z-30 rounded-md border border-[#2b3139] bg-[#181a20]/95 shadow-none backdrop-blur-sm"
-            maskColor="var(--advanced-minimap-mask)"
-            nodeColor={(node) => {
-              switch (node.type) {
-                case "timeTrigger":
-                  return "#848e9c";
-                case "clickTrigger":
-                  return "#5e6673";
-                case "ifTrigger":
-                  return "#0ecb81";
-                case "branchNode":
-                  return "#f0b90b";
-                case "conditionJunction":
-                  return "#fcd535";
-                case "functionNode":
-                  return "#f0b90b";
-                case "mergedFunction":
-                  return "#b7bdc6";
-                case "actionNode":
-                  return (node.data as CEXActionData | DEXActionData).actionType === "CEX" ? "#f0b90b" : "#0ecb81";
-                case "timelineFrame":
-                  return "#848e9c";
-                default:
-                  return "#5e6673";
-              }
-            }}
-          />
+          {styledNodes.length > 0 ? (
+            <MiniMap
+              position="bottom-left"
+              className="z-30 rounded-md border border-[#2b3139] bg-[#181a20]/95 shadow-none backdrop-blur-sm"
+              maskColor="var(--advanced-minimap-mask)"
+              nodeColor={(node) => {
+                switch (node.type) {
+                  case "timeTrigger":
+                    return "#848e9c";
+                  case "clickTrigger":
+                    return "#5e6673";
+                  case "ifTrigger":
+                    return "#0ecb81";
+                  case "branchNode":
+                    return "#f0b90b";
+                  case "conditionJunction":
+                    return "#fcd535";
+                  case "functionNode":
+                    return "#f0b90b";
+                  case "mergedFunction":
+                    return "#b7bdc6";
+                  case "actionNode":
+                    return (node.data as CEXActionData | DEXActionData).actionType === "CEX" ? "#f0b90b" : "#0ecb81";
+                  case "timelineFrame":
+                    return "#848e9c";
+                  default:
+                    return "#5e6673";
+                }
+              }}
+            />
+          ) : null}
           <Background
             variant={BackgroundVariant.Dots}
             gap={20}
@@ -5777,14 +5975,24 @@ function NodeEditorInner({ initialGraph, initialGraphVersion = 0, previewMode = 
             onClose={() => setContextMenu(null)}
             canMerge={canMergeNodes(contextMenu.selectedNodes)}
             canUnmerge={contextMenu.selectedNodes.some((n) => n.type === "mergedFunction")}
-            canGroup={contextMenu.selectedNodes.some((node) => node.type !== "groupNode")}
+            canCreateSequenceGroup={getGroupableSelectedNodes("sequence", contextMenu.selectedNodes).length > 0}
+            canCreateMasterGroup={getGroupableSelectedNodes("master", contextMenu.selectedNodes).length > 0}
             onMerge={handleMerge}
             onUnmerge={handleUnmerge}
-            onGroup={handleGroup}
+            onCreateSequenceGroup={() => handleGroup("sequence")}
+            onCreateMasterGroup={() => handleGroup("master")}
             onAiExplain={handleAiExplain}
             onDelete={handleDeleteSelected}
           />
         )}
+        </div>
+        <SequenceMonitorPanel
+          nodes={nodes}
+          edges={edges}
+          setNodes={setNodes}
+          isOpen={isSequenceMonitorOpen}
+          onOpenChange={setIsSequenceMonitorOpen}
+        />
       </div>
     </div>
   );
@@ -5793,13 +6001,11 @@ function NodeEditorInner({ initialGraph, initialGraphVersion = 0, previewMode = 
 export function NodeEditor({ initialGraph, initialGraphVersion, previewMode }: NodeEditorProps) {
   return (
     <ReactFlowProvider>
-      <FSMProvider>
-        <NodeEditorInner
-          initialGraph={initialGraph}
-          initialGraphVersion={initialGraphVersion}
-          previewMode={previewMode}
-        />
-      </FSMProvider>
+      <NodeEditorInner
+        initialGraph={initialGraph}
+        initialGraphVersion={initialGraphVersion}
+        previewMode={previewMode}
+      />
     </ReactFlowProvider>
   );
 }

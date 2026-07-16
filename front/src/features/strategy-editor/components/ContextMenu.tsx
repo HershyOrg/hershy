@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useRef } from "react";
-import { Combine, Split, Trash2, Copy, Clipboard, Group, FileText } from "lucide-react";
+import { Combine, Split, Trash2, Copy, Clipboard, Group, FileText } from "@/shared/components/icons";
 import { cn } from "@/shared/utils/utils";
 
 interface ContextMenuProps {
@@ -11,10 +11,12 @@ interface ContextMenuProps {
   // Menu options
   canMerge?: boolean;
   canUnmerge?: boolean;
-  canGroup?: boolean;
+  canCreateSequenceGroup?: boolean;
+  canCreateMasterGroup?: boolean;
   onMerge?: () => void;
   onUnmerge?: () => void;
-  onGroup?: () => void;
+  onCreateSequenceGroup?: () => void;
+  onCreateMasterGroup?: () => void;
   onAiExplain?: () => void;
   onDelete?: () => void;
   onCopy?: () => void;
@@ -28,10 +30,12 @@ export function ContextMenu({
   onClose,
   canMerge,
   canUnmerge,
-  canGroup,
+  canCreateSequenceGroup,
+  canCreateMasterGroup,
   onMerge,
   onUnmerge,
-  onGroup,
+  onCreateSequenceGroup,
+  onCreateMasterGroup,
   onAiExplain,
   onDelete,
   onCopy,
@@ -39,6 +43,7 @@ export function ContextMenu({
   onHideNodes,
 }: ContextMenuProps) {
   const menuRef = useRef<HTMLDivElement>(null);
+  const canGroup = Boolean(canCreateSequenceGroup || canCreateMasterGroup);
 
   useEffect(() => {
     const handleClickOutside = (event: MouseEvent) => {
@@ -64,21 +69,28 @@ export function ContextMenu({
 
   const menuItems = [
     {
-      label: "그룹화 (Group)",
+      label: "Create Sequence Group",
       icon: Group,
-      onClick: onGroup,
-      show: canGroup,
+      onClick: onCreateSequenceGroup,
+      show: canCreateSequenceGroup,
       className: "text-[#0ecb81] hover:bg-[#1e2329]",
     },
     {
-      label: "블록 설명 생성",
+      label: "Create Master Group",
+      icon: Combine,
+      onClick: onCreateMasterGroup,
+      show: canCreateMasterGroup,
+      className: "text-[#f0b90b] hover:bg-[#1e2329]",
+    },
+    {
+      label: "Generate Block Description",
       icon: FileText,
       onClick: onAiExplain,
-      show: canGroup, // If multiple items are selected (which enables group), also enable AI Explain
+      show: canGroup,
       className: "text-[#b7bdc6] hover:bg-[#1e2329] hover:text-[#fcd535]",
     },
     {
-      label: "선택 항목 묶어서 숨기기 (Tab)",
+      label: "Hide Selection as Group (Tab)",
       icon: Combine,
       onClick: onHideNodes,
       show: !!onHideNodes && canGroup,

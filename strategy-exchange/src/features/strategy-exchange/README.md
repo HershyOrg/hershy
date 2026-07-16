@@ -5,9 +5,9 @@ Strategy exchange feature module.
 This folder contains code that belongs specifically to the strategy marketplace/exchange experience:
 - strategy feed
 - strategy cards
-- vault detail page
+- adapter detail page
 - creator profile
-- PnL and vault value charts
+- PnL and adapter value charts
 - Hershy canvas preview
 - discussion panel
 - strategy exchange API requests

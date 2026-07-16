@@ -1,5 +1,14 @@
 import type { StrategyVaultMetadata, StrategyVaultResponse, VaultPeriodLabel } from "./schema";
-import { strategyVaultsTable, vaultBalancesTable, vaultPeriodsTable } from "./vaultTables";
+import {
+  adapterDepositorsTable,
+  adapterFlowsTable,
+  adapterFundingHistoryTable,
+  adapterPositionsTable,
+  adapterTradeHistoryTable,
+  strategyVaultsTable,
+  vaultBalancesTable,
+  vaultPeriodsTable,
+} from "./vaultTables";
 
 const periodOrder: Record<VaultPeriodLabel, number> = {
   "24h": 1,
@@ -13,11 +22,11 @@ function sqlString(value: string) {
 }
 
 export function buildVaultMetadataEndpoint(strategyId: string) {
-  return `/api/strategy-exchange/vaults/${encodeURIComponent(strategyId)}`;
+  return `/api/strategy-exchange/adapters/${encodeURIComponent(strategyId)}`;
 }
 
 export function buildVaultByAddressEndpoint(address: string) {
-  return `/api/strategy-exchange/vault-addresses/${encodeURIComponent(address)}`;
+  return `/api/strategy-exchange/adapter-addresses/${encodeURIComponent(address)}`;
 }
 
 export function buildVaultByStrategyIdSql(strategyId: string) {
@@ -26,9 +35,9 @@ export function buildVaultByStrategyIdSql(strategyId: string) {
     "  v.*,",
     "  p.label as period_label, p.pnl as period_pnl, p.equity as period_equity, p.volume as period_volume,",
     "  b.token, b.venue, b.amount, b.value, b.weight",
-    "from strategy_vaults v",
-    "left join vault_periods p on p.strategy_id = v.strategy_id",
-    "left join vault_balances b on b.strategy_id = v.strategy_id",
+    "from strategy_adapters v",
+    "left join adapter_periods p on p.strategy_id = v.strategy_id",
+    "left join adapter_balances b on b.strategy_id = v.strategy_id",
     `where v.strategy_id = ${sqlString(strategyId)}`,
     "order by p.label, b.sort_order;",
   ].join("\n");
@@ -40,9 +49,9 @@ export function buildVaultByAddressSql(address: string) {
     "  v.*,",
     "  p.label as period_label, p.pnl as period_pnl, p.equity as period_equity, p.volume as period_volume,",
     "  b.token, b.venue, b.amount, b.value, b.weight",
-    "from strategy_vaults v",
-    "left join vault_periods p on p.strategy_id = v.strategy_id",
-    "left join vault_balances b on b.strategy_id = v.strategy_id",
+    "from strategy_adapters v",
+    "left join adapter_periods p on p.strategy_id = v.strategy_id",
+    "left join adapter_balances b on b.strategy_id = v.strategy_id",
     `where lower(v.address) = lower(${sqlString(address)})`,
     "order by p.label, b.sort_order;",
   ].join("\n");
@@ -58,6 +67,21 @@ export function selectVaultByStrategyId(strategyId: string): StrategyVaultMetada
       .filter((row) => row.strategyId === strategyId)
       .sort((a, b) => periodOrder[a.label] - periodOrder[b.label]),
     balances: vaultBalancesTable
+      .filter((row) => row.strategyId === strategyId)
+      .sort((a, b) => a.sortOrder - b.sortOrder),
+    positions: adapterPositionsTable
+      .filter((row) => row.strategyId === strategyId)
+      .sort((a, b) => a.sortOrder - b.sortOrder),
+    trades: adapterTradeHistoryTable
+      .filter((row) => row.strategyId === strategyId)
+      .sort((a, b) => a.sortOrder - b.sortOrder),
+    funding: adapterFundingHistoryTable
+      .filter((row) => row.strategyId === strategyId)
+      .sort((a, b) => a.sortOrder - b.sortOrder),
+    flows: adapterFlowsTable
+      .filter((row) => row.strategyId === strategyId)
+      .sort((a, b) => a.sortOrder - b.sortOrder),
+    depositors: adapterDepositorsTable
       .filter((row) => row.strategyId === strategyId)
       .sort((a, b) => a.sortOrder - b.sortOrder),
   };
@@ -91,7 +115,7 @@ export async function requestVaultMetadata(strategyId: string): Promise<Strategy
   return {
     endpoint,
     sql: buildVaultByStrategyIdSql(strategyId),
-    vault: selectVaultByStrategyId(strategyId),
+    adapter: selectVaultByStrategyId(strategyId),
   };
 }
 
@@ -118,6 +142,6 @@ export async function requestVaultMetadataByAddress(address: string): Promise<St
   return {
     endpoint,
     sql: buildVaultByAddressSql(address),
-    vault: selectVaultByAddress(address),
+    adapter: selectVaultByAddress(address),
   };
 }

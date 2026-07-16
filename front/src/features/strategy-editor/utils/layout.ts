@@ -156,6 +156,16 @@ function shouldPreserveStrategyStack(parentId: string | undefined, parentNode: N
   return isStrategyLike && isSequenceStack;
 }
 
+function isSolidGroup(node: Node | undefined) {
+  return node?.type === "groupNode" &&
+    (node.data as Record<string, unknown> | undefined)?.styleType === "solid";
+}
+
+function isWorkflowGroup(node: Node) {
+  return node.type === "groupNode" &&
+    (node.data as Record<string, unknown> | undefined)?.styleType !== "solid";
+}
+
 function getStrategyGroupLanePriority(node: Node) {
   const data = node.data as Record<string, unknown> | undefined;
   const styleType = String(data?.styleType ?? "");
@@ -220,6 +230,41 @@ function arrangeStrategyGroupsInLaneColumns(strategyGroups: Node[]) {
   });
 
   return { maxX, maxY };
+}
+
+function arrangeLooseNodesBelowGroups(looseNodes: Node[], startY: number) {
+  if (looseNodes.length === 0) return { maxX: 0, maxY: startY };
+
+  arrangeDisconnectedSiblingsLeftToRight(looseNodes);
+
+  let maxX = 0;
+  let maxY = startY;
+  looseNodes.forEach((node) => {
+    const { width, height } = getNodeSize(node);
+    node.position.x += 56;
+    node.position.y += startY;
+    maxX = Math.max(maxX, node.position.x + width);
+    maxY = Math.max(maxY, node.position.y + height);
+  });
+
+  return { maxX, maxY };
+}
+
+function arrangeSolidGroupChildren(childNodes: Node[]) {
+  const workflowGroups = childNodes.filter(isWorkflowGroup);
+  if (workflowGroups.length === 0) return false;
+
+  const looseNodes = childNodes.filter((node) => !isWorkflowGroup(node));
+  const groupBounds = arrangeStrategyGroupsInLaneColumns(workflowGroups);
+  const looseBounds = arrangeLooseNodesBelowGroups(
+    looseNodes,
+    workflowGroups.length > 0 ? groupBounds.maxY + STRATEGY_GROUP_STACK_GAP * 2 : 72,
+  );
+
+  return {
+    maxX: Math.max(groupBounds.maxX, looseBounds.maxX),
+    maxY: Math.max(groupBounds.maxY, looseBounds.maxY),
+  };
 }
 
 function separateOverlappingSiblings(nodes: Node[], direction = "LR") {
@@ -312,14 +357,14 @@ function getBounds(nodes: Node[]) {
 }
 
 export function getLayoutedElements(nodes: Node[], edges: Edge[], direction = "LR") {
-  // 깊은 복사 (초기화)
+  // Deep copy for initialization.
   const newNodes = nodes.map((node) => ({
     ...node,
     position: { ...node.position },
     style: { ...node.style }
   }));
 
-  // 부모-자식 트리 맵 생성
+  // Build a parent-child tree map.
   const childrenMap = new Map<string | undefined, Node[]>();
   const nodeById = new Map(newNodes.map((node) => [node.id, node]));
   newNodes.forEach((node) => {
@@ -330,7 +375,7 @@ export function getLayoutedElements(nodes: Node[], edges: Edge[], direction = "L
     childrenMap.get(parent)!.push(node);
   });
 
-  // 자식을 포함한 가장 깊은 그룹부터 정렬하기 위해 Depth 계산
+  // Compute depth so the deepest groups with children are laid out first.
   const depthMap = new Map<string | undefined, number>();
 
   function calculateDepth(id: string | undefined): number {
@@ -347,40 +392,27 @@ export function getLayoutedElements(nodes: Node[], edges: Edge[], direction = "L
     return depth;
   }
 
-  // 그룹 ID 목록을 Depth 내림차순(가장 깊은 자식 노드 그룹부터 상위 부모로)으로 정렬
+  // Sort group IDs by descending depth, from deepest child groups to parents.
   const groupIds = Array.from(childrenMap.keys());
   groupIds.sort((a, b) => calculateDepth(b) - calculateDepth(a));
 
-  // 트리 상향식(Bottom-up)으로 Dagre 레이아웃 적용
+  // Apply Dagre layout bottom-up through the tree.
   groupIds.forEach((parentId) => {
     const childNodes = childrenMap.get(parentId)!;
     if (childNodes.length === 0) return;
     const parentNodeObj = newNodes.find((n) => n.id === parentId);
-    const parentData = parentNodeObj?.data as Record<string, unknown> | undefined;
-    const isCollapsedSequence = Boolean(parentData?.isCollapsed);
-    // 시퀀스 그룹 스택만 수동 배치를 보존합니다. AI가 만든 solid 전략 그룹 안의 일반 블록들은
-    // 좌표가 겹치기 쉬우므로 dagre로 다시 정렬합니다.
+    // Preserve manual placement only for sequence group stacks. Regular blocks
+    // inside AI-created solid strategy groups are easy to overlap, so Dagre lays them out again.
     const preserveStrategyStack = shouldPreserveStrategyStack(parentId, parentNodeObj, childNodes);
+    const solidGroupLayout = isSolidGroup(parentNodeObj)
+      ? arrangeSolidGroupChildren(childNodes)
+      : false;
 
-    if (isCollapsedSequence && parentNodeObj) {
-      const collapsedWidth = Number(parentData?.collapsedWidth) || 188;
-      const collapsedHeight = Number(parentData?.collapsedHeight) || 120;
-
-      parentNodeObj.style = {
-        ...parentNodeObj.style,
-        width: collapsedWidth,
-        height: collapsedHeight,
-      };
-      parentNodeObj.width = collapsedWidth;
-      parentNodeObj.height = collapsedHeight;
-      return;
-    }
-
-    if (!preserveStrategyStack) {
+    if (!solidGroupLayout && !preserveStrategyStack) {
       const dagreGraph = new dagre.graphlib.Graph();
       dagreGraph.setDefaultEdgeLabel(() => ({}));
 
-      // DAGRE 그래프 여백 설정
+      // Configure Dagre graph spacing.
       dagreGraph.setGraph({
         rankdir: direction,
         ranksep: RANK_SEPARATION,
@@ -394,13 +426,13 @@ export function getLayoutedElements(nodes: Node[], edges: Edge[], direction = "L
 
       const childIds = new Set(childNodes.map((n) => n.id));
 
-      // 이 그룹에 속한 자식 노드 세팅 (이전 단계에서 사이즈가 커진 그 룹노드 포함)
+      // Register child nodes in this group, including group nodes resized by earlier passes.
       childNodes.forEach((node) => {
         const { width, height } = getNodeSize(node);
         dagreGraph.setNode(node.id, { width, height });
       });
 
-      // 현재 레벨에 직접 걸린 간선뿐 아니라 하위 자식 간선을 현재 레벨의 직접 자식 간선으로 투영합니다.
+      // Project nested child edges into direct child edges at the current level.
       let projectedEdgeCount = 0;
       edges.forEach((edge) => {
         if (edge.hidden) return;
@@ -416,19 +448,19 @@ export function getLayoutedElements(nodes: Node[], edges: Edge[], direction = "L
         ) {
           dagreGraph.setEdge(sourceChildId, targetChildId, {
             minlen: 1,
-            weight: edge.type === "fsmEdge" ? 0.5 : 1,
+            weight: 1,
           });
           projectedEdgeCount += 1;
         }
       });
 
-      // 개별 서브 트리에 대해 자동 정렬 수행
+      // Automatically arrange individual subtrees.
       if (direction === "LR" && projectedEdgeCount === 0 && childNodes.length > 1) {
         arrangeDisconnectedSiblingsLeftToRight(childNodes);
       } else {
         dagre.layout(dagreGraph);
 
-        // 최소 좌표를 추출하여 (0, 0) 기준으로 패딩 넣기
+        // Extract minimum coordinates and add padding relative to (0, 0).
         childNodes.forEach((node) => {
           const nodeWithPosition = dagreGraph.node(node.id);
           node.position = {
@@ -443,12 +475,12 @@ export function getLayoutedElements(nodes: Node[], edges: Edge[], direction = "L
 
     let { minX, minY, maxX, maxY } = getBounds(childNodes);
 
-    // 빈 그룹일 경우 대비한 예외 처리 (Infinity 방지)
+    // Guard against empty groups to avoid Infinity bounds.
     if (minX === Infinity) {
       minX = 0; minY = 0; maxX = GROUP_MIN_WIDTH; maxY = GROUP_MIN_HEIGHT;
     }
 
-    // 내부 자식들을 다 감쌀 수 있도록 부모 사이즈 강제 업데이트
+    // Force parent size to wrap all internal children.
     if (parentNodeObj) {
       const boundingWidth = (maxX - minX) + GROUP_PADDING_LEFT + GROUP_PADDING_RIGHT;
       const boundingHeight = (maxY - minY) + GROUP_PADDING_TOP + GROUP_PADDING_BOTTOM;
@@ -462,12 +494,12 @@ export function getLayoutedElements(nodes: Node[], edges: Edge[], direction = "L
         height: finalHeight,
       };
 
-      // Node 객체 자체의 width/height도 업데이트하여 React Flow가 인지하도록 함
+      // Update the Node object's width/height so React Flow can read them.
       parentNodeObj.width = finalWidth;
       parentNodeObj.height = finalHeight;
     }
 
-    // 최종 좌표 적용: 부모가 있으면 상대 좌표, 루트면 작업영역 절대 좌표를 왼쪽 위 패딩부터 시작시킵니다.
+    // Apply final coordinates. Child nodes are parent-relative; root nodes start from top-left workspace padding.
     childNodes.forEach((node) => {
       node.position.x = node.position.x - minX + GROUP_PADDING_LEFT;
       node.position.y = node.position.y - minY + GROUP_PADDING_TOP;
@@ -475,36 +507,6 @@ export function getLayoutedElements(nodes: Node[], edges: Edge[], direction = "L
 
   });
 
-
-  // Keep workflow containers inside each solid strategy group in lane columns:
-  // data pipelines on the left, execution/check-effect sequences in the middle,
-  // monitoring sequences on the right. Groups within the same lane stack top-to-bottom.
-  // Generated AI strategy groups use dynamic ids, so this cannot be hard-coded to g_strategy.
-  const solidStrategyGroups = newNodes.filter((node) =>
-    node.type === "groupNode" &&
-    (node.data as Record<string, unknown> | undefined)?.styleType === "solid",
-  );
-
-  solidStrategyGroups.forEach((strategyGroup) => {
-    const strategyGroups = newNodes.filter((node) =>
-      node.parentId === strategyGroup.id &&
-      node.type === "groupNode" &&
-      (node.data as Record<string, unknown> | undefined)?.styleType !== "solid",
-    );
-    if (strategyGroups.length === 0) return;
-
-    const { maxX, maxY } = arrangeStrategyGroupsInLaneColumns(strategyGroups);
-
-    const width = Math.max(maxX + 80, GROUP_MIN_WIDTH);
-    const height = Math.max(maxY + 64, GROUP_MIN_HEIGHT);
-    strategyGroup.style = {
-      ...strategyGroup.style,
-      width,
-      height,
-    };
-    strategyGroup.width = width;
-    strategyGroup.height = height;
-  });
 
   return newNodes;
 }

@@ -7,7 +7,7 @@ import type { StreamingNodeData, BlockData, NodeChartPoint } from "../types/edit
 import { MetricChart } from "./MetricChart";
 import { cn } from "@/shared/utils/utils";
 import { EVM_CHAINS } from "@/shared/constants/evmChains";
-import { Activity, Globe2, Maximize2, Minimize2, Plus, X } from "lucide-react";
+import { Activity, Globe2, Maximize2, Minimize2, Plus, X } from "@/shared/components/icons";
 
 type StreamKind = NonNullable<StreamingNodeData["streamKind"]>;
 
@@ -15,13 +15,13 @@ const EVM_RPC_OUTPUT_BLOCKS: BlockData[] = [
   {
     id: "result-dec",
     name: "result_dec",
-    description: "hex 결과를 숫자로 변환한 값",
+    description: "Hex result converted to a number",
     type: "output",
   },
   {
     id: "result",
     name: "result",
-    description: "RPC 응답 원본 result",
+    description: "Raw result from the RPC response",
     type: "output",
   },
 ];
@@ -163,6 +163,8 @@ function StreamingNodeComponent({
 
   return (
     <div
+      data-connect-target-node={isCompact ? id : undefined}
+      data-connect-target-handle={isCompact ? `${id}-collapsed-in` : undefined}
       className={cn(
         "relative w-[260px] overflow-hidden rounded-md border-2 bg-white shadow-sm transition-all",
         selected ? "border-emerald-400 ring-2 ring-emerald-200" : "border-slate-200",
@@ -173,32 +175,54 @@ function StreamingNodeComponent({
         type="target"
         position={Position.Left}
         id={`${id}-func-in`}
-        className="!h-2.5 !w-2.5 !border-emerald-600 !bg-emerald-500"
-        style={{ left: 5, top: 24 }}
+        className="advanced-port advanced-port--input !h-2.5 !w-2.5 !border-emerald-600 !bg-emerald-500"
+        data-port-kind="legacy-input"
+        style={{ left: 5, top: 24, opacity: 0, pointerEvents: "none" }}
       />
       {(!isCompact || outputBlocks.length === 0) ? (
         <Handle
           type="source"
           position={Position.Right}
           id={`${id}-trigger-out`}
-          className="!h-2.5 !w-2.5 !border-emerald-700 !bg-emerald-600"
-          style={{ right: 5, top: 24 }}
+          className="advanced-port advanced-port--output !h-2.5 !w-2.5 !border-emerald-700 !bg-emerald-600"
+          data-port-kind="legacy-output"
+          style={{ right: 5, top: 24, opacity: outputBlocks.length > 0 ? 0 : undefined, pointerEvents: outputBlocks.length > 0 ? "none" : undefined }}
         />
+      ) : null}
+      {isCompact ? (
+        <>
+          <Handle
+            type="target"
+            position={Position.Left}
+            id={`${id}-collapsed-in`}
+            className="advanced-port advanced-port--node advanced-port--input"
+            data-port-kind="node-input"
+            style={{ left: -9, top: "50%" }}
+          />
+          <Handle
+            type="source"
+            position={Position.Right}
+            id={`${id}-collapsed-out`}
+            className="advanced-port advanced-port--node advanced-port--output"
+            data-port-kind="node-output"
+            style={{ right: -9, top: "50%" }}
+          />
+        </>
       ) : null}
       {isCompact && visibleBlocks.length > 0 ? (
         <div
           className="pointer-events-none absolute right-0 top-1/2 z-20 h-10 w-0 -translate-y-1/2"
           aria-hidden="true"
         >
-          <div className="absolute right-[-6px] top-1/2 h-3 w-3 -translate-y-1/2 rounded-full border-2 border-emerald-700 bg-emerald-500 shadow-[0_0_0_3px_rgba(16,185,129,0.16)]" />
           {visibleBlocks.map((block) => (
             <Handle
               key={block.id}
               type="source"
               position={Position.Right}
               id={`${id}-block-${block.id}-out`}
-              className="!h-3 !w-3 !border-emerald-700 !bg-emerald-500"
-              style={{ right: 6, top: "50%", opacity: 0 }}
+              className="advanced-port advanced-port--output !h-3 !w-3 !border-emerald-700 !bg-emerald-500"
+              data-port-kind="legacy-output"
+              style={{ right: 6, top: "50%", opacity: 0, pointerEvents: "none" }}
             />
           ))}
         </div>
@@ -211,7 +235,7 @@ function StreamingNodeComponent({
           value={data.label}
           onChange={handleLabelChange}
           className="min-w-0 flex-1 bg-transparent text-sm font-semibold text-emerald-900 outline-none"
-          placeholder="스트리밍 노드"
+          placeholder="Streaming node"
         />
         <button
           type="button"
@@ -275,19 +299,19 @@ function StreamingNodeComponent({
             </div>
           ) : null}
           <div className="mt-2 text-[10px] font-bold uppercase tracking-wide text-slate-500">
-            생성 가능한 데이터 블록
+            Available Data Blocks
           </div>
           <div className="mt-1 grid gap-1">
             {visibleBlocks.length === 0 ? (
               <div className="rounded border border-dashed border-slate-200 px-2 py-1 text-slate-400">
-                output block 없음
+                No output blocks
               </div>
             ) : (
               visibleBlocks.map((block) => (
                 <div key={block.id} className="relative rounded border border-emerald-100 bg-white px-2 py-1">
                   <div className="truncate text-xs font-semibold text-slate-800">{block.name}</div>
                   <div className="truncate text-[10px] text-slate-500">
-                    {block.description || "스트리밍 응답 필드"}
+                    {block.description || "Streaming response field"}
                   </div>
                 </div>
               ))
@@ -305,7 +329,7 @@ function StreamingNodeComponent({
         <div className="mb-2 grid grid-cols-[minmax(0,1fr)_112px] gap-2">
           <label className="block">
             <div className="mb-1 text-[10px] font-semibold uppercase tracking-wide text-emerald-700">
-              스트림 소스
+              Stream Source
             </div>
             <select
               value={streamKind}
@@ -318,7 +342,7 @@ function StreamingNodeComponent({
           </label>
           <label className="block">
             <div className="mb-1 text-[10px] font-semibold uppercase tracking-wide text-emerald-700">
-              방식
+              Method
             </div>
             <select
               value={data.method}
@@ -333,7 +357,7 @@ function StreamingNodeComponent({
         </div>
         <div className="mb-2 flex items-center justify-between">
           <span className="text-[10px] font-semibold uppercase tracking-wide text-emerald-700">
-            데이터 소스
+            Data Source
           </span>
           <span className="rounded-full bg-emerald-50 px-2 py-0.5 text-[10px] font-bold text-emerald-700">
             {sourceLabel}
@@ -347,7 +371,7 @@ function StreamingNodeComponent({
             value={data.url}
             onChange={(event) => updateNodeData({ url: event.target.value })}
             className="w-full rounded-md border border-slate-200 bg-white px-2 py-1 font-mono text-[11px] text-slate-700 outline-none focus:border-emerald-300"
-            placeholder={isEVMRPC ? "비워두면 저장된 RPC/환경변수 RPC를 사용합니다" : data.method === "WEBSOCKET" ? "wss://..." : "https://..."}
+            placeholder={isEVMRPC ? "Leave empty to use the saved RPC or environment RPC" : data.method === "WEBSOCKET" ? "wss://..." : "https://..."}
           />
         </label>
         {isEVMRPC ? (
@@ -390,7 +414,7 @@ function StreamingNodeComponent({
                   }
                   className="rounded-full border border-emerald-200 bg-white px-2 py-0.5 font-black text-emerald-700"
                 >
-                  eth_call 템플릿
+                  eth_call template
                 </button>
               </div>
               <textarea
@@ -402,7 +426,7 @@ function StreamingNodeComponent({
               />
             </label>
             <p className="mt-1 text-[10px] leading-4 text-emerald-700">
-              DEX 컨트랙트의 view/pure 함수는 ABI로 만든 calldata를 `data`에 넣으면 RPC `eth_call`로 읽습니다.
+              For DEX contract view/pure functions, put ABI-generated calldata in `data` and read it through RPC `eth_call`.
             </p>
           </div>
         ) : null}
@@ -422,7 +446,7 @@ function StreamingNodeComponent({
               value={data.requestHint ?? data.apiReference ?? ""}
               onChange={(event) => updateNodeData({ requestHint: event.target.value })}
               className="w-full rounded-md border border-slate-200 bg-white px-2 py-1 text-[11px] text-slate-700 outline-none focus:border-emerald-300"
-              placeholder="응답 구조, 구독 채널, 필요한 인증 정보"
+              placeholder="Response shape, subscription channel, required auth"
             />
           </label>
         </div>
@@ -432,7 +456,7 @@ function StreamingNodeComponent({
               Live market chart
             </span>
             <span className="truncate text-[10px] font-semibold text-slate-500 dark:text-slate-400">
-              {chartSource || data.chartSymbol || "URL 샘플링 대기"}
+              {chartSource || data.chartSymbol || "Waiting for URL sampling"}
             </span>
           </div>
           <div className="h-[156px]">
@@ -447,7 +471,7 @@ function StreamingNodeComponent({
               />
             ) : (
               <div className="flex h-full items-center justify-center px-3 text-center text-[11px] font-semibold text-slate-400 dark:text-slate-500">
-                {chartWarning || "URL/WS 반환값에서 숫자 필드를 찾으면 차트를 표시합니다."}
+                {chartWarning || "A chart appears when a numeric field is found in the URL/WS response."}
               </div>
             )}
           </div>
@@ -456,7 +480,7 @@ function StreamingNodeComponent({
 
       <div className="flex items-center justify-between border-b border-slate-100 px-3 py-1.5">
         <span className="text-[10px] font-semibold uppercase tracking-wide text-emerald-700">
-          생성 가능한 데이터 블록
+          Available Data Blocks
         </span>
         <button
           type="button"
@@ -470,7 +494,7 @@ function StreamingNodeComponent({
 
       <div className="divide-y divide-slate-100">
         {outputBlocks.length === 0 ? (
-          <div className="px-3 py-2 text-xs text-slate-400">출력 블록 없음</div>
+          <div className="px-3 py-2 text-xs text-slate-400">No output blocks</div>
         ) : (
           outputBlocks.map((block) => (
             <div key={block.id} className="nodrag relative group px-3 py-2">
@@ -479,7 +503,7 @@ function StreamingNodeComponent({
                 value={block.name}
                 onChange={(event) => handleBlockChange(block.id, { name: event.target.value })}
                 className="w-full bg-transparent text-xs font-semibold text-slate-800 outline-none"
-                placeholder="블록 이름"
+                placeholder="Block name"
               />
               <input
                 type="text"
@@ -488,7 +512,7 @@ function StreamingNodeComponent({
                   handleBlockChange(block.id, { description: event.target.value })
                 }
                 className="mt-0.5 w-full bg-transparent text-[11px] text-slate-500 outline-none placeholder:text-slate-300"
-                placeholder="블록 설명 한 줄"
+                placeholder="One-line block description"
               />
               <button
                 type="button"
@@ -502,7 +526,8 @@ function StreamingNodeComponent({
                 type="source"
                 position={Position.Right}
                 id={`${id}-block-${block.id}-out`}
-                className="!h-2.5 !w-2.5 !border-emerald-600 !bg-emerald-500"
+                className="advanced-port advanced-port--output !h-2.5 !w-2.5 !border-emerald-600 !bg-emerald-500"
+                data-port-kind="output"
                 style={{ right: 5 }}
               />
             </div>

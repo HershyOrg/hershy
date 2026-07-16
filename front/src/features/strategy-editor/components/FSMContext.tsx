@@ -22,10 +22,10 @@ import {
 export type FSMState = "IDLE" | "ACTIVE" | "REBALANCING" | "CLOSED";
 
 export const FSM_STATE_LABELS: Record<FSMState, string> = {
-  IDLE: "대기 중",
-  ACTIVE: "운영 중",
-  REBALANCING: "리밸런싱 중",
-  CLOSED: "종료됨",
+  IDLE: "Idle",
+  ACTIVE: "Active",
+  REBALANCING: "Rebalancing",
+  CLOSED: "Closed",
 };
 
 export const FSM_STATE_STYLES: Record<
@@ -62,13 +62,13 @@ const CLOSED_TO_IDLE_DELAY_MS = 1600;
 function getFallbackSequenceLabel(state: FSMState) {
   switch (state) {
     case "IDLE":
-      return "초기 진입 시퀀스";
+      return "Initial Entry Sequence";
     case "ACTIVE":
-      return "운영 유지 시퀀스";
+      return "Operation Maintenance Sequence";
     case "REBALANCING":
-      return "리밸런싱 시퀀스";
+      return "Rebalancing Sequence";
     case "CLOSED":
-      return "긴급 종료 시퀀스";
+      return "Emergency Exit Sequence";
   }
 }
 
@@ -149,9 +149,9 @@ function logDcaCycleEntries(entries: RunningEntry[]) {
     if (plan.allocations.length === 0) {
       sequenceLogStore.addEntry({
         strategyLabel,
-        sequenceLabel: "월간 DCA 실행",
+        sequenceLabel: "Monthly DCA Run",
         stateLabel: "BUY",
-        message: `${strategyLabel} 정기 매수 배치를 실행했습니다.`,
+        message: `${strategyLabel} ran the scheduled buy batch.`,
         level: "success",
       });
       return;
@@ -161,9 +161,9 @@ function logDcaCycleEntries(entries: RunningEntry[]) {
       const orderAmount = (plan.monthlyBudget * allocation.weight) / 100;
       sequenceLogStore.addEntry({
         strategyLabel,
-        sequenceLabel: "월간 DCA 실행",
+        sequenceLabel: "Monthly DCA Run",
         stateLabel: "BUY",
-        message: `${allocation.asset} ${allocation.weight}% 비중으로 $${orderAmount.toFixed(0)} 매수 주문을 실행했습니다.`,
+        message: `Placed a $${orderAmount.toFixed(0)} buy order for ${allocation.asset} at ${allocation.weight}% allocation.`,
         level: "success",
       });
     });
@@ -221,18 +221,18 @@ export function FSMProvider({ children }: { children: ReactNode }) {
       setCurrentState("IDLE");
       logSequenceEntries(runningEntries, "IDLE", (entry, sequenceLabel) => {
         if (getEntryStrategyKind(entry) === "dca") {
-          return `${entry.label} 실행 시작. 월간 적립 준비를 시작합니다.`;
+          return `${entry.label} started. Preparing monthly accumulation.`;
         }
-        return `${entry.label} 실행 시작. ${sequenceLabel}에 진입했습니다.`;
+        return `${entry.label} started. Entered ${sequenceLabel}.`;
       }, "success");
 
       initTimeoutRef.current = window.setTimeout(() => {
         setCurrentState("ACTIVE");
         logSequenceEntries(runningEntries, "ACTIVE", (entry, sequenceLabel) => {
           if (getEntryStrategyKind(entry) === "dca") {
-            return `적립 전략이 활성화됐습니다. 다음 월간 매수 배치를 대기합니다.`;
+            return `Accumulation strategy is active. Waiting for the next monthly buy batch.`;
           }
-          return `${sequenceLabel}가 운영 상태로 전환됐습니다.`;
+          return `${sequenceLabel} moved to active operation.`;
         }, "info");
         rebalanceIntervalRef.current = window.setInterval(() => {
           const currentEntries = runningStore.getSnapshot();
@@ -248,7 +248,7 @@ export function FSMProvider({ children }: { children: ReactNode }) {
             logSequenceEntries(
               nonDcaEntries,
               "REBALANCING",
-              (_entry, sequenceLabel) => `${sequenceLabel}가 데모 리밸런싱 작업을 시작했습니다.`,
+              (_entry, sequenceLabel) => `${sequenceLabel} started a demo rebalance task.`,
               "warning",
             );
             if (rebalanceTimeoutRef.current !== null) {
@@ -260,7 +260,7 @@ export function FSMProvider({ children }: { children: ReactNode }) {
                 logSequenceEntries(
                   runningStore.getSnapshot().filter((entry) => getEntryStrategyKind(entry) !== "dca"),
                   "ACTIVE",
-                  (_entry, sequenceLabel) => `${sequenceLabel}로 복귀해 운영을 이어갑니다.`,
+                  (_entry, sequenceLabel) => `Returned to ${sequenceLabel} and resumed operation.`,
                   "info",
                 );
               }
@@ -281,9 +281,9 @@ export function FSMProvider({ children }: { children: ReactNode }) {
       setCurrentState("CLOSED");
       logSequenceEntries(previousEntries, "CLOSED", (entry, sequenceLabel) => {
         if (getEntryStrategyKind(entry) === "dca") {
-          return `월간 적립 전략 실행을 종료합니다. 다음 배치는 예약되지 않습니다.`;
+          return `Monthly accumulation strategy stopped. No next batch is scheduled.`;
         }
-        return `${sequenceLabel}를 거쳐 전략 실행을 종료합니다.`;
+        return `Strategy execution stopped through ${sequenceLabel}.`;
       }, "warning");
 
       closeTimeoutRef.current = window.setTimeout(() => {

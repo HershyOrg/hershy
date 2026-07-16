@@ -22,8 +22,8 @@ export {
 };
 
 export const NAV_ITEMS = [
-  { id: "create", label: "전략 만들기", shortLabel: "전", active: true },
-  { id: "portfolio", label: "포트폴리오", shortLabel: "포" },
+  { id: "create", label: "Create Strategy", shortLabel: "CS", active: true },
+  { id: "portfolio", label: "Portfolio", shortLabel: "PF" },
 ];
 
 export const EXCHANGE_CONNECTIONS: ExchangeConnection[] = DEFAULT_EXCHANGE_CONNECTIONS as ExchangeConnection[];
@@ -69,13 +69,14 @@ export const buildExchangeFormFromConnection = (connection?: ExchangeConnection 
 };
 
 export const GUIDE_ITEMS = [
-  "거래소 연결하기",
-  "전략 생성하기",
+  "Connect an exchange",
+  "Generate a strategy",
 ];
 
 export const MAIN_VIEW_TABS = [
-  { id: "advanced" as const, label: "고급 보기" },
-  { id: "code" as const, label: "코드 보기" },
+  { id: "advanced" as const, label: "Advanced View" },
+  { id: "api-data" as const, label: "Data" },
+  { id: "code" as const, label: "Code View" },
 ];
 
 export { DEFAULT_CEX_TRADE_EXCHANGE };

@@ -2,7 +2,7 @@ import { useEffect, useState } from "react";
 import type { DiscussionMessageRow } from "../../../../demoDB";
 import { requestVaultDiscussion } from "../api/strategyApi";
 
-export function useVaultDiscussion(vaultAddress: string) {
+export function useVaultDiscussion(adapterAddress: string) {
   const [messages, setMessages] = useState<DiscussionMessageRow[]>([]);
   const [discussionEndpoint, setDiscussionEndpoint] = useState("");
   const [isDiscussionLoading, setIsDiscussionLoading] = useState(true);
@@ -12,7 +12,7 @@ export function useVaultDiscussion(vaultAddress: string) {
     setMessages([]);
     setIsDiscussionLoading(true);
 
-    requestVaultDiscussion(vaultAddress)
+    requestVaultDiscussion(adapterAddress)
       .then((response) => {
         if (cancelled) return;
         setMessages(response.messages);
@@ -27,14 +27,14 @@ export function useVaultDiscussion(vaultAddress: string) {
     return () => {
       cancelled = true;
     };
-  }, [vaultAddress]);
+  }, [adapterAddress]);
 
   const addLocalMessage = (body: string) => {
     setMessages((currentMessages) => [
       ...currentMessages,
       {
         id: `local-${Date.now()}`,
-        vaultAddress,
+        adapterAddress,
         authorName: "You",
         authorAddress: "local-session",
         body,

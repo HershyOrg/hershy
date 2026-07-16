@@ -6,7 +6,7 @@ import {
   ShieldAlert,
   TrendingDown,
   TrendingUp,
-} from "lucide-react";
+} from "@/shared/components/icons";
 import type { MarketRow, StrategyBlock } from "@/features/home/types/homeTypes";
 
 export type StrategyTemplate = {
@@ -19,31 +19,38 @@ export type StrategyTemplate = {
 
 export const AI_STRATEGY_TEMPLATES: StrategyTemplate[] = [
   {
+    id: "spy-3-days-down-overnight",
+    title: "SPY 3 Days Down Overnight",
+    summary: "Build the SPY mean-reversion setup from the Quantified Strategies article: three down closes, enter at the third close, exit next session.",
+    prompt: "Create the strategy graph from https://quantifiedstrategies.substack.com/p/3-days-down-overnight-trading-strategy-942?utm_source=chatgpt.com. Use SPY daily OHLCV data, detect three consecutive close-to-close down sessions, enter long at the third down close, and exit at the next session open or close.",
+    tags: ["SPY", "Mean Reversion", "Daily"],
+  },
+  {
     id: "basis",
-    title: "Basis 차익거래",
-    summary: "현물-선물 가격차가 벌어질 때 델타 중립 포지션을 엽니다.",
-    prompt: "BTC 현물과 선물 가격차가 0.5% 이상 벌어지면 현물을 매수하고 선물을 숏으로 헤지해줘",
+    title: "Basis Arbitrage",
+    summary: "Open a delta-neutral position when the spot-futures spread widens.",
+    prompt: "Create a strategy that buys BTC spot and hedges with a futures short when the spot-futures spread exceeds 0.5%.",
     tags: ["BTC", "Hedge", "1m"],
   },
   {
     id: "trend",
-    title: "추세 추종",
-    summary: "이동평균 돌파와 거래량 증가를 함께 확인합니다.",
-    prompt: "BTC가 20MA를 상향 돌파하고 거래량이 평균보다 높으면 진입하는 추세 추종 전략을 만들어줘",
+    title: "Trend Following",
+    summary: "Confirm a moving-average breakout together with rising volume.",
+    prompt: "Create a trend-following strategy that enters when BTC breaks above the 20MA and volume is above average.",
     tags: ["BTC", "MA", "Volume"],
   },
   {
     id: "funding",
-    title: "펀딩비 수익",
-    summary: "펀딩비와 베이시스를 함께 감시해 진입합니다.",
-    prompt: "펀딩비가 높고 베이시스가 안정적일 때 시장 중립 포지션을 잡는 전략을 만들어줘",
+    title: "Funding Carry",
+    summary: "Monitor funding and basis together before entering.",
+    prompt: "Create a market-neutral strategy that enters when funding is high and basis is stable.",
     tags: ["Funding", "Neutral", "Perp"],
   },
   {
     id: "dca",
     title: "ETH DCA",
-    summary: "정해진 간격으로 분할 매수하고 리스크 조건에서 중단합니다.",
-    prompt: "ETH를 4시간마다 분할 매수하고 손실 제한 조건이 오면 중단하는 DCA 전략을 만들어줘",
+    summary: "Buy in slices on a fixed cadence and stop when risk limits trigger.",
+    prompt: "Create a DCA strategy that buys ETH every 4 hours and stops when a loss-limit condition is reached.",
     tags: ["ETH", "DCA", "4h"],
   },
 ];
@@ -52,9 +59,9 @@ export const STRATEGY_BLOCKS: StrategyBlock[] = [
   {
     id: "init",
     index: 1,
-    title: "전략 시작",
+    title: "Strategy Start",
     subtitle: "Init",
-    description: "거래소 연결과 기본 잔고를 확인하고 전략 실행 컨텍스트를 만듭니다.",
+    description: "Check exchange connections and base balances, then create the execution context.",
     status: "complete",
     kind: "start",
     x: 22,
@@ -63,16 +70,16 @@ export const STRATEGY_BLOCKS: StrategyBlock[] = [
     icon: Rocket,
     color: "violet",
     params: [
-      { key: "capital", label: "초기 자본(USDT)", value: "10,000", helper: "전략이 사용할 기준 자본" },
-      { key: "mode", label: "실행 모드", value: "드라이런", helper: "실전 실행 전 모의 주문으로 검증", options: ["드라이런", "실전"] },
+      { key: "capital", label: "Initial Capital (USDT)", value: "10,000", helper: "Reference capital for the strategy" },
+      { key: "mode", label: "Execution Mode", value: "Dry Run", helper: "Validate with simulated orders before live execution", options: ["Dry Run", "Live"] },
     ],
   },
   {
     id: "condition",
     index: 2,
-    title: "가격차 진입 조건 충족",
+    title: "Spread Entry Condition Met",
     subtitle: "Basis check",
-    description: "현물과 선물 가격차가 설정한 기준 이상 벌어졌는지 감시합니다.",
+    description: "Monitor whether the spot-futures spread exceeds the configured threshold.",
     status: "running",
     kind: "condition",
     x: 176,
@@ -81,17 +88,17 @@ export const STRATEGY_BLOCKS: StrategyBlock[] = [
     icon: Crosshair,
     color: "emerald",
     params: [
-      { key: "entryGap", label: "진입 가격차(%)", value: "0.50", unit: "%", helper: "이상 벌어지면 진입" },
-      { key: "exitGap", label: "종료 가격차(%)", value: "0.10", unit: "%", helper: "이하로 줄어들면 종료" },
-      { key: "confirm", label: "확인 캔들", value: "2", helper: "조건 유지 확인 개수" },
+      { key: "entryGap", label: "Entry Spread (%)", value: "0.50", unit: "%", helper: "Enter when the spread widens above this level" },
+      { key: "exitGap", label: "Exit Spread (%)", value: "0.10", unit: "%", helper: "Exit when the spread compresses below this level" },
+      { key: "confirm", label: "Confirmation Candles", value: "2", helper: "Number of candles required to confirm the condition" },
     ],
   },
   {
     id: "spot-buy",
     index: 3,
-    title: "BTC 현물 매수",
-    subtitle: "가격차 진입 조건 충족",
-    description: "현물 BTC를 매수해 차익거래의 롱 포지션을 만듭니다.",
+    title: "Buy BTC Spot",
+    subtitle: "Spread entry condition met",
+    description: "Buy spot BTC to create the long leg of the arbitrage trade.",
     status: "watching",
     kind: "trade",
     x: 320,
@@ -100,17 +107,17 @@ export const STRATEGY_BLOCKS: StrategyBlock[] = [
     icon: TrendingUp,
     color: "blue",
     params: [
-      { key: "spotSize", label: "투입금(USDT)", value: "1,000", helper: "현물 매수 주문 금액" },
-      { key: "spotSlippage", label: "슬리피지 허용", value: "0.08", unit: "%", helper: "시장가 체결 허용 범위" },
-      { key: "orderType", label: "주문 방식", value: "Market", helper: "현물 주문 방식", options: ["Market", "Limit"] },
+      { key: "spotSize", label: "Order Size (USDT)", value: "1,000", helper: "Spot buy order amount" },
+      { key: "spotSlippage", label: "Slippage Tolerance", value: "0.08", unit: "%", helper: "Allowed range for market execution" },
+      { key: "orderType", label: "Order Type", value: "Market", helper: "Spot order type", options: ["Market", "Limit"] },
     ],
   },
   {
     id: "future-short",
     index: 4,
-    title: "BTC 선물 숏",
-    subtitle: "헤지 포지션 실행",
-    description: "동일 규모의 선물 숏을 열어 가격 방향 리스크를 상쇄합니다.",
+    title: "Short BTC Futures",
+    subtitle: "Execute hedge leg",
+    description: "Open an equal-sized futures short to offset directional price risk.",
     status: "watching",
     kind: "hedge",
     x: 516,
@@ -119,16 +126,16 @@ export const STRATEGY_BLOCKS: StrategyBlock[] = [
     icon: TrendingDown,
     color: "sky",
     params: [
-      { key: "leverage", label: "레버리지", value: "1x", helper: "선물 포지션 레버리지", options: ["1x", "2x", "3x"] },
-      { key: "hedgeRatio", label: "헤지 비율", value: "100", unit: "%", helper: "현물 대비 선물 노출 비율" },
+      { key: "leverage", label: "Leverage", value: "1x", helper: "Futures position leverage", options: ["1x", "2x", "3x"] },
+      { key: "hedgeRatio", label: "Hedge Ratio", value: "100", unit: "%", helper: "Futures exposure relative to spot" },
     ],
   },
   {
     id: "rebalance",
     index: 5,
-    title: "포지션 유지",
-    subtitle: "리밸런싱 및 유지",
-    description: "가격차와 포지션 비중을 계속 감시하며 필요 시 재조정합니다.",
+    title: "Maintain Position",
+    subtitle: "Rebalance and monitor",
+    description: "Continuously monitor the spread and exposure, then rebalance when needed.",
     status: "ready",
     kind: "rebalance",
     x: 382,
@@ -137,16 +144,16 @@ export const STRATEGY_BLOCKS: StrategyBlock[] = [
     icon: RotateCcw,
     color: "blue",
     params: [
-      { key: "rebalanceGap", label: "리밸런싱 기준", value: "0.20", unit: "%", helper: "비중 차이가 커지면 조정" },
-      { key: "checkInterval", label: "확인 주기", value: "1분", helper: "포지션 상태 점검 주기", options: ["10초", "1분", "5분"] },
+      { key: "rebalanceGap", label: "Rebalance Threshold", value: "0.20", unit: "%", helper: "Adjust when exposure drift grows" },
+      { key: "checkInterval", label: "Check Interval", value: "1 min", helper: "Position status check cadence", options: ["10 sec", "1 min", "5 min"] },
     ],
   },
   {
     id: "risk",
     index: 6,
-    title: "손실 제한 시 종료",
+    title: "Exit on Loss Limit",
     subtitle: "Risk stop",
-    description: "허용 손실을 넘으면 즉시 종료 단계로 넘깁니다.",
+    description: "Move immediately to the exit stage when allowed loss is exceeded.",
     status: "blocked",
     kind: "risk",
     x: 446,
@@ -155,16 +162,16 @@ export const STRATEGY_BLOCKS: StrategyBlock[] = [
     icon: ShieldAlert,
     color: "rose",
     params: [
-      { key: "lossLimit", label: "손실 제한(%)", value: "1.00", unit: "%", helper: "총 손실 허용 한도" },
-      { key: "maxLatency", label: "응답 지연 제한", value: "800", unit: "ms", helper: "거래소 응답 지연 제한" },
+      { key: "lossLimit", label: "Loss Limit (%)", value: "1.00", unit: "%", helper: "Maximum allowed total loss" },
+      { key: "maxLatency", label: "Latency Limit", value: "800", unit: "ms", helper: "Exchange response latency limit" },
     ],
   },
   {
     id: "exit",
     index: 7,
-    title: "종료",
-    subtitle: "포지션 청산 및 종료",
-    description: "현물과 선물 포지션을 동시에 닫고 손익을 기록합니다.",
+    title: "Exit",
+    subtitle: "Close positions",
+    description: "Close spot and futures positions together, then record PnL.",
     status: "ready",
     kind: "exit",
     x: 516,
@@ -173,8 +180,8 @@ export const STRATEGY_BLOCKS: StrategyBlock[] = [
     icon: CheckCircle2,
     color: "rose",
     params: [
-      { key: "closeType", label: "청산 방식", value: "동시 청산", helper: "현물과 선물 종료 방식", options: ["동시 청산", "선물 우선", "현물 우선"] },
-      { key: "report", label: "리포트 생성", value: "켜짐", helper: "실행 종료 후 요약 저장", options: ["켜짐", "꺼짐"] },
+      { key: "closeType", label: "Close Method", value: "Close Together", helper: "Spot and futures close order", options: ["Close Together", "Futures First", "Spot First"] },
+      { key: "report", label: "Generate Report", value: "On", helper: "Save a summary after execution ends", options: ["On", "Off"] },
     ],
   },
 ];
@@ -186,7 +193,7 @@ export const MARKET_ROWS: MarketRow[] = [
   { symbol: "BNBUSDT", price: "610.2", change: "-0.05%", tone: "down", icon: "B" },
 ];
 
-export const STRATEGY_CODE = `strategy "BTC 현물-선물 가격차" {
+export const STRATEGY_CODE = `strategy "BTC Spot-Futures Spread" {
   stream spot = binance.spot("BTCUSDT")
   stream perp = binance.perp("BTCUSDT.P")
 

@@ -1,13 +1,12 @@
 import type { ComponentProps } from "react";
 
-type ButtonVariant = "plain" | "back" | "use" | "drop" | "fork" | "save";
+type ButtonVariant = "plain" | "back" | "use" | "drop" | "save";
 
 const variantClassNames: Record<ButtonVariant, string> = {
   plain: "",
   back: "back-button",
   use: "use-button",
   drop: "drop-button",
-  fork: "fork-button",
   save: "save-draft-button",
 };
 

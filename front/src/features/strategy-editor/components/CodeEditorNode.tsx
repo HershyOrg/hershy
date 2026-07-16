@@ -3,7 +3,7 @@
 import { memo, useState, useCallback } from "react";
 import { Handle, Position, NodeProps, useReactFlow } from "@xyflow/react";
 import { cn } from "@/shared/utils/utils";
-import { Copy, Maximize2, Minimize2, Plus, X } from "lucide-react";
+import { Copy, Maximize2, Minimize2, Plus, X } from "@/shared/components/icons";
 import MonacoEditor from "./MonacoCodeEditor";
 
 interface BlockItem {
@@ -151,8 +151,9 @@ function CodeEditorNodeComponent({
           type="target"
           position={Position.Left}
           id={`${id}-func-in`}
-          className="!w-2.5 !h-2.5 !bg-gray-400 !border-gray-500"
-          style={{ left: -5 }}
+          className="advanced-port advanced-port--input !w-2.5 !h-2.5 !bg-gray-400 !border-gray-500"
+          data-port-kind="legacy-input"
+          style={{ left: -5, opacity: 0, pointerEvents: "none" }}
         />
         <span className="text-sm text-gray-300 font-mono">
           {isRuntimeArtifact ? "generated_strategy.go" : "* function() *"}
@@ -161,8 +162,9 @@ function CodeEditorNodeComponent({
           type="source"
           position={Position.Right}
           id={`${id}-func-out`}
-          className="!w-2.5 !h-2.5 !bg-gray-400 !border-gray-500"
-          style={{ right: -5 }}
+          className="advanced-port advanced-port--output !w-2.5 !h-2.5 !bg-gray-400 !border-gray-500"
+          data-port-kind="legacy-output"
+          style={{ right: -5, opacity: 0, pointerEvents: "none" }}
         />
       </div>
 
@@ -229,7 +231,8 @@ function CodeEditorNodeComponent({
               type="target"
               position={Position.Left}
               id={`${id}-block-${block.id}-in`}
-              className="!w-2 !h-2 !bg-gray-400 !border-gray-500"
+              className="advanced-port advanced-port--input !w-2 !h-2 !bg-gray-400 !border-gray-500"
+              data-port-kind="input"
               style={{ left: -4 }}
             />
             <span className="text-xs text-gray-400 font-mono">
@@ -247,7 +250,8 @@ function CodeEditorNodeComponent({
               type="source"
               position={Position.Right}
               id={`${id}-block-${block.id}-out`}
-              className="!w-2 !h-2 !bg-green-500 !border-green-600"
+              className="advanced-port advanced-port--output !w-2 !h-2 !bg-green-500 !border-green-600"
+              data-port-kind="output"
               style={{ right: -4 }}
             />
           </div>

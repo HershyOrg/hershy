@@ -202,30 +202,30 @@ function buildDummyStrategyGraph(prompt: string): StrategyGraphPayload {
     },
     generatedAt: now,
     summary: {
-      text: "BTC 가격, 거래량, 펀딩비를 감시하고 조건이 맞으면 CEX 주문을 실행하는 프론트 더미 전략입니다.",
+      text: "Frontend dummy strategy that monitors BTC price, volume, and funding, then executes a CEX order when conditions match.",
       blocks: 5,
       connections: 5,
     },
     metadata: {
       source: "frontend-dummy-api",
       strategyAISummary: {
-        summaryText: "서버 없이 프론트 더미 데이터로 생성된 전략 초안입니다.",
+        summaryText: "Strategy draft generated from frontend dummy data without a server.",
         keyPoints: [
-          "BTCUSDT 가격과 거래량을 1분 단위로 감시합니다.",
-          "모멘텀 조건이 충족되면 Binance CEX 주문 액션으로 연결합니다.",
-          "손실 제한 조건이 별도 킬스위치로 자동 보강됩니다.",
+          "Monitors BTCUSDT price and volume at a 1-minute cadence.",
+          "Connects to a Binance CEX order action when momentum conditions are met.",
+          "Adds a separate kill switch for loss-limit protection.",
         ],
-        executionReadinessText: "백엔드 연결 전 UI/UX 검증용입니다.",
+        executionReadinessText: "For UI/UX validation before backend connection.",
         riskNotes: [
-          "실거래 주문은 발생하지 않습니다.",
-          "잔고와 차트는 브라우저 더미 데이터입니다.",
+          "No live trading orders are placed.",
+          "Balances and charts use browser dummy data.",
         ],
       },
       workflowGroups: [
         {
           id: "market-scan",
-          title: "시장 데이터 감시",
-          purpose: "가격, 거래량, 펀딩비를 수집하고 진입 조건을 계산합니다.",
+          title: "Market Data Watch",
+          purpose: "Collect price, volume, and funding data, then calculate entry conditions.",
           order: 1,
           nodeIds: ["btc-price", "funding-rate", "entry-signal"],
           canAbstract: true,
@@ -234,8 +234,8 @@ function buildDummyStrategyGraph(prompt: string): StrategyGraphPayload {
         },
         {
           id: "execution",
-          title: "주문 실행",
-          purpose: "조건이 충족되면 연결된 CEX에서 주문을 실행합니다.",
+          title: "Order Execution",
+          purpose: "Execute an order on the connected CEX when conditions are met.",
           order: 2,
           nodeIds: ["entry-trigger", "place-order"],
           canAbstract: true,
@@ -248,7 +248,7 @@ function buildDummyStrategyGraph(prompt: string): StrategyGraphPayload {
         id: "btc-price",
         type: "streaming",
         config: {
-          label: "BTCUSDT 가격",
+          label: "BTCUSDT Price",
           method: "WEBSOCKET",
           streamKind: "websocket",
           sourceUrl: "wss://stream.binance.com:9443/ws/btcusdt@ticker",
@@ -260,7 +260,7 @@ function buildDummyStrategyGraph(prompt: string): StrategyGraphPayload {
         id: "funding-rate",
         type: "streaming",
         config: {
-          label: "BTC 펀딩비",
+          label: "BTC Funding Rate",
           method: "WEBSOCKET",
           streamKind: "websocket",
           sourceUrl: "wss://fstream.binance.com/ws/btcusdt@markPrice",
@@ -272,7 +272,7 @@ function buildDummyStrategyGraph(prompt: string): StrategyGraphPayload {
         id: "entry-signal",
         type: "normal",
         config: {
-          label: "모멘텀 신호",
+          label: "Momentum Signal",
           expression: "(btc-price::price > ma20) && (btc-price::volume > volume_ma) && (funding-rate::fundingRate >= 0)",
           outputBlocks: ["signal"],
           workflowId: "market-scan",
@@ -282,7 +282,7 @@ function buildDummyStrategyGraph(prompt: string): StrategyGraphPayload {
         id: "entry-trigger",
         type: "trigger",
         config: {
-          label: "진입 조건",
+          label: "Entry Condition",
           triggerType: "condition",
           condition: "entry-signal::signal == true",
           workflowId: "execution",
@@ -292,7 +292,7 @@ function buildDummyStrategyGraph(prompt: string): StrategyGraphPayload {
         id: "place-order",
         type: "action",
         config: {
-          label: "Binance 주문",
+          label: "Binance Order",
           actionType: "CEX",
           exchange: "Binance",
           symbol: "BTCUSDT",
@@ -304,11 +304,11 @@ function buildDummyStrategyGraph(prompt: string): StrategyGraphPayload {
       },
     ],
     connections: [
-      { id: "price-to-signal", kind: "data-flow", fromId: "btc-price", toId: "entry-signal", label: "가격/거래량" },
-      { id: "funding-to-signal", kind: "data-flow", fromId: "funding-rate", toId: "entry-signal", label: "펀딩비" },
-      { id: "signal-to-trigger", kind: "trigger-input", fromId: "entry-signal", toId: "entry-trigger", label: "조건" },
-      { id: "trigger-to-order", kind: "trigger-action", fromId: "entry-trigger", toId: "place-order", label: "실행" },
-      { id: "price-to-order", kind: "action-input", fromId: "btc-price", toId: "place-order", label: "주문 가격 기준" },
+      { id: "price-to-signal", kind: "data-flow", fromId: "btc-price", toId: "entry-signal", label: "Price/Volume" },
+      { id: "funding-to-signal", kind: "data-flow", fromId: "funding-rate", toId: "entry-signal", label: "Funding Rate" },
+      { id: "signal-to-trigger", kind: "trigger-input", fromId: "entry-signal", toId: "entry-trigger", label: "Condition" },
+      { id: "trigger-to-order", kind: "trigger-action", fromId: "entry-trigger", toId: "place-order", label: "Execute" },
+      { id: "price-to-order", kind: "action-input", fromId: "btc-price", toId: "place-order", label: "Order price reference" },
     ],
   };
 }
@@ -431,7 +431,7 @@ export async function createDummyStrategyDraft({ prompt, currentStrategy, signal
   const runtimeCode = buildRuntimeProgramCode(strategy);
 
   return {
-    message: "프론트 더미 전략 draft 생성 완료",
+    message: "Frontend dummy strategy draft generated",
     prompt,
     strategy,
     runtime: {

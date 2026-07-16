@@ -14,7 +14,7 @@ import {
   Building2,
   Globe,
   GripVertical,
-} from "lucide-react";
+} from "@/shared/components/icons";
 
 function TimelineFrameComponent({ id, data, selected }: NodeProps) {
   const typedData = data as TimelineFrameData;

@@ -1,4 +1,4 @@
-import { Loader2Icon } from 'lucide-react'
+import { Loader2Icon } from "@/shared/components/icons"
 
 import { cn } from '@/shared/utils/utils'
 

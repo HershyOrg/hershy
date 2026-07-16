@@ -15,7 +15,7 @@ export function useVaultMetadata(address: string) {
     requestVaultMetadataByAddress(address)
       .then((response) => {
         if (cancelled) return;
-        setVaultDetails(response.vault);
+        setVaultDetails(response.adapter);
         setVaultEndpoint(response.endpoint);
       })
       .finally(() => {

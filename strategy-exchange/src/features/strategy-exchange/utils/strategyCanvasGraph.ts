@@ -1,28 +1,23 @@
 import type { Edge, Node } from "@xyflow/react";
 import type { NodeEditorInitialGraph } from "@/features/strategy-editor/components/NodeEditor";
+import { primaryExecutionChain } from "../executionChains";
 import { connectedVenueSet } from "../constants";
 import type { Strategy } from "../types/strategyTypes";
 
-const dexVenues = new Set(["Aave", "Camelot", "Curve", "GMX", "Lido", "Morpho", "Uniswap V3"]);
+const dexVenues = new Set(["Hyperliquid"]);
 const chartBaseTimestamp = 1_735_689_600;
 
 const chainIds: Record<string, number> = {
-  Ethereum: 1,
-  "BNB Chain": 56,
-  Arbitrum: 42161,
-  Base: 8453,
-  Cosmos: 118,
-  Solana: 101,
-  Bitcoin: 0,
+  Hyperliquid: 999,
 };
 
 function getCanvasSymbol(strategy: Strategy) {
   const text = `${strategy.id} ${strategy.title}`.toLowerCase();
-  if (text.includes("sol")) return "SOL/USDT";
-  if (text.includes("eth") || text.includes("lst")) return "ETH/USDT";
-  if (text.includes("usdc") || text.includes("stable")) return "USDC/USDT";
-  if (text.includes("gmx")) return "GMX/USDT";
-  return "BTC/USDT";
+  if (text.includes("hype")) return "HYPE/USDC";
+  if (text.includes("sol") || text.includes("alt")) return "SOL/USDC";
+  if (text.includes("eth")) return "ETH/USDC";
+  if (text.includes("usdc") || text.includes("collateral")) return "USDC/USDC";
+  return "BTC/USDC";
 }
 
 export function getHershyCanvasGraph(strategy: Strategy): NodeEditorInitialGraph {
@@ -32,11 +27,11 @@ export function getHershyCanvasGraph(strategy: Strategy): NodeEditorInitialGraph
   const streamId = `${graphId}-stream`;
   const signalId = `${graphId}-signal`;
   const actionId = `${graphId}-action`;
-  const venue = strategy.venues[0] ?? "Binance";
-  const isDexAction = strategy.primarySector === "DeFi" || dexVenues.has(venue);
+  const venue = strategy.venues[0] ?? "Hyperliquid";
+  const isDexAction = dexVenues.has(venue);
   const symbol = getCanvasSymbol(strategy);
-  const chainName = strategy.chains[0] ?? "Ethereum";
-  const chainId = chainIds[chainName] ?? 1;
+  const chainName = strategy.chains[0] ?? primaryExecutionChain;
+  const chainId = chainIds[chainName] ?? chainIds[primaryExecutionChain];
   const streamOutputId = "market-state";
   const scoreOutputId = "strategy-score";
   const sizingOutputId = "target-size";
@@ -63,9 +58,9 @@ export function getHershyCanvasGraph(strategy: Strategy): NodeEditorInitialGraph
       extent: "parent",
       position: { x: 48, y: 58 },
       data: {
-        label: strategy.status === "Live" ? "Live strategy trigger" : `${strategy.status} trigger`,
-        interval: strategy.status === "Live" ? 3600 : 14400,
-        isActive: strategy.status === "Live",
+        label: "Execution trigger",
+        interval: 3600,
+        isActive: true,
         outputBlocks: [
           {
             id: "tick",
@@ -165,59 +160,31 @@ export function getHershyCanvasGraph(strategy: Strategy): NodeEditorInitialGraph
       parentId: groupId,
       extent: "parent",
       position: { x: 560, y: 286 },
-      data: isDexAction
-        ? {
-            label: `Route via ${venue}`,
-            actionType: "DEX",
-            contractAddress: "0x0000000000000000000000000000000000000000",
-            functionName: "rebalance(uint256)",
-            chainId,
-            streamChain: chainName,
-            inputBlocks: [
-              {
-                id: sizingOutputId,
-                name: "targetSize",
-                description: "Allocation selected by the risk gate",
-                type: "input",
-              },
-            ],
-            outputBlocks: [
-              {
-                id: "success",
-                name: "success",
-                description: "Execution result",
-                type: "output",
-              },
-            ],
-            isExpanded: false,
-          }
-        : {
-            label: `Execute ${symbol}`,
-            actionType: "CEX",
-            exchange: venue,
-            symbol,
-            side: "BUY",
-            orderType: "MARKET",
-            amount: "{{Return and risk gate.targetSize}}",
-            amountType: "PERCENT",
-            inputBlocks: [
-              {
-                id: sizingOutputId,
-                name: "targetSize",
-                description: "Allocation selected by the risk gate",
-                type: "input",
-              },
-            ],
-            outputBlocks: [
-              {
-                id: "success",
-                name: "success",
-                description: "Execution result",
-                type: "output",
-              },
-            ],
-            isExpanded: false,
+      data: {
+        label: `Route via ${venue}`,
+        actionType: "DEX",
+        contractAddress: "0x0000000000000000000000000000000000000000",
+        functionName: "rebalance(uint256)",
+        chainId,
+        streamChain: chainName,
+        inputBlocks: [
+          {
+            id: sizingOutputId,
+            name: "targetSize",
+            description: "Allocation selected by the risk gate",
+            type: "input",
           },
+        ],
+        outputBlocks: [
+          {
+            id: "success",
+            name: "success",
+            description: "Execution result",
+            type: "output",
+          },
+        ],
+        isExpanded: false,
+      },
     },
   ];
 

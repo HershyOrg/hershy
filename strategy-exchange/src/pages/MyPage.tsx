@@ -19,16 +19,16 @@ type MyVaultView = "created" | "invested" | "bookmarked";
 
 const myVaultViewCopy: Record<MyVaultView, { title: string; empty: string }> = {
   created: {
-    title: "Created Vaults",
-    empty: "No created vaults yet",
+    title: "Created Adapters",
+    empty: "No created adapters yet",
   },
   invested: {
-    title: "Invested Vaults",
-    empty: "No invested vaults yet",
+    title: "Invested Adapters",
+    empty: "No invested adapters yet",
   },
   bookmarked: {
-    title: "Bookmarked Vaults",
-    empty: "No bookmarked vaults yet",
+    title: "Bookmarked Adapters",
+    empty: "No bookmarked adapters yet",
   },
 };
 
@@ -174,7 +174,7 @@ export function MyPage({
             <strong>{visibleVaults.length}</strong>
           </div>
           <ToggleGroup
-            label="My vault view"
+            label="My adapter view"
             options={vaultViewOptions}
             value={activeVaultView}
             onChange={setActiveVaultView}

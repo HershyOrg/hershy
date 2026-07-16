@@ -67,14 +67,14 @@ export const userAccountsTable: UserAccountRow[] = [
     },
   },
   {
-    creatorId: "juno.base",
+    creatorId: "juno.core",
     eoaAddress: "0xbddf37ba0ef5943d365243b4a83ed08e0816c3a5",
-    avatarUrl: "https://api.dicebear.com/9.x/personas/svg?seed=juno.base&backgroundColor=c9a956",
+    avatarUrl: "https://api.dicebear.com/9.x/personas/svg?seed=juno.core&backgroundColor=c9a956",
     aliases: ["0x0B17...C3AA"],
     joinedAt: "2026-03-19T00:00:00.000Z",
     socialLinks: {
-      twitter: "https://x.com/juno_base",
-      github: "https://github.com/juno-base",
+      twitter: "https://x.com/juno_core",
+      github: "https://github.com/juno-core",
     },
   },
   {

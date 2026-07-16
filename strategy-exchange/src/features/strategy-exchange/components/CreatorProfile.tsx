@@ -1,4 +1,5 @@
 import type { UserAccountRow } from "../../../../demoDB";
+import { currentExecutionChains } from "../executionChains";
 import { strategies } from "../store/strategyCatalog";
 import type { Creator } from "../types/strategyTypes";
 import { getLargestSwing } from "../utils/strategyMetrics";
@@ -20,7 +21,10 @@ export function CreatorProfile({
 }) {
   const creatorStrategies = strategies.filter((strategy) => strategy.creatorId === creator.id);
   const strategyVenues = Array.from(new Set(creatorStrategies.flatMap((strategy) => strategy.venues)));
-  const strategyChains = Array.from(new Set(creatorStrategies.flatMap((strategy) => strategy.chains)));
+  const shouldShowChains = currentExecutionChains.length > 1;
+  const strategyChains = shouldShowChains
+    ? Array.from(new Set(creatorStrategies.flatMap((strategy) => strategy.chains)))
+    : [];
   const profile = account ? buildUserProfile(creator, account) : null;
   const largestSwing = creatorStrategies
     .map((strategy) => ({ strategy, swing: getLargestSwing(strategy) }))
@@ -95,14 +99,16 @@ export function CreatorProfile({
             ))}
           </div>
         </div>
-        <div className="profile-panel">
-          <h2>Chains</h2>
-          <div className="profile-tags">
-            {Array.from(new Set([...(profile?.chains ?? creator.chains), ...strategyChains])).map((chain) => (
-              <span key={chain}>{chain}</span>
-            ))}
+        {shouldShowChains ? (
+          <div className="profile-panel">
+            <h2>Chains</h2>
+            <div className="profile-tags">
+              {Array.from(new Set([...(profile?.chains ?? creator.chains), ...strategyChains])).map((chain) => (
+                <span key={chain}>{chain}</span>
+              ))}
+            </div>
           </div>
-        </div>
+        ) : null}
       </section>
 
       <section className="profile-strategy-section">

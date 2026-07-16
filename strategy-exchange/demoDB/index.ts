@@ -1,4 +1,9 @@
 export type {
+  AdapterDepositorRow,
+  AdapterFlowRow,
+  AdapterFundingHistoryRow,
+  AdapterPositionRow,
+  AdapterTradeHistoryRow,
   StrategyVaultMetadata,
   StrategyVaultResponse,
   VaultBalanceRow,
@@ -9,12 +14,6 @@ export type {
 export type { UserAccountRow } from "./userTables";
 export type { UserAccountResponse } from "./userQueries";
 export type { DiscussionMessageRow, VaultDiscussionResponse } from "./discussions";
-export type {
-  VaultActivityResponse,
-  VaultActivityTransactionRow,
-  VaultActivityTransactionType,
-  VaultActivityUserRow,
-} from "./activity";
 export {
   buildVaultByAddressEndpoint,
   buildVaultByAddressSql,
@@ -38,10 +37,3 @@ export {
   requestVaultDiscussion,
   selectDiscussionMessagesByVaultAddress,
 } from "./discussions";
-export {
-  buildVaultActivityEndpoint,
-  buildVaultActivitySql,
-  requestVaultActivity,
-  selectVaultActivityTransactionsByVaultAddress,
-  selectVaultActivityUsersByVaultAddress,
-} from "./activity";

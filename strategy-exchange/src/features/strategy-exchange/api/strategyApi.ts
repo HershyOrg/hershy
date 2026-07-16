@@ -9,8 +9,10 @@ import {
 } from "../store/strategyLogicStore";
 import type {
   BrowseFilter,
+  DisclosureMode,
   GraphEdge,
   GraphNode,
+  ProductType,
   Sector,
   Strategy,
   StrategyLogicDraft,
@@ -22,8 +24,6 @@ import { getJson, patchJson, postJson } from "../../../shared/api/client";
 import { updateUserProfile } from "../store/userProfileStore";
 import { z, type ZodType } from "zod";
 import {
-  buildVaultActivityEndpoint,
-  buildVaultActivitySql,
   buildUserByAddressEndpoint,
   buildUserByAddressSql,
   buildVaultByAddressEndpoint,
@@ -34,19 +34,16 @@ import {
   buildVaultByStrategyIdSql,
   selectDiscussionMessagesByVaultAddress,
   selectUserAccountByAddress,
-  selectVaultActivityTransactionsByVaultAddress,
-  selectVaultActivityUsersByVaultAddress,
   selectVaultByAddress,
   selectVaultByStrategyId,
   type StrategyVaultResponse,
   type UserAccountResponse,
-  type VaultActivityResponse,
   type VaultDiscussionResponse,
 } from "../../../../demoDB";
 
 export type StrategyFeedRequest = {
   category: BrowseFilter;
-  type: "All" | Sector;
+  type: "All" | ProductType;
   query: string;
   includeUnconnected: boolean;
   connectedVenues?: string[];
@@ -75,8 +72,25 @@ export type UpdateUserProfileResponse = {
   profile: UserProfileView;
 };
 
-const sectorSchema: ZodType<Sector> = z.enum(["CEX", "DeFi", "Mixed", "Funding", "Basis", "LP/Hedge"]);
-const browseFilterSchema: ZodType<BrowseFilter> = z.enum(["Daily Hot", "New", "Top Gainer", "Top Volume"]);
+const sectorSchema: ZodType<Sector> = z.enum([
+  "Perp Index",
+  "Funding",
+  "Basis",
+  "Market Neutral",
+  "Momentum",
+  "Liquidity",
+  "Volatility",
+  "Risk Hedge",
+]);
+const productTypeSchema: ZodType<ProductType> = z.enum(["Index", "Quant"]);
+const disclosureSchema: ZodType<DisclosureMode> = z.enum(["Full", "PerformanceOnly"]);
+const browseFilterSchema: ZodType<BrowseFilter> = z.enum([
+  "Featured",
+  "Perp Index",
+  "Funding Carry",
+  "Market Neutral",
+  "Tactical Quant",
+]);
 const graphNodeSchema: ZodType<GraphNode> = z.object({
   id: z.string(),
   label: z.string(),
@@ -94,8 +108,12 @@ const strategySchema: ZodType<Strategy> = z.object({
   creatorId: z.string(),
   primarySector: sectorSchema,
   sectors: z.array(sectorSchema),
+  productType: productTypeSchema,
+  disclosure: disclosureSchema,
   venues: z.array(z.string()),
   chains: z.array(z.string()),
+  markets: z.array(z.string()),
+  assetClasses: z.array(z.string()),
   pnlSeries: z.array(z.number()),
   realizedPnl: z.number(),
   pnlPct: z.number(),
@@ -103,9 +121,6 @@ const strategySchema: ZodType<Strategy> = z.object({
   dailyVolume: z.number(),
   winRate: z.number(),
   maxDrawdown: z.number(),
-  traders: z.number(),
-  status: z.enum(["Live", "Cooling", "Paused"]),
-  createdAt: z.string(),
   nodes: z.array(graphNodeSchema),
   edges: z.array(graphEdgeSchema),
 });
@@ -114,7 +129,7 @@ const strategyFeedResponseSchema = z.object({
   endpoint: z.string(),
   request: z.object({
     category: browseFilterSchema,
-    type: z.union([z.literal("All"), sectorSchema]),
+    type: z.union([z.literal("All"), productTypeSchema]),
     query: z.string(),
     includeUnconnected: z.boolean(),
     connectedVenues: z.array(z.string()).optional(),
@@ -165,7 +180,7 @@ const updateUserProfileResponseSchema = z.object({
 const vaultResponseSchema = z.object({
   endpoint: z.string(),
   sql: z.string(),
-  vault: z.unknown().nullable(),
+  adapter: z.unknown().nullable(),
 }) as ZodType<StrategyVaultResponse>;
 
 const userResponseSchema = z.object({
@@ -180,29 +195,30 @@ const discussionResponseSchema = z.object({
   messages: z.array(z.unknown()),
 }) as ZodType<VaultDiscussionResponse>;
 
-const activityResponseSchema = z.object({
-  endpoint: z.string(),
-  sql: z.string(),
-  users: z.array(z.unknown()),
-  transactions: z.array(z.unknown()),
-}) as ZodType<VaultActivityResponse>;
-
-function getCreatedAtHours(createdAt: string) {
-  const match = createdAt.match(/^(\d+)([hd])$/);
-  if (!match) return Number.POSITIVE_INFINITY;
-  const value = Number(match[1]);
-  return match[2] === "d" ? value * 24 : value;
+function getHotScore(strategy: Strategy) {
+  return strategy.deployedCapital / 1200 + strategy.dailyVolume / 1800 + strategy.pnlPct * 18;
 }
 
-function getHotScore(strategy: Strategy) {
-  return strategy.traders * 1.2 + strategy.dailyVolume / 1800 + strategy.pnlPct * 18;
+function strategyMatchesBrowseFilter(strategy: Strategy, category: BrowseFilter) {
+  if (category === "Featured") return true;
+  if (category === "Perp Index") return strategy.productType === "Index" || strategy.sectors.includes("Perp Index");
+  if (category === "Funding Carry") return strategy.sectors.includes("Funding") || strategy.sectors.includes("Basis");
+  if (category === "Market Neutral") {
+    return strategy.sectors.includes("Market Neutral") || strategy.sectors.includes("Risk Hedge");
+  }
+  return strategy.productType === "Quant" && (
+    strategy.sectors.includes("Momentum") ||
+    strategy.sectors.includes("Liquidity") ||
+    strategy.sectors.includes("Volatility")
+  );
 }
 
 function sortStrategiesByCategory(items: Strategy[], category: BrowseFilter) {
   return [...items].sort((a, b) => {
-    if (category === "New") return getCreatedAtHours(a.createdAt) - getCreatedAtHours(b.createdAt);
-    if (category === "Top Gainer") return b.pnlPct - a.pnlPct;
-    if (category === "Top Volume") return b.dailyVolume - a.dailyVolume;
+    if (category === "Perp Index") return b.deployedCapital - a.deployedCapital;
+    if (category === "Funding Carry") return b.pnlPct - a.pnlPct;
+    if (category === "Market Neutral") return a.maxDrawdown - b.maxDrawdown;
+    if (category === "Tactical Quant") return b.dailyVolume - a.dailyVolume;
     return getHotScore(b) - getHotScore(a);
   });
 }
@@ -238,7 +254,8 @@ export function selectStrategyFeed(request: StrategyFeedRequest) {
   const normalizedQuery = request.query.trim().toLowerCase();
   const filtered = strategies.filter((strategy) => {
     const creator = creators[strategy.creatorId];
-    const sectorMatch = request.type === "All" || strategy.sectors.includes(request.type);
+    const productTypeMatch = request.type === "All" || strategy.productType === request.type;
+    const categoryMatch = strategyMatchesBrowseFilter(strategy, request.category);
     const connectionMatch =
       request.includeUnconnected || getDisconnectedVenues(strategy, connectedVenueSet).length === 0;
     const queryMatch =
@@ -246,10 +263,11 @@ export function selectStrategyFeed(request: StrategyFeedRequest) {
       strategy.title.toLowerCase().includes(normalizedQuery) ||
       creator.name.toLowerCase().includes(normalizedQuery) ||
       creator.handle.toLowerCase().includes(normalizedQuery) ||
+      strategy.productType.toLowerCase().includes(normalizedQuery) ||
       strategy.venues.some((venue) => venue.toLowerCase().includes(normalizedQuery)) ||
       strategy.chains.some((chain) => chain.toLowerCase().includes(normalizedQuery));
 
-    return sectorMatch && connectionMatch && queryMatch;
+    return productTypeMatch && categoryMatch && connectionMatch && queryMatch;
   });
 
   if (!request.includeUnconnected) {
@@ -340,7 +358,7 @@ export async function requestVaultMetadata(strategyId: string): Promise<Strategy
   return {
     endpoint,
     sql: buildVaultByStrategyIdSql(strategyId),
-    vault: selectVaultByStrategyId(strategyId),
+    adapter: selectVaultByStrategyId(strategyId),
   };
 }
 
@@ -354,7 +372,7 @@ export async function requestVaultMetadataByAddress(address: string): Promise<St
   return {
     endpoint,
     sql: buildVaultByAddressSql(address),
-    vault: selectVaultByAddress(address),
+    adapter: selectVaultByAddress(address),
   };
 }
 
@@ -383,20 +401,5 @@ export async function requestVaultDiscussion(address: string): Promise<VaultDisc
     endpoint,
     sql: buildVaultDiscussionSql(address),
     messages: selectDiscussionMessagesByVaultAddress(address),
-  };
-}
-
-export async function requestVaultActivity(address: string): Promise<VaultActivityResponse> {
-  const endpoint = buildVaultActivityEndpoint(address);
-  const apiResponse = await getJson(endpoint, activityResponseSchema);
-  if (apiResponse) return apiResponse;
-
-  await new Promise((resolve) => globalThis.setTimeout(resolve, 80));
-
-  return {
-    endpoint,
-    sql: buildVaultActivitySql(address),
-    users: selectVaultActivityUsersByVaultAddress(address),
-    transactions: selectVaultActivityTransactionsByVaultAddress(address),
   };
 }

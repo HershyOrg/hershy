@@ -1,6 +1,6 @@
-import { connectedVenueSet, strategyDescriptions, baseForkCounts } from "../constants";
+import { connectedVenueSet, strategyDescriptions } from "../constants";
 import type { BrowseFilter, Strategy } from "../types/strategyTypes";
-import { formatCompact, formatPct } from "../../../shared/utils/formatters";
+import { formatCompact } from "../../../shared/utils/formatters";
 
 export function getDisconnectedVenues(strategy: Strategy) {
   return strategy.venues.filter((venue) => !connectedVenueSet.has(venue));
@@ -17,33 +17,44 @@ export function getStrategyDescription(strategy: Strategy) {
   return strategyDescriptions[strategy.id] ?? `${strategy.title} strategy logic.`;
 }
 
-export function getBaseForkCount(strategy: Strategy) {
-  return baseForkCounts[strategy.id] ?? Math.max(12, Math.round(strategy.traders * 0.3));
-}
-
-export function getCreatedAtHours(createdAt: string) {
-  const match = createdAt.match(/^(\d+)([hd])$/);
-  if (!match) return Number.POSITIVE_INFINITY;
-  const value = Number(match[1]);
-  return match[2] === "d" ? value * 24 : value;
-}
-
 export function getHotScore(strategy: Strategy) {
-  return strategy.traders * 1.2 + strategy.dailyVolume / 1800 + strategy.pnlPct * 18;
+  return strategy.deployedCapital / 1200 + strategy.dailyVolume / 1800 + strategy.pnlPct * 18;
+}
+
+function getFeaturedScore(strategy: Strategy) {
+  const connectedVenues = strategy.venues.length - getDisconnectedVenues(strategy).length;
+  return getHotScore(strategy) + connectedVenues * 80 + strategy.winRate * 2;
+}
+
+export function strategyMatchesBrowseFilter(strategy: Strategy, filter: BrowseFilter) {
+  if (filter === "Featured") return true;
+  if (filter === "Perp Index") return strategy.productType === "Index" || strategy.sectors.includes("Perp Index");
+  if (filter === "Funding Carry") return strategy.sectors.includes("Funding") || strategy.sectors.includes("Basis");
+  if (filter === "Market Neutral") {
+    return strategy.sectors.includes("Market Neutral") || strategy.sectors.includes("Risk Hedge");
+  }
+  return strategy.productType === "Quant" && (
+    strategy.sectors.includes("Momentum") ||
+    strategy.sectors.includes("Liquidity") ||
+    strategy.sectors.includes("Volatility")
+  );
 }
 
 export function sortStrategiesByFilter(items: Strategy[], filter: BrowseFilter) {
-  return [...items].sort((a, b) => {
-    if (filter === "New") return getCreatedAtHours(a.createdAt) - getCreatedAtHours(b.createdAt);
-    if (filter === "Top Gainer") return b.pnlPct - a.pnlPct;
-    if (filter === "Top Volume") return b.dailyVolume - a.dailyVolume;
-    return getHotScore(b) - getHotScore(a);
-  });
+  return [...items]
+    .filter((strategy) => strategyMatchesBrowseFilter(strategy, filter))
+    .sort((a, b) => {
+      if (filter === "Perp Index") return b.deployedCapital - a.deployedCapital;
+      if (filter === "Funding Carry") return b.pnlPct - a.pnlPct;
+      if (filter === "Market Neutral") return a.maxDrawdown - b.maxDrawdown;
+      if (filter === "Tactical Quant") return b.dailyVolume - a.dailyVolume;
+      return getFeaturedScore(b) - getFeaturedScore(a);
+    });
 }
 
 export function getSpotlightMetric(strategy: Strategy, filter: BrowseFilter) {
-  if (filter === "New") return strategy.createdAt;
-  if (filter === "Top Volume") return `$${formatCompact(strategy.dailyVolume)}`;
-  if (filter === "Daily Hot") return `${getBaseForkCount(strategy)} fork`;
-  return formatPct(strategy.pnlPct);
+  if (filter === "Funding Carry") return `${strategy.pnlPct.toFixed(1)}%`;
+  if (filter === "Market Neutral") return `${strategy.maxDrawdown.toFixed(1)}% DD`;
+  if (filter === "Tactical Quant") return `$${formatCompact(strategy.dailyVolume)}`;
+  return `$${formatCompact(strategy.deployedCapital)} AUM`;
 }

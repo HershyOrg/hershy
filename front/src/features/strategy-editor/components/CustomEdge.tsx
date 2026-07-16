@@ -38,11 +38,16 @@ function CustomEdgeComponent({
   targetHandleId,
   data,
 }: EdgeProps<import("@xyflow/react").Edge<CustomEdgeData>>) {
+  const effectiveSourceHandleId = String(data?.originalSourceHandle ?? sourceHandleId ?? "");
+  const effectiveTargetHandleId = String(data?.originalTargetHandle ?? targetHandleId ?? "");
+  const isCollapsedProxy = Boolean(data?.collapsedProxy);
   const edgeLabel = String(data?.label ?? "").toLowerCase();
-  const isStreamMonitorEdge = edgeLabel === "stream-monitor" || targetHandleId?.includes("-monitor-in");
+  const isStreamMonitorEdge = edgeLabel === "stream-monitor" || effectiveTargetHandleId.includes("-monitor-in");
   const routeCurvature = isStreamMonitorEdge
-    ? 0.2 + (hashText(`${sourceHandleId ?? ""}:${targetHandleId ?? ""}:${id}`) % 3) * 0.03
-    : 0.28 + (hashText(`${sourceHandleId ?? ""}:${targetHandleId ?? ""}:${id}`) % 5) * 0.035;
+    ? 0.2 + (hashText(`${effectiveSourceHandleId}:${effectiveTargetHandleId}:${id}`) % 3) * 0.03
+    : isCollapsedProxy
+      ? 0.22 + (hashText(`${effectiveSourceHandleId}:${effectiveTargetHandleId}:${id}`) % 4) * 0.025
+      : 0.28 + (hashText(`${effectiveSourceHandleId}:${effectiveTargetHandleId}:${id}`) % 5) * 0.035;
   const [edgePath, labelX, labelY] = getBezierPath({
     sourceX,
     sourceY,
@@ -58,11 +63,11 @@ function CustomEdgeComponent({
   const isSharedDataPipeline = Boolean(data?.sharedDataPipeline);
 
   // Determine edge color based on source handle type and highlight state
-  const isBranchEdge = sourceHandleId?.includes("branch");
+  const isBranchEdge = effectiveSourceHandleId.includes("branch");
   const isDataBlockEdge = Boolean(
-    sourceHandleId?.includes("-block-") &&
-      (targetHandleId?.includes("-input-") ||
-        (targetHandleId?.includes("-block-") && targetHandleId?.endsWith("-in")))
+    effectiveSourceHandleId.includes("-block-") &&
+      (effectiveTargetHandleId.includes("-input-") ||
+        (effectiveTargetHandleId.includes("-block-") && effectiveTargetHandleId.endsWith("-in")))
   );
 
   let edgeColor = "var(--advanced-edge-default)";
@@ -82,6 +87,9 @@ function CustomEdgeComponent({
     strokeWidth = 3.5;
   } else if (isBranchEdge) {
     edgeColor = "#22c55e";
+  } else if (isCollapsedProxy) {
+    edgeColor = "var(--advanced-edge-default)";
+    strokeWidth = 3.25;
   } else if (isDataBlockEdge) {
     edgeColor = "var(--advanced-edge-data)";
   }
@@ -134,7 +142,7 @@ function CustomEdgeComponent({
           ...style,
           stroke: resolvedColor,
           strokeWidth: style.strokeWidth || strokeWidth,
-          strokeDasharray: style.strokeDasharray || (isDataBlockEdge ? "8 7" : undefined),
+          strokeDasharray: style.strokeDasharray || (isDataBlockEdge && !isCollapsedProxy ? "8 7" : undefined),
           strokeLinecap: "round",
           strokeLinejoin: "round",
           opacity: style.opacity ?? 1,
@@ -150,7 +158,7 @@ function CustomEdgeComponent({
             }}
             className="rounded-full border border-amber-200 bg-amber-50 px-2 py-0.5 text-[10px] font-bold text-amber-700 shadow-sm dark:border-amber-400/30 dark:bg-amber-400/10 dark:text-amber-200"
           >
-            다음 실행
+            Next Run
           </div>
         </EdgeLabelRenderer>
       ) : null}

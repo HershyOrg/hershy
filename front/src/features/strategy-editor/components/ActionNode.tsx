@@ -30,7 +30,7 @@ import {
   CheckCircle2,
   ExternalLink,
   Loader2
-} from "lucide-react";
+} from "@/shared/components/icons";
 
 const CEX_TIME_IN_FORCE_OPTIONS = [
   { value: "GTC", label: "GTC" },
@@ -47,6 +47,24 @@ const BSC_ETH_USDT_POOL_FEE = 3000;
 const UNISWAP_V3_ROUTER_ABI = parseAbi([
   "function exactInputSingle((address,address,uint24,address,uint256,uint256,uint160) params) payable returns (uint256 amountOut)",
 ]);
+
+const actionLabelClass =
+  "text-[10px] font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400";
+const actionFieldClass =
+  "nodrag nowheel mt-1 w-full rounded-md border border-slate-200 bg-white px-2 py-1.5 text-xs text-slate-900 outline-none transition-colors placeholder:text-slate-400 focus:border-slate-400 focus:ring-1 focus:ring-slate-300 dark:border-slate-700 dark:bg-slate-950 dark:text-slate-100 dark:placeholder:text-slate-600 dark:focus:border-slate-500 dark:focus:ring-slate-700";
+const actionMonoFieldClass = cn(actionFieldClass, "font-mono");
+const actionPanelClass =
+  "border-slate-200 bg-slate-50 dark:border-slate-800 dark:bg-slate-900/70";
+const actionCardClass =
+  "border-slate-200 bg-white text-slate-950 dark:border-slate-800 dark:bg-slate-950 dark:text-slate-100";
+const actionHandleClass =
+  "advanced-port advanced-port--input !border-slate-500 !bg-slate-400 dark:!border-slate-400 dark:!bg-slate-500";
+const actionOutputHandleClass =
+  "advanced-port advanced-port--output !border-emerald-600 !bg-emerald-500 dark:!border-emerald-400 dark:!bg-emerald-500";
+const actionTypeBadgeClass =
+  "rounded border border-slate-200 bg-white px-1.5 py-0.5 text-[9px] font-black text-slate-600 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-300";
+const actionIconClass =
+  "h-4 w-4 shrink-0 text-slate-500 dark:text-slate-400";
 
 function normalizeCEXTimeInForceValue(value: unknown): NonNullable<CEXActionData["timeInForce"]> {
   const text = typeof value === "string" ? value.trim().toUpperCase() : "";
@@ -618,18 +636,14 @@ function ActionNodeComponent({ id, data, selected }: NodeProps) {
     const inputBlocks = typedData.inputBlocks ?? [];
     return (
       <div className={cn(
-        "p-2 border-b grid gap-1",
-        isCEX ? "border-amber-200 bg-amber-50/50" : "border-cyan-200 bg-cyan-50/50"
+        "grid gap-1 border-b p-2",
+        actionPanelClass
       )}>
-        <div className={cn(
-          "text-[10px] font-semibold uppercase mb-1",
-          isCEX ? "text-amber-700" : "text-cyan-700"
-        )}>Input Blocks <span className="font-normal opacity-70">(blocks only)</span></div>
+        <div className={cn(actionLabelClass, "mb-1")}>
+          Input Blocks <span className="font-normal opacity-70">(blocks only)</span>
+        </div>
         {inputBlocks.length === 0 ? (
-          <div className={cn(
-            "text-xs italic",
-            isCEX ? "text-amber-400" : "text-cyan-400"
-          )}>
+          <div className="text-xs italic text-slate-400 dark:text-slate-500">
             No input parameters
           </div>
         ) : inputBlocks.map((block) => {
@@ -641,7 +655,7 @@ function ActionNodeComponent({ id, data, selected }: NodeProps) {
               key={block.id}
               data-connect-target-node={id}
               data-connect-target-handle={`${id}-input-${block.id}-in`}
-              className="nodrag relative group px-2 py-1.5 bg-white border border-gray-200 rounded shadow-sm cursor-grab active:cursor-grabbing"
+              className="nodrag group relative cursor-grab rounded-md border border-slate-200 bg-white px-2 py-1.5 shadow-sm active:cursor-grabbing dark:border-slate-700 dark:bg-slate-950"
               draggable
               onDragStart={(e) => handleDragStart(e, dragName)}
             >
@@ -649,15 +663,16 @@ function ActionNodeComponent({ id, data, selected }: NodeProps) {
                 type="target"
                 position={Position.Left}
                 id={`${id}-input-${block.id}-in`}
-                className="!w-2 !h-2 !bg-blue-400 !border-blue-500"
+                className={cn("!h-2 !w-2", actionHandleClass)}
+                data-port-kind="input"
                 style={{ left: -5 }}
               />
               <input
                 type="text"
                 value={block.name}
                 onChange={(e) => handleBlockChange("input", block.id, { name: e.target.value })}
-                className="w-full bg-transparent text-xs font-semibold text-blue-800 outline-none placeholder:text-blue-300"
-                placeholder="블록 이름"
+                className="w-full bg-transparent text-xs font-semibold text-slate-900 outline-none placeholder:text-slate-400 dark:text-slate-100 dark:placeholder:text-slate-600"
+                placeholder="Block name"
               />
               <input
                 type="text"
@@ -665,11 +680,11 @@ function ActionNodeComponent({ id, data, selected }: NodeProps) {
                 onChange={(e) =>
                   handleBlockChange("input", block.id, { description: e.target.value })
                 }
-                className="mt-0.5 w-full bg-transparent text-[11px] text-blue-500 outline-none placeholder:text-blue-300"
-                placeholder="블록 설명 한 줄"
+                className="mt-0.5 w-full bg-transparent text-[11px] text-slate-500 outline-none placeholder:text-slate-400 dark:text-slate-400 dark:placeholder:text-slate-600"
+                placeholder="One-line block description"
               />
               {block.abiType ? (
-                <div className="mt-1 inline-flex rounded bg-cyan-50 px-1.5 py-0.5 font-mono text-[9px] font-black text-cyan-700">
+                <div className="mt-1 inline-flex rounded border border-slate-200 bg-slate-50 px-1.5 py-0.5 font-mono text-[9px] font-black text-slate-600 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-300">
                   {String(block.abiType)}
                 </div>
               ) : null}
@@ -678,34 +693,29 @@ function ActionNodeComponent({ id, data, selected }: NodeProps) {
                   type="text"
                   value={typeof block.value === "string" || typeof block.value === "number" ? String(block.value) : ""}
                   onChange={(e) => handleBlockChange("input", block.id, { value: e.target.value })}
-                  className="mt-1 w-full rounded border border-cyan-100 bg-cyan-50/80 px-1.5 py-1 font-mono text-[10px] text-cyan-900 outline-none placeholder:text-cyan-300 focus:border-cyan-300"
+                  className="mt-1 w-full rounded border border-slate-200 bg-slate-50 px-1.5 py-1 font-mono text-[10px] text-slate-900 outline-none placeholder:text-slate-400 focus:border-slate-400 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100 dark:placeholder:text-slate-600"
                   placeholder={`${block.name} value`}
                 />
               ) : null}
               {block.connectedFrom ? (
-                <div className="mt-1 truncate rounded bg-blue-50 px-1.5 py-0.5 text-[10px] font-semibold text-blue-700">
+                <div className="mt-1 truncate rounded border border-slate-200 bg-slate-50 px-1.5 py-0.5 text-[10px] font-semibold text-slate-600 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-300">
                   {String(block.connectedFrom)}
                 </div>
               ) : null}
               <button
                 onClick={() => handleRemoveInputBlock(block.id)}
-                className="absolute right-4 top-1.5 opacity-0 group-hover:opacity-100 p-0.5 hover:bg-red-50 rounded"
+                className="absolute right-4 top-1.5 rounded p-0.5 text-rose-500 opacity-0 transition-colors hover:bg-rose-50 group-hover:opacity-100 dark:hover:bg-rose-400/10"
               >
-                <X className="w-3 h-3 text-red-500" />
+                <X className="h-3 w-3" />
               </button>
             </div>
           );
         })}
         <button
           onClick={handleAddInputBlock}
-          className={cn(
-            "w-full mt-1 px-2 py-1 text-[10px] flex items-center justify-center gap-1 rounded border border-dashed transition-colors",
-            isCEX 
-              ? "text-amber-600 border-amber-300 hover:bg-amber-100" 
-              : "text-cyan-600 border-cyan-300 hover:bg-cyan-100"
-          )}
+          className="mt-1 flex w-full items-center justify-center gap-1 rounded-md border border-dashed border-slate-300 px-2 py-1 text-[10px] font-semibold text-slate-500 transition-colors hover:border-slate-400 hover:bg-white hover:text-slate-700 dark:border-slate-700 dark:text-slate-400 dark:hover:bg-slate-950 dark:hover:text-slate-200"
         >
-          <Plus className="w-3 h-3" />
+          <Plus className="h-3 w-3" />
           Add Block
         </button>
       </div>
@@ -716,31 +726,43 @@ function ActionNodeComponent({ id, data, selected }: NodeProps) {
   if (!isExpanded) {
     return (
       <div
+        data-connect-target-node={id}
+        data-connect-target-handle={`${id}-collapsed-in`}
         className={cn(
-          "relative min-w-[160px] border-2 rounded-md shadow-sm transition-all",
-          isCEX ? "bg-amber-50 border-amber-400" : "bg-cyan-50 border-cyan-400",
-          selected && (isCEX ? "border-amber-500 ring-2 ring-amber-200" : "border-cyan-500 ring-2 ring-cyan-200")
+          "relative min-w-[184px] overflow-hidden rounded-md border shadow-sm transition-all",
+          actionCardClass,
+          selected && "border-slate-400 ring-2 ring-slate-200 dark:border-slate-500 dark:ring-slate-700"
         )}
       >
-        {/* Input Handle */}
+        <Handle
+          type="target"
+          position={Position.Left}
+          id={`${id}-collapsed-in`}
+          className="advanced-port advanced-port--node advanced-port--input"
+          data-port-kind="node-input"
+          style={{ top: "50%", left: -9 }}
+        />
+        <Handle
+          type="source"
+          position={Position.Right}
+          id={`${id}-collapsed-out`}
+          className="advanced-port advanced-port--node advanced-port--output"
+          data-port-kind="node-output"
+          style={{ top: "50%", right: -9 }}
+        />
+
+        {/* Hidden legacy handles keep old saved graphs readable without inviting node-level wiring. */}
         <Handle
           type="target"
           position={Position.Left}
           id={`${id}-func-in`}
           className={cn(
             "!w-2.5 !h-2.5",
-            isCEX ? "!bg-amber-400 !border-amber-500" : "!bg-cyan-400 !border-cyan-500"
+            actionHandleClass
           )}
-          style={{ top: "50%", left: -5 }}
+          data-port-kind="legacy-input"
+          style={{ top: "50%", left: -5, opacity: 0, pointerEvents: "none" }}
         />
-        <div
-          className={cn(
-            "pointer-events-none absolute left-0 top-1/2 -translate-x-[calc(100%+8px)] -translate-y-1/2 rounded px-1.5 py-0.5 text-[9px] font-black shadow-sm",
-            isCEX ? "bg-amber-500 text-white" : "bg-cyan-500 text-white",
-          )}
-        >
-          YES
-        </div>
         {typedData.inputBlocks?.map((block, index) => (
           <Handle
             key={block.id}
@@ -749,68 +771,55 @@ function ActionNodeComponent({ id, data, selected }: NodeProps) {
             id={`${id}-input-${block.id}-in`}
             className={cn(
               "!h-2 !w-2 opacity-0",
-              isCEX ? "!border-amber-500 !bg-amber-400" : "!border-cyan-500 !bg-cyan-400"
+              actionHandleClass
             )}
+            data-port-kind="legacy-input"
             style={{
               top: `calc(50% + ${(index - (typedData.inputBlocks.length - 1) / 2) * 10}px)`,
               left: -5,
+              pointerEvents: "none",
             }}
           />
         ))}
 
         {/* Header */}
-        <div className={cn(
-          "flex items-center justify-between gap-2 px-2 py-1.5 rounded-t-sm",
-          isCEX ? "bg-amber-500" : "bg-cyan-500"
-        )}>
+        <div className="flex items-center justify-between gap-2 border-b border-slate-200 bg-slate-50 px-2.5 py-2 dark:border-slate-800 dark:bg-slate-900">
           <div className="flex items-center gap-1.5">
             {isCEX ? (
-              <Building2 className="w-3.5 h-3.5 text-white" />
+              <Building2 className="h-3.5 w-3.5 text-slate-500 dark:text-slate-400" />
             ) : (
-              <Globe className="w-3.5 h-3.5 text-white" />
+              <Globe className="h-3.5 w-3.5 text-slate-500 dark:text-slate-400" />
             )}
-            <span className="text-xs font-semibold text-white">ACTION</span>
-            <span className="rounded bg-white/20 px-1.5 py-0.5 text-[9px] font-black text-white">
+            <span className="text-xs font-semibold text-slate-900 dark:text-slate-100">Action</span>
+            <span className={actionTypeBadgeClass}>
               {typedData.actionType}
             </span>
           </div>
           <button
             onClick={handleToggleExpand}
-            className={cn(
-              "p-0.5 rounded transition-colors",
-              isCEX ? "hover:bg-amber-600" : "hover:bg-cyan-600"
-            )}
+            className="rounded p-0.5 text-slate-500 transition-colors hover:bg-slate-200 hover:text-slate-900 dark:text-slate-400 dark:hover:bg-slate-800 dark:hover:text-slate-100"
           >
-            <Maximize2 className="w-3 h-3 text-white" />
+            <Maximize2 className="h-3 w-3" />
           </button>
         </div>
 
         {/* Function Name / Action Summary */}
-        <div className={cn(
-          "px-2 py-1.5 text-[11px] font-medium border-b",
-          isCEX ? "text-amber-900 border-amber-200 bg-amber-100/50" : "text-cyan-900 border-cyan-200 bg-cyan-100/50"
-        )}>
+        <div className="border-b border-slate-100 px-2.5 py-2 text-[11px] font-medium dark:border-slate-800">
           <textarea
             value={typedData.label}
             onChange={handleLabelChange}
-            className="w-full bg-transparent border-none text-center resize-none focus:outline-none placeholder:text-gray-400"
+            className="w-full resize-none border-none bg-transparent text-left font-semibold text-slate-800 outline-none placeholder:text-slate-400 dark:text-slate-100 dark:placeholder:text-slate-600"
             rows={2}
-            placeholder="동작 설명 입력"
+            placeholder="Enter action description"
           />
         </div>
 
         {/* Output Block */}
         <div className="relative px-2 py-1.5 rounded-b-sm">
-          <div className={cn(
-            "text-[10px] font-semibold",
-            isCEX ? "text-amber-700" : "text-cyan-700"
-          )}>
+          <div className="text-[10px] font-semibold text-slate-700 dark:text-slate-300">
             {primaryOutputBlock?.name || "success"}
           </div>
-          <div className={cn(
-            "mt-0.5 min-h-[13px] text-[10px]",
-            isCEX ? "text-amber-500" : "text-cyan-500"
-          )}>
+          <div className="mt-0.5 min-h-[13px] text-[10px] text-slate-400 dark:text-slate-500">
             {primaryOutputBlock?.description || ""}
           </div>
           {primaryOutputBlock ? (
@@ -821,16 +830,18 @@ function ActionNodeComponent({ id, data, selected }: NodeProps) {
                 id={`${id}-block-${primaryOutputBlock.id}-out`}
                 className={cn(
                   "!w-2.5 !h-2.5",
-                  isCEX ? "!bg-amber-500 !border-amber-600" : "!bg-cyan-500 !border-cyan-600"
+                  actionOutputHandleClass
                 )}
-                style={{ right: -5 }}
+                data-port-kind="legacy-output"
+                style={{ right: -5, opacity: 0, pointerEvents: "none" }}
               />
               <Handle
                 type="source"
                 position={Position.Right}
                 id={`${id}-success-out`}
                 className="!h-1 !w-1 !border-transparent !bg-transparent"
-                style={{ right: -5 }}
+                data-port-kind="legacy-output"
+                style={{ right: -5, pointerEvents: "none" }}
               />
             </>
           ) : null}
@@ -843,50 +854,42 @@ function ActionNodeComponent({ id, data, selected }: NodeProps) {
   return (
     <div
       className={cn(
-        "relative w-[420px] border-2 rounded-lg shadow-xl transition-all ring-4",
-        isCEX 
-          ? "bg-amber-50 border-amber-400 ring-amber-300/50" 
-          : "bg-cyan-50 border-cyan-400 ring-cyan-300/50",
-        selected && (isCEX ? "border-amber-500" : "border-cyan-500")
+        "relative w-[420px] overflow-hidden rounded-md border shadow-xl transition-all",
+        actionCardClass,
+        selected && "border-slate-400 ring-2 ring-slate-200 dark:border-slate-500 dark:ring-slate-700"
       )}
     >
-      {/* Input Handle */}
+      {/* Hidden legacy node handle; expanded actions should wire through input blocks. */}
       <Handle
         type="target"
         position={Position.Left}
         id={`${id}-func-in`}
         className={cn(
           "!w-3 !h-3",
-          isCEX ? "!bg-amber-400 !border-amber-500" : "!bg-cyan-400 !border-cyan-500"
+          actionHandleClass
         )}
-        style={{ top: 36, left: -6 }}
+        data-port-kind="legacy-input"
+        style={{ top: 36, left: -6, opacity: 0, pointerEvents: "none" }}
       />
-      <div
-        className={cn(
-          "pointer-events-none absolute left-0 top-9 -translate-x-[calc(100%+9px)] rounded px-1.5 py-0.5 text-[9px] font-black shadow-sm",
-          isCEX ? "bg-amber-500 text-white" : "bg-cyan-500 text-white",
-        )}
-      >
-        YES
-      </div>
-
       {/* Header */}
-      <div className={cn(
-        "flex items-center justify-between gap-2 px-3 py-2 rounded-t-md",
-        isCEX ? "bg-amber-500" : "bg-cyan-500"
-      )}>
-        <div className="flex items-center gap-2">
+      <div className="flex items-center justify-between gap-2 border-b border-slate-200 bg-slate-50 px-3 py-2 dark:border-slate-800 dark:bg-slate-900">
+        <div className="flex min-w-0 items-center gap-2">
           {isCEX ? (
-            <Building2 className="w-4 h-4 text-white" />
+            <Building2 className={actionIconClass} />
           ) : (
-            <Globe className="w-4 h-4 text-white" />
+            <Globe className={actionIconClass} />
           )}
-          <span className="text-sm font-bold text-white">
-            Action - {typedData.label}
-          </span>
+          <div className="min-w-0">
+            <div className="truncate text-sm font-bold text-slate-900 dark:text-slate-100">
+              {typedData.label || "Action"}
+            </div>
+            <div className="text-[10px] font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">
+              Execution block
+            </div>
+          </div>
         </div>
         <div className="flex items-center gap-1">
-          <div className="flex rounded border border-white/30 bg-white/12 p-0.5">
+          <div className="flex rounded-md border border-slate-200 bg-white p-0.5 dark:border-slate-700 dark:bg-slate-950">
             {(["DEX", "CEX"] as const).map((actionType) => (
               <button
                 key={actionType}
@@ -895,8 +898,8 @@ function ActionNodeComponent({ id, data, selected }: NodeProps) {
                 className={cn(
                   "rounded px-2 py-0.5 text-[10px] font-black transition-colors",
                   typedData.actionType === actionType
-                    ? "bg-white text-slate-900"
-                    : "text-white/80 hover:bg-white/15 hover:text-white",
+                    ? "bg-slate-900 text-white dark:bg-slate-100 dark:text-slate-950"
+                    : "text-slate-500 hover:bg-slate-100 hover:text-slate-900 dark:text-slate-400 dark:hover:bg-slate-800 dark:hover:text-slate-100",
                 )}
               >
                 {actionType}
@@ -905,12 +908,9 @@ function ActionNodeComponent({ id, data, selected }: NodeProps) {
           </div>
           <button
             onClick={handleToggleExpand}
-            className={cn(
-              "p-1 rounded transition-colors",
-              isCEX ? "hover:bg-amber-600" : "hover:bg-cyan-600"
-            )}
+            className="rounded p-1 text-slate-500 transition-colors hover:bg-slate-200 hover:text-slate-900 dark:text-slate-400 dark:hover:bg-slate-800 dark:hover:text-slate-100"
           >
-            <Minimize2 className="w-4 h-4 text-white" />
+            <Minimize2 className="h-4 w-4" />
           </button>
         </div>
       </div>
@@ -919,15 +919,15 @@ function ActionNodeComponent({ id, data, selected }: NodeProps) {
 
       {/* CEX Specific Fields */}
 	      {isCEX && (
-	        <div className="p-3 border-b border-amber-200">
+	        <div className="border-b border-slate-200 bg-white p-3 dark:border-slate-800 dark:bg-slate-950">
 	          <div className="grid grid-cols-2 gap-2">
 	            {/* Exchange */}
 	            <div className={isPolymarketCEX ? "col-span-2" : ""}>
-	              <label className="text-[10px] font-semibold text-amber-700 uppercase">Exchange</label>
+	              <label className={actionLabelClass}>Exchange</label>
 	              <select
 	                value={cexData.exchange}
 	                onChange={(e) => handleCEXExchangeChange(e.target.value)}
-	                className="w-full mt-1 px-2 py-1.5 text-xs bg-white border border-amber-200 rounded focus:outline-none focus:ring-1 focus:ring-amber-400"
+	                className={actionFieldClass}
 	              >
 	                {SUPPORTED_CEX_TRADE_EXCHANGES.map((exchange) => (
 	                  <option key={exchange.id} value={exchange.name}>{exchange.name}</option>
@@ -937,12 +937,12 @@ function ActionNodeComponent({ id, data, selected }: NodeProps) {
 	
 	            {!isPolymarketCEX && (
 	              <div>
-	                <label className="text-[10px] font-semibold text-amber-700 uppercase">Symbol</label>
+	                <label className={actionLabelClass}>Symbol</label>
 	                <input
 	                  type="text"
 	                  value={cexData.symbol}
 	                  onChange={(e) => handleUpdateField("symbol", e.target.value)}
-	                  className="w-full mt-1 px-2 py-1.5 text-xs bg-white border border-amber-200 rounded focus:outline-none focus:ring-1 focus:ring-amber-400 font-mono"
+	                  className={actionMonoFieldClass}
 	                  placeholder="BTC/USDT"
 	                />
 	              </div>
@@ -950,56 +950,56 @@ function ActionNodeComponent({ id, data, selected }: NodeProps) {
 	          </div>
 
 	          {isPolymarketCEX ? (
-	            <div className="mt-2 rounded border border-cyan-200 bg-cyan-50/80 p-2">
+	            <div className="mt-2 rounded-md border border-slate-200 bg-slate-50 p-2 dark:border-slate-800 dark:bg-slate-900/70">
 	              <div className="mb-2 flex items-center justify-between gap-2">
-	                <span className="text-[10px] font-bold uppercase tracking-wide text-cyan-700">Polymarket CLOB</span>
-	                <span className="rounded-full bg-white px-2 py-0.5 text-[10px] font-bold text-cyan-700">
+	                <span className={actionLabelClass}>Polymarket CLOB</span>
+	                <span className="rounded border border-slate-200 bg-white px-2 py-0.5 text-[10px] font-bold text-slate-600 dark:border-slate-700 dark:bg-slate-950 dark:text-slate-300">
 	                  Chain {cexData.chainId || 137}
 	                </span>
 	              </div>
 	              <div className="grid grid-cols-2 gap-2">
 	                <div>
-	                  <label className="text-[10px] font-semibold text-cyan-700 uppercase">Market Label</label>
+	                  <label className={actionLabelClass}>Market Label</label>
 	                  <input
 	                    type="text"
 	                    value={cexData.polymarketMarketTitle || ""}
 	                    onChange={(e) => handleUpdateField("polymarketMarketTitle", e.target.value)}
-	                    className="w-full mt-1 px-2 py-1.5 text-xs bg-white border border-cyan-200 rounded focus:outline-none focus:ring-1 focus:ring-cyan-400"
+	                    className={actionFieldClass}
 	                    placeholder="e.g. Fed 25bp Cut"
 	                  />
 	                </div>
 	                <div>
-	                  <label className="text-[10px] font-semibold text-cyan-700 uppercase">Outcome</label>
+	                  <label className={actionLabelClass}>Outcome</label>
 	                  <input
 	                    type="text"
 	                    value={cexData.polymarketOutcomeLabel || ""}
 	                    onChange={(e) => handleUpdateField("polymarketOutcomeLabel", e.target.value)}
-	                    className="w-full mt-1 px-2 py-1.5 text-xs bg-white border border-cyan-200 rounded focus:outline-none focus:ring-1 focus:ring-cyan-400"
+	                    className={actionFieldClass}
 	                    placeholder="YES"
 	                  />
 	                </div>
 	                <div className="col-span-2">
-	                  <label className="text-[10px] font-semibold text-cyan-700 uppercase">Outcome Token ID</label>
+	                  <label className={actionLabelClass}>Outcome Token ID</label>
 	                  <input
 	                    type="text"
 	                    value={cexData.tokenId || ""}
 	                    onChange={(e) => handleUpdateField("tokenId", e.target.value)}
-	                    className="w-full mt-1 px-2 py-1.5 text-xs bg-white border border-cyan-200 rounded focus:outline-none focus:ring-1 focus:ring-cyan-400 font-mono"
+	                    className={actionMonoFieldClass}
 	                    placeholder="Polymarket token_id"
 	                  />
 	                </div>
 	                <div>
-	                  <label className="text-[10px] font-semibold text-cyan-700 uppercase">Side</label>
+	                  <label className={actionLabelClass}>Side</label>
 	                  <div className="flex gap-1 mt-1">
 	                    {(["BUY", "SELL"] as const).map((side) => (
 	                      <button
 	                        key={side}
 	                        onClick={() => handleUpdateField("side", side)}
 	                        className={cn(
-	                          "flex-1 px-2 py-1.5 text-xs font-semibold rounded transition-colors",
+	                          "flex-1 rounded-md border px-2 py-1.5 text-xs font-semibold transition-colors",
 	                          cexData.side === side
-	                            ? side === "BUY" ? "bg-green-500 text-white" : "bg-red-500 text-white"
-	                            : "bg-white border border-cyan-200 text-cyan-700 hover:bg-cyan-100"
+	                            ? side === "BUY" ? "border-emerald-600 bg-emerald-600 text-white" : "border-rose-600 bg-rose-600 text-white"
+	                            : "border-slate-200 bg-white text-slate-600 hover:bg-slate-50 dark:border-slate-700 dark:bg-slate-950 dark:text-slate-300 dark:hover:bg-slate-900"
 	                        )}
 	                      >
 	                        {side}
@@ -1008,11 +1008,11 @@ function ActionNodeComponent({ id, data, selected }: NodeProps) {
 	                  </div>
 	                </div>
 	                <div>
-	                  <label className="text-[10px] font-semibold text-cyan-700 uppercase">Order Type</label>
+	                  <label className={actionLabelClass}>Order Type</label>
 	                  <select
 	                    value={cexData.polymarketOrderType || "GTC"}
 	                    onChange={(e) => handleUpdateField("polymarketOrderType", e.target.value)}
-	                    className="w-full mt-1 px-2 py-1.5 text-xs bg-white border border-cyan-200 rounded focus:outline-none focus:ring-1 focus:ring-cyan-400"
+	                    className={actionFieldClass}
 	                  >
 	                    <option value="GTC">GTC</option>
 	                    <option value="FAK">FAK</option>
@@ -1020,7 +1020,7 @@ function ActionNodeComponent({ id, data, selected }: NodeProps) {
 	                  </select>
 	                </div>
 	                <div>
-	                  <label className="text-[10px] font-semibold text-cyan-700 uppercase">Price</label>
+	                  <label className={actionLabelClass}>Price</label>
 	                  <input
 	                    type="number"
 	                    min="0"
@@ -1028,40 +1028,40 @@ function ActionNodeComponent({ id, data, selected }: NodeProps) {
 	                    step="0.01"
 	                    value={cexData.price || ""}
 	                    onChange={(e) => handleUpdateField("price", e.target.value)}
-	                    className="w-full mt-1 px-2 py-1.5 text-xs bg-white border border-cyan-200 rounded focus:outline-none focus:ring-1 focus:ring-cyan-400 font-mono"
+	                    className={actionMonoFieldClass}
 	                    placeholder="0.52"
 	                  />
 	                </div>
 	                <div>
-	                  <label className="text-[10px] font-semibold text-cyan-700 uppercase">Size</label>
+	                  <label className={actionLabelClass}>Size</label>
 	                  <input
 	                    type="number"
 	                    min="0"
 	                    step="0.01"
 	                    value={cexData.size || ""}
 	                    onChange={(e) => handleUpdateField("size", e.target.value)}
-	                    className="w-full mt-1 px-2 py-1.5 text-xs bg-white border border-cyan-200 rounded focus:outline-none focus:ring-1 focus:ring-cyan-400 font-mono"
+	                    className={actionMonoFieldClass}
 	                    placeholder="10"
 	                  />
 	                </div>
 	                <div>
-	                  <label className="text-[10px] font-semibold text-cyan-700 uppercase">Post Only</label>
+	                  <label className={actionLabelClass}>Post Only</label>
 	                  <select
 	                    value={String(cexData.postOnly ?? false)}
 	                    onChange={(e) => handleUpdateField("postOnly", e.target.value === "true")}
-	                    className="w-full mt-1 px-2 py-1.5 text-xs bg-white border border-cyan-200 rounded focus:outline-none focus:ring-1 focus:ring-cyan-400"
+	                    className={actionFieldClass}
 	                  >
 	                    <option value="false">Off</option>
 	                    <option value="true">On</option>
 	                  </select>
 	                </div>
 	                <div>
-	                  <label className="text-[10px] font-semibold text-cyan-700 uppercase">Chain ID</label>
+	                  <label className={actionLabelClass}>Chain ID</label>
 	                  <input
 	                    type="number"
 	                    value={cexData.chainId || 137}
 	                    onChange={(e) => handleUpdateField("chainId", parseInt(e.target.value, 10) || 137)}
-	                    className="w-full mt-1 px-2 py-1.5 text-xs bg-white border border-cyan-200 rounded focus:outline-none focus:ring-1 focus:ring-cyan-400 font-mono"
+	                    className={actionMonoFieldClass}
 	                    placeholder="137"
 	                  />
 	                </div>
@@ -1074,8 +1074,8 @@ function ActionNodeComponent({ id, data, selected }: NodeProps) {
               onDragOver={handleDragOver}
               onDrop={(e) => handleDropOnField(e, "amount")}
             >
-              <label className="text-[10px] font-semibold text-amber-700 uppercase flex items-center justify-between">
-                Amount <span className="text-[8px] text-amber-500 font-normal">(Drop block here)</span>
+              <label className={cn(actionLabelClass, "flex items-center justify-between")}>
+                Amount <span className="text-[8px] font-normal text-slate-400 dark:text-slate-500">(Drop block here)</span>
               </label>
               <div className="flex flex-col mt-1 gap-1">
                 {(() => {
@@ -1083,17 +1083,17 @@ function ActionNodeComponent({ id, data, selected }: NodeProps) {
                   if (typeof val === "string" && val.startsWith("{{") && val.endsWith("}}")) {
                     const varName = val.slice(2, -2);
                     return (
-                      <div className="flex items-center justify-between w-full px-2 py-1 bg-white border border-amber-300 rounded shadow-inner">
-                        <div className="flex items-center gap-1.5 bg-amber-100 text-amber-900 border border-amber-200 px-2 py-0.5 rounded font-mono text-[10px] truncate max-w-[130px]">
-                          <div className="w-1.5 h-1.5 rounded-full bg-amber-500 flex-shrink-0 shadow-sm" />
+                      <div className="flex w-full items-center justify-between rounded-md border border-slate-200 bg-white px-2 py-1 shadow-inner dark:border-slate-700 dark:bg-slate-950">
+                        <div className="flex max-w-[130px] items-center gap-1.5 truncate rounded border border-slate-200 bg-slate-50 px-2 py-0.5 font-mono text-[10px] text-slate-700 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200">
+                          <div className="h-1.5 w-1.5 flex-shrink-0 rounded-full bg-slate-400 shadow-sm dark:bg-slate-500" />
                           <span className="truncate">{varName}</span>
                         </div>
                         <button
                           onClick={() => handleUpdateField("amount", "")}
-                          className="p-0.5 hover:bg-amber-100 rounded text-amber-500 transition-colors"
+                          className="rounded p-0.5 text-slate-400 transition-colors hover:bg-slate-100 hover:text-rose-500 dark:hover:bg-slate-900"
                           title="Remove block"
                         >
-                          <X className="w-3 h-3" />
+                          <X className="h-3 w-3" />
                         </button>
                       </div>
                     );
@@ -1103,7 +1103,7 @@ function ActionNodeComponent({ id, data, selected }: NodeProps) {
                       type="text"
                       value={val}
                       onChange={(e) => handleUpdateField("amount", e.target.value)}
-                      className="w-full px-2 py-1.5 text-xs bg-white border border-amber-200 rounded focus:outline-none focus:ring-1 focus:ring-amber-400 font-mono"
+                      className="w-full rounded-md border border-slate-200 bg-white px-2 py-1.5 font-mono text-xs text-slate-900 outline-none transition-colors placeholder:text-slate-400 focus:border-slate-400 focus:ring-1 focus:ring-slate-300 dark:border-slate-700 dark:bg-slate-950 dark:text-slate-100 dark:placeholder:text-slate-600 dark:focus:border-slate-500 dark:focus:ring-slate-700"
                       placeholder="e.g. 500 or Drop block"
                     />
                   );
@@ -1113,15 +1113,15 @@ function ActionNodeComponent({ id, data, selected }: NodeProps) {
             
             {/* Side */}
             <div>
-              <label className="text-[10px] font-semibold text-amber-700 uppercase">Side</label>
+              <label className={actionLabelClass}>Side</label>
               <div className="flex gap-1 mt-1">
                 <button
                   onClick={() => handleUpdateField("side", "BUY")}
                   className={cn(
-                    "flex-1 px-2 py-1.5 text-xs font-semibold rounded transition-colors",
+                    "flex-1 rounded-md border px-2 py-1.5 text-xs font-semibold transition-colors",
                     (typedData as CEXActionData).side === "BUY"
-                      ? "bg-green-500 text-white"
-                      : "bg-white border border-amber-200 text-amber-600 hover:bg-green-50"
+                      ? "border-emerald-600 bg-emerald-600 text-white"
+                      : "border-slate-200 bg-white text-slate-600 hover:bg-slate-50 dark:border-slate-700 dark:bg-slate-950 dark:text-slate-300 dark:hover:bg-slate-900"
                   )}
                 >
                   BUY
@@ -1129,10 +1129,10 @@ function ActionNodeComponent({ id, data, selected }: NodeProps) {
                 <button
                   onClick={() => handleUpdateField("side", "SELL")}
                   className={cn(
-                    "flex-1 px-2 py-1.5 text-xs font-semibold rounded transition-colors",
+                    "flex-1 rounded-md border px-2 py-1.5 text-xs font-semibold transition-colors",
                     (typedData as CEXActionData).side === "SELL"
-                      ? "bg-red-500 text-white"
-                      : "bg-white border border-amber-200 text-amber-600 hover:bg-red-50"
+                      ? "border-rose-600 bg-rose-600 text-white"
+                      : "border-slate-200 bg-white text-slate-600 hover:bg-slate-50 dark:border-slate-700 dark:bg-slate-950 dark:text-slate-300 dark:hover:bg-slate-900"
                   )}
                 >
                   SELL
@@ -1142,11 +1142,11 @@ function ActionNodeComponent({ id, data, selected }: NodeProps) {
 
             {/* Order Type */}
             <div>
-              <label className="text-[10px] font-semibold text-amber-700 uppercase">Order Type</label>
+              <label className={actionLabelClass}>Order Type</label>
               <select
                 value={(typedData as CEXActionData).orderType}
                 onChange={(e) => handleUpdateField("orderType", e.target.value)}
-                className="w-full mt-1 px-2 py-1.5 text-xs bg-white border border-amber-200 rounded focus:outline-none focus:ring-1 focus:ring-amber-400"
+                className={actionFieldClass}
               >
                 <option value="MARKET">Market</option>
                 <option value="LIMIT">Limit</option>
@@ -1155,11 +1155,11 @@ function ActionNodeComponent({ id, data, selected }: NodeProps) {
 
             {/* Fill Policy */}
             <div>
-              <label className="text-[10px] font-semibold text-amber-700 uppercase">Fill Policy</label>
+              <label className={actionLabelClass}>Fill Policy</label>
               <select
                 value={normalizeCEXTimeInForceValue((typedData as CEXActionData).timeInForce)}
                 onChange={(e) => handleUpdateField("timeInForce", e.target.value)}
-                className="w-full mt-1 px-2 py-1.5 text-xs bg-white border border-amber-200 rounded focus:outline-none focus:ring-1 focus:ring-amber-400"
+                className={actionFieldClass}
               >
                 {CEX_TIME_IN_FORCE_OPTIONS.map((option) => (
                   <option key={option.value} value={option.value}>{option.label}</option>
@@ -1169,11 +1169,11 @@ function ActionNodeComponent({ id, data, selected }: NodeProps) {
 
             {/* Amount Type */}
             <div>
-              <label className="text-[10px] font-semibold text-amber-700 uppercase">Amount Type</label>
+              <label className={actionLabelClass}>Amount Type</label>
               <select
                 value={(typedData as CEXActionData).amountType}
                 onChange={(e) => handleUpdateField("amountType", e.target.value)}
-                className="w-full mt-1 px-2 py-1.5 text-xs bg-white border border-amber-200 rounded focus:outline-none focus:ring-1 focus:ring-amber-400"
+                className={actionFieldClass}
               >
                 <option value="FIXED">Fixed</option>
                 <option value="PERCENT">Percent (%)</option>
@@ -1183,12 +1183,12 @@ function ActionNodeComponent({ id, data, selected }: NodeProps) {
             {/* Price (for limit orders) */}
             {(typedData as CEXActionData).orderType === "LIMIT" && (
               <div className="col-span-2">
-                <label className="text-[10px] font-semibold text-amber-700 uppercase">Limit Price</label>
+                <label className={actionLabelClass}>Limit Price</label>
                 <input
                   type="text"
                   value={(typedData as CEXActionData).price || ""}
                   onChange={(e) => handleUpdateField("price", e.target.value)}
-                  className="w-full mt-1 px-2 py-1.5 text-xs bg-white border border-amber-200 rounded focus:outline-none focus:ring-1 focus:ring-amber-400 font-mono"
+                  className={actionMonoFieldClass}
                   placeholder="50000"
                 />
 	              </div>
@@ -1200,39 +1200,39 @@ function ActionNodeComponent({ id, data, selected }: NodeProps) {
 
       {/* DEX Specific Fields */}
       {!isCEX && (
-        <div className="p-3 border-b border-cyan-200">
+        <div className="border-b border-slate-200 bg-white p-3 dark:border-slate-800 dark:bg-slate-950">
           <div className="space-y-2">
             {/* Contract Address */}
             <div>
-              <label className="text-[10px] font-semibold text-cyan-700 uppercase">Contract Address / to</label>
+              <label className={actionLabelClass}>Contract Address / to</label>
               <input
                 type="text"
                 value={(typedData as DEXActionData).contractAddress}
                 onChange={(e) => handleUpdateField("contractAddress", e.target.value)}
-                className="w-full mt-1 px-2 py-1.5 text-xs bg-white border border-cyan-200 rounded focus:outline-none focus:ring-1 focus:ring-cyan-400 font-mono"
+                className={actionMonoFieldClass}
                 placeholder="0x..."
               />
             </div>
 
             {/* Function Name */}
             <div>
-              <label className="text-[10px] font-semibold text-cyan-700 uppercase">Function Name</label>
+              <label className={actionLabelClass}>Function Name</label>
               <input
                 type="text"
                 value={(typedData as DEXActionData).functionName}
                 onChange={(e) => handleDEXFunctionNameChange(e.target.value)}
-                className="w-full mt-1 px-2 py-1.5 text-xs bg-white border border-cyan-200 rounded focus:outline-none focus:ring-1 focus:ring-cyan-400 font-mono"
+                className={actionMonoFieldClass}
                 placeholder="swap(address,uint256)"
               />
             </div>
 
             {dexFunctionOptions.length > 0 ? (
               <div>
-                <label className="text-[10px] font-semibold text-cyan-700 uppercase">ABI Function</label>
+                <label className={actionLabelClass}>ABI Function</label>
                 <select
                   value={dexParameterInfo.method ? getABIFunctionSignature(dexParameterInfo.method) : dexFunctionSignature.signature}
                   onChange={(event) => handleDEXFunctionNameChange(event.target.value)}
-                  className="w-full mt-1 px-2 py-1.5 text-xs bg-white border border-cyan-200 rounded focus:outline-none focus:ring-1 focus:ring-cyan-400 font-mono"
+                  className={actionMonoFieldClass}
                 >
                   {dexFunctionOptions.map((option) => (
                     <option key={option.signature} value={option.signature}>
@@ -1244,21 +1244,21 @@ function ActionNodeComponent({ id, data, selected }: NodeProps) {
             ) : null}
 
             <div>
-              <label className="text-[10px] font-semibold text-cyan-700 uppercase">Contract ABI</label>
+              <label className={actionLabelClass}>Contract ABI</label>
               <textarea
                 value={dexABIText}
                 onChange={(event) => handleDEXABIChange(event.target.value)}
-                className="nodrag nowheel mt-1 min-h-[76px] w-full resize-y rounded border border-cyan-200 bg-white px-2 py-1.5 font-mono text-[10px] leading-4 text-cyan-950 outline-none focus:ring-1 focus:ring-cyan-400"
+                className="nodrag nowheel mt-1 min-h-[76px] w-full resize-y rounded-md border border-slate-200 bg-white px-2 py-1.5 font-mono text-[10px] leading-4 text-slate-900 outline-none transition-colors placeholder:text-slate-400 focus:border-slate-400 focus:ring-1 focus:ring-slate-300 dark:border-slate-700 dark:bg-slate-950 dark:text-slate-100 dark:placeholder:text-slate-600 dark:focus:border-slate-500 dark:focus:ring-slate-700"
                 placeholder='[{"type":"function","name":"swap","inputs":[...]}]'
               />
               {dexParameterInfo.blocks.length > 0 ? (
-                <div className="mt-1 flex items-center justify-between gap-2 rounded bg-cyan-50 px-2 py-1 text-[10px] font-semibold text-cyan-700">
+                <div className="mt-1 flex items-center justify-between gap-2 rounded-md border border-slate-200 bg-slate-50 px-2 py-1 text-[10px] font-semibold text-slate-600 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-300">
                   <span className="truncate">
                     {dexParameterInfo.method
                       ? `${getABIFunctionSignature(dexParameterInfo.method)}`
                       : `${dexData.functionName || "function"} signature`}
                   </span>
-                  <span className="shrink-0 rounded bg-white px-1.5 py-0.5 font-black">
+                  <span className="shrink-0 rounded border border-slate-200 bg-white px-1.5 py-0.5 font-black dark:border-slate-700 dark:bg-slate-950">
                     params {dexParameterInfo.blocks.length}
                   </span>
                 </div>
@@ -1267,11 +1267,11 @@ function ActionNodeComponent({ id, data, selected }: NodeProps) {
 
             {/* Chain ID */}
             <div>
-              <label className="text-[10px] font-semibold text-cyan-700 uppercase">Chain</label>
+              <label className={actionLabelClass}>Chain</label>
               <select
                 value={(typedData as DEXActionData).chainId}
                 onChange={(e) => handleUpdateField("chainId", parseInt(e.target.value))}
-                className="w-full mt-1 px-2 py-1.5 text-xs bg-white border border-cyan-200 rounded focus:outline-none focus:ring-1 focus:ring-cyan-400"
+                className={actionFieldClass}
               >
                 <option value={56}>BSC (56)</option>
                 <option value={1}>Ethereum (1)</option>
@@ -1364,31 +1364,22 @@ function ActionNodeComponent({ id, data, selected }: NodeProps) {
       )}
 
       {/* Output Section */}
-      <div className="p-3">
-        <div className={cn(
-          "text-[10px] font-semibold mb-2 uppercase tracking-wide",
-          isCEX ? "text-amber-700" : "text-cyan-700"
-        )}>
-          Output (반환값)
+      <div className="bg-white p-3 dark:bg-slate-950">
+        <div className={cn(actionLabelClass, "mb-2")}>
+          Output (Return Value)
         </div>
         <div className="space-y-2">
           {typedData.outputBlocks.map((block, index) => (
             <div
               key={block.id}
-              className={cn(
-                "relative rounded px-3 py-2 border",
-                isCEX ? "bg-amber-100 border-amber-300" : "bg-cyan-100 border-cyan-300"
-              )}
+              className="relative rounded-md border border-slate-200 bg-slate-50 px-3 py-2 dark:border-slate-700 dark:bg-slate-900/70"
             >
               <input
                 type="text"
                 value={block.name}
                 onChange={(e) => handleBlockChange("output", block.id, { name: e.target.value })}
-                className={cn(
-                  "w-full bg-transparent text-xs font-semibold outline-none placeholder:text-gray-400",
-                  isCEX ? "text-amber-800" : "text-cyan-800"
-                )}
-                placeholder="블록 이름"
+                className="w-full bg-transparent text-xs font-semibold text-slate-900 outline-none placeholder:text-slate-400 dark:text-slate-100 dark:placeholder:text-slate-600"
+                placeholder="Block name"
               />
               <input
                 type="text"
@@ -1396,11 +1387,8 @@ function ActionNodeComponent({ id, data, selected }: NodeProps) {
                 onChange={(e) =>
                   handleBlockChange("output", block.id, { description: e.target.value })
                 }
-                className={cn(
-                  "mt-0.5 w-full bg-transparent text-[11px] outline-none placeholder:text-gray-400",
-                  isCEX ? "text-amber-600" : "text-cyan-600"
-                )}
-                placeholder="블록 설명 한 줄"
+                className="mt-0.5 w-full bg-transparent text-[11px] text-slate-500 outline-none placeholder:text-slate-400 dark:text-slate-400 dark:placeholder:text-slate-600"
+                placeholder="One-line block description"
               />
               <Handle
                 type="source"
@@ -1408,8 +1396,9 @@ function ActionNodeComponent({ id, data, selected }: NodeProps) {
                 id={`${id}-block-${block.id}-out`}
                 className={cn(
                   "!w-3 !h-3",
-                  isCEX ? "!bg-amber-500 !border-amber-600" : "!bg-cyan-500 !border-cyan-600"
+                  actionOutputHandleClass
                 )}
+                data-port-kind="output"
                 style={{ right: -10 }}
               />
               {index === 0 ? (
@@ -1418,7 +1407,8 @@ function ActionNodeComponent({ id, data, selected }: NodeProps) {
                   position={Position.Right}
                   id={`${id}-success-out`}
                   className="!h-1 !w-1 !border-transparent !bg-transparent"
-                  style={{ right: -10 }}
+                  data-port-kind="legacy-output"
+                  style={{ right: -10, pointerEvents: "none" }}
                 />
               ) : null}
             </div>
@@ -1427,11 +1417,11 @@ function ActionNodeComponent({ id, data, selected }: NodeProps) {
       </div>
 
       {runtimeCode ? (
-        <div className={cn("border-t p-3", isCEX ? "border-amber-200 bg-amber-950" : "border-cyan-200 bg-cyan-950")}>
-          <div className={cn("mb-1 text-[10px] font-semibold uppercase", isCEX ? "text-amber-200" : "text-cyan-200")}>
+        <div className="border-t border-slate-200 bg-slate-950 p-3 dark:border-slate-800">
+          <div className="mb-1 text-[10px] font-semibold uppercase tracking-wide text-slate-400">
             generated_strategy.go
           </div>
-          <pre className="max-h-32 overflow-auto rounded bg-black/30 p-2 text-[10px] leading-4 text-slate-100">
+          <pre className="max-h-32 overflow-auto rounded-md border border-slate-800 bg-black/30 p-2 text-[10px] leading-4 text-slate-100">
             {runtimeCode}
           </pre>
         </div>

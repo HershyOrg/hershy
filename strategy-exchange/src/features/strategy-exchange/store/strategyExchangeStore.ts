@@ -1,23 +1,11 @@
-import { strategies } from "./strategyCatalog";
-import { getBaseForkCount } from "../utils/strategyMetrics";
+import { keepCurrentExecutionChainBalances } from "../executionChains";
 
 const bookmarkKey = "strategy-exchange-bookmarks";
 const usedKey = "strategy-exchange-used";
-const forkKey = "strategy-exchange-forks";
 const positionKey = "strategy-exchange-positions";
 const scwUsdcBalanceKey = "strategy-exchange-scw-usdc-balances";
 
 export type ScwUsdcBalances = Record<string, number>;
-
-const defaultScwUsdcBalances: ScwUsdcBalances = {
-  Ethereum: 18000,
-  Arbitrum: 1500,
-  Solana: 2200,
-  "BNB Chain": 900,
-  Base: 7200,
-  Bitcoin: 2400,
-  Cosmos: 1800,
-};
 
 function readJson<T>(key: string): T | null {
   if (typeof window === "undefined") return null;
@@ -26,7 +14,7 @@ function readJson<T>(key: string): T | null {
 }
 
 export function readBookmarkStore() {
-  return new Set(readJson<string[]>(bookmarkKey) ?? ["btc-funding-carry"]);
+  return new Set(readJson<string[]>(bookmarkKey) ?? ["hl-majors-index"]);
 }
 
 export function writeBookmarkStore(bookmarks: Set<string>) {
@@ -50,26 +38,13 @@ export function writeStrategyPositionStore(strategyPositions: Record<string, num
 }
 
 export function readScwUsdcBalanceStore() {
-  return {
-    ...defaultScwUsdcBalances,
-    ...(readJson<ScwUsdcBalances>(scwUsdcBalanceKey) ?? {}),
-  };
+  const saved = readJson<ScwUsdcBalances>(scwUsdcBalanceKey);
+  return keepCurrentExecutionChainBalances(saved);
 }
 
 export function writeScwUsdcBalanceStore(scwUsdcBalances: ScwUsdcBalances) {
-  window.localStorage.setItem(scwUsdcBalanceKey, JSON.stringify(scwUsdcBalances));
-}
-
-export function buildBaseForkCounts() {
-  return Object.fromEntries(strategies.map((strategy) => [strategy.id, getBaseForkCount(strategy)]));
-}
-
-export function readForkCountStore() {
-  const baseCounts = buildBaseForkCounts();
-  const saved = readJson<Record<string, number>>(forkKey);
-  return saved ? { ...baseCounts, ...saved } : baseCounts;
-}
-
-export function writeForkCountStore(forkCounts: Record<string, number>) {
-  window.localStorage.setItem(forkKey, JSON.stringify(forkCounts));
+  window.localStorage.setItem(
+    scwUsdcBalanceKey,
+    JSON.stringify(keepCurrentExecutionChainBalances(scwUsdcBalances)),
+  );
 }

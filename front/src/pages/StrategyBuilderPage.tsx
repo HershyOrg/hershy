@@ -1,9 +1,13 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
+  CheckCircle2,
+  ChevronDown,
   ChevronLeft,
   ChevronRight,
+  Circle,
+  Loader2,
   X,
-} from "lucide-react";
+} from "@/shared/components/icons";
 import { useTheme } from "@/shared/components/theme-provider";
 import { ExchangeLibraryModal } from "@/features/home/components/ExchangeLibraryModal";
 import { PortfolioWorkspace } from "@/features/home/components/PortfolioWorkspace";
@@ -28,7 +32,9 @@ import type {
   ExchangeFormState,
   MarketRow,
 } from "@/features/home/types/homeTypes";
+import { ApiHistoricalDataTab } from "@/features/strategy-editor/components/ApiHistoricalDataTab";
 import { NodeEditor } from "@/features/strategy-editor/components/NodeEditor";
+import { getSpyThreeDownDayTradeStrategyNodes } from "@/features/strategy-editor/mock-data/demo-strategies";
 import {
   advancedGraphToStrategyGraph,
   createAdvancedViewFromStrategyGraph,
@@ -45,6 +51,7 @@ import {
 } from "@/shared/store/clientStateStore";
 import type {
   AdvancedGraphModel,
+  HistoricalDataDataset,
   PersistedStrategyBuilderState,
 } from "@/shared/types/domain";
 import { cn } from "@/shared/utils/utils";
@@ -63,16 +70,60 @@ import {
   getClientUserProfile,
 } from "@/shared/api/userContextClient";
 
-type MainView = "advanced" | "code";
+type MainView = "advanced" | "api-data" | "code";
 type ExchangeTab = string;
 type PlanTier = "free" | "pro" | "team";
 type WorkspaceView = "create" | "portfolio";
+type GenerationNotice = {
+  title: string;
+  detail: string;
+  sourceUrl?: string;
+};
 
-const EMPTY_STRATEGY_TITLE = "새 전략";
-const EMPTY_STRATEGY_SUMMARY = "아직 생성된 전략이 없습니다. AI에게 전략을 요청하거나 템플릿을 선택해 시작하세요.";
+const EMPTY_STRATEGY_TITLE = "New Strategy";
+const EMPTY_STRATEGY_SUMMARY = "No strategy has been generated yet. Ask the AI for a strategy or choose a template to start.";
+const SPY_THREE_DOWN_STRATEGY_TITLE = "SPY 3-Day Down Mean Reversion Day Trade";
+const SPY_THREE_DOWN_STRATEGY_SESSION_KEY = "hershy-spy-three-down-strategy-opened-v8";
+const SPY_THREE_DOWN_STRATEGY_TEMPLATE_ID = "spy-3-days-down-overnight";
+const SPY_THREE_DOWN_STRATEGY_SOURCE_URL =
+  "https://quantifiedstrategies.substack.com/p/3-days-down-overnight-trading-strategy-942?utm_source=chatgpt.com";
+const SPY_THREE_DOWN_DEMO_DELAY_MS = 30_000;
+const SPY_THREE_DOWN_STRATEGY_SUMMARY =
+  "SPY day-trade mean reversion rule: require three consecutive close-to-close down sessions, enter long at the third down close, then exit at the next session open or close.";
 
 function isWorkspaceNavId(value: string): value is WorkspaceView {
   return value === "create" || value === "portfolio";
+}
+
+function isConnectedExchangeStatus(status?: string | null) {
+  return status === "Connected" || status === "Saved" || status === "Synced";
+}
+
+function isSpyThreeDownStrategyPrompt(value: string) {
+  const text = value.toLowerCase();
+  return text.includes(SPY_THREE_DOWN_STRATEGY_TEMPLATE_ID) ||
+    text.includes("quantifiedstrategies.substack.com/p/3-days-down-overnight-trading-strategy-942") ||
+    (text.includes("spy") && text.includes("three") && text.includes("down") && text.includes("overnight"));
+}
+
+function waitForDemoStrategyDelay(signal: AbortSignal) {
+  return new Promise<void>((resolve, reject) => {
+    if (signal.aborted) {
+      reject(new DOMException("Aborted", "AbortError"));
+      return;
+    }
+
+    const timer = window.setTimeout(() => {
+      signal.removeEventListener("abort", abort);
+      resolve();
+    }, SPY_THREE_DOWN_DEMO_DELAY_MS);
+    const abort = () => {
+      window.clearTimeout(timer);
+      reject(new DOMException("Aborted", "AbortError"));
+    };
+
+    signal.addEventListener("abort", abort, { once: true });
+  });
 }
 
 function readStartGuideCompleted(userId: string) {
@@ -90,9 +141,9 @@ function isAdvancedGraphModel(value: unknown): value is AdvancedGraphModel {
 }
 
 const DEFAULT_AGENT_STEPS = [
-  "거래소 연결 확인",
-  "AI 전략 생성 또는 템플릿 선택",
-  "고급 전략 캔버스 생성",
+  "Check exchange connection",
+  "Generate an AI strategy or choose a template",
+  "Create the advanced strategy canvas",
 ] as const;
 
 function getNodeDataForAdvancedStructureSignature(node: AdvancedGraphModel["nodes"][number]) {
@@ -110,7 +161,7 @@ function readPersistedStrategyBuilderState(): PersistedStrategyBuilderState | nu
     const restoredGeneratedCode = typeof parsed.generatedCode === "string" ? parsed.generatedCode : "";
     const restoredProgramCode = typeof parsed.programCode === "string" ? parsed.programCode : "";
     const restoredStrategySummary = typeof parsed.strategySummary === "string" ? parsed.strategySummary : EMPTY_STRATEGY_SUMMARY;
-    const restoredAiSummary = typeof parsed.aiSummary === "string" ? parsed.aiSummary : `AI 요약: ${restoredStrategySummary}`;
+    const restoredAiSummary = typeof parsed.aiSummary === "string" ? parsed.aiSummary : `AI Summary: ${restoredStrategySummary}`;
     const restoredAgentSteps = Array.isArray(parsed.agentSteps)
       ? parsed.agentSteps.filter((step): step is string => typeof step === "string")
       : [];
@@ -275,7 +326,7 @@ function getStrategyGraphSummary(strategyGraph: StrategyGraphPayload, fallback =
     const blocks = typeof record.blocks === "number" ? record.blocks : undefined;
     const connections = typeof record.connections === "number" ? record.connections : undefined;
     if (blocks !== undefined || connections !== undefined) {
-      return `전략 그래프 노드 ${blocks ?? 0}개와 연결 ${connections ?? 0}개로 구성되었습니다.`;
+      return `Built from ${blocks ?? 0} strategy graph nodes and ${connections ?? 0} connections.`;
     }
   }
   return fallback;
@@ -290,9 +341,9 @@ function materializeAdvancedStrategyGraph(strategyGraph: StrategyGraphPayload, f
     code: strategyGraphToCode(strategyGraph),
     advancedGraph: createAdvancedViewFromStrategyGraph(strategyGraph, title),
     steps: [
-      "전략 그래프 수신",
-      "고급 전략 캔버스 생성",
-      "실행 가능한 노드/간선 검증",
+      "Received strategy graph",
+      "Created advanced strategy canvas",
+      "Validated executable nodes and edges",
     ],
   };
 }
@@ -333,7 +384,7 @@ function getAdvancedGraphCodeState(
 }
 
 function stripAISummaryPrefix(value: string) {
-  return value.replace(/^AI\s*요약\s*[:：]\s*/i, "").trim();
+  return value.replace(/^AI\s*Summary\s*[:：]\s*/i, "").trim();
 }
 
 function formatStrategyAISummary(data: Record<string, any> | null | undefined, fallbackSummary = "") {
@@ -354,10 +405,10 @@ function formatStrategyAISummary(data: Record<string, any> | null | undefined, f
   const lines = [
     summaryText || stripAISummaryPrefix(fallbackSummary),
     ...keyPoints.map((item) => `- ${item}`),
-    readiness ? `실행 준비: ${readiness}` : "",
-    ...riskNotes.map((item) => `주의: ${item}`),
+    readiness ? `Execution readiness: ${readiness}` : "",
+    ...riskNotes.map((item) => `Risk: ${item}`),
   ].filter(Boolean);
-  return `AI 요약: ${lines.join("\n") || "전략 요약을 준비하지 못했습니다."}`;
+  return `AI Summary: ${lines.join("\n") || "Could not prepare a strategy summary."}`;
 }
 
 function normalizeAgentActivities(value: unknown): AgentActivity[] {
@@ -410,18 +461,23 @@ export default function App() {
   const [isGuideOpen, setIsGuideOpen] = useState(false);
   const [isExchangeLibraryOpen, setIsExchangeLibraryOpen] = useState(false);
   const [isWalletManagerOpen, setIsWalletManagerOpen] = useState(false);
+  const [isLeftPanelDetailsCollapsed, setIsLeftPanelDetailsCollapsed] = useState(false);
   const [guideStep, setGuideStep] = useState(0);
   const [isAgentRunning, setIsAgentRunning] = useState(false);
   const [isTemplatePanelOpen, setIsTemplatePanelOpen] = useState(false);
   const [templatePanelMode, setTemplatePanelMode] = useState<"compact" | "expanded">("compact");
   const [agentPrompt, setAgentPrompt] = useState("");
+  const [hasRequestedAgentPrompt, setHasRequestedAgentPrompt] = useState(false);
+  const [generationNotice, setGenerationNotice] = useState<GenerationNotice | null>(null);
   const [agentMessages, setAgentMessages] = useState<Array<{ role: "user" | "ai"; text: string }>>([
     {
       role: "ai",
-      text: "추천 템플릿을 고르거나 직접 말로 전략을 요청하면 코드 생성 후 고급 전략 캔버스를 만듭니다.",
+      text: "Choose a recommended template or describe a strategy directly. The app will generate code and build an advanced strategy canvas.",
     },
   ]);
-  const [, setAgentActivities] = useState<AgentActivity[]>([]);
+  const [agentActivities, setAgentActivities] = useState<AgentActivity[]>([]);
+  const [generationStartedAt, setGenerationStartedAt] = useState<number | null>(null);
+  const [generationElapsedSeconds, setGenerationElapsedSeconds] = useState(0);
   const [generatedCode, setGeneratedCode] = useState("");
   const [programCode, setProgramCode] = useState("");
   const [programCodeError, setProgramCodeError] = useState("");
@@ -433,7 +489,7 @@ export default function App() {
   const [lastSyncedAdvancedGraphSignature, setLastSyncedAdvancedGraphSignature] = useState("");
   const [agentSteps, setAgentSteps] = useState<string[]>(() => [...DEFAULT_AGENT_STEPS]);
   const [aiSummary, setAiSummary] = useState(
-    `AI 요약: ${EMPTY_STRATEGY_SUMMARY}`,
+    `AI Summary: ${EMPTY_STRATEGY_SUMMARY}`,
   );
   const templatePanelCloseTimer = useRef<number | null>(null);
   const agentAbortControllerRef = useRef<AbortController | null>(null);
@@ -445,10 +501,11 @@ export default function App() {
   const activeSnapshotCodeMetaRef = useRef<HistorySnapshotCodeMeta | null>(null);
   const lastAppliedSnapshotCodeMetaIdRef = useRef<string | null>(null);
   const lastAppliedSnapshotHydrationSignatureRef = useRef("");
+  const lastAppliedSnapshotGraphSignatureRef = useRef("");
   const lastCodeMetaWriteSignatureRef = useRef("");
   const skipNextSnapshotCodeMetaSyncRef = useRef(false);
   const isDarkMode = isThemeMounted && resolvedTheme === "dark";
-  const connectedExchangeCount = exchangeConnections.filter((item) => item.status === "연결됨").length;
+  const connectedExchangeCount = exchangeConnections.filter((item) => isConnectedExchangeStatus(item.status)).length;
   const selectedExchange = exchangeConnections.find((item) => item.id === exchangeTab) ?? exchangeConnections[0];
   const hasExchangeExecutionUrl = Boolean(
     exchangeForm.apiUrl.trim() ||
@@ -497,7 +554,7 @@ export default function App() {
     try {
       return advancedGraphToStrategyGraph(
         activeAdvancedGraph,
-        activeSnapshot?.name || strategyTitle || "고급 보기 전략",
+        activeSnapshot?.name || strategyTitle || "Advanced View Strategy",
       );
     } catch {
       return null;
@@ -572,6 +629,25 @@ export default function App() {
     () => codeMetaComparableSignature(activeSnapshot?.codeMeta),
     [activeSnapshot?.codeMeta],
   );
+  const generationElapsedLabel = `${generationElapsedSeconds}s`;
+  const isTemplatePanelVisible = isTemplatePanelOpen;
+  const visibleAgentActivities = agentActivities.slice(-6);
+  const visibleStrategyTemplates = hasRequestedAgentPrompt ? [] : AI_STRATEGY_TEMPLATES.slice(0, 2);
+
+  useEffect(() => {
+    if (!isAgentRunning || !generationStartedAt) {
+      setGenerationElapsedSeconds(0);
+      return;
+    }
+
+    const updateElapsed = () => {
+      setGenerationElapsedSeconds(Math.max(0, Math.floor((Date.now() - generationStartedAt) / 1000)));
+    };
+
+    updateElapsed();
+    const timer = window.setInterval(updateElapsed, 1000);
+    return () => window.clearInterval(timer);
+  }, [generationStartedAt, isAgentRunning]);
 
   const generateRuntimeProgramCode = useCallback(
     async (options?: { force?: boolean }) => {
@@ -656,15 +732,15 @@ export default function App() {
         ]);
       }
       const snapshot = data?.balanceSnapshot as BalanceMyDataSnapshot | undefined;
-      const preferredAsset = snapshot?.spendable?.preferredAsset || "잔고";
+      const preferredAsset = snapshot?.spendable?.preferredAsset || "Balance";
       const preferredAvailable = snapshot?.spendable?.preferredAvailable || "";
       setExchangeAuthMessage(
         preferredAvailable
-          ? `${preferredAsset} ${preferredAvailable} 사용 가능 · 마이데이터 동기화 완료`
-          : "잔고 마이데이터 동기화 완료",
+          ? `${preferredAsset} ${preferredAvailable} available · balance sync complete`
+          : "Balance sync complete",
       );
     } catch (error) {
-      const message = error instanceof Error ? error.message : "잔고 동기화 실패";
+      const message = error instanceof Error ? error.message : "Balance sync failed";
       setExchangeAuthMessage(message);
       setAgentMessages((prev) => [...prev, { role: "ai", text: message }]);
     } finally {
@@ -678,11 +754,11 @@ export default function App() {
 
   const persistExchangeConnection = async (options?: { successMessage?: string | null }) => {
     if (!exchangeForm.name.trim()) {
-      setExchangeFormError("거래소 이름을 입력하세요.");
+      setExchangeFormError("Enter an exchange name.");
       return null;
     }
     if (!hasExchangeExecutionUrl) {
-      setExchangeFormError("선택한 거래소의 실행 API 기본값을 찾지 못했습니다.");
+      setExchangeFormError("No execution API default was found for the selected exchange.");
       return null;
     }
     setIsSavingExchange(true);
@@ -695,7 +771,7 @@ export default function App() {
       const nextSelected = connections.find((item) => item.id === data?.connection?.id) || data?.connection || selectedExchange || null;
       setExchangeForm(buildExchangeFormFromConnection(nextSelected as ExchangeConnection | null));
       if (options?.successMessage !== null) {
-        setExchangeAuthMessage(options?.successMessage || "연결 정보를 저장했습니다.");
+        setExchangeAuthMessage(options?.successMessage || "Connection details saved.");
       }
       setGuideDone((prev) => new Set([...prev, 0]));
       return {
@@ -703,10 +779,10 @@ export default function App() {
         connections,
       };
     } catch (error) {
-      setExchangeFormError(error instanceof Error ? error.message : "거래소 연결 저장 실패");
+      setExchangeFormError(error instanceof Error ? error.message : "Failed to save exchange connection");
       setAgentMessages((prev) => [
         ...prev,
-        { role: "ai", text: `거래소 연결 저장 실패: ${error instanceof Error ? error.message : "unknown error"}` },
+        { role: "ai", text: `Failed to save exchange connection: ${error instanceof Error ? error.message : "unknown error"}` },
       ]);
       return null;
     } finally {
@@ -716,22 +792,22 @@ export default function App() {
 
   const saveExchangeConnection = async () => {
     await persistExchangeConnection({
-      successMessage: "연결 정보를 저장했습니다.",
+      successMessage: "Connection details saved.",
     });
   };
 
   const testBinanceAuth = async () => {
     const selectedExchangeId = selectedExchange?.id || exchangeForm.id.trim();
     if (!selectedExchangeId) {
-      setExchangeAuthMessage("먼저 연결을 선택하세요.");
+      setExchangeAuthMessage("Select a connection first.");
       return;
     }
     if (!isSelectedExchangeBinance) {
-      setExchangeAuthMessage("현재 서명 테스트는 Binance 연결에서만 지원합니다.");
+      setExchangeAuthMessage("Signature testing is currently supported only for Binance connections.");
       return;
     }
     if (!canTestBinanceAuth) {
-      setExchangeAuthMessage("Binance API Key와 Secret을 저장한 뒤 서명 테스트를 실행하세요.");
+      setExchangeAuthMessage("Save a Binance API Key and Secret before running the signature test.");
       return;
     }
 
@@ -742,7 +818,7 @@ export default function App() {
         return;
       }
       connectionIdForTest = saved.connection.id;
-      setExchangeAuthMessage("연결 정보를 저장한 뒤 Binance 서명 테스트를 시작합니다.");
+      setExchangeAuthMessage("Connection details saved. Starting the Binance signature test.");
     }
 
     setIsTestingExchangeAuth(true);
@@ -761,16 +837,93 @@ export default function App() {
       const preferredAsset = snapshot?.spendable?.preferredAsset;
       const preferredAvailable = snapshot?.spendable?.preferredAvailable;
       setExchangeAuthMessage(
-        `${exchangeAuthMarket === "futures" ? "Futures" : "Spot"} 잔고 동기화 성공${preferredAsset && preferredAvailable ? ` · ${preferredAsset} ${preferredAvailable} 사용 가능` : data?.account?.accountType ? ` · ${data.account.accountType}` : ""}`,
+        `${exchangeAuthMarket === "futures" ? "Futures" : "Spot"} balance sync succeeded${preferredAsset && preferredAvailable ? ` · ${preferredAsset} ${preferredAvailable} available` : data?.account?.accountType ? ` · ${data.account.accountType}` : ""}`,
       );
     } catch (error) {
-      const message = error instanceof Error ? error.message : "Binance 서명 테스트 실패";
+      const message = error instanceof Error ? error.message : "Binance signature test failed";
       setExchangeAuthMessage(message);
       setAgentMessages((prev) => [...prev, { role: "ai", text: message }]);
     } finally {
       setIsTestingExchangeAuth(false);
     }
   };
+
+  const applySpyThreeDownStrategy = useCallback((options?: { fromTemplate?: boolean }) => {
+    setActiveWorkspace("create");
+    setMainView("advanced");
+    setIsTemplatePanelOpen(false);
+
+    const graph = getSpyThreeDownDayTradeStrategyNodes() as AdvancedGraphModel;
+    const graphState = getAdvancedGraphCodeState(
+      graph,
+      SPY_THREE_DOWN_STRATEGY_TITLE,
+      SPY_THREE_DOWN_STRATEGY_SUMMARY,
+    );
+    const codeMeta: HistorySnapshotCodeMeta = {
+      strategyTitle: SPY_THREE_DOWN_STRATEGY_TITLE,
+      strategySummary: SPY_THREE_DOWN_STRATEGY_SUMMARY,
+      generatedCode: graphState.generatedCode,
+      programCode: "",
+      strategyGraph: graphState.strategyGraph,
+      graphSignature: graphState.graphSignature,
+      programCodeSignature: "",
+      aiSummary: `AI Summary: ${SPY_THREE_DOWN_STRATEGY_SUMMARY}`,
+      agentSteps: [
+        "Read the Quantified Strategies SPY 3-days-down overnight rule",
+        "Created SPY daily data sequence",
+        "Added three-consecutive-down-close signal logic",
+        "Connected the yes/no signal to the SPY long entry action",
+        "Added close entry and next-session exit actions",
+      ],
+    };
+
+    const existingSnapshot = historyStore
+      .getSnapshots()
+      .find((snapshot) => snapshot.name === SPY_THREE_DOWN_STRATEGY_TITLE);
+
+    if (existingSnapshot) {
+      historyStore.setActiveId(existingSnapshot.id);
+      historyStore.updateSnapshotName(existingSnapshot.id, SPY_THREE_DOWN_STRATEGY_TITLE);
+    } else {
+      historyStore.createEmptyStrategy(null, SPY_THREE_DOWN_STRATEGY_TITLE, codeMeta);
+    }
+    historyStore.updateActiveSnapshot(graph.nodes, graph.edges, codeMeta);
+    window.dispatchEvent(new CustomEvent("loadSnapshot", { detail: graph }));
+
+    setGeneratedCode(graphState.generatedCode);
+    setProgramCode("");
+    programCodeRequestRef.current = "";
+    setStrategyTitle(SPY_THREE_DOWN_STRATEGY_TITLE);
+    setStrategySummary(SPY_THREE_DOWN_STRATEGY_SUMMARY);
+    setAdvancedGraphModel(graph);
+    setAdvancedGraphVersion((version) => version + 1);
+    setLastSyncedAdvancedGraphSignature(graphState.graphSignature);
+    setAiSummary(`AI Summary: ${SPY_THREE_DOWN_STRATEGY_SUMMARY}`);
+    setAgentSteps(codeMeta.agentSteps ?? []);
+    setGuideDone((prev) => new Set([...prev, 1]));
+    setAgentMessages((prev) => [
+      ...prev,
+      {
+        role: "ai",
+        text: [
+          "Created the SPY 3-day down mean-reversion day-trade strategy on the canvas.",
+          "",
+          SPY_THREE_DOWN_STRATEGY_SUMMARY,
+          "",
+          `Source article: ${SPY_THREE_DOWN_STRATEGY_SOURCE_URL}`,
+          options?.fromTemplate
+            ? "The graph maps the article rule into daily SPY data, a three-down-close detector, close entry, wait-until-next-session, and exit action."
+            : "",
+        ].filter(Boolean).join("\n"),
+      },
+    ]);
+
+    try {
+      window.sessionStorage.setItem(SPY_THREE_DOWN_STRATEGY_SESSION_KEY, "1");
+    } catch {
+      // Non-critical: historyStore already persists the created strategy.
+    }
+  }, []);
 
   useEffect(() => {
     setIsThemeMounted(true);
@@ -818,9 +971,25 @@ export default function App() {
   }, []);
 
   useEffect(() => {
+    if (typeof window === "undefined") return;
+    try {
+      if (window.sessionStorage.getItem(SPY_THREE_DOWN_STRATEGY_SESSION_KEY) === "1") return;
+    } catch {
+      // Session storage can be unavailable in private or embedded contexts.
+    }
+
+    applySpyThreeDownStrategy();
+  }, [applySpyThreeDownStrategy]);
+
+  useEffect(() => {
     const persisted = readPersistedStrategyBuilderState();
 
     if (!persisted) {
+      strategyPersistenceReadyRef.current = true;
+      return;
+    }
+
+    if (persisted.strategyTitle === SPY_THREE_DOWN_STRATEGY_TITLE) {
       strategyPersistenceReadyRef.current = true;
       return;
     }
@@ -875,10 +1044,18 @@ export default function App() {
 
   useEffect(() => {
     const snapshotId = activeSnapshot?.id ?? null;
+    const snapshotGraph: AdvancedGraphModel | null = activeSnapshot
+      ? {
+        nodes: activeSnapshot.nodes as AdvancedGraphModel["nodes"],
+        edges: activeSnapshot.edges as AdvancedGraphModel["edges"],
+      }
+      : null;
+    const snapshotGraphSignature = createAdvancedGraphSignature(snapshotGraph);
     const snapshotHydrationSignature = activeSnapshot
       ? stableStringify({
         id: activeSnapshot.id,
         name: activeSnapshot.name,
+        graphSignature: snapshotGraphSignature,
         codeMeta: compactCodeMetaForSignature(activeSnapshot.codeMeta),
       })
       : "none";
@@ -887,12 +1064,12 @@ export default function App() {
     lastAppliedSnapshotCodeMetaIdRef.current = snapshotId;
     if (!activeSnapshot) return;
 
-    const snapshotGraph = activeSnapshot.nodes.length > 0
-      ? {
-        nodes: activeSnapshot.nodes as AdvancedGraphModel["nodes"],
-        edges: activeSnapshot.edges as AdvancedGraphModel["edges"],
-      }
-      : null;
+    if (lastAppliedSnapshotGraphSignatureRef.current !== snapshotGraphSignature) {
+      lastAppliedSnapshotGraphSignatureRef.current = snapshotGraphSignature;
+      setAdvancedGraphModel(snapshotGraph);
+      setAdvancedGraphVersion((version) => version + 1);
+    }
+
     const meta = activeSnapshot.codeMeta;
     const derived = getAdvancedGraphCodeState(
       snapshotGraph,
@@ -921,7 +1098,7 @@ export default function App() {
       return current === next ? current : next;
     });
     setAiSummary((current) => {
-      const next = meta?.aiSummary || `AI 요약: ${nextSummary}`;
+      const next = meta?.aiSummary || `AI Summary: ${nextSummary}`;
       return current === next ? current : next;
     });
     setAgentSteps((current) => {
@@ -990,8 +1167,43 @@ export default function App() {
     setMainView(nextView);
   };
 
+  const handleUseApiBlockInAdvancedView = useCallback((payload: {
+    apiBlock: {
+      id: string;
+      name: string;
+      address: string;
+      method: string;
+      kind: string;
+      requiredFields: string[];
+    };
+    dataset: HistoricalDataDataset | null;
+  }) => {
+    const dataset = payload.dataset;
+    const normalizedFields = dataset?.normalizedPreviewRows?.[0]
+      ? Object.keys(dataset.normalizedPreviewRows[0]).filter((key) => !["date", "time", "timestamp", "symbol"].includes(key))
+      : [];
+    setMainView("advanced");
+    window.setTimeout(() => {
+      window.dispatchEvent(new CustomEvent("createHistoricalApiBlock", {
+        detail: {
+          sourceNodeId: payload.apiBlock.id,
+          label: payload.apiBlock.name,
+          url: payload.apiBlock.address,
+          method: payload.apiBlock.method === "WEBSOCKET" ? "WEBSOCKET" : "POLLING",
+          streamKind: payload.apiBlock.kind || "url",
+          outputFields: payload.apiBlock.requiredFields.length > 0
+            ? payload.apiBlock.requiredFields
+            : normalizedFields,
+          datasetId: dataset?.id,
+          datasetFileName: dataset?.fileName,
+          normalizedPreviewRows: dataset?.normalizedPreviewRows ?? [],
+        },
+      }));
+    }, 120);
+  }, []);
+
   const syncAdvancedGraphFromCanvas = useCallback(
-    (graph: AdvancedGraphModel, name = strategyTitle || "고급 보기 전략") => {
+    (graph: AdvancedGraphModel, name = strategyTitle || "Advanced View Strategy") => {
       if (!graph.nodes.some((node) => node.type !== "groupNode")) return false;
 
       const strategyGraph = advancedGraphToStrategyGraph(graph, name);
@@ -1006,7 +1218,7 @@ export default function App() {
       setAdvancedGraphModel(graph);
       setAdvancedGraphVersion((version) => version + 1);
       setLastSyncedAdvancedGraphSignature(signature);
-      setAiSummary(`AI 요약: ${summary}`);
+      setAiSummary(`AI Summary: ${summary}`);
       return true;
     },
     [strategySummary, strategyTitle],
@@ -1081,18 +1293,223 @@ export default function App() {
   const runRemoteAgentPrompt = async (prompt: string, visiblePrompt = prompt) => {
     if (!prompt || isAgentRunning) return;
 
+    setHasRequestedAgentPrompt(true);
     setAgentMessages((prev) => [...prev, { role: "user", text: visiblePrompt }]);
     setAgentPrompt("");
+    if (isSpyThreeDownStrategyPrompt(prompt) || isSpyThreeDownStrategyPrompt(visiblePrompt)) {
+      const controller = new AbortController();
+      agentAbortControllerRef.current = controller;
+      setIsAgentRunning(true);
+      setGenerationStartedAt(Date.now());
+      clearTemplatePanelCloseTimer();
+      setIsTemplatePanelOpen(true);
+      setTemplatePanelMode("expanded");
+      setGenerationNotice({
+        title: "Generation in progress",
+        detail: "Opening the provided link and checking what kind of source it is. Demo generation remains visible for at least 30 seconds.",
+        sourceUrl: SPY_THREE_DOWN_STRATEGY_SOURCE_URL,
+      });
+      const sourceActivity: AgentActivity = {
+        id: "spy-3down-source",
+        status: "running",
+        stage: "source",
+        label: "Opening the provided link",
+        timestamp: new Date().toISOString(),
+        detail: { sourceUrl: SPY_THREE_DOWN_STRATEGY_SOURCE_URL },
+      };
+      const classifyActivity: AgentActivity = {
+        id: "spy-3down-classify",
+        status: "running",
+        stage: "source",
+        label: "Checking source metadata and page content",
+        timestamp: new Date().toISOString(),
+      };
+      const readingActivity: AgentActivity = {
+        id: "spy-3down-reading",
+        status: "running",
+        stage: "research",
+        label: "Reading the Quantified Strategies article",
+        timestamp: new Date().toISOString(),
+        detail: { sourceUrl: SPY_THREE_DOWN_STRATEGY_SOURCE_URL },
+      };
+      const ruleActivity: AgentActivity = {
+        id: "spy-3down-rules",
+        status: "running",
+        stage: "rules",
+        label: "Extracting the three-down overnight rule",
+        timestamp: new Date().toISOString(),
+      };
+      const graphActivity: AgentActivity = {
+        id: "spy-3down-graph",
+        status: "running",
+        stage: "graph",
+        label: "Preparing SPY data, signal, entry, wait, and exit nodes",
+        timestamp: new Date().toISOString(),
+      };
+      setAgentActivities([sourceActivity]);
+      setAgentSteps(agentStepsFromActivities([sourceActivity]));
+      const demoProgressTimers = [
+        window.setTimeout(() => {
+          setGenerationNotice({
+            title: "Generation in progress",
+            detail: "The link opened successfully. Inspecting the page metadata before deciding how to use it.",
+            sourceUrl: SPY_THREE_DOWN_STRATEGY_SOURCE_URL,
+          });
+          const nextActivities: AgentActivity[] = [
+            { ...sourceActivity, status: "done", timestamp: new Date().toISOString() },
+            { ...classifyActivity, status: "running", timestamp: new Date().toISOString() },
+          ];
+          setAgentActivities(nextActivities);
+          setAgentSteps(agentStepsFromActivities(nextActivities));
+        }, 6_000),
+        window.setTimeout(() => {
+          setGenerationNotice({
+            title: "Generation in progress",
+            detail: "Detected a trading-strategy article. Reading the article body to understand the setup.",
+            sourceUrl: SPY_THREE_DOWN_STRATEGY_SOURCE_URL,
+          });
+          const nextActivities: AgentActivity[] = [
+            { ...sourceActivity, status: "done", timestamp: new Date().toISOString() },
+            { ...classifyActivity, status: "done", timestamp: new Date().toISOString() },
+            { ...readingActivity, status: "running", timestamp: new Date().toISOString() },
+          ];
+          setAgentActivities(nextActivities);
+          setAgentSteps(agentStepsFromActivities(nextActivities));
+        }, 12_000),
+        window.setTimeout(() => {
+          setGenerationNotice({
+            title: "Generation in progress",
+            detail: "Article context loaded. Identifying the entry and exit rule from the strategy text.",
+            sourceUrl: SPY_THREE_DOWN_STRATEGY_SOURCE_URL,
+          });
+          const nextActivities: AgentActivity[] = [
+            { ...sourceActivity, status: "done", timestamp: new Date().toISOString() },
+            { ...classifyActivity, status: "done", timestamp: new Date().toISOString() },
+            { ...readingActivity, status: "done", timestamp: new Date().toISOString() },
+            { ...ruleActivity, status: "running", timestamp: new Date().toISOString() },
+          ];
+          setAgentActivities(nextActivities);
+          setAgentSteps(agentStepsFromActivities(nextActivities));
+        }, 20_000),
+        window.setTimeout(() => {
+          setGenerationNotice({
+            title: "Generation in progress",
+            detail: "The mean-reversion rule is identified. Mapping it to SPY daily data, signal, entry, wait, and exit blocks.",
+            sourceUrl: SPY_THREE_DOWN_STRATEGY_SOURCE_URL,
+          });
+          const nextActivities: AgentActivity[] = [
+            { ...sourceActivity, status: "done", timestamp: new Date().toISOString() },
+            { ...classifyActivity, status: "done", timestamp: new Date().toISOString() },
+            { ...readingActivity, status: "done", timestamp: new Date().toISOString() },
+            { ...ruleActivity, status: "done", timestamp: new Date().toISOString() },
+            { ...graphActivity, status: "running", timestamp: new Date().toISOString() },
+          ];
+          setAgentActivities(nextActivities);
+          setAgentSteps(agentStepsFromActivities(nextActivities));
+        }, 26_000),
+        window.setTimeout(() => {
+          setGenerationNotice({
+            title: "Generation in progress",
+            detail: "Strategy blocks are ready. Materializing the connected graph on the Advanced View canvas.",
+            sourceUrl: SPY_THREE_DOWN_STRATEGY_SOURCE_URL,
+          });
+          const nextActivities: AgentActivity[] = [
+            { ...sourceActivity, status: "done", timestamp: new Date().toISOString() },
+            { ...classifyActivity, status: "done", timestamp: new Date().toISOString() },
+            { ...readingActivity, status: "done", timestamp: new Date().toISOString() },
+            { ...ruleActivity, status: "done", timestamp: new Date().toISOString() },
+            { ...graphActivity, status: "done", timestamp: new Date().toISOString() },
+            {
+              id: "spy-3down-materialize",
+              status: "running",
+              stage: "frontend-materialize",
+              label: "Materializing strategy graph on the Advanced View canvas",
+              timestamp: new Date().toISOString(),
+            },
+          ];
+          setAgentActivities(nextActivities);
+          setAgentSteps(agentStepsFromActivities(nextActivities));
+        }, 29_000),
+      ];
+      try {
+        await waitForDemoStrategyDelay(controller.signal);
+        const completedActivities: AgentActivity[] = [
+          ...[sourceActivity, classifyActivity, readingActivity, ruleActivity, graphActivity].map((activity) => ({ ...activity, status: "done", timestamp: new Date().toISOString() })),
+          {
+            id: "spy-3down-materialize",
+            status: "done",
+            stage: "frontend-materialize",
+            label: "Materialized the connected graph on the Advanced View canvas",
+            timestamp: new Date().toISOString(),
+          },
+          {
+            id: "spy-3down-template",
+            status: "done",
+            stage: "frontend-materialize",
+            label: "Created SPY 3-days-down strategy graph from the article",
+            timestamp: new Date().toISOString(),
+            detail: { sourceUrl: SPY_THREE_DOWN_STRATEGY_SOURCE_URL },
+          },
+        ];
+        setAgentActivities(completedActivities);
+        setAgentSteps(agentStepsFromActivities(completedActivities));
+        applySpyThreeDownStrategy({ fromTemplate: true });
+      } catch (error) {
+        if (error instanceof Error && error.name === "AbortError") {
+          setAgentActivities((prev) => [
+            ...prev,
+            {
+              id: `cancelled-${Date.now()}`,
+              status: "error",
+              stage: "cancelled",
+              label: "The user cancelled strategy generation.",
+              timestamp: new Date().toISOString(),
+            },
+          ]);
+          setAgentMessages((prev) => [
+            ...prev,
+            {
+              role: "ai",
+              text: "Strategy generation request was cancelled.",
+            },
+          ]);
+        } else {
+          setAgentMessages((prev) => [
+            ...prev,
+            {
+              role: "ai",
+              text: `AI agent response failed: ${error instanceof Error ? error.message : "unknown error"}`,
+            },
+          ]);
+        }
+      } finally {
+        demoProgressTimers.forEach((timer) => window.clearTimeout(timer));
+        agentAbortControllerRef.current = null;
+        setIsAgentRunning(false);
+        setGenerationStartedAt(null);
+        setGenerationNotice(null);
+      }
+      return;
+    }
+
     const initialActivity: AgentActivity = {
       id: "request-queued",
       status: "running",
       stage: "queued",
-      label: "요청 접수",
+      label: "Request queued",
       timestamp: new Date().toISOString(),
     };
     setAgentActivities([initialActivity]);
     setAgentSteps([initialActivity.label]);
     setIsAgentRunning(true);
+    setGenerationStartedAt(Date.now());
+    clearTemplatePanelCloseTimer();
+    setIsTemplatePanelOpen(true);
+    setTemplatePanelMode("expanded");
+    setGenerationNotice({
+      title: "Generation in progress",
+      detail: "The agent is interpreting the prompt, generating a strategy graph, and materializing it on the canvas.",
+    });
     const controller = new AbortController();
     agentAbortControllerRef.current = controller;
 
@@ -1111,14 +1528,14 @@ export default function App() {
         id: "strategy-intent",
         status: "running",
         stage: "intent",
-        label: "요청 해석 및 전략 초안 준비",
+        label: "Interpreting request and preparing strategy draft",
         timestamp: new Date().toISOString(),
       });
       appendAgentActivity({
         id: "strategy-pipeline",
         status: "running",
         stage: "research",
-        label: "전략 생성 파이프라인 실행",
+        label: "Running strategy generation pipeline",
         timestamp: new Date().toISOString(),
       });
 
@@ -1135,23 +1552,23 @@ export default function App() {
         id: "strategy-pipeline",
         status: "done",
         stage: "research",
-        label: "전략 생성 파이프라인 완료",
+        label: "Strategy generation pipeline complete",
         timestamp: new Date().toISOString(),
       });
       if (!data?.strategy?.blocks || !data?.strategy?.connections) {
-        throw new Error("AI 응답에 strategy graph가 없습니다.");
+        throw new Error("The AI response did not include a strategy graph.");
       }
 
       appendAgentActivity({
         status: "running",
         stage: "frontend-materialize",
-        label: "프론트 그래프와 고급 캔버스 반영",
+        label: "Applying frontend graph and advanced canvas",
         timestamp: new Date().toISOString(),
       });
       const result = materializeAdvancedStrategyGraph(data.strategy, prompt);
       const advancedGraph = result.advancedGraph;
       if (!advancedGraph || advancedGraph.nodes.length === 0) {
-        throw new Error("고급 전략 그래프가 완성되지 않았습니다.");
+        throw new Error("The advanced strategy graph was not completed.");
       }
       const nextProgramCode = extractRuntimeProgramCode(data.runtime);
       const nextGraphState = getAdvancedGraphCodeState(advancedGraph, result.title, result.summary);
@@ -1181,7 +1598,7 @@ export default function App() {
       setGuideDone((prev) => new Set([...prev, 1]));
       setMainView("advanced");
 
-      // Advanced View 업데이트
+      // Update Advanced View.
       if (!historyStore.getActiveId()) {
         historyStore.createEmptyStrategy(null, result.title, nextCodeMeta);
       } else {
@@ -1212,7 +1629,7 @@ export default function App() {
             id: `cancelled-${Date.now()}`,
             status: "error",
             stage: "cancelled",
-            label: "사용자가 전략 생성을 중단했습니다.",
+            label: "The user cancelled strategy generation.",
             timestamp: new Date().toISOString(),
           },
         ]);
@@ -1220,33 +1637,35 @@ export default function App() {
           ...prev,
           {
             role: "ai",
-            text: "전략 생성 요청을 중단했습니다.",
+            text: "Strategy generation request was cancelled.",
           },
         ]);
         return;
       }
-      const message = error instanceof Error ? error.message : "전략 생성 중 오류가 발생했습니다.";
+      const message = error instanceof Error ? error.message : "An error occurred while generating the strategy.";
       const isTimeout = /timeout|timed out|aborted/i.test(message);
-      const isExchangeSetupError = /거래소 연결|REST API URL|RPC URL|API\/RPC/.test(message);
+      const isExchangeSetupError = /exchange connection|REST API URL|RPC URL|API\/RPC/i.test(message);
       setAgentMessages((prev) => [
         ...prev,
         {
           role: "ai",
           text: isExchangeSetupError
-            ? `AI 에이전트를 실행하지 않았습니다: ${message}\n\nWebSocket/WSS 시세 URL만으로는 부족합니다. 거래소 연결 탭에서 실행 가능한 REST API URL 또는 RPC URL을 저장해야 합니다.`
+            ? `AI agent did not run: ${message}\n\nWebSocket/WSS market data URLs are not enough. Save an executable REST API URL or RPC URL in the exchange connection tab.`
             : isTimeout
-              ? `AI 에이전트 응답 실패: ${message}\n\n요청 시간이 길어져 중단되었습니다. 웹 검색, KG 검색, validator 환경을 확인한 뒤 다시 시도하세요. 로컬 데모로 대체하지 않았습니다.`
-              : `AI 에이전트 응답 실패: ${message}\n\n로컬 데모로 대체하지 않았습니다. 서버 API, 웹 검색 provider, validator 상태를 확인하세요.`,
+              ? `AI agent response failed: ${message}\n\nThe request took too long and was stopped. Check web search, KG search, and validator environments before trying again. No local demo fallback was used.`
+              : `AI agent response failed: ${message}\n\nNo local demo fallback was used. Check the server API, web search provider, and validator status.`,
         },
       ]);
     } finally {
       agentAbortControllerRef.current = null;
       setIsAgentRunning(false);
+      setGenerationStartedAt(null);
+      setGenerationNotice(null);
     }
   };
 
   const handleTemplateSelect = async (template: StrategyTemplate) => {
-    await runRemoteAgentPrompt(template.prompt, `추천 템플릿: ${template.title}\n${template.prompt}`);
+    await runRemoteAgentPrompt(template.prompt, `Recommended template: ${template.title}\n${template.prompt}`);
   };
 
   const handleAgentPromptSubmit = async () => {
@@ -1276,20 +1695,20 @@ export default function App() {
         try {
           result = materializeAdvancedStrategyGraph(data.strategy, prompt);
           if (!result.advancedGraph || result.advancedGraph.nodes.length === 0) {
-            throw new Error("Codex 전략을 고급 보기 그래프로 변환하지 못했습니다.");
+            throw new Error("Could not convert the Codex strategy into an advanced view graph.");
           }
           advancedGraph = result.advancedGraph;
         } catch (error) {
           if (codexStrategyInboxErrorIdRef.current !== inboxId) {
             codexStrategyInboxErrorIdRef.current = inboxId;
-            const message = error instanceof Error ? error.message : "알 수 없는 변환 오류";
+            const message = error instanceof Error ? error.message : "Unknown conversion error";
             setAgentActivities((prev) => [
               ...prev,
               {
                 id: `codex-inbox-error-${inboxId}`,
                 status: "error",
                 stage: "strategy-load-error",
-                label: "Codex 전략을 UI 그래프로 변환하지 못했습니다.",
+                label: "Could not convert the Codex strategy into a UI graph.",
                 timestamp: new Date().toISOString(),
                 detail: { inboxId, error: message },
               },
@@ -1298,7 +1717,7 @@ export default function App() {
               ...prev,
               {
                 role: "ai",
-                text: `Codex 전략 로드 실패: ${message}\n\n하네스는 AI 리서치/랭킹 루프가 아니라 실제 트레이딩 로직 그래프만 UI 시퀀스로 받습니다.`,
+                text: `Failed to load Codex strategy: ${message}\n\nThe harness accepts only real trading-logic graphs as UI sequences, not AI research or ranking loops.`,
               },
             ]);
           }
@@ -1371,11 +1790,11 @@ export default function App() {
   }, [isAgentRunning]);
 
   return (
-    <div className="flex h-screen w-full overflow-hidden bg-slate-50 text-slate-950 dark:bg-slate-950 dark:text-slate-100">
+    <div className="hershy-shell flex h-screen w-full overflow-hidden bg-slate-50 text-slate-950 dark:bg-slate-950 dark:text-slate-100">
       <aside
         className={cn(
           "hidden shrink-0 flex-col border-r border-slate-200 bg-white transition-[width] duration-200 lg:flex dark:border-slate-800 dark:bg-slate-950",
-          isLeftPanelCollapsed ? "w-[52px]" : "w-[164px]",
+          isLeftPanelCollapsed ? "w-[52px]" : "w-[188px]",
         )}
       >
         <div
@@ -1388,8 +1807,8 @@ export default function App() {
             <button
               type="button"
               onClick={() => setIsLeftPanelCollapsed(false)}
-              aria-label="왼쪽 패널 펼치기"
-              title="왼쪽 패널 펼치기"
+              aria-label="Expand left panel"
+              title="Expand left panel"
               className="inline-flex h-9 w-9 items-center justify-center rounded-lg border border-slate-200 bg-white text-slate-600 transition-colors hover:bg-slate-50 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-300 dark:hover:bg-slate-800"
             >
               <ChevronRight className="h-4 w-4" />
@@ -1400,8 +1819,8 @@ export default function App() {
               <button
                 type="button"
                 onClick={() => setIsLeftPanelCollapsed(true)}
-                aria-label="왼쪽 패널 접기"
-                title="왼쪽 패널 접기"
+                aria-label="Collapse left panel"
+                title="Collapse left panel"
                 className="inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-md text-slate-500 transition-colors hover:bg-slate-100 hover:text-slate-800 dark:text-slate-400 dark:hover:bg-slate-900 dark:hover:text-slate-100"
               >
                 <ChevronLeft className="h-4 w-4" />
@@ -1420,7 +1839,7 @@ export default function App() {
                 key={item.id}
                 type="button"
                 onClick={workspaceId ? () => setActiveWorkspace(workspaceId) : undefined}
-                title={isInteractive ? item.label : `${item.label} · 준비 중`}
+                title={isInteractive ? item.label : `${item.label} · coming soon`}
                 className={cn(
                   "flex h-10 w-full items-center border-l-2 border-transparent text-[13px] font-semibold text-slate-700 transition-colors hover:bg-slate-50 dark:text-slate-300 dark:hover:bg-slate-900",
                   isLeftPanelCollapsed ? "justify-center px-0" : "gap-2 px-2.5",
@@ -1448,8 +1867,8 @@ export default function App() {
             <button
               type="button"
               onClick={() => setIsExchangeLibraryOpen(true)}
-              aria-label="거래소 연결 관리"
-              title="거래소 연결 관리"
+              aria-label="Manage exchange connections"
+              title="Manage exchange connections"
               className={cn(
                 "relative inline-flex h-9 w-9 items-center justify-center border text-[11px] font-black transition-colors",
                 connectedExchangeCount > 0
@@ -1457,7 +1876,7 @@ export default function App() {
                   : "border-slate-200 bg-white text-slate-600 hover:bg-slate-50 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-300 dark:hover:bg-slate-800",
               )}
             >
-              거
+              EX
               {connectedExchangeCount > 0 ? (
                 <span className="absolute right-1 top-1 h-1.5 w-1.5 rounded-full bg-emerald-500" />
               ) : null}
@@ -1474,7 +1893,7 @@ export default function App() {
             <button
               type="button"
               onClick={() => setIsLeftPanelCollapsed(false)}
-              aria-label="플랜 패널 펼치기"
+              aria-label="Expand plan panel"
               title={`Plan: ${planTier}`}
               className="inline-flex h-9 w-9 items-center justify-center border border-slate-200 bg-white text-[11px] font-black text-slate-600 transition-colors hover:bg-slate-50 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-300 dark:hover:bg-slate-800"
             >
@@ -1482,9 +1901,48 @@ export default function App() {
             </button>
           </div>
         ) : (
-        <div className="border-t border-slate-200 p-2.5 dark:border-slate-800">
-          <section className="border-b border-slate-200 pb-3 dark:border-slate-800">
-            <div className="mb-2 text-xs font-bold text-slate-700 dark:text-slate-300">거래소 연결</div>
+          <div className="border-t border-slate-200 p-2.5 dark:border-slate-800">
+            <button
+              type="button"
+              onClick={() => setIsLeftPanelDetailsCollapsed((current) => !current)}
+              className="mb-2 flex h-8 w-full items-center justify-between border border-slate-200 bg-white px-2 text-xs font-black text-slate-700 transition-colors hover:bg-slate-50 dark:border-slate-700 dark:bg-slate-950 dark:text-slate-300 dark:hover:bg-slate-900"
+            >
+              <span>Exchange / Plan</span>
+              <ChevronDown
+                className={cn(
+                  "h-3.5 w-3.5 transition-transform",
+                  isLeftPanelDetailsCollapsed ? "-rotate-90" : "rotate-0",
+                )}
+              />
+            </button>
+
+            {isLeftPanelDetailsCollapsed ? (
+              <div className="space-y-1.5">
+                <button
+                  type="button"
+                  onClick={() => setIsLeftPanelDetailsCollapsed(false)}
+                  className="flex w-full items-center justify-between border border-slate-200 bg-slate-50 px-2 py-1.5 text-left dark:border-slate-700 dark:bg-slate-900"
+                >
+                  <span className="min-w-0 truncate text-[11px] font-bold text-slate-700 dark:text-slate-300">
+                    {selectedExchange?.name ?? "Exchange"}
+                  </span>
+                  <span className={cn("ml-2 shrink-0 text-[10px] font-black", isConnectedExchangeStatus(selectedExchange?.status) ? "text-emerald-600 dark:text-emerald-300" : "text-slate-500 dark:text-slate-400")}>
+                    {selectedExchange?.status ?? "Pending"}
+                  </span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setIsLeftPanelDetailsCollapsed(false)}
+                  className="flex w-full items-center justify-between border border-slate-200 bg-slate-50 px-2 py-1.5 text-left dark:border-slate-700 dark:bg-slate-900"
+                >
+                  <span className="text-[11px] font-bold text-slate-700 dark:text-slate-300">Plan</span>
+                  <span className="text-[10px] font-black uppercase text-violet-600 dark:text-violet-300">{planTier}</span>
+                </button>
+              </div>
+            ) : (
+              <>
+            <section className="border-b border-slate-200 pb-3 dark:border-slate-800">
+            <div className="mb-2 text-xs font-bold text-slate-700 dark:text-slate-300">Exchange Connections</div>
             <div className="mb-2 grid grid-cols-2 gap-1">
               {exchangeConnections.map((exchange) => (
                 <button
@@ -1504,26 +1962,27 @@ export default function App() {
             </div>
             <div className="min-w-0">
               <div className="truncate text-xs font-semibold">
-                {selectedExchange?.name ?? "거래소 연결 필요"}
+                {selectedExchange?.name ?? "Exchange connection required"}
                 {connectedExchangeCount > 0 ? ` (${connectedExchangeCount})` : ""}
               </div>
-              <div className={cn("text-[11px] font-semibold", selectedExchange?.status === "연결됨" ? "text-emerald-600 dark:text-emerald-300" : "text-slate-500 dark:text-slate-400")}>
-                {selectedExchange?.status ?? "대기"}
+              <div className={cn("text-[11px] font-semibold", isConnectedExchangeStatus(selectedExchange?.status) ? "text-emerald-600 dark:text-emerald-300" : "text-slate-500 dark:text-slate-400")}>
+                {selectedExchange?.status ?? "Pending"}
               </div>
             </div>
             {selectedExchange?.rpcUrl || selectedExchange?.apiUrl || selectedExchange?.wsUrl ? (
               <div className="mt-2 rounded bg-emerald-50 px-2 py-1 text-[10px] font-semibold text-emerald-700 dark:bg-emerald-400/10 dark:text-emerald-300">
-                API/RPC URL 저장됨
+                API/RPC URL saved
               </div>
             ) : null}
             <button
               type="button"
               onClick={() => setIsExchangeLibraryOpen(true)}
+              title="Manage Exchange Connections"
               className="mt-2 h-8 w-full border border-slate-200 bg-white text-xs font-bold text-slate-700 hover:bg-slate-50 dark:border-slate-700 dark:bg-slate-950 dark:text-slate-300 dark:hover:bg-slate-900"
             >
-              거래소 연결 관리
+              Manage Connections
             </button>
-          </section>
+            </section>
 
           <ScwOnboardingPanel onManage={() => setIsWalletManagerOpen(true)} />
 
@@ -1548,12 +2007,14 @@ export default function App() {
                 </button>
               ))}
             </div>
-            <div className="text-[11px] text-slate-500 dark:text-slate-400">만료일 2026-06-30</div>
+            <div className="text-[11px] text-slate-500 dark:text-slate-400">Billing status active</div>
             <button className="mt-2 h-8 w-full border border-slate-200 bg-white text-xs font-bold text-slate-700 dark:border-slate-700 dark:bg-slate-950 dark:text-slate-300">
-              플랜 관리
+              Manage Plan
             </button>
-          </section>
-        </div>
+            </section>
+              </>
+            )}
+          </div>
         )}
       </aside>
 
@@ -1583,7 +2044,7 @@ export default function App() {
                 Portfolio
               </div>
               <div className="truncate text-sm font-black text-slate-950 dark:text-slate-100">
-                거래소별 자산과 가용 자금을 추적합니다
+                Track assets and available capital by exchange
               </div>
             </div>
           )}
@@ -1593,16 +2054,16 @@ export default function App() {
               type="button"
               onClick={() => setTheme(isDarkMode ? "light" : "dark")}
               className="inline-flex h-9 items-center border border-slate-200 bg-white px-3 text-sm font-semibold text-slate-700 transition-colors hover:bg-slate-50 dark:border-slate-700 dark:bg-slate-950 dark:text-slate-200 dark:hover:bg-slate-900"
-              title={isDarkMode ? "라이트 모드로 전환" : "다크 모드로 전환"}
+              title={isDarkMode ? "Switch to light mode" : "Switch to dark mode"}
             >
-              <span>{isDarkMode ? "라이트" : "다크"}</span>
+              <span>{isDarkMode ? "Light" : "Dark"}</span>
             </button>
             <button
               type="button"
               onClick={() => setIsExchangeLibraryOpen(true)}
               className="inline-flex h-9 items-center border border-slate-200 bg-white px-3 text-sm font-semibold text-slate-700 hover:bg-slate-50 lg:hidden dark:border-slate-700 dark:bg-slate-950 dark:text-slate-200 dark:hover:bg-slate-900"
             >
-              거래소
+              Exchanges
             </button>
             {isCreateWorkspace ? (
               <>
@@ -1611,7 +2072,7 @@ export default function App() {
                   onClick={handleSave}
                   className="inline-flex h-9 items-center bg-violet-600 px-4 text-sm font-bold text-white hover:bg-violet-700"
                 >
-                  저장
+                  Save
                 </button>
               </>
             ) : (
@@ -1620,7 +2081,7 @@ export default function App() {
                 onClick={() => setIsExchangeLibraryOpen(true)}
                 className="inline-flex h-9 items-center bg-slate-950 px-4 text-sm font-bold text-white hover:bg-slate-800 dark:bg-slate-100 dark:text-slate-950 dark:hover:bg-white"
               >
-                거래소 연결 관리
+                Manage Exchange Connections
               </button>
             )}
           </div>
@@ -1639,17 +2100,24 @@ export default function App() {
                   {openTabs.length === 0 ? (
                     <div className="pointer-events-none absolute inset-x-[180px] top-[210px] z-20 flex justify-center">
                       <div className="pointer-events-auto border border-slate-200 bg-white px-4 py-3 text-center text-sm">
-                        <div className="font-bold text-slate-900">열려 있는 전략 탭이 없습니다</div>
+                        <div className="font-bold text-slate-900">No strategy tabs are open</div>
                         <button
                           onClick={() => historyStore.createEmptyStrategy(null)}
                           className="mt-2 bg-violet-600 px-3 py-1.5 text-xs font-bold text-white"
                         >
-                          빈 전략 시작
+                          Start Empty Strategy
                         </button>
                       </div>
                     </div>
                   ) : null}
                 </div>
+              ) : null}
+
+              {mainView === "api-data" ? (
+                <ApiHistoricalDataTab
+                  graph={activeAdvancedGraph}
+                  onUseApiBlock={handleUseApiBlockInAdvancedView}
+                />
               ) : null}
 
               {mainView === "code" ? (
@@ -1667,7 +2135,7 @@ export default function App() {
                       disabled={!codeViewStrategyGraph || isGeneratingProgramCode}
                       className="border border-slate-700 px-3 py-1.5 text-xs font-bold text-slate-300 disabled:cursor-not-allowed disabled:opacity-50"
                     >
-                      {isGeneratingProgramCode ? "생성 중" : "Hershy Go 생성"}
+                      {isGeneratingProgramCode ? "Generating" : "Generate Hershy Go"}
                     </button>
                   </div>
                   {programCodeError ? (
@@ -1737,18 +2205,18 @@ export default function App() {
             <div className="flex items-center justify-between border-b border-slate-200 px-5 py-4">
               <div>
                 <div className="text-xs font-bold uppercase tracking-wide text-violet-600">
-                  시작 가이드 {guideStep + 1} / {GUIDE_ITEMS.length}
+                  Start Guide {guideStep + 1} / {GUIDE_ITEMS.length}
                 </div>
                 <h2 className="mt-1 text-xl font-black text-slate-950">{GUIDE_ITEMS[guideStep]}</h2>
                 <div className="mt-1 text-[11px] font-semibold text-slate-500">
-                  완료 {guideProgress} / {GUIDE_ITEMS.length}
+                  Complete {guideProgress} / {GUIDE_ITEMS.length}
                 </div>
               </div>
               <button
                 type="button"
                 onClick={handleCloseGuide}
                 className="p-2 text-slate-400 hover:bg-slate-100 hover:text-slate-700"
-                title="튜토리얼 닫기"
+                title="Close tutorial"
               >
                 <X className="h-4 w-4" />
               </button>
@@ -1758,10 +2226,10 @@ export default function App() {
               <div className="border-l-2 border-violet-300 bg-slate-50 px-4 py-3">
                 <p className="text-sm leading-6 text-slate-800">
                   {guideStep === 0
-                    ? "좌측 거래소 연결 탭에서 API 권한을 확인하세요. 읽기/거래 권한 상태가 연결됨으로 표시되면 전략을 만들 수 있습니다."
+                    ? "Check API permissions in the exchange connection tab on the left. Once read/trade permissions show as connected, you can create a strategy."
                     : null}
                   {guideStep === 1
-                    ? "우측 하단 AI 전략 템플릿에서 추천 전략을 고르거나 입력 탭에 원하는 전략을 말로 적어 고급 전략 캔버스를 생성하세요."
+                    ? "Choose a recommended strategy from the AI strategy template panel at the bottom right, or describe the strategy you want to generate an advanced strategy canvas."
                     : null}
                 </p>
               </div>
@@ -1788,7 +2256,7 @@ export default function App() {
                 onClick={handleDismissGuide}
                 className="text-sm font-bold text-slate-500 hover:text-slate-800"
               >
-                다시 보지 않기
+                Don't show again
               </button>
               <div className="flex gap-2">
                 <button
@@ -1797,14 +2265,14 @@ export default function App() {
                   disabled={guideStep === 0}
                   className="h-9 border border-slate-200 px-3 text-sm font-bold text-slate-600 disabled:opacity-40"
                 >
-                  이전
+                  Previous
                 </button>
                 <button
                   type="button"
                   onClick={handleGuideNext}
                   className="h-9 bg-violet-600 px-4 text-sm font-bold text-white hover:bg-violet-700"
                 >
-                  {guideStep === GUIDE_ITEMS.length - 1 ? "완료" : "다음"}
+                  {guideStep === GUIDE_ITEMS.length - 1 ? "Done" : "Next"}
                 </button>
               </div>
             </div>
@@ -1814,7 +2282,7 @@ export default function App() {
 
       {isCreateWorkspace ? (
         <div
-          className="fixed bottom-5 right-5 z-50"
+          className="strategy-template-launcher fixed bottom-5 right-5 z-50"
           onMouseEnter={openTemplatePanel}
           onMouseLeave={scheduleTemplatePanelClose}
           onFocus={openTemplatePanel}
@@ -1823,23 +2291,32 @@ export default function App() {
         <div
           className={cn(
             "absolute bottom-14 right-0 translate-y-2 opacity-0 transition-all duration-200",
-            isTemplatePanelOpen
+            isTemplatePanelVisible
               ? "pointer-events-auto translate-y-0 opacity-100"
               : "pointer-events-none",
-            templatePanelMode === "expanded" ? "w-[520px]" : "w-[440px]",
+            isAgentRunning || templatePanelMode === "expanded" ? "w-[560px]" : "w-[440px]",
           )}
         >
           <section className="border border-slate-200 bg-white dark:border-slate-800 dark:bg-slate-950">
             <div className="flex items-center justify-between border-b border-slate-200 px-4 py-3 dark:border-slate-800">
               <div>
                 <div className="text-[11px] font-bold uppercase tracking-wide text-violet-600 dark:text-violet-300">
-                  AI 전략 템플릿
+                  AI Strategy Templates
                 </div>
                 <div className="text-sm font-black text-slate-950 dark:text-slate-100">
-                  빠른 추천과 직접 입력
+                  Quick picks and direct input
                 </div>
               </div>
               <div className="flex items-center gap-1">
+                {isAgentRunning ? (
+                  <button
+                    type="button"
+                    onClick={() => setIsTemplatePanelOpen(false)}
+                    className="border border-slate-200 px-2 py-1 text-xs font-bold text-slate-600 hover:bg-slate-50 dark:border-slate-700 dark:text-slate-300 dark:hover:bg-slate-900"
+                  >
+                    Minimize
+                  </button>
+                ) : null}
                 <button
                   type="button"
                   onClick={() =>
@@ -1847,110 +2324,177 @@ export default function App() {
                   }
                   className="border border-slate-200 px-2 py-1 text-xs font-bold text-slate-600 hover:bg-slate-50 dark:border-slate-700 dark:text-slate-300 dark:hover:bg-slate-900"
                 >
-                  {templatePanelMode === "compact" ? "확장" : "간소화"}
+                  {templatePanelMode === "compact" ? "Expand" : "Compact"}
                 </button>
               </div>
             </div>
 
             <div className="p-3">
-              <div className="mb-3">
-                <div className="mb-2 text-xs font-black text-slate-700 dark:text-slate-300">빠른 추천</div>
-                <div
-                  className={cn(
-                    "grid gap-2",
-                    templatePanelMode === "expanded" ? "grid-cols-2" : "grid-cols-3",
-                  )}
-                >
-                  {(templatePanelMode === "compact" ? AI_STRATEGY_TEMPLATES.slice(0, 3) : AI_STRATEGY_TEMPLATES).map(
-                    (template) => (
-                      <button
-                        key={template.id}
-                        type="button"
-                        onClick={() => handleTemplateSelect(template)}
+              {isAgentRunning ? (
+                <div className="mb-3 border border-slate-800 bg-slate-950 text-slate-100 shadow-xl shadow-slate-950/20" aria-live="polite">
+                  <div className="flex items-center gap-2 border-b border-slate-800 px-3 py-3">
+                    <Loader2 className="h-4 w-4 shrink-0 animate-spin text-emerald-300" />
+                    <div className="min-w-0 flex-1 truncate text-sm font-black">
+                      {generationNotice?.title ?? "Generation in progress"}
+                    </div>
+                    <span className="shrink-0 border border-emerald-400/30 bg-emerald-400/10 px-2 py-0.5 text-[10px] font-black uppercase text-emerald-200">
+                      {generationElapsedLabel}
+                    </span>
+                  </div>
+                  <div className="px-3 py-3">
+                    <p className="text-xs font-semibold leading-5 text-slate-300">
+                      {generationNotice?.detail ?? "The agent is generating the strategy graph and code."}
+                    </p>
+                    {generationNotice?.sourceUrl ? (
+                      <p className="mt-1 truncate text-[11px] font-semibold text-slate-400">
+                        Source: {generationNotice.sourceUrl}
+                      </p>
+                    ) : null}
+
+                    <div className="mt-3 space-y-2">
+                      {visibleAgentActivities.map((activity) => {
+                        const status = activity.status ?? "running";
+                        const isDone = status === "done";
+                        const isRunning = status === "running";
+                        return (
+                          <div key={activity.id} className="flex items-start gap-2 rounded-sm bg-white/[0.04] px-2 py-2">
+                            {isDone ? (
+                              <CheckCircle2 className="mt-0.5 h-3.5 w-3.5 shrink-0 text-emerald-300" />
+                            ) : isRunning ? (
+                              <Loader2 className="mt-0.5 h-3.5 w-3.5 shrink-0 animate-spin text-violet-300" />
+                            ) : (
+                              <Circle className="mt-0.5 h-3.5 w-3.5 shrink-0 text-slate-500" />
+                            )}
+                            <div className="min-w-0 flex-1">
+                              <div className={cn("truncate text-xs font-bold", isRunning ? "text-white" : isDone ? "text-emerald-100" : "text-slate-400")}>
+                                {activity.label}
+                              </div>
+                              <div className="mt-0.5 text-[10px] font-semibold uppercase text-slate-500">
+                                {isDone ? "completed" : isRunning ? "running" : "queued"}
+                              </div>
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+
+                    <div className="mt-3 border border-slate-800 bg-black/35 p-3 font-mono text-[11px] leading-5 text-slate-300">
+                      {visibleAgentActivities.map((activity) => (
+                        <div key={`${activity.id}-terminal`}>
+                          <span className="text-emerald-300">$</span> {activity.label.toLowerCase()}
+                        </div>
+                      ))}
+                      <div className="text-violet-200">assistant is generating<span className="animate-pulse">...</span></div>
+                    </div>
+
+                    <div className="mt-3 h-1.5 overflow-hidden bg-slate-800">
+                      <div className="h-full w-2/3 animate-pulse bg-emerald-300" />
+                    </div>
+                  </div>
+                </div>
+              ) : null}
+
+              {!isAgentRunning ? (
+                <>
+                  {visibleStrategyTemplates.length > 0 ? (
+                    <div className="mb-3">
+                      <div className="mb-2 text-xs font-black text-slate-700 dark:text-slate-300">Quick Picks</div>
+                      <div className="grid grid-cols-2 gap-2">
+                        {visibleStrategyTemplates.map((template) => (
+                            <button
+                              key={template.id}
+                              type="button"
+                              onClick={() => handleTemplateSelect(template)}
+                              className={cn(
+                                "border border-slate-200 bg-white p-3 text-left transition-colors hover:border-violet-300 hover:bg-slate-50 dark:border-slate-800 dark:bg-slate-950 dark:hover:border-violet-400/40 dark:hover:bg-slate-900",
+                                templatePanelMode === "compact" && "px-2 py-2",
+                              )}
+                            >
+                              <div className="flex items-start justify-between gap-2">
+                                <div className="min-w-0">
+                                  <div className="truncate text-xs font-black text-slate-900 dark:text-slate-100">{template.title}</div>
+                                  {templatePanelMode === "expanded" ? (
+                                    <p className="mt-1 text-xs leading-5 text-slate-600 dark:text-slate-300">{template.summary}</p>
+                                  ) : (
+                                    <div className="mt-1 truncate text-[10px] text-slate-500 dark:text-slate-400">{template.tags.join(" · ")}</div>
+                                  )}
+                                </div>
+                              </div>
+                              {templatePanelMode === "expanded" ? (
+                                <div className="mt-2 flex flex-wrap gap-1">
+                                  {template.tags.map((tag) => (
+                                    <span key={tag} className="border border-slate-200 px-2 py-0.5 text-[10px] font-bold text-slate-600 dark:border-slate-700 dark:text-slate-300">
+                                      {tag}
+                                    </span>
+                                  ))}
+                                </div>
+                              ) : null}
+                            </button>
+                          ))}
+                      </div>
+                    </div>
+                  ) : null}
+
+                  <div className="mb-3 max-h-44 space-y-2 overflow-y-auto border-y border-slate-200 bg-slate-50 p-2 dark:border-slate-800 dark:bg-slate-900">
+                    {agentMessages.map((message, index) => (
+                      <div
+                        key={`${message.role}-${index}`}
                         className={cn(
-                          "border border-slate-200 bg-white p-3 text-left transition-colors hover:border-violet-300 hover:bg-slate-50 dark:border-slate-800 dark:bg-slate-950 dark:hover:border-violet-400/40 dark:hover:bg-slate-900",
-                          templatePanelMode === "compact" && "px-2 py-2",
+                          "whitespace-pre-wrap border-l-2 px-3 py-2 text-xs leading-5",
+                          message.role === "user" ? "ml-8 bg-violet-600 text-white" : "mr-8 bg-white text-slate-700 dark:bg-slate-800 dark:text-slate-200",
                         )}
                       >
-                        <div className="flex items-start justify-between gap-2">
-                          <div className="min-w-0">
-                            <div className="truncate text-xs font-black text-slate-900 dark:text-slate-100">{template.title}</div>
-                            {templatePanelMode === "expanded" ? (
-                              <p className="mt-1 text-xs leading-5 text-slate-600 dark:text-slate-300">{template.summary}</p>
-                            ) : (
-                              <div className="mt-1 truncate text-[10px] text-slate-500 dark:text-slate-400">{template.tags.join(" · ")}</div>
-                            )}
-                          </div>
-                        </div>
-                        {templatePanelMode === "expanded" ? (
-                          <div className="mt-2 flex flex-wrap gap-1">
-                            {template.tags.map((tag) => (
-                              <span key={tag} className="border border-slate-200 px-2 py-0.5 text-[10px] font-bold text-slate-600 dark:border-slate-700 dark:text-slate-300">
-                                {tag}
-                              </span>
-                            ))}
-                          </div>
-                        ) : null}
-                      </button>
-                    ),
-                  )}
-                </div>
-              </div>
-
-              <div className="mb-3 max-h-44 space-y-2 overflow-y-auto border-y border-slate-200 bg-slate-50 p-2 dark:border-slate-800 dark:bg-slate-900">
-                {agentMessages.map((message, index) => (
-                  <div
-                    key={`${message.role}-${index}`}
-                    className={cn(
-                      "whitespace-pre-wrap border-l-2 px-3 py-2 text-xs leading-5",
-                      message.role === "user" ? "ml-8 bg-violet-600 text-white" : "mr-8 bg-white text-slate-700 dark:bg-slate-800 dark:text-slate-200",
-                    )}
-                  >
-                    {message.text}
+                        {message.text}
+                      </div>
+                    ))}
                   </div>
-                ))}
-              </div>
 
-              <form
-                onSubmit={(event) => {
-                  event.preventDefault();
-                  void handleAgentPromptSubmit();
-                }}
-                className="space-y-2"
-              >
-                <textarea
-                  value={agentPrompt}
-                  onChange={(event) => setAgentPrompt(event.target.value)}
-                  rows={3}
-                  className="w-full resize-none border border-slate-200 bg-white px-3 py-2 text-sm outline-none placeholder:text-slate-400 focus:border-violet-300 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100 dark:placeholder:text-slate-500 dark:focus:border-violet-400"
-                  placeholder="예) BTC 20MA 돌파와 거래량 증가를 기준으로 진입하고, 1.2% 트레일링 스톱을 넣어줘"
-                />
-                <button
-                  type="submit"
-                  disabled={!agentPrompt.trim() || isAgentRunning}
-                  className="inline-flex h-9 w-full items-center justify-center bg-violet-600 text-sm font-black text-white disabled:cursor-not-allowed disabled:opacity-50"
-                >
-                  {isAgentRunning ? "에이전트 생성 중" : "에이전트에게 보내기"}
-                </button>
-                {isAgentRunning ? (
-                  <button
-                    type="button"
-                    onClick={handleCancelAgentRun}
-                    className="inline-flex h-9 w-full items-center justify-center border border-violet-200 bg-white text-sm font-bold text-violet-700 transition-colors hover:bg-violet-50 dark:border-violet-400/30 dark:bg-slate-900 dark:text-violet-200 dark:hover:bg-violet-400/10"
+                  <form
+                    onSubmit={(event) => {
+                      event.preventDefault();
+                      void handleAgentPromptSubmit();
+                    }}
+                    className="space-y-2"
                   >
-                    현재 생성 중단
-                  </button>
-                ) : null}
-              </form>
+                    <textarea
+                      value={agentPrompt}
+                      onChange={(event) => setAgentPrompt(event.target.value)}
+                      rows={3}
+                      className="w-full resize-none border border-slate-200 bg-white px-3 py-2 text-sm outline-none placeholder:text-slate-400 focus:border-violet-300 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100 dark:placeholder:text-slate-500 dark:focus:border-violet-400"
+                      placeholder="Example: Enter when BTC breaks above the 20MA with rising volume, then add a 1.2% trailing stop."
+                    />
+                    <button
+                      type="submit"
+                      disabled={!agentPrompt.trim()}
+                      className="inline-flex h-9 w-full items-center justify-center bg-violet-600 text-sm font-black text-white disabled:cursor-not-allowed disabled:opacity-50"
+                    >
+                      Send to Agent
+                    </button>
+                  </form>
+                </>
+              ) : (
+                <button
+                  type="button"
+                  onClick={handleCancelAgentRun}
+                  className="inline-flex h-9 w-full items-center justify-center border border-emerald-400/30 bg-slate-950 text-sm font-bold text-emerald-200 transition-colors hover:bg-slate-900"
+                >
+                  Stop Current Generation
+                </button>
+              )}
             </div>
           </section>
         </div>
 
           <button
             type="button"
-            className="inline-flex h-10 items-center bg-violet-600 px-4 text-sm font-black text-white transition-colors hover:bg-violet-700"
+            onClick={openTemplatePanel}
+            className={cn(
+              "inline-flex h-10 items-center gap-2 px-4 text-sm font-black text-white transition-colors",
+              isAgentRunning ? "bg-slate-950 shadow-lg shadow-slate-950/20 hover:bg-slate-900" : "bg-violet-600 hover:bg-violet-700",
+            )}
           >
-            {isAgentRunning ? "전략 생성 중" : "AI 전략 템플릿"}
+            {isAgentRunning ? <Loader2 className="h-4 w-4 animate-spin text-emerald-300" /> : null}
+            {isAgentRunning ? "Generation in progress" : "AI Strategy Templates"}
           </button>
         </div>
       ) : null}

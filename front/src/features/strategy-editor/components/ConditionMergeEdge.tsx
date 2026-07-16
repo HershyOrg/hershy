@@ -195,7 +195,7 @@ function ConditionMergeEdgeComponent({
             }}
             data-connect-target-node={target}
             data-connect-target-mode="append-input"
-            title="이 논리식에 조건 간선 추가"
+            title="Add a condition edge to this expression"
           />
         </EdgeLabelRenderer>
       ) : null}

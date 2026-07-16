@@ -1,6 +1,6 @@
 export type DiscussionMessageRow = {
   id: string;
-  vaultAddress: string;
+  adapterAddress: string;
   authorName: string;
   authorAddress: string;
   body: string;

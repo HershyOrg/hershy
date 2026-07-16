@@ -6,27 +6,23 @@ import react from "@vitejs/plugin-react";
 import {
   browseFilters,
   connectedExchanges,
-  sectors,
+  productTypes,
 } from "./src/features/strategy-exchange/store/strategyCatalog";
-import type { BrowseFilter, Sector } from "./src/features/strategy-exchange/types/strategyTypes";
+import type { BrowseFilter, ProductType } from "./src/features/strategy-exchange/types/strategyTypes";
 import {
   selectStrategyFeed,
   type StrategyFeedRequest,
   type StrategyFeedResponse,
 } from "./src/features/strategy-exchange/api/strategyApi";
 import {
-  buildVaultActivitySql,
   buildUserByAddressSql,
   buildVaultByAddressSql,
   buildVaultDiscussionSql,
   buildVaultByStrategyIdSql,
   selectDiscussionMessagesByVaultAddress,
   selectUserAccountByAddress,
-  selectVaultActivityTransactionsByVaultAddress,
-  selectVaultActivityUsersByVaultAddress,
   selectVaultByAddress,
   selectVaultByStrategyId,
-  type VaultActivityResponse,
   type VaultDiscussionResponse,
   type UserAccountResponse,
   type StrategyVaultResponse,
@@ -94,7 +90,7 @@ const linkedDependencyAliases = Object.fromEntries(
 );
 
 const validBrowseFilters = new Set<string>(browseFilters);
-const validTypes = new Set<string>(sectors);
+const validTypes = new Set<string>(productTypes);
 
 function parseStrategyFeedRequest(url: URL): StrategyFeedRequest {
   const categoryParam = url.searchParams.get("category") ?? "";
@@ -102,8 +98,8 @@ function parseStrategyFeedRequest(url: URL): StrategyFeedRequest {
   const connectedVenues = url.searchParams.getAll("connected");
 
   return {
-    category: validBrowseFilters.has(categoryParam) ? (categoryParam as BrowseFilter) : "Daily Hot",
-    type: validTypes.has(typeParam) ? (typeParam as "All" | Sector) : "All",
+    category: validBrowseFilters.has(categoryParam) ? (categoryParam as BrowseFilter) : "Featured",
+    type: validTypes.has(typeParam) ? (typeParam as "All" | ProductType) : "All",
     query: url.searchParams.get("q") ?? "",
     includeUnconnected: url.searchParams.get("includeUnconnected") === "true",
     connectedVenues: connectedVenues.length > 0 ? connectedVenues : connectedExchanges,
@@ -132,10 +128,10 @@ function strategyExchangeApiPlugin(): Plugin {
           return;
         }
 
-        if (requestUrl.startsWith("/api/strategy-exchange/discussions/vaults/")) {
+        if (requestUrl.startsWith("/api/strategy-exchange/discussions/adapters/")) {
           const url = new URL(requestUrl, "http://localhost");
           const address = decodeURIComponent(
-            url.pathname.replace("/api/strategy-exchange/discussions/vaults/", ""),
+            url.pathname.replace("/api/strategy-exchange/discussions/adapters/", ""),
           );
           const payload: VaultDiscussionResponse = {
             endpoint: `${url.pathname}${url.search}`,
@@ -149,49 +145,33 @@ function strategyExchangeApiPlugin(): Plugin {
           return;
         }
 
-        if (requestUrl.startsWith("/api/strategy-exchange/activity/vaults/")) {
+        if (requestUrl.startsWith("/api/strategy-exchange/adapter-addresses/")) {
           const url = new URL(requestUrl, "http://localhost");
-          const address = decodeURIComponent(
-            url.pathname.replace("/api/strategy-exchange/activity/vaults/", ""),
-          );
-          const payload: VaultActivityResponse = {
-            endpoint: `${url.pathname}${url.search}`,
-            sql: buildVaultActivitySql(address),
-            users: selectVaultActivityUsersByVaultAddress(address),
-            transactions: selectVaultActivityTransactionsByVaultAddress(address),
-          };
-
-          response.statusCode = 200;
-          response.setHeader("Content-Type", "application/json; charset=utf-8");
-          response.end(JSON.stringify(payload));
-          return;
-        }
-
-        if (requestUrl.startsWith("/api/strategy-exchange/vault-addresses/")) {
-          const url = new URL(requestUrl, "http://localhost");
-          const address = decodeURIComponent(url.pathname.replace("/api/strategy-exchange/vault-addresses/", ""));
+          const address = decodeURIComponent(url.pathname.replace("/api/strategy-exchange/adapter-addresses/", ""));
+          const adapter = selectVaultByAddress(address);
           const payload: StrategyVaultResponse = {
             endpoint: `${url.pathname}${url.search}`,
             sql: buildVaultByAddressSql(address),
-            vault: selectVaultByAddress(address),
+            adapter,
           };
 
-          response.statusCode = payload.vault ? 200 : 404;
+          response.statusCode = payload.adapter ? 200 : 404;
           response.setHeader("Content-Type", "application/json; charset=utf-8");
           response.end(JSON.stringify(payload));
           return;
         }
 
-        if (requestUrl.startsWith("/api/strategy-exchange/vaults/")) {
+        if (requestUrl.startsWith("/api/strategy-exchange/adapters/")) {
           const url = new URL(requestUrl, "http://localhost");
-          const strategyId = decodeURIComponent(url.pathname.replace("/api/strategy-exchange/vaults/", ""));
+          const strategyId = decodeURIComponent(url.pathname.replace("/api/strategy-exchange/adapters/", ""));
+          const adapter = selectVaultByStrategyId(strategyId);
           const payload: StrategyVaultResponse = {
             endpoint: `${url.pathname}${url.search}`,
             sql: buildVaultByStrategyIdSql(strategyId),
-            vault: selectVaultByStrategyId(strategyId),
+            adapter,
           };
 
-          response.statusCode = payload.vault ? 200 : 404;
+          response.statusCode = payload.adapter ? 200 : 404;
           response.setHeader("Content-Type", "application/json; charset=utf-8");
           response.end(JSON.stringify(payload));
           return;

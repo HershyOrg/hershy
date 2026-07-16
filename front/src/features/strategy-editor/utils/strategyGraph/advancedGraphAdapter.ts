@@ -21,7 +21,7 @@ import type {
 } from "./types";
 
 function isKillSwitchText(text: string) {
-  return /kill\s*switch|killswitch|emergency|panic|circuit\s*breaker|manual\s*(halt|stop)|global\s*(halt|stop)|stop\s*all|halt\s*strategy|킬\s*스위치|긴급|비상|강제\s*중단|전체\s*(중단|정지|청산)/i.test(text);
+  return /kill\s*switch|killswitch|emergency|panic|circuit\s*breaker|manual\s*(halt|stop)|global\s*(halt|stop)|stop\s*all|halt\s*strategy/i.test(text);
 }
 
 function isKillSwitchBlock(block: StrategyGraphBlock) {
@@ -83,11 +83,11 @@ function inferDisplayKillSwitchActionConfig(blocks: StrategyGraphBlock[]) {
     .map((block) => collectStrategyBlockText(block))
     .join(" ")
     .toLowerCase();
-  const useDex = /dex|swap|contract|onchain|flash\s*loan|flashloan|uniswap|jupiter|aave|온체인|스왑|플래시론/.test(actionText);
+  const useDex = /dex|swap|contract|onchain|flash\s*loan|flashloan|uniswap|jupiter|aave/.test(actionText);
   if (useDex) {
     return {
       actionType: "dex",
-      exchange: "연결된 온체인 실행 환경",
+      exchange: "Connected on-chain execution environment",
       chain: "connected-chain",
       contractAddress: "0x0000000000000000000000000000000000000000",
       functionName: "emergencyExit()",
@@ -97,7 +97,7 @@ function inferDisplayKillSwitchActionConfig(blocks: StrategyGraphBlock[]) {
   }
   return {
     actionType: "cex",
-    exchange: "연결된 거래소",
+    exchange: "Connected exchange",
     symbol: "ALL",
     side: "SELL",
     orderType: "MARKET",
@@ -125,31 +125,31 @@ function withStrategyKillSwitch(strategyGraph: StrategyGraphPayload): StrategyGr
     id: triggerId,
     type: "trigger",
     config: {
-      name: "킬스위치",
-      label: "킬스위치",
+      name: "Kill Switch",
+      label: "Kill Switch",
       triggerType: "condition",
       condition: "manual_kill_switch == true || strategy_drawdown_pct <= -5 || data_stale_seconds >= 30 || exchange_disconnect == true",
       killSwitch: true,
       emergencyStop: true,
-      overviewDescription: "수동 중단, 손실 한도, 데이터 지연, 거래소 연결 이상이 감지되면 전략을 즉시 멈춥니다.",
-      roleDescription: "정상 매매 조건과 별개로 전략 전체를 멈추는 최종 안전장치입니다.",
-      inputSummary: "수동 중단 상태, 누적 손실률, 데이터 지연 시간, 거래소 연결 상태",
-      outputSummary: "전체 포지션 정리 신호",
+      overviewDescription: "Stops the strategy immediately when manual halt, loss limit, stale data, or exchange disconnect is detected.",
+      roleDescription: "Final safety guard for the whole strategy, independent of normal trading conditions.",
+      inputSummary: "Manual halt state, cumulative loss rate, data delay, exchange connection status",
+      outputSummary: "Signal to close all positions",
     },
   });
   blocks.push({
     id: actionId,
     type: "action",
     config: {
-      name: "킬스위치 실행",
-      label: "킬스위치 실행",
+      name: "Execute Kill Switch",
+      label: "Execute Kill Switch",
       ...actionConfig,
       killSwitch: true,
       emergencyStop: true,
-      overviewDescription: "열려 있는 주문을 취소하고 전략이 만든 포지션을 가능한 한 감소 전용으로 정리합니다.",
-      roleDescription: "킬스위치 조건이 켜졌을 때만 실행되는 종료 액션입니다. 새 진입을 막고 기존 노출을 줄입니다.",
-      inputSummary: "킬스위치 신호와 최신 시장/계정 상태",
-      outputSummary: "취소/청산 요청 상태와 실행 결과",
+      overviewDescription: "Cancels open orders and closes strategy-created positions as reduce-only where possible.",
+      roleDescription: "Exit action that runs only when the kill switch condition is active. It blocks new entries and reduces existing exposure.",
+      inputSummary: "Kill switch signal and latest market/account state",
+      outputSummary: "Cancel/close request status and execution result",
     },
   });
   connections.push({
@@ -268,7 +268,7 @@ function getAdvancedWorkflowIdForNode(node: Node, groupById: Map<string, Node>) 
 }
 
 function isAdvancedInitNode(node: Node) {
-  return /(^|[\s_-])(init|initial|initialize|bootstrap|setup|start)([\s_-]|$)|초기|초기화|시작|capitalready|startapproved/i.test(collectAdvancedNodeText(node));
+  return /(^|[\s_-])(init|initial|initialize|bootstrap|setup|start)([\s_-]|$)|capitalready|startapproved/i.test(collectAdvancedNodeText(node));
 }
 
 function isAdvancedKillSwitchNode(node: Node) {
@@ -305,8 +305,8 @@ function buildAdvancedWorkflowGroups(graph: { nodes: Node[]; edges: Edge[] }, vi
         .map((node) => node.id);
       nodeIds.forEach((nodeId) => assigned.add(nodeId));
       const text = `${workflowId} ${getAdvancedGroupLabel(group, workflowId)} ${collectAdvancedNodeText(group)}`;
-      const isSafetyGroup = /kill|emergency|panic|stop|exit|close|킬|긴급|비상|중단|정리|청산/i.test(text);
-      const isInitGroup = /init|start|bootstrap|setup|capital|초기|시작/i.test(text);
+      const isSafetyGroup = /kill|emergency|panic|stop|exit|close/i.test(text);
+      const isInitGroup = /init|start|bootstrap|setup|capital/i.test(text);
       return {
         id: workflowId,
         title: getAdvancedGroupLabel(group, workflowId),
@@ -328,8 +328,8 @@ function buildAdvancedWorkflowGroups(graph: { nodes: Node[]; edges: Edge[] }, vi
     const fallbackNodes = unassigned.length > 0 ? unassigned : visibleNodes;
     groups.push({
       id: "main-workflow",
-      title: "메인 전략 흐름",
-      purpose: "AI 또는 사용자가 명시 시퀀스로 묶지 않은 핵심 실행 흐름입니다.",
+      title: "Main Strategy Flow",
+      purpose: "Core execution flow that the AI or user did not group into an explicit sequence.",
       sequenceType: "workflow",
       order: groups.length + 1,
       nodeIds: fallbackNodes.map((node) => node.id),
@@ -357,7 +357,7 @@ function sanitizeAdvancedNodeConfig(node: Node) {
       {
         id: "tick",
         name: "tick",
-        description: `${Math.round(interval)}초마다 true 신호를 내보냅니다.`,
+        description: `Emits a true signal every ${Math.round(interval)} seconds.`,
         type: "output",
       },
     ];
@@ -369,7 +369,7 @@ function sanitizeAdvancedNodeConfig(node: Node) {
       {
         id: "click",
         name: "click",
-        description: "클릭되면 true 신호를 내보냅니다.",
+        description: "Emits a true signal when clicked.",
         type: "output",
       },
     ];
@@ -379,7 +379,7 @@ function sanitizeAdvancedNodeConfig(node: Node) {
     const conditionExpression = readConditionJunctionExpression(config);
     config.visualNodeType = "conditionJunction";
     config.triggerType = "condition";
-    config.name = readConfigText(config, ["name", "label", "title"], "조건 브라켓");
+    config.name = readConfigText(config, ["name", "label", "title"], "Condition Bracket");
     config.condition = conditionExpression;
     config.expression = conditionExpression;
     config.outputBlocks = normalizeTriggerOutputBlocks(
@@ -553,21 +553,8 @@ export function advancedGraphToStrategyGraph(
     .replace(/^-|-$/g, "") || "edited-advanced-strategy";
   const groupNodes = graph.nodes.filter((node) => node.type === "groupNode");
   const groupById = new Map(groupNodes.map((node) => [node.id, node]));
-  const isHiddenByCollapsedSequence = (node: Node) => {
-    if (!node.hidden) return false;
-    let parentId = node.parentId;
-    while (parentId) {
-      const parent = groupById.get(parentId);
-      const parentData = parent?.data && typeof parent.data === "object" ? parent.data as Record<string, unknown> : {};
-      if (parent?.type === "groupNode" && parentData.styleType !== "solid" && parentData.isCollapsed === true) {
-        return true;
-      }
-      parentId = parent?.parentId;
-    }
-    return false;
-  };
   const strategyNodes = graph.nodes.filter((node) =>
-    node.type !== "groupNode" && !isRuntimeArtifactNode(node) && (!node.hidden || isHiddenByCollapsedSequence(node)),
+    node.type !== "groupNode" && !isRuntimeArtifactNode(node) && !node.hidden,
   );
   const strategyGroup = groupNodes.find((node) => {
     const data = node.data && typeof node.data === "object" ? node.data as Record<string, unknown> : {};
@@ -643,7 +630,7 @@ export function advancedGraphToStrategyGraph(
           kind: "action-input",
           fromId: sourceId,
           toId: actionId,
-          label: "조건 데이터",
+          label: "Condition Data",
         });
       });
     });
@@ -678,7 +665,7 @@ export function advancedGraphToStrategyGraph(
       strategyBlock: {
         id: strategyId,
         title: strategyGroup ? getAdvancedGroupLabel(strategyGroup, strategyName) : strategyName,
-        purpose: "전략 전체를 감싸는 최상위 실행 컨테이너입니다.",
+        purpose: "Top-level execution container that wraps the whole strategy.",
         nodeIds: strategyNodes.map((node) => node.id),
       },
       workflowGroups,
@@ -754,14 +741,14 @@ function normalizeGraphTextList(value: unknown): string[] {
 function humanizeCondition(condition: string) {
   return condition
     .replace(/::/g, ".")
-    .replace(/&&/g, " 그리고 ")
-    .replace(/\|\|/g, " 또는 ")
-    .replace(/>=/g, " 이상")
-    .replace(/<=/g, " 이하")
-    .replace(/>/g, " 초과")
-    .replace(/</g, " 미만")
-    .replace(/==/g, " 같음")
-    .replace(/!=/g, " 다름")
+    .replace(/&&/g, " and ")
+    .replace(/\|\|/g, " or ")
+    .replace(/>=/g, " at least ")
+    .replace(/<=/g, " at most ")
+    .replace(/>/g, " greater than ")
+    .replace(/</g, " less than ")
+    .replace(/==/g, " equals ")
+    .replace(/!=/g, " not equal to ")
     .replace(/\s+/g, " ")
     .trim();
 }
@@ -1162,7 +1149,7 @@ function normalizeTriggerOutputBlocks(blocks: BlockData[]) {
       ...(firstBlock ?? {}),
       id: "trigger",
       name: "trigger",
-      description: firstBlock?.description || "조건식 결과 boolean 데이터",
+      description: firstBlock?.description || "Boolean data from the condition expression result",
       type: "output" as const,
       outputKind: "boolean-data",
     },
@@ -1170,19 +1157,18 @@ function normalizeTriggerOutputBlocks(blocks: BlockData[]) {
 }
 
 function hasIndicatorLogicDescriptionFormat(value: string) {
-  return /^1\.\s*어떤 데이터를 받아와서:/m.test(value) &&
-    /^2\.\s*어떤 동작을 수행하고:/m.test(value) &&
-    /^3\.\s*어떤 output을 내는지:/m.test(value);
+  return /^1\.\s*Data received:/m.test(value) &&
+    /^2\.\s*Action performed:/m.test(value) &&
+    /^3\.\s*Output produced:/m.test(value);
 }
 
 function isDeveloperCentricIndicatorDescription(value: string) {
   const text = normalizeGraphText(value);
   if (!text) return true;
   const withoutHeadings = text
-    .replace(/^1\.\s*어떤 데이터를 받아와서:/gm, "")
-    .replace(/^2\.\s*어떤 동작을 수행하고:/gm, "")
-    .replace(/^3\.\s*어떤 output을 내는지:/gm, "");
-  if (!/[가-힣]/.test(withoutHeadings)) return true;
+    .replace(/^1\.\s*Data received:/gm, "")
+    .replace(/^2\.\s*Action performed:/gm, "")
+    .replace(/^3\.\s*Output produced:/gm, "");
   return Boolean(
     /::|\{\{|\}\}|&&|\|\||=>|[=!<>]=/.test(withoutHeadings) ||
     /\b(?:Agent loop|workflow|runtime|config|schema|function|return|compute|input|output|source|resolver|protocolContracts|routerContracts|tokenAddressMap|contractAddress|routeData|amountIn|quotedOut|netProfitUsd|netProfitBps|triggered)\b/i.test(withoutHeadings) ||
@@ -1203,14 +1189,14 @@ function blockNames(blocks: BlockData[]) {
 function cleanIndicatorLogicSentence(value: string) {
   return normalizeGraphText(value)
     .replace(/^Agent loop (input|output|logic|criterion):\s*/i, "")
-    .replace(/^Agent loop 그대로:\s*/i, "")
+    .replace(/^Agent loop as-is:\s*/i, "")
     .trim();
 }
 
 function ensureKoreanSentence(value: string, suffix: string) {
   const text = cleanIndicatorLogicSentence(value);
   if (!text) return "";
-  if (/[.!?。]|다$|요$/.test(text)) return text;
+  if (/[.!?。]/.test(text)) return text;
   return `${text}${suffix}`;
 }
 
@@ -1218,36 +1204,36 @@ function compactPlainConceptList(concepts: string[], fallback: string) {
   const names = Array.from(new Set(concepts.map((concept) => normalizeGraphText(concept)).filter(Boolean)));
   if (names.length === 0) return fallback;
   if (names.length === 1) return names[0];
-  if (names.length === 2) return `${names[0]}와 ${names[1]}`;
-  return `${names.slice(0, -1).join(", ")}와 ${names[names.length - 1]}`;
+  if (names.length === 2) return `${names[0]} and ${names[1]}`;
+  return `${names.slice(0, -1).join(", ")} and ${names[names.length - 1]}`;
 }
 
 function humanizeIndicatorConcept(name: string) {
   const lower = normalizeGraphText(name).toLowerCase();
   if (!lower) return "";
   if (/contract|resolver|router|quoter|factory|address|executor|tokenaddress|protocolcontracts/.test(lower)) {
-    return "거래에 필요한 실제 주소 정보";
+    return "actual address information needed for trading";
   }
   if (/quote|price|market|pool|route|venue|dex/.test(lower)) {
-    return "현재 시장 가격과 거래 경로 정보";
+    return "current market prices and trading route information";
   }
   if (/profit|score|yield|apr|return|pnl/.test(lower)) {
-    return "예상 수익과 위험 점수";
+    return "expected profit and risk score";
   }
   if (/gas|fee|slippage|impact/.test(lower)) {
-    return "거래 비용과 가격 변동 여유분";
+    return "trading costs and price-movement buffer";
   }
   if (/balance|wallet|allowance|amount/.test(lower)) {
-    return "지갑 잔고와 사용할 금액";
+    return "wallet balance and usable amount";
   }
   if (/status|txhash|order|result|success|revert/.test(lower)) {
-    return "실행 상태와 거래 기록";
+    return "execution status and trade records";
   }
   if (/kill|halt|stop|risk|pause|stale|mismatch/.test(lower)) {
-    return "위험 신호와 긴급 중단 상태";
+    return "risk signals and emergency halt state";
   }
   if (/trigger|condition|check/.test(lower)) {
-    return "조건 통과 여부";
+    return "condition pass status";
   }
   return "";
 }
@@ -1281,15 +1267,15 @@ function describePlainIndicatorInput(
 ) {
   const text = indicatorSemanticText(id, label, config, inputBlocks, outputBlocks);
   if (/contract|resolver|router|quoter|factory|address|executor/.test(text)) {
-    return "현재 시장에서 사용할 거래소, 토큰, 실행 주소가 준비되어 있는지 확인할 수 있는 정보를 받아옵니다.";
+    return "Receives information that can verify whether the exchange, token, and execution addresses are ready for the current market.";
   }
   if (/profit|score|gas|fee|slippage|impact/.test(text)) {
-    return "현재 시세, 투입할 금액, 받을 것으로 예상되는 금액, 수수료와 가스비 정보를 받아옵니다.";
+    return "Receives current price, input amount, expected output amount, fees, and gas cost information.";
   }
   if (/risk|kill|halt|pause|stale|mismatch/.test(text)) {
-    return "최신 시세와 거래가 멈춰야 하는 위험 신호를 받아옵니다.";
+    return "Receives latest prices and risk signals that may require the trade to stop.";
   }
-  return `${humanizeIndicatorConcepts(blockNames(inputBlocks), "연결된 시장 데이터와 이전 계산 결과")}를 받아옵니다.`;
+  return `Receives ${humanizeIndicatorConcepts(blockNames(inputBlocks), "connected market data and prior calculation results")}.`;
 }
 
 function describePlainIndicatorBehavior(
@@ -1301,18 +1287,18 @@ function describePlainIndicatorBehavior(
 ) {
   const text = indicatorSemanticText(id, label, config, inputBlocks, outputBlocks);
   if (/contract|resolver|router|quoter|factory|address|executor/.test(text)) {
-    return "실제 거래에 필요한 주소가 준비되어 있는지 확인하고, 빠진 항목이 있으면 실행 전에 멈춰야 한다고 표시합니다.";
+    return "Checks whether addresses required for live trading are ready, and flags missing items that should stop execution before launch.";
   }
   if (/profit|net|score|gas|fee|slippage|impact/.test(text)) {
-    return "예상으로 받을 금액에서 투입 금액, 수수료, 가스비, 가격 변동 여유분을 빼서 실제로 남는 수익을 계산합니다.";
+    return "Calculates net profit by subtracting input amount, fees, gas costs, and price-movement buffer from the expected output amount.";
   }
   if (/yield|apr|reward|liquidity|tvl/.test(text)) {
-    return "수익률, 유동성, 보상, 위험 요소를 함께 비교해서 들어가도 괜찮은 기회인지 점수로 정리합니다.";
+    return "Compares yield, liquidity, rewards, and risk factors to score whether the opportunity is suitable to enter.";
   }
   if (/risk|kill|halt|pause|stale|mismatch/.test(text)) {
-    return "시세가 오래됐거나 가격 차이가 너무 크거나 손실 위험이 커진 상황을 골라냅니다.";
+    return "Finds cases where prices are stale, spreads are too wide, or loss risk has increased.";
   }
-  return `${label}에서 필요한 판단 기준을 사람이 확인할 수 있는 한 가지 결과로 정리합니다.`;
+  return `Summarizes the judgment criteria needed by ${label} into a single human-readable result.`;
 }
 
 function describePlainIndicatorOutput(
@@ -1324,18 +1310,18 @@ function describePlainIndicatorOutput(
 ) {
   const text = indicatorSemanticText(id, label, config, inputBlocks, outputBlocks);
   if (/contract|resolver|router|quoter|factory|address|executor/.test(text)) {
-    return "거래를 실제로 진행할 준비가 되었는지와 부족한 준비 항목을 알려줍니다.";
+    return "Reports whether the trade is ready to execute and which preparation items are missing.";
   }
   if (/profit|net|score|gas|fee|slippage|impact/.test(text)) {
-    return "거래를 계속 검토해도 되는 예상 순수익과 최소 수익 기준을 알려줍니다.";
+    return "Reports expected net profit and the minimum profit threshold for continued trade review.";
   }
   if (/yield|apr|reward|liquidity|tvl/.test(text)) {
-    return "선택한 기회의 매력도와 조심해야 할 위험 수준을 알려줍니다.";
+    return "Reports the selected opportunity's attractiveness and the risk level to watch.";
   }
   if (/risk|kill|halt|pause|stale|mismatch/.test(text)) {
-    return "거래를 멈추거나 다음 단계로 보내지 말아야 하는지 알려줍니다.";
+    return "Reports whether the trade should stop or avoid moving to the next step.";
   }
-  return `${humanizeIndicatorConcepts(blockNames(outputBlocks), "다음 단계에서 사용할 판단 결과")}를 알려줍니다.`;
+  return `Reports ${humanizeIndicatorConcepts(blockNames(outputBlocks), "judgment results for the next step")}.`;
 }
 
 function formatIndicatorLogicDescription(
@@ -1348,9 +1334,9 @@ function formatIndicatorLogicDescription(
   const existing = readConfigText(config, ["logicDescription"]);
   if (isFormattedIndicatorLogicDescription(existing)) return existing;
   return [
-    `1. 어떤 데이터를 받아와서: ${ensureKoreanSentence(describePlainIndicatorInput(id, label, config, inputBlocks, outputBlocks), "를 받아옵니다.")}`,
-    `2. 어떤 동작을 수행하고: ${ensureKoreanSentence(describePlainIndicatorBehavior(id, label, config, inputBlocks, outputBlocks), "을 수행합니다.")}`,
-    `3. 어떤 output을 내는지: ${ensureKoreanSentence(describePlainIndicatorOutput(id, label, config, inputBlocks, outputBlocks), "를 알려줍니다.")}`,
+    `1. Data received: ${ensureKoreanSentence(describePlainIndicatorInput(id, label, config, inputBlocks, outputBlocks), ".")}`,
+    `2. Action performed: ${ensureKoreanSentence(describePlainIndicatorBehavior(id, label, config, inputBlocks, outputBlocks), ".")}`,
+    `3. Output produced: ${ensureKoreanSentence(describePlainIndicatorOutput(id, label, config, inputBlocks, outputBlocks), ".")}`,
   ].join("\n");
 }
 
@@ -1410,7 +1396,7 @@ function parseIndicatorConditionExpression(expression: string, fallbackMetric: s
 
 function splitConditionClauses(expression: string) {
   return expression
-    .split(/\s*(?:&&|\|\||\band\b|\bor\b|그리고|또는)\s*/i)
+    .split(/\s*(?:&&|\|\||\band\b|\bor\b)\s*/i)
     .map((item) => item.trim())
     .filter(Boolean);
 }
@@ -1423,7 +1409,7 @@ function extractConditionClausesForBlock(expression: string, blockId: string) {
 }
 
 function inferConditionMergeModeFromExpression(expression: string): "AND" | "OR" {
-  return /\|\||\bor\b|또는/i.test(expression) ? "OR" : "AND";
+  return /\|\||\bor\b/i.test(expression) ? "OR" : "AND";
 }
 
 function parseIndicatorConditionExpressions(
@@ -1513,7 +1499,7 @@ function buildChartComparisonValuesConfig(config: Record<string, unknown>, fallb
         if (!Number.isFinite(value)) return null;
         return {
           id: `comparison-${index + 1}`,
-          label: `비교값 ${index + 1}`,
+          label: `Comparison ${index + 1}`,
           value,
           enabled: true,
         };
@@ -1524,7 +1510,7 @@ function buildChartComparisonValuesConfig(config: Record<string, unknown>, fallb
       if (!Number.isFinite(value)) return null;
       return {
         id: readConfigText(record, ["id"], `comparison-${index + 1}`),
-        label: readConfigText(record, ["label", "name"], `비교값 ${index + 1}`),
+        label: readConfigText(record, ["label", "name"], `Comparison ${index + 1}`),
         value,
         color: readConfigText(record, ["color"], ""),
         enabled: readConfigBool(record, ["enabled", "visible"], true),
@@ -1554,7 +1540,7 @@ function buildStreamingNodeData(id: string, config: Record<string, unknown>): St
     isExpanded: false,
     apiReference: readConfigText(config, ["apiReference", "reference"], ""),
     authMode: "NONE",
-    requestHint: readConfigText(config, ["description", "summary"], "실시간 시장 데이터를 수신합니다."),
+    requestHint: readConfigText(config, ["description", "summary"], "Receives real-time market data."),
   };
 }
 
@@ -1569,7 +1555,7 @@ function buildFunctionNodeData(id: string, type: string, config: Record<string, 
     return {
       ...block,
       visualizationFormat,
-      ...(/order[-_\s]?book|book|depth|ladder|levels?|호가|오더북/i.test(visualizationFormat) && !block.ladderSide
+      ...(/order[-_\s]?book|book|depth|ladder|levels?/i.test(visualizationFormat) && !block.ladderSide
         ? { ladderSide: index < Math.ceil(blocks.length / 2) ? "upper" : "lower" }
         : {}),
     };
@@ -1581,7 +1567,7 @@ function buildFunctionNodeData(id: string, type: string, config: Record<string, 
     runtimeBlockType: type,
     triggerType: readConfigText(config, ["triggerType", "type", "kind"], ""),
     materializedTriggerFormula: readConfigBool(config, ["materializedTriggerFormula"], false),
-    description: readConfigText(config, ["description", "summary"], `${label} 값을 계산하고 조건 충족 구간을 시각화합니다.`),
+    description: readConfigText(config, ["description", "summary"], `Calculates ${label} values and visualizes ranges where conditions are met.`),
     functionName: readConfigText(config, ["functionName", "name"], `${id.replace(/[^a-zA-Z0-9_]/g, "_")}()`),
     code: readConfigText(
       config,
@@ -1590,9 +1576,9 @@ function buildFunctionNodeData(id: string, type: string, config: Record<string, 
     ),
     inputBlocks,
     outputBlocks: normalizedOutputBlocks,
-    inputDescription: readConfigText(config, ["inputDescription"], "연결된 스트림 또는 이전 블록의 값을 사용합니다."),
+    inputDescription: readConfigText(config, ["inputDescription"], "Uses values from the connected stream or previous block."),
     logicDescription: formatIndicatorLogicDescription(id, label, config, inputBlocks, normalizedOutputBlocks),
-    outputDescription: readConfigText(config, ["outputDescription"], `${outputName} 값을 다음 블록으로 전달합니다.`),
+    outputDescription: readConfigText(config, ["outputDescription"], `Passes ${outputName} values to the next block.`),
     condition,
     showChartComparison: readConfigBool(config, ["showChartComparison", "showComparison", "showConditionOverlay"], true),
     chartComparisonValues: buildChartComparisonValuesConfig(config, condition.threshold),
@@ -1707,7 +1693,7 @@ function isManualLikeTriggerConfig(config: Record<string, unknown>) {
     readConfigText(config, ["description", "summary"]),
     readConfigText(config, ["condition", "expression", "logic"]),
   ].join(" ");
-  return /\b(manual|click|button|start|strategy\s*start|on\s*start|startup)\b|수동|클릭|버튼|전략\s*시작|시작\s*시/.test(text);
+  return /\b(manual|click|button|start|strategy\s*start|on\s*start|startup)\b/.test(text);
 }
 
 type InlineTriggerInfo = {
@@ -1809,7 +1795,7 @@ function isBooleanLikeOutputBlock(block: StrategyGraphBlock) {
   const outputs = readOutputBlocks(config, ["signal"]);
   if (outputs.length === 0) return true;
   return outputs.length <= 1 && outputs.every((output) =>
-    /\b(bool|boolean|signal|trigger|ready|ok|pass|success|true|confirmed|valid)\b|신호|조건|성공|확인|준비/.test(
+    /\b(bool|boolean|signal|trigger|ready|ok|pass|success|true|confirmed|valid|condition)\b/.test(
       `${output.id} ${output.name} ${output.description || ""}`.toLowerCase(),
     ),
   );
@@ -1829,13 +1815,13 @@ function normalBlockLooksLikeOmittableBooleanRelay(block: StrategyGraphBlock, id
     readConfigText(config, ["condition", "predicate", "expression", "logic", "code"]),
   ].join(" ").toLowerCase();
 
-  if (/\b(score|spread|basis|ma|ema|rsi|atr|volatility|price|amount|size|balance|allowance|reward|tvl|apr|apy|slippage|ratio|delta)\b|점수|가격|잔고|수량|보상|유동성|비율/.test(text)) {
+  if (/\b(score|spread|basis|ma|ema|rsi|atr|volatility|price|amount|size|balance|allowance|reward|tvl|apr|apy|slippage|ratio|delta|liquidity)\b/.test(text)) {
     return false;
   }
 
   return (
     isBooleanLikeOutputBlock(block) &&
-    /\b(indicator|predicate|boolean|bool|relay|gate|ready|ok|success|confirmed|pass|true|signal)\b|조건|신호|성공|확인|준비|통과/.test(text)
+    /\b(indicator|predicate|boolean|bool|relay|gate|ready|ok|success|confirmed|pass|true|signal|condition)\b/.test(text)
   );
 }
 
@@ -1963,11 +1949,11 @@ function withInlineTriggerConfig(config: Record<string, unknown>, info?: InlineT
   if (!info) return config;
   const triggerConfig = getBlockConfig(info.triggerBlock);
   const condition = readConfigText(triggerConfig, ["condition", "predicate", "expression", "logic"]);
-  const triggerLabel = readConfigText(triggerConfig, ["name", "label", "title"], "실행 조건");
+  const triggerLabel = readConfigText(triggerConfig, ["name", "label", "title"], "Execution Condition");
   const description = readConfigText(
     triggerConfig,
     ["description", "summary"],
-    condition ? `${humanizeCondition(condition)}이면 실행 신호를 냅니다.` : "조건이 충족되면 실행 신호를 냅니다.",
+    condition ? `Emits an execution signal when ${humanizeCondition(condition)}.` : "Emits an execution signal when the condition is met.",
   );
   const outputBlocks = readOutputBlocks(config, ["value"]);
   const outputIndex = findOutputBlockForCondition(outputBlocks, condition, info.sourceId);
@@ -2004,7 +1990,7 @@ function withInlineTriggerConfig(config: Record<string, unknown>, info?: InlineT
     outputDescription: readConfigText(
       config,
       ["outputDescription"],
-      `${triggerLabel} true/false 신호를 output block 아래 trigger로 내보냅니다.`,
+      `Emits the ${triggerLabel} true/false signal as a trigger under the output block.`,
     ),
     outputBlocks: nextOutputBlocks,
   };
@@ -2097,7 +2083,7 @@ function buildAdvancedNodeData(id: string, blockType: string, config: Record<str
 
 function buildConditionJunctionNodeData(id: string, config: Record<string, unknown>) {
   return {
-    label: readConfigText(config, ["name", "label", "title"], "조건 브라켓"),
+    label: readConfigText(config, ["name", "label", "title"], "Condition Bracket"),
     mode: readConfigText(config, ["mode", "logicMode", "conditionMergeMode"], "AND") === "OR" ? "OR" : "AND",
     bracketGroupId: readConfigText(config, ["bracketGroupId"], ""),
     bracketRoundNo: readConfigNumber(config, ["bracketRoundNo"], 1),
@@ -2252,7 +2238,7 @@ function resolveTriggerIntervalSeconds(
     if (!conditionMentionsBlock(condition, blockId) || !isFixedValueBlock(block)) continue;
     const blockConfig = getBlockConfig(block);
     const label = readConfigText(blockConfig, ["name", "label", "title"], blockId);
-    if (!/interval|cadence|period|time|ms|초|주기/i.test(`${label} ${condition}`)) continue;
+    if (!/interval|cadence|period|time|ms|second|minute|hour|schedule|frequency/i.test(`${label} ${condition}`)) continue;
     const seconds = normalizeIntervalSeconds(readFixedBlockValue(block), label);
     if (seconds) return seconds;
   }
@@ -2295,11 +2281,11 @@ function deriveActionConfigWithInlineValues(
       quoteToken = textValue;
       continue;
     }
-    if (/(target|base|asset|token|coin|symbol|대상)/i.test(normalizedLabel)) {
+    if (/(target|base|asset|token|coin|symbol)/i.test(normalizedLabel)) {
       baseToken = textValue;
       continue;
     }
-    if (/(amount|investment|budget|notional|size|투입|투자|금액)/i.test(normalizedLabel)) {
+    if (/(amount|investment|budget|notional|size)/i.test(normalizedLabel)) {
       if (!hasConfigValue(next, ["amount", "quote", "size", "notional"])) next.amount = textValue;
     }
   }
@@ -2333,7 +2319,7 @@ function deriveAdvancedBlockConfig(
           {
             id: "tick",
             name: "tick",
-            description: `${Math.round(interval)}초마다 true 신호를 내보냅니다.`,
+            description: `Emits a true signal every ${Math.round(interval)} seconds.`,
             type: "output",
           },
         ],
@@ -2351,8 +2337,8 @@ function getStrategyBlockMetadata(strategyGraph: StrategyGraphPayload, defaultTi
     : {};
   return {
     id: sanitizeGraphId(readConfigText(rawStrategyBlock, ["id"], normalizeGraphText(strategyGraph.strategy?.id, "ai-strategy")), "ai-strategy"),
-    title: readConfigText(rawStrategyBlock, ["title", "label", "name"], defaultTitle || normalizeGraphText(strategyGraph.strategy?.name, "AI 전략")),
-    purpose: readConfigText(rawStrategyBlock, ["purpose", "description", "summary"], "AI가 생성한 전략 전체를 감싸는 최상위 컨테이너입니다."),
+    title: readConfigText(rawStrategyBlock, ["title", "label", "name"], defaultTitle || normalizeGraphText(strategyGraph.strategy?.name, "AI Strategy")),
+    purpose: readConfigText(rawStrategyBlock, ["purpose", "description", "summary"], "Top-level container for the AI-generated strategy."),
   };
 }
 
@@ -2362,36 +2348,13 @@ function inferAdvancedSequenceStyle(group: StrategyWorkflowGroupSpec): "dashed-i
     return "pipeline";
   }
   const text = `${group.id} ${group.title} ${group.purpose}`.toLowerCase();
-  if (/kill|emergency|panic|stop|exit|close|drawdown|킬|긴급|비상|중단|정리|청산/.test(text)) {
+  if (/kill|emergency|panic|stop|exit|close|drawdown/.test(text)) {
     return "dashed-emergency";
   }
-  if (/init|initial|start|bootstrap|setup|capital|ready|초기|시작|준비|자금/.test(text)) {
+  if (/init|initial|start|bootstrap|setup|capital|ready/.test(text)) {
     return "dashed-init";
   }
   return "dashed-trigger";
-}
-
-function getAdvancedSequenceSummary(group: StrategyWorkflowGroupSpec, styleType: "dashed-init" | "dashed-trigger" | "dashed-emergency" | "pipeline") {
-  const text = `${group.title} ${group.purpose}`.toLowerCase();
-  if (styleType === "pipeline") {
-    return { summaryWord: "데이터", summaryEmoji: "▦", summaryGlyph: "데" };
-  }
-  if (styleType === "dashed-emergency") {
-    return { summaryWord: "정리", summaryEmoji: "🧯", summaryGlyph: "정" };
-  }
-  if (styleType === "dashed-init") {
-    return { summaryWord: "진입", summaryEmoji: "🚀", summaryGlyph: "진" };
-  }
-  if (/monitor|watch|감시|모니터/.test(text)) {
-    return { summaryWord: "감시", summaryEmoji: "📡", summaryGlyph: "감" };
-  }
-  if (/signal|condition|trigger|조건|신호/.test(text)) {
-    return { summaryWord: "조건", summaryEmoji: "⚡", summaryGlyph: "조" };
-  }
-  if (/execute|trade|order|swap|실행|주문|거래/.test(text)) {
-    return { summaryWord: "실행", summaryEmoji: "🧭", summaryGlyph: "실" };
-  }
-  return { summaryWord: "흐름", summaryEmoji: "✨", summaryGlyph: "흐" };
 }
 
 function workflowGroupLooksLikeDataPipeline(group: StrategyWorkflowGroupSpec) {
@@ -2420,9 +2383,9 @@ function blockIsAllowedInDataPipeline(block: StrategyGraphBlock) {
   return blockType === "streaming" || blockType === "normal";
 }
 
-const HARNESS_INTERNAL_WORKFLOW_RE = /\b(intent|research|retrieval|rag|retrieval[-\s]*augmented|knowledge\s*retrieval|context\s*retrieval|knowledge\s*graph|kg|web\s*discovery|candidate\s*universe|pool\s*discovery|implementation\s*research|orchestration|planner|planning|ranking|ranker|solver|evidence|adapter|labeling|check\s*effect|check-effect|workflow\s*plan)\b|의도|리서치|검색|후보|지식\s*검색|지식\s*그래프|랭킹|순위|계획|근거|증거|어댑터|라벨|오케스트레이션/i;
+const HARNESS_INTERNAL_WORKFLOW_RE = /\b(intent|research|retrieval|rag|retrieval[-\s]*augmented|knowledge\s*retrieval|context\s*retrieval|knowledge\s*graph|kg|web\s*discovery|candidate\s*universe|pool\s*discovery|implementation\s*research|orchestration|planner|planning|ranking|ranker|solver|evidence|adapter|labeling|check\s*effect|check-effect|workflow\s*plan)\b/i;
 
-const HARNESS_TRADING_RUNTIME_RE = /\b(capital|balance|allowance|collateral|approve|approval|entry|enter|deposit|add\s*liquidity|liquidity|lp|stake|staking|gauge|unstake|withdraw|remove\s*liquidity|claim|reward|rebalance|exit|swap|order|buy|sell|long|short|hedge|position|monitor|drawdown|slippage|kill\s*switch|close|cancel|reduce\s*only|stop)\b|자금|잔고|승인|진입|입금|예치|유동성|스테이킹|게이지|출금|회수|보상|클레임|리밸런스|종료|출구|스왑|주문|매수|매도|포지션|모니터|손실|슬리피지|킬\s*스위치|중단|청산/i;
+const HARNESS_TRADING_RUNTIME_RE = /\b(capital|balance|allowance|collateral|approve|approval|entry|enter|deposit|add\s*liquidity|liquidity|lp|stake|staking|gauge|unstake|withdraw|remove\s*liquidity|claim|reward|rebalance|exit|swap|order|buy|sell|long|short|hedge|position|monitor|drawdown|slippage|kill\s*switch|close|cancel|reduce\s*only|stop)\b/i;
 
 const HARNESS_EXECUTABLE_ACTION_RE = /\b(dex|cex|swap|order|buy|sell|approve|deposit|withdraw|stake|unstake|claim|getreward|addliquidity|removeliquidity|mint|burn|closeposition|cancelorder|placeorder|reduceonly|emergencyexit)\b/i;
 
@@ -2475,7 +2438,7 @@ function workflowGroupLooksLikeInternalPlanning(
   }
   const groupText = `${group.id} ${group.title} ${group.purpose}`;
   if (!HARNESS_INTERNAL_WORKFLOW_RE.test(groupText)) return false;
-  if (/check\s*effect|check-effect|intent|research|retrieval|rag|retrieval[-\s]*augmented|knowledge\s*retrieval|context\s*retrieval|knowledge\s*graph|kg|web\s*discovery|candidate|pool\s*discovery|ranking|solver|workflow\s*plan|의도|리서치|검색|후보|지식\s*검색|랭킹|순위|계획|근거|증거/i.test(groupText)) {
+  if (/check\s*effect|check-effect|intent|research|retrieval|rag|retrieval[-\s]*augmented|knowledge\s*retrieval|context\s*retrieval|knowledge\s*graph|kg|web\s*discovery|candidate|pool\s*discovery|ranking|solver|workflow\s*plan/i.test(groupText)) {
     return true;
   }
   return !memberBlocks.some(blockLooksLikeExecutableTradingAction);
@@ -2488,7 +2451,7 @@ function validateHarnessTradingLogicScope(strategyGraph: StrategyGraphPayload) {
   const metadata = strategyGraph.metadata && typeof strategyGraph.metadata === "object" ? strategyGraph.metadata : {};
   const visibleGraphScope = normalizeGraphText(metadata.visibleGraphScope).toLowerCase();
   if (visibleGraphScope !== "trading-logic-only") {
-    errors.push("AI 루프 결과는 runtimeGraph.metadata.visibleGraphScope='trading-logic-only'로 선언된 실제 트레이딩 그래프만 하네스에 올릴 수 있습니다");
+    errors.push("AI loop output can only enter the harness when it is a real trading graph declared as runtimeGraph.metadata.visibleGraphScope='trading-logic-only'");
   }
 
   const blocks = Array.isArray(strategyGraph.blocks) ? strategyGraph.blocks : [];
@@ -2496,7 +2459,7 @@ function validateHarnessTradingLogicScope(strategyGraph: StrategyGraphPayload) {
   const workflowGroups = normalizeWorkflowGroups(strategyGraph);
   const hasVisibleCheckEffectSequences = workflowGroups.some((group) => normalizeGraphText(group.sequenceType).toLowerCase() === "check-effect");
   if (metadata.checkEffectGraph === true && !hasVisibleCheckEffectSequences) {
-    errors.push("check/effect 그래프는 화면에 표시할 check-effect workflowGroups를 함께 제공해야 합니다");
+    errors.push("check/effect graphs must include visible check-effect workflowGroups");
   }
   workflowGroups
     .filter(workflowGroupLooksLikeDataPipeline)
@@ -2506,7 +2469,7 @@ function validateHarnessTradingLogicScope(strategyGraph: StrategyGraphPayload) {
         return block ? !blockIsAllowedInDataPipeline(block) : false;
       });
       if (invalidNodeIds.length > 0) {
-        errors.push(`data-pipeline workflowGroup에는 streaming/indicator logic 블록만 들어갈 수 있습니다: ${group.id} -> ${invalidNodeIds.slice(0, 4).join(", ")}`);
+        errors.push(`data-pipeline workflowGroups can only contain streaming or indicator logic blocks: ${group.id} -> ${invalidNodeIds.slice(0, 4).join(", ")}`);
       }
     });
   const badGroups = workflowGroups
@@ -2519,17 +2482,17 @@ function validateHarnessTradingLogicScope(strategyGraph: StrategyGraphPayload) {
     .filter(({ group, memberBlocks }) => workflowGroupLooksLikeInternalPlanning(group, memberBlocks));
 
   if (badGroups.length > 0) {
-    errors.push(`AI 내부 루프 workflowGroups는 시퀀스로 렌더링할 수 없습니다: ${badGroups.slice(0, 4).map(({ group }) => group.title || group.id).join(", ")}`);
+    errors.push(`AI internal loop workflowGroups cannot be rendered as sequences: ${badGroups.slice(0, 4).map(({ group }) => group.title || group.id).join(", ")}`);
   }
 
   const executableActions = blocks.filter(blockLooksLikeExecutableTradingAction);
   if (visibleGraphScope === "trading-logic-only" && executableActions.length === 0 && !isMonitoringOnlyStrategyGraph(strategyGraph)) {
-    errors.push("trading-logic-only 그래프에는 DEX/CEX 주문, 스왑, 입금, 스테이킹, 출구 같은 실행 액션 블록이 최소 1개 필요합니다");
+    errors.push("trading-logic-only graphs require at least one executable action block such as a DEX/CEX order, swap, deposit, stake, or exit");
   }
 
   const runtimeBlocks = blocks.filter(blockLooksLikeTradingRuntime);
   if (visibleGraphScope === "trading-logic-only" && runtimeBlocks.length === 0) {
-    errors.push("trading-logic-only 그래프에는 실제 매매 상태, 조건, 실행, 모니터링 블록만 포함되어야 합니다");
+    errors.push("trading-logic-only graphs must include real trading state, condition, execution, or monitoring blocks");
   }
 
   return errors;
@@ -2550,14 +2513,14 @@ function collectHarnessValueText(value: unknown): string {
 function actionOrderKind(beforeAction: StrategyGraphBlock, afterAction: StrategyGraphBlock) {
   const beforeText = collectStrategyBlockText(beforeAction).toLowerCase();
   const afterText = collectStrategyBlockText(afterAction).toLowerCase();
-  const beforeApproval = /approve|approval|allowance|승인/.test(beforeText);
-  const beforeAddLiquidity = /add\s*liquidity|deposit.*pool|mint.*lp|liquidity.*deposit|유동성.*(추가|입금|예치)/.test(beforeText);
-  const beforeClaim = /claim|getreward|reward|클레임|보상/.test(beforeText);
-  const beforeUnstake = /unstake|withdrawgauge|withdraw\s*gauge|gauge.*withdraw|언스테이킹|스테이킹.*해제/.test(beforeText);
-  const afterNeedsApproval = /add\s*liquidity|deposit|stake|supply|swap|mint|입금|예치|스테이킹|스왑|공급/.test(afterText);
-  const afterStake = /stake|depositgauge|gauge.*deposit|스테이킹|게이지/.test(afterText);
-  const afterRebalance = /rebalance|리밸런스|재조정/.test(afterText);
-  const afterRemoveLiquidity = /remove\s*liquidity|withdraw.*liquidity|redeem|burn.*lp|유동성.*(제거|회수|출금)/.test(afterText);
+  const beforeApproval = /approve|approval|allowance/.test(beforeText);
+  const beforeAddLiquidity = /add\s*liquidity|deposit.*pool|mint.*lp|liquidity.*deposit/.test(beforeText);
+  const beforeClaim = /claim|getreward|reward/.test(beforeText);
+  const beforeUnstake = /unstake|withdrawgauge|withdraw\s*gauge|gauge.*withdraw/.test(beforeText);
+  const afterNeedsApproval = /add\s*liquidity|deposit|stake|supply|swap|mint/.test(afterText);
+  const afterStake = /stake|depositgauge|gauge.*deposit/.test(afterText);
+  const afterRebalance = /rebalance/.test(afterText);
+  const afterRemoveLiquidity = /remove\s*liquidity|withdraw.*liquidity|redeem|burn.*lp/.test(afterText);
 
   if (beforeApproval && afterNeedsApproval) return "approval-before-execution";
   if (beforeAddLiquidity && afterStake) return "deposit-before-stake";
@@ -2784,7 +2747,7 @@ const ADVANCED_SEQUENCE_MIN_WIDTH = 720;
 const ADVANCED_SEQUENCE_HEIGHT = 240;
 
 function workflowGroupLooksLikeInit(group: StrategyWorkflowGroupSpec) {
-  return /\b(init|initial|start|startup|bootstrap|setup|entry|capital)\b|초기|시작|진입|준비|자금/.test(
+  return /\b(init|initial|start|startup|bootstrap|setup|entry|capital)\b/.test(
     `${group.id} ${group.title} ${group.purpose}`.toLowerCase(),
   );
 }
@@ -2792,7 +2755,7 @@ function workflowGroupLooksLikeInit(group: StrategyWorkflowGroupSpec) {
 function blockLooksLikeStartTrigger(block: StrategyGraphBlock) {
   if (getBlockType(block) !== "trigger") return false;
   const config = getBlockConfig(block);
-  return isManualLikeTriggerConfig(config) || /\b(start|startup|manual|click|button)\b|시작|수동|클릭|버튼/.test(
+  return isManualLikeTriggerConfig(config) || /\b(start|startup|manual|click|button)\b/.test(
     `${getBlockId(block)} ${collectStrategyBlockText(block)}`.toLowerCase(),
   );
 }
@@ -2829,17 +2792,17 @@ function addVisibleStartTriggerBlocks(
       id: startId,
       type: "trigger",
       config: {
-        name: "전략 시작",
-        label: "전략 시작",
-        title: "전략 시작",
+        name: "Strategy Start",
+        label: "Strategy Start",
+        title: "Strategy Start",
         triggerType: "manual",
         workflowId: group.id,
-        description: "전략이 시작되면 true 신호를 내보내 초기 실행 조건을 평가합니다.",
+        description: "Emits a true signal when the strategy starts so the initial execution condition can be evaluated.",
         outputBlocks: [
           {
             id: "click",
             name: "start",
-            description: "전략 시작 시 true",
+            description: "True when the strategy starts",
             type: "output",
           },
         ],
@@ -2924,12 +2887,12 @@ function materializeTriggerActionFormulaBlocks(
         name: `${sourceLabel} trigger`,
         triggerType: "condition",
         condition: `${sourceId}::${String(sourceOutputName).replace(/[^a-zA-Z0-9_.:-]+/g, "_")} == true`,
-        overviewDescription: `${sourceLabel}.${sourceOutputName} boolean 데이터를 실행 조건으로 변환합니다.`,
+        overviewDescription: `Converts ${sourceLabel}.${sourceOutputName} boolean data into an execution condition.`,
         inputBlocks: [
           {
             id: "trigger",
             name: "trigger",
-            description: `${sourceLabel}.${sourceOutputName} boolean 데이터`,
+            description: `${sourceLabel}.${sourceOutputName} boolean data`,
             type: "input",
           },
         ],
@@ -2937,7 +2900,7 @@ function materializeTriggerActionFormulaBlocks(
           {
             id: "trigger",
             name: "trigger",
-            description: "조건식 결과 boolean 데이터",
+            description: "Boolean data from the condition result",
             type: "output",
           },
         ],
@@ -2953,7 +2916,7 @@ function materializeTriggerActionFormulaBlocks(
         fromId: sourceId,
         toId: formulaId,
         sourceBlockId: sourceOutputId,
-        label: "조건 입력",
+        label: "Condition Input",
         sharedDataPipeline: connection.sharedDataPipeline === true,
       },
       {
@@ -3051,8 +3014,8 @@ function buildAdvancedGraphFromStrategyGraph(strategyGraph: StrategyGraphPayload
     ? sourceWorkflowGroups
     : [{
       id: "main-workflow",
-      title: "메인 전략 흐름",
-      purpose: "AI가 명시 시퀀스를 만들지 않은 전략의 기본 실행 흐름입니다.",
+      title: "Main Strategy Flow",
+      purpose: "Default execution flow for strategies without explicit AI-defined sequences.",
       nodeIds: Array.from(blockIds),
       canAbstract: true,
       mustStayVisibleNodeIds: blocks
@@ -3152,7 +3115,7 @@ function buildAdvancedGraphFromStrategyGraph(strategyGraph: StrategyGraphPayload
     position: { x: 50, y: 50 },
     style: { width: 1200, height: 800 },
     data: {
-      label: strategyBlock.title || "AI 지능형 파이프라인 (Advanced)",
+      label: strategyBlock.title || "AI Intelligent Pipeline (Advanced)",
       purpose: strategyBlock.purpose,
       styleType: "solid"
     }
@@ -3179,12 +3142,6 @@ function buildAdvancedGraphFromStrategyGraph(strategyGraph: StrategyGraphPayload
         order: group.order ?? index + 1,
         sharedDataPipeline: group.sharedDataPipeline === true,
         styleType,
-        requiredStates: styleType === "pipeline" ? [] : styleType === "dashed-init" ? ["IDLE"] : styleType === "dashed-emergency" ? ["ACTIVE", "CLOSED"] : ["ACTIVE"],
-        executingStates: styleType === "pipeline" ? [] : styleType === "dashed-init" ? ["IDLE"] : styleType === "dashed-emergency" ? ["CLOSED"] : [],
-        isCollapsed: false,
-        ...getAdvancedSequenceSummary(group, styleType),
-        collapsedWidth: 196,
-        collapsedHeight: 118,
       },
     });
   });
@@ -3608,7 +3565,7 @@ function advancedGraphIsMonitoringOnly(graph: AdvancedGraph) {
   const hasExecutionSequence = sequenceGroups.some((node) => {
     const data = node.data && typeof node.data === "object" ? node.data as Record<string, unknown> : {};
     const text = `${data.sequenceType ?? ""} ${data.label ?? ""} ${data.purpose ?? ""}`.toLowerCase();
-    return /check-effect|execute|execution|order|swap|trade|action|실행|주문|거래|스왑/.test(text);
+    return /check-effect|execute|execution|order|swap|trade|action/.test(text);
   });
   return hasMarketOrMonitorNode && !hasExecutionSequence;
 }
@@ -3876,7 +3833,7 @@ function createAdvancedViewWithHarness(strategyGraph: StrategyGraphPayload, defa
     ...validateHarnessSequentialExecution(strategyGraph),
   ];
   if (contractErrors.length > 0) {
-    throw new Error(`고급 전략 그래프 하네스 범위 위반: ${contractErrors.slice(0, 6).join("; ")}`);
+    throw new Error(`Advanced strategy graph harness scope violation: ${contractErrors.slice(0, 6).join("; ")}`);
   }
 
   let graph = buildAdvancedGraphFromStrategyGraph(strategyGraph, defaultTitle);
@@ -3886,19 +3843,19 @@ function createAdvancedViewWithHarness(strategyGraph: StrategyGraphPayload, defa
   for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
     const errors = validateAdvancedGraph(graph);
     if (errors.length === 0) {
-      diagnostics.push(`고급 그래프 하네스 검증 완료 (${attempt}회차)`);
+      diagnostics.push(`Advanced graph harness validation passed (attempt ${attempt})`);
       return { graph, attempts: attempt, diagnostics };
     }
-    diagnostics.push(`고급 그래프 하네스 ${attempt}회차 수정: ${errors.slice(0, 4).join("; ")}`);
+    diagnostics.push(`Advanced graph harness repair attempt ${attempt}: ${errors.slice(0, 4).join("; ")}`);
     graph = repairAdvancedGraph(graph);
   }
 
   const finalErrors = validateAdvancedGraph(graph);
   if (finalErrors.length > 0) {
-    throw new Error(`고급 전략 그래프 생성 실패: ${finalErrors.slice(0, 6).join("; ")}`);
+    throw new Error(`Advanced strategy graph generation failed: ${finalErrors.slice(0, 6).join("; ")}`);
   }
 
-  diagnostics.push("고급 그래프 하네스 검증 완료 (최종 복구)");
+  diagnostics.push("Advanced graph harness validation passed after final repair");
   return { graph, attempts: maxAttempts, diagnostics };
 }
 

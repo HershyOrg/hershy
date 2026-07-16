@@ -39,7 +39,7 @@ export function MarketSpotlights({
                       <em>{creator.name}</em>
                     </span>
                     <div className="spotlight-score">
-                      <b className={filter === "Top Volume" || filter === "New" ? "" : "positive"}>
+                      <b className={filter === "Market Neutral" ? "" : "positive"}>
                         {getSpotlightMetric(strategy, filter)}
                       </b>
                     </div>

@@ -52,11 +52,11 @@ export function IconButton({
 
 export function StatusBadge({ status }: { status: StrategyBlock["status"] }) {
   const label = {
-    ready: "대기",
-    watching: "감시",
-    running: "작동",
-    complete: "완료",
-    blocked: "제한",
+    ready: "Ready",
+    watching: "Watching",
+    running: "Running",
+    complete: "Complete",
+    blocked: "Blocked",
   }[status];
 
   return (

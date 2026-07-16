@@ -8,31 +8,27 @@ import { MarketSpotlights } from "../features/strategy-exchange/components/Marke
 import { StrategyCard } from "../features/strategy-exchange/components/StrategyCards";
 import { UserAddressProfilePage } from "../features/strategy-exchange/components/UserAddressProfilePage";
 import { VaultAddressPage } from "../features/strategy-exchange/components/VaultAddressPage";
-import { sectorLabels } from "../features/strategy-exchange/constants";
+import { productTypeDisclosureLabels, productTypeLabels } from "../features/strategy-exchange/constants";
 import { useStrategyFeed } from "../features/strategy-exchange/hooks/useStrategyFeed";
 import {
   browseFilters,
   connectedExchanges,
-  sectors,
+  productTypes,
   strategies,
 } from "../features/strategy-exchange/store/strategyCatalog";
 import {
   readBookmarkStore,
-  readForkCountStore,
   readStrategyPositionStore,
   readUsedStrategyStore,
   writeBookmarkStore,
-  writeForkCountStore,
   writeStrategyPositionStore,
   writeUsedStrategyStore,
 } from "../features/strategy-exchange/store/strategyExchangeStore";
 import type {
   AddressRoute,
   BrowseFilter,
-  Sector,
-  Strategy,
+  ProductType,
 } from "../features/strategy-exchange/types/strategyTypes";
-import { getBaseForkCount } from "../features/strategy-exchange/utils/strategyMetrics";
 import {
   getAddressRouteFromLocation,
   isLaunchLogicPath,
@@ -58,15 +54,14 @@ function getInitialThemeMode(): ThemeMode {
 }
 
 export function DashboardPage() {
-  const [activeSector, setActiveSector] = useState<"All" | Sector>("All");
-  const [activeFilter, setActiveFilter] = useState<BrowseFilter>("Daily Hot");
+  const [activeProductType, setActiveProductType] = useState<"All" | ProductType>("All");
+  const [activeFilter, setActiveFilter] = useState<BrowseFilter>("Featured");
   const [isCategoryOpen, setIsCategoryOpen] = useState(false);
   const [query, setQuery] = useState("");
   const [themeMode, setThemeMode] = useState<ThemeMode>(() => getInitialThemeMode());
   const [bookmarks, setBookmarks] = useState<Set<string>>(() => readBookmarkStore());
   const [usedStrategies, setUsedStrategies] = useState<Set<string>>(() => readUsedStrategyStore());
   const [strategyPositions, setStrategyPositions] = useState<Record<string, number>>(() => readStrategyPositionStore());
-  const [forkCounts, setForkCounts] = useState<Record<string, number>>(() => readForkCountStore());
   const [addressRoute, setAddressRoute] = useState<AddressRoute | null>(() => getAddressRouteFromLocation());
   const [isLaunchLogicRoute, setIsLaunchLogicRoute] = useState(() => isLaunchLogicPath());
   const [isMyPageRoute, setIsMyPageRoute] = useState(() => isMyPagePath());
@@ -75,12 +70,12 @@ export function DashboardPage() {
   const feedRequest = useMemo(
     () => ({
       category: activeFilter,
-      type: activeSector,
+      type: activeProductType,
       query,
       includeUnconnected: false,
       connectedVenues: connectedExchanges,
     }),
-    [activeFilter, activeSector, query],
+    [activeFilter, activeProductType, query],
   );
   const { visibleStrategies, feedEndpoint, isFeedLoading } = useStrategyFeed(feedRequest);
 
@@ -130,10 +125,6 @@ export function DashboardPage() {
   useEffect(() => {
     writeStrategyPositionStore(strategyPositions);
   }, [strategyPositions]);
-
-  useEffect(() => {
-    writeForkCountStore(forkCounts);
-  }, [forkCounts]);
 
   const spotlightStrategies = strategies;
 
@@ -210,7 +201,6 @@ export function DashboardPage() {
       ? strategies.find((strategy) => strategy.id === addressRoute.strategyId) ?? null
       : null;
   const myAccount = selectUserAccountByCreatorId("quant.kim");
-  const getForkCount = (strategy: Strategy) => forkCounts[strategy.id] ?? getBaseForkCount(strategy);
 
   const useStrategy = (strategyId: string, amount = 0) => {
     setUsedStrategies((current) => new Set(current).add(strategyId));
@@ -233,13 +223,6 @@ export function DashboardPage() {
       delete next[strategyId];
       return next;
     });
-  };
-
-  const forkStrategy = (strategy: Strategy) => {
-    setForkCounts((current) => ({
-      ...current,
-      [strategy.id]: (current[strategy.id] ?? getBaseForkCount(strategy)) + 1,
-    }));
   };
 
   const selectSpotlightFilter = (filter: BrowseFilter) => {
@@ -278,14 +261,11 @@ export function DashboardPage() {
         <VaultAddressPage
           address={addressRoute.address}
           strategy={routedStrategy}
-          forkCount={getForkCount(routedStrategy)}
           used={usedStrategies.has(routedStrategy.id)}
           netPosition={strategyPositions[routedStrategy.id] ?? 0}
           onCreatorSelect={() => openCreator(routedStrategy.creatorId)}
           onUse={(amount) => useStrategy(routedStrategy.id, amount)}
           onDrop={() => dropStrategy(routedStrategy.id)}
-          onFork={forkStrategy}
-          onUserSelect={navigateToAddress}
         />
       ) : addressRoute?.kind === "user" ? (
         <UserAddressProfilePage
@@ -309,9 +289,9 @@ export function DashboardPage() {
                 <div className="category-heading">
                   <span>피드</span>
                   <strong>
-                    {activeSector === "All"
+                    {activeProductType === "All"
                       ? activeFilter
-                      : `${activeFilter} / ${sectorLabels[activeSector]}`}
+                      : `${activeFilter} / ${productTypeLabels[activeProductType]}`}
                   </strong>
                 </div>
                 <nav className="browse-row" aria-label="browse filters">
@@ -327,28 +307,29 @@ export function DashboardPage() {
                   ))}
                   <button
                     type="button"
-                    className={isCategoryOpen || activeSector !== "All" ? "active" : ""}
+                    className={isCategoryOpen || activeProductType !== "All" ? "active" : ""}
                     onClick={() => setIsCategoryOpen((current) => !current)}
                   >
-                    Category
+                    상품 유형
                   </button>
                 </nav>
 
                 {isCategoryOpen ? (
                   <div className="feed-category-panel">
                     <div className="category-subheading">
-                      <span>유형별</span>
-                      <strong>{sectorLabels[activeSector]}</strong>
+                      <span>카테고리</span>
+                      <strong>{productTypeDisclosureLabels[activeProductType]}</strong>
                     </div>
-                    <nav className="sector-row" aria-label="strategy type subcategories">
-                      {sectors.map((sector) => (
+                    <nav className="sector-row product-type-row" aria-label="strategy type subcategories">
+                      {productTypes.map((productType) => (
                         <button
                           type="button"
-                          key={sector}
-                          className={activeSector === sector ? "active" : ""}
-                          onClick={() => setActiveSector(sector)}
+                          key={productType}
+                          className={activeProductType === productType ? "active" : ""}
+                          onClick={() => setActiveProductType(productType)}
                         >
-                          {sectorLabels[sector]}
+                          <span>{productTypeLabels[productType]}</span>
+                          <small>{productTypeDisclosureLabels[productType]}</small>
                         </button>
                       ))}
                     </nav>
@@ -368,13 +349,11 @@ export function DashboardPage() {
                     key={strategy.id}
                     strategy={strategy}
                     bookmarked={bookmarks.has(strategy.id)}
-                    forkCount={getForkCount(strategy)}
                     used={usedStrategies.has(strategy.id)}
                     onBookmark={() => handleBookmark(strategy.id)}
                     onCreatorSelect={() => openCreator(strategy.creatorId)}
                     onOpen={() => navigateToVaultAddress(strategy.id)}
                     onUse={() => useStrategy(strategy.id)}
-                    onDrop={() => dropStrategy(strategy.id)}
                   />
                 ))
               ) : (

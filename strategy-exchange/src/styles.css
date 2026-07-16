@@ -521,6 +521,26 @@ button {
   color: var(--gold-text);
 }
 
+.sector-row.product-type-row button {
+  height: auto;
+  min-height: 48px;
+  min-width: 108px;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  justify-content: center;
+  gap: 4px;
+  line-height: 1.1;
+  text-align: left;
+}
+
+.sector-row.product-type-row button small {
+  color: inherit;
+  font-size: 10px;
+  font-weight: 900;
+  opacity: 0.72;
+}
+
 .strategy-grid {
   display: grid;
   grid-template-columns: repeat(4, minmax(0, 1fr));
@@ -611,37 +631,6 @@ button {
   background: var(--surface-2);
   font-size: 11px;
   font-weight: 700;
-  line-height: 1;
-}
-
-.fork-badge {
-  display: inline-flex;
-  align-items: center;
-  gap: 4px;
-  min-width: max-content;
-  border: 1px solid var(--line);
-  padding: 3px 6px;
-  color: var(--text-soft);
-  background: var(--surface-2);
-  font-size: 11px;
-  font-weight: 800;
-  line-height: 1;
-}
-
-.fork-badge svg {
-  width: 12px;
-  height: 12px;
-}
-
-.fork-badge span {
-  color: var(--muted);
-  font-size: inherit;
-  line-height: 1;
-}
-
-.fork-badge strong {
-  color: inherit;
-  font-size: inherit;
   line-height: 1;
 }
 
@@ -1201,7 +1190,7 @@ button {
 
 .trade-actions {
   display: grid;
-  grid-template-columns: 1fr 1fr;
+  grid-template-columns: 1fr;
   gap: 8px;
   margin-top: auto;
   padding: 14px;
@@ -1381,16 +1370,158 @@ button {
   padding: 6px 16px 18px;
 }
 
+.vault-product-header {
+  display: grid;
+  grid-template-columns: 112px minmax(0, 1fr) minmax(170px, auto);
+  gap: 14px;
+  align-items: center;
+  min-width: 0;
+  border: 2px solid var(--line);
+  background:
+    linear-gradient(135deg, rgba(208, 173, 79, 0.06), transparent 42%),
+    var(--surface);
+  padding: 14px;
+  box-shadow: 5px 5px 0 var(--panel-shadow);
+  clip-path: polygon(0 0, calc(100% - 16px) 0, 100% 16px, 100% 100%, 16px 100%, 0 calc(100% - 16px));
+}
+
+.vault-product-header.loading {
+  opacity: 0.72;
+}
+
+.vault-product-header .vault-detail-share-visual {
+  justify-self: start;
+  align-self: start;
+  width: 96px;
+}
+
+.vault-product-copy {
+  display: grid;
+  gap: 8px;
+  min-width: 0;
+}
+
+.vault-product-copy h1 {
+  margin: 0;
+  overflow-wrap: anywhere;
+  color: var(--text);
+  font-size: 34px;
+  line-height: 1.02;
+}
+
+.vault-product-copy p {
+  max-width: 920px;
+  margin: 0;
+  color: var(--text-soft);
+  font-size: 13px;
+  line-height: 1.45;
+}
+
+.vault-product-copy .modal-creator-link {
+  justify-self: start;
+}
+
+.vault-product-copy .vault-tag-line {
+  flex-wrap: wrap;
+  gap: 5px;
+}
+
+.vault-product-universe {
+  display: grid;
+  grid-template-columns: minmax(180px, 0.42fr) minmax(260px, 0.58fr);
+  gap: 8px;
+  max-width: 820px;
+}
+
+.vault-product-universe > div,
+.vault-product-symbol,
+.vault-kpi-card,
+.vault-trade-ticket {
+  border: 1px solid var(--line-soft);
+  background: var(--surface-2);
+}
+
+.vault-product-universe > div {
+  min-width: 0;
+  padding: 8px 9px;
+}
+
+.vault-product-universe span,
+.vault-product-symbol span,
+.vault-kpi-card span {
+  display: block;
+  color: var(--muted);
+  font-size: 10px;
+  font-weight: 900;
+  text-transform: uppercase;
+}
+
+.vault-product-universe strong,
+.vault-product-symbol strong,
+.vault-kpi-card strong {
+  display: block;
+  margin-top: 5px;
+  overflow-wrap: anywhere;
+  color: var(--text);
+  font-family: var(--font-geist-mono);
+  font-weight: 1000;
+  line-height: 1.15;
+}
+
+.vault-product-universe strong {
+  font-size: 12px;
+}
+
+.vault-product-symbol {
+  display: grid;
+  justify-items: end;
+  min-width: 0;
+  padding: 12px;
+  text-align: right;
+}
+
+.vault-product-symbol strong {
+  font-size: 30px;
+}
+
+.vault-product-symbol small {
+  display: block;
+  margin-top: 6px;
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 900;
+}
+
+.vault-kpi-strip {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(142px, 1fr));
+  gap: 8px;
+  margin-top: 10px;
+}
+
+.vault-kpi-card {
+  min-width: 0;
+  padding: 10px;
+}
+
+.vault-kpi-card strong {
+  overflow: hidden;
+  font-size: 17px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .vault-page-hero {
   display: grid;
-  grid-template-columns: minmax(720px, 1.35fr) minmax(440px, 0.65fr);
+  grid-template-columns: minmax(720px, 1fr) minmax(340px, 420px);
   gap: 12px;
-  margin-top: 6px;
-  align-items: stretch;
+  margin-top: 12px;
+  align-items: start;
 }
 
 .vault-page-canvas,
-.vault-page-side {
+.vault-page-side,
+.vault-trade-ticket {
   min-width: 0;
   border: 2px solid var(--line);
   border-radius: 0;
@@ -1406,13 +1537,35 @@ button {
   display: flex;
   flex-direction: column;
   min-height: 0;
-  height: min(820px, calc(100vh - 104px));
+  height: min(680px, calc(100vh - 236px));
   background:
     linear-gradient(135deg, rgba(141, 169, 201, 0.06), transparent 36%),
     linear-gradient(var(--line-soft) 1px, transparent 1px),
     linear-gradient(90deg, var(--line-soft) 1px, transparent 1px),
     var(--canvas-bg);
   background-size: 36px 36px;
+}
+
+.vault-trade-ticket {
+  position: sticky;
+  top: 78px;
+  align-self: start;
+  display: grid;
+  gap: 10px;
+  padding: 14px;
+}
+
+.vault-trade-ticket.loading {
+  opacity: 0.72;
+}
+
+.vault-trade-actions {
+  display: grid;
+  grid-template-columns: 1fr;
+}
+
+.vault-trade-actions button {
+  height: 40px;
 }
 
 .vault-view-frame {
@@ -1526,20 +1679,6 @@ button {
   min-height: 260px;
 }
 
-.vault-margin-rate-chart {
-  position: relative;
-  flex: 0 0 176px;
-  min-height: 0;
-  margin-top: 10px;
-  border: 1px solid var(--line-soft);
-  background:
-    linear-gradient(var(--line-soft) 1px, transparent 1px),
-    linear-gradient(90deg, var(--line-soft) 1px, transparent 1px),
-    var(--surface-2);
-  background-size: 42px 42px;
-  overflow: hidden;
-}
-
 .vault-chart-caption {
   position: absolute;
   top: 10px;
@@ -1570,8 +1709,7 @@ button {
   min-height: inherit;
 }
 
-.vault-value-lightweight-chart,
-.vault-margin-lightweight-chart {
+.vault-value-lightweight-chart {
   width: 100%;
   height: 100%;
 }
@@ -1846,15 +1984,11 @@ button {
 }
 
 .vault-page-side .modal-actions {
-  grid-template-columns: repeat(3, minmax(0, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
 }
 
 .vault-page-side .modal-actions button {
   height: 36px;
-}
-
-.vault-page-side .modal-actions .fork-button {
-  grid-column: auto;
 }
 
 .use-allocation-panel {
@@ -1907,6 +2041,29 @@ button {
 
 .use-allocation-input-row input:focus {
   border-color: var(--gold);
+}
+
+.use-allocation-increments {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px;
+}
+
+.use-allocation-increments button {
+  flex: 0 0 auto;
+  min-width: 42px;
+  height: 26px;
+  border: 1px solid var(--line-soft);
+  background: var(--button-muted-bg);
+  color: var(--text);
+  font-family: var(--font-geist-mono);
+  font-size: 11px;
+  font-weight: 1000;
+}
+
+.use-allocation-increments button:hover {
+  border-color: var(--gold);
+  background: var(--surface-hover);
 }
 
 .use-allocation-input-row strong {
@@ -2027,267 +2184,12 @@ button {
   color: var(--danger-text);
 }
 
-.allocation-bridge-button {
-  justify-self: end;
-  width: fit-content;
-  border: 1px solid var(--danger-line);
-  background: color-mix(in srgb, var(--red-dark) 72%, var(--surface));
-  color: #fff;
-  padding: 3px 6px;
-  font-size: 10px;
-  font-weight: 1000;
-  line-height: 1;
-  text-transform: uppercase;
-}
-
-.allocation-bridge-button:hover {
-  filter: brightness(1.1);
-}
-
 .use-allocation-empty {
   padding: 10px 0;
   color: var(--muted);
   font-size: 11px;
   font-weight: 900;
   text-transform: uppercase;
-}
-
-.bridge-modal-overlay {
-  position: fixed;
-  inset: 0;
-  z-index: 70;
-  display: grid;
-  place-items: center;
-  padding: 20px;
-  background: var(--overlay-bg);
-  backdrop-filter: blur(8px);
-}
-
-.bridge-modal {
-  display: grid;
-  gap: 12px;
-  width: min(760px, 100%);
-  max-height: calc(100vh - 40px);
-  overflow-y: auto;
-  border: 1px solid var(--line);
-  background: var(--surface);
-  padding: 14px;
-  box-shadow: 6px 6px 0 var(--panel-shadow);
-}
-
-.bridge-modal-heading {
-  display: flex;
-  align-items: flex-start;
-  justify-content: space-between;
-  gap: 12px;
-}
-
-.bridge-modal-heading span,
-.bridge-controls span {
-  display: block;
-  color: var(--muted);
-  font-size: 10px;
-  font-weight: 900;
-  text-transform: uppercase;
-}
-
-.bridge-modal-heading strong {
-  display: block;
-  margin-top: 3px;
-  color: var(--text);
-  font-size: 18px;
-  font-weight: 1000;
-}
-
-.bridge-modal-heading button {
-  width: 30px;
-  height: 30px;
-  border: 1px solid var(--line-soft);
-  background: var(--surface-2);
-  color: var(--text);
-  font-weight: 1000;
-}
-
-.bridge-heading-actions {
-  display: flex;
-  flex-wrap: wrap;
-  justify-content: flex-end;
-  gap: 8px;
-}
-
-.bridge-modal-heading .bridge-auto-sort-button {
-  width: auto;
-  min-width: 0;
-  padding: 0 10px;
-  border-color: var(--line);
-  background: var(--button-muted-bg);
-  font-size: 10px;
-  text-transform: uppercase;
-  white-space: nowrap;
-}
-
-.bridge-modal-heading .bridge-auto-sort-button:disabled {
-  cursor: not-allowed;
-  opacity: 0.42;
-}
-
-.bridge-modal-heading .bridge-close-button {
-  flex: 0 0 auto;
-}
-
-.bridge-modal p {
-  margin: 0;
-  color: var(--text-soft);
-  font-size: 13px;
-  line-height: 1.45;
-}
-
-.bridge-wallet-grid {
-  display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: 8px;
-}
-
-.bridge-wallet-card {
-  display: grid;
-  gap: 4px;
-  min-width: 0;
-  border: 1px solid var(--line-soft);
-  background: transparent;
-  padding: 9px;
-  text-align: left;
-}
-
-.bridge-wallet-card.source {
-  border-color: var(--blue);
-}
-
-.bridge-wallet-card.target {
-  border-color: var(--danger-line);
-}
-
-.bridge-wallet-card span {
-  overflow: hidden;
-  color: var(--text);
-  font-size: 12px;
-  font-weight: 1000;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.bridge-wallet-card strong {
-  color: var(--text);
-  font-family: var(--font-geist-mono);
-  font-size: 14px;
-  font-weight: 1000;
-}
-
-.bridge-wallet-card small {
-  color: var(--muted);
-  font-size: 10px;
-  font-weight: 900;
-  text-transform: uppercase;
-}
-
-.bridge-controls {
-  display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: 8px;
-}
-
-.bridge-controls label {
-  display: grid;
-  gap: 5px;
-  min-width: 0;
-}
-
-.bridge-controls select,
-.bridge-controls input {
-  width: 100%;
-  height: 34px;
-  border: 1px solid var(--line-soft);
-  border-radius: 0;
-  background: var(--input-bg);
-  color: var(--text);
-  padding: 0 8px;
-  outline: none;
-}
-
-.bridge-route-visual {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr);
-  gap: 10px;
-  align-items: center;
-  border-top: 1px solid var(--line-soft);
-  border-bottom: 1px solid var(--line-soft);
-  padding: 10px 0;
-}
-
-.bridge-route-visual div {
-  min-width: 0;
-}
-
-.bridge-route-visual span {
-  display: block;
-  overflow: hidden;
-  color: var(--text);
-  font-size: 12px;
-  font-weight: 1000;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.bridge-route-visual strong,
-.bridge-route-visual b {
-  color: var(--muted);
-  font-family: var(--font-geist-mono);
-  font-size: 12px;
-  font-weight: 1000;
-}
-
-.bridge-route-visual b {
-  color: var(--danger-text);
-  white-space: nowrap;
-}
-
-.bridge-modal-actions {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 8px;
-}
-
-.bridge-modal-actions button {
-  height: 38px;
-  border: 1px solid var(--line-soft);
-  background: var(--button-muted-bg);
-  color: var(--text);
-  font-weight: 1000;
-  text-transform: uppercase;
-}
-
-.bridge-modal-actions button:last-child {
-  border-color: var(--danger-line);
-  background: var(--red-dark);
-  color: #fff;
-}
-
-.bridge-modal-actions button:disabled {
-  cursor: not-allowed;
-  opacity: 0.42;
-}
-
-.vault-performance-metadata {
-  margin-top: 12px;
-  border-top: 1px solid var(--line-soft);
-  padding-top: 12px;
-}
-
-.vault-performance-metadata .vault-address-row {
-  margin-top: 0;
-}
-
-.vault-performance-metadata .vault-metrics-layout {
-  margin-top: 8px;
 }
 
 .vault-discussion-panel {
@@ -2601,14 +2503,14 @@ button {
   font-size: 12px;
 }
 
-.tvl-ratio-metric strong {
+.aum-metric strong {
   display: flex;
   flex-wrap: wrap;
   align-items: baseline;
   gap: 4px;
 }
 
-.tvl-ratio-metric strong span {
+.aum-metric strong span {
   color: var(--muted);
   font-size: 0.86em;
 }
@@ -2680,6 +2582,280 @@ button {
   font-size: 12px;
 }
 
+.vault-profile-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px;
+  margin-top: 10px;
+}
+
+.vault-profile-grid > div {
+  min-width: 0;
+  border: 1px solid var(--line-soft);
+  background: var(--surface-2);
+  padding: 9px;
+}
+
+.vault-profile-grid span {
+  display: block;
+  color: var(--muted);
+  font-size: 10px;
+  font-weight: 900;
+  text-transform: uppercase;
+}
+
+.vault-profile-grid strong {
+  display: block;
+  margin-top: 5px;
+  overflow-wrap: anywhere;
+  color: var(--text);
+  font-size: 12px;
+  font-weight: 1000;
+  line-height: 1.25;
+}
+
+.adapter-data-panel {
+  grid-column: 1 / -1;
+  overflow: hidden;
+}
+
+.adapter-data-tabs {
+  display: flex;
+  align-items: stretch;
+  min-width: 0;
+  border-bottom: 1px solid var(--line-soft);
+  overflow-x: auto;
+}
+
+.adapter-data-tab {
+  display: inline-flex;
+  flex: 0 0 auto;
+  align-items: center;
+  gap: 7px;
+  min-height: 48px;
+  border: 0;
+  border-bottom: 2px solid transparent;
+  background: transparent;
+  color: var(--muted-strong);
+  padding: 0 14px;
+  font-size: 12px;
+  font-weight: 900;
+  white-space: nowrap;
+}
+
+.adapter-data-tab strong {
+  color: var(--muted);
+  font-family: var(--font-geist-mono);
+  font-size: 11px;
+  font-weight: 1000;
+}
+
+.adapter-data-tab:hover,
+.adapter-data-tab.active {
+  color: var(--text);
+  background: color-mix(in srgb, var(--surface-hover) 62%, transparent);
+}
+
+.adapter-data-tab.active {
+  border-bottom-color: var(--gold);
+}
+
+.adapter-data-tab.active strong {
+  color: var(--gold);
+}
+
+.adapter-filter-button {
+  flex: 0 0 auto;
+  margin-left: auto;
+  min-width: 78px;
+  min-height: 48px;
+  border: 0;
+  border-left: 1px solid var(--line-soft);
+  background: transparent;
+  color: var(--text);
+  font-size: 12px;
+  font-weight: 900;
+}
+
+.adapter-data-body {
+  min-width: 0;
+  padding-top: 12px;
+}
+
+.adapter-data-scroll {
+  min-width: 0;
+  overflow-x: auto;
+}
+
+.adapter-data-table {
+  display: grid;
+}
+
+.adapter-data-table-head,
+.adapter-data-table-row {
+  display: grid;
+  align-items: center;
+  gap: 10px;
+}
+
+.adapter-data-table-head {
+  min-height: 30px;
+  border-bottom: 1px solid var(--line-soft);
+  color: var(--muted);
+  font-size: 10px;
+  font-weight: 900;
+  text-transform: uppercase;
+}
+
+.adapter-data-table-row {
+  min-height: 40px;
+  border-bottom: 1px solid var(--line-soft);
+  color: var(--muted-strong);
+  font-family: var(--font-geist-mono);
+  font-size: 11px;
+  font-weight: 900;
+}
+
+.adapter-data-table-row:last-child {
+  border-bottom: 0;
+}
+
+.adapter-data-table-row strong {
+  overflow: hidden;
+  color: var(--text);
+  font-family: var(--font-geist-mono);
+  font-size: 11px;
+  font-weight: 1000;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.adapter-data-table-row span {
+  min-width: 0;
+}
+
+.adapter-data-balance-layout {
+  display: grid;
+  grid-template-columns: minmax(180px, 260px) minmax(0, 1fr);
+  gap: 14px;
+  align-items: start;
+}
+
+.adapter-balances-table {
+  min-width: 620px;
+}
+
+.adapter-balances-table .adapter-data-table-head,
+.adapter-balances-table .adapter-data-table-row {
+  grid-template-columns:
+    minmax(112px, 1fr)
+    minmax(96px, 0.8fr)
+    minmax(90px, 0.75fr)
+    minmax(90px, 0.75fr)
+    minmax(70px, 0.6fr);
+}
+
+.adapter-positions-table {
+  min-width: 980px;
+}
+
+.adapter-positions-table .adapter-data-table-head,
+.adapter-positions-table .adapter-data-table-row {
+  grid-template-columns:
+    minmax(130px, 1fr)
+    70px
+    80px
+    90px
+    90px
+    90px
+    90px
+    90px
+    88px;
+}
+
+.adapter-trades-table {
+  min-width: 1120px;
+}
+
+.adapter-trades-table .adapter-data-table-head,
+.adapter-trades-table .adapter-data-table-row {
+  grid-template-columns:
+    116px
+    110px
+    74px
+    94px
+    70px
+    72px
+    90px
+    90px
+    74px
+    90px;
+}
+
+.adapter-funding-table,
+.adapter-flows-table,
+.adapter-depositors-table {
+  min-width: 660px;
+}
+
+.adapter-funding-table .adapter-data-table-head,
+.adapter-funding-table .adapter-data-table-row {
+  grid-template-columns: 120px 120px 70px 110px 110px;
+}
+
+.adapter-flows-table .adapter-data-table-head,
+.adapter-flows-table .adapter-data-table-row {
+  grid-template-columns: 120px 110px minmax(140px, 1fr) 110px;
+}
+
+.adapter-depositors-table .adapter-data-table-head,
+.adapter-depositors-table .adapter-data-table-row {
+  grid-template-columns: minmax(150px, 1fr) 120px 80px 100px 120px;
+}
+
+.adapter-side,
+.adapter-flow,
+.adapter-action {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: fit-content;
+  min-width: 54px;
+  border: 1px solid var(--line-soft);
+  padding: 4px 6px;
+  color: var(--muted-strong);
+  font-family: var(--font-geist-mono);
+  font-size: 10px;
+  font-weight: 1000;
+  line-height: 1;
+  text-transform: uppercase;
+}
+
+.adapter-side.long,
+.adapter-flow.deposit {
+  border-color: color-mix(in srgb, var(--green) 42%, var(--line-soft));
+  color: var(--green);
+}
+
+.adapter-side.short,
+.adapter-flow.withdrawal {
+  border-color: color-mix(in srgb, var(--red) 42%, var(--line-soft));
+  color: var(--red);
+}
+
+.depositor-address {
+  letter-spacing: 0;
+}
+
+.adapter-data-empty {
+  border: 1px solid var(--line-soft);
+  padding: 16px;
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 900;
+  text-transform: uppercase;
+}
+
 .vault-balance-list {
   display: grid;
   gap: 8px;
@@ -2695,7 +2871,7 @@ button {
 
 .vault-balance-chart-pair {
   display: grid;
-  grid-template-columns: repeat(2, minmax(130px, 1fr));
+  grid-template-columns: minmax(130px, 1fr);
   gap: 14px;
   margin-top: 0;
 }
@@ -2829,238 +3005,6 @@ button {
   line-height: 1;
 }
 
-.vault-chain-balance-layout {
-  display: grid;
-  gap: 10px;
-}
-
-.vault-chain-balance-list {
-  display: grid;
-  gap: 0;
-}
-
-.vault-chain-balance-row {
-  display: grid;
-  grid-template-columns: 8px minmax(0, 1fr) auto auto;
-  gap: 7px;
-  align-items: center;
-  min-height: 26px;
-  border-bottom: 1px solid var(--line-soft);
-  color: var(--muted);
-  font-family: var(--font-geist-mono);
-  font-size: 10px;
-  font-weight: 900;
-}
-
-.vault-chain-balance-row:last-child {
-  border-bottom: 0;
-}
-
-.vault-chain-color {
-  width: 8px;
-  height: 8px;
-}
-
-.vault-chain-balance-row strong {
-  overflow: hidden;
-  color: var(--text);
-  font-size: 10px;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.vault-chain-balance-row span:nth-child(3) {
-  color: var(--text);
-  font-variant-numeric: tabular-nums;
-}
-
-.vault-chain-balance-row em {
-  color: var(--muted);
-  font-style: normal;
-  font-variant-numeric: tabular-nums;
-}
-
-.vault-activity-panels {
-  display: grid;
-  grid-template-columns: minmax(0, 0.9fr) minmax(0, 1.1fr);
-  gap: 12px;
-  margin-top: 12px;
-}
-
-.vault-activity-section {
-  margin-top: 0;
-}
-
-.vault-activity-list {
-  display: grid;
-  margin-top: 10px;
-}
-
-.vault-activity-empty {
-  padding: 12px 0;
-  color: var(--muted);
-  font-size: 12px;
-  font-weight: 900;
-  text-transform: uppercase;
-}
-
-.vault-activity-user-row,
-.vault-activity-transaction-row {
-  display: grid;
-  align-items: center;
-  min-width: 0;
-  border: 0;
-  border-bottom: 1px solid var(--line-soft);
-  background: transparent;
-  padding: 10px 0;
-  color: inherit;
-  text-align: left;
-}
-
-.vault-activity-user-row {
-  grid-template-columns: 32px minmax(0, 1fr) minmax(92px, auto) 48px;
-  gap: 9px;
-  cursor: pointer;
-}
-
-.vault-activity-user-row:last-child,
-.vault-activity-transaction-row:last-child {
-  border-bottom: 0;
-}
-
-.vault-activity-user-row:hover {
-  background: color-mix(in srgb, var(--surface-hover) 50%, transparent);
-}
-
-.activity-avatar {
-  width: 28px;
-  height: 28px;
-}
-
-.activity-user-copy,
-.activity-amount-copy,
-.activity-meta-copy {
-  display: grid;
-  min-width: 0;
-  gap: 4px;
-}
-
-.activity-user-copy strong,
-.activity-amount-copy strong,
-.activity-meta-copy strong {
-  overflow: hidden;
-  color: var(--text);
-  font-size: 12px;
-  font-weight: 1000;
-  line-height: 1;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.activity-user-copy small,
-.activity-amount-copy small,
-.activity-meta-copy small {
-  overflow: hidden;
-  color: var(--muted);
-  font-family: var(--font-geist-mono);
-  font-size: 10px;
-  font-weight: 900;
-  line-height: 1;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.activity-amount-copy {
-  text-align: right;
-}
-
-.vault-activity-user-row em {
-  color: var(--muted);
-  font-family: var(--font-geist-mono);
-  font-size: 10px;
-  font-style: normal;
-  font-weight: 1000;
-  text-align: right;
-}
-
-.vault-activity-transaction-row {
-  grid-template-columns: 78px minmax(150px, 1fr) minmax(96px, 0.75fr) minmax(150px, 1fr);
-  gap: 10px;
-}
-
-.activity-type {
-  width: fit-content;
-  border: 1px solid var(--line-soft);
-  padding: 5px 7px;
-  color: var(--muted-strong);
-  font-size: 10px;
-  font-weight: 1000;
-  line-height: 1;
-  text-transform: uppercase;
-}
-
-.activity-type.use {
-  border-color: color-mix(in srgb, var(--positive) 38%, var(--line-soft));
-  color: var(--positive);
-}
-
-.activity-type.drop {
-  border-color: color-mix(in srgb, var(--negative) 38%, var(--line-soft));
-  color: var(--negative);
-}
-
-.vault-activity-transaction-row .activity-user-copy button {
-  display: grid;
-  grid-template-columns: 28px minmax(0, 1fr);
-  gap: 8px;
-  align-items: center;
-  min-width: 0;
-  border: 0;
-  background: transparent;
-  padding: 0;
-  color: inherit;
-  text-align: left;
-  cursor: pointer;
-}
-
-.vault-activity-transaction-row .activity-user-copy button:hover strong {
-  color: var(--accent);
-}
-
-.activity-pagination {
-  display: flex;
-  align-items: center;
-  justify-content: flex-end;
-  gap: 4px;
-  padding-top: 10px;
-}
-
-.activity-pagination button {
-  display: grid;
-  place-items: center;
-  min-width: 24px;
-  height: 24px;
-  border: 1px solid transparent;
-  background: transparent;
-  color: var(--muted);
-  font-family: var(--font-geist-mono);
-  font-size: 11px;
-  font-weight: 1000;
-  cursor: pointer;
-}
-
-.activity-pagination button:hover:not(:disabled),
-.activity-pagination button.active {
-  border-color: var(--line-soft);
-  color: var(--text);
-  background: color-mix(in srgb, var(--surface-hover) 72%, transparent);
-}
-
-.activity-pagination button:disabled {
-  cursor: not-allowed;
-  opacity: 0.36;
-}
-
 .modal-tags {
   display: flex;
   flex-wrap: wrap;
@@ -3097,13 +3041,6 @@ button {
   font-weight: 900;
   text-transform: uppercase;
   clip-path: polygon(0 0, calc(100% - 8px) 0, 100% 8px, 100% 100%, 8px 100%, 0 calc(100% - 8px));
-}
-
-.modal-actions .fork-button {
-  grid-column: 1 / -1;
-  border: 1px solid var(--gold);
-  color: var(--gold-text);
-  background: var(--gold-fill);
 }
 
 .panel-heading {
@@ -3952,6 +3889,20 @@ button {
     grid-template-columns: 1fr;
   }
 
+  .vault-product-header {
+    grid-template-columns: 96px minmax(0, 1fr);
+  }
+
+  .vault-product-symbol {
+    grid-column: 1 / -1;
+    justify-items: start;
+    text-align: left;
+  }
+
+  .vault-trade-ticket {
+    position: static;
+  }
+
   .vault-page-canvas {
     height: min(720px, calc(100vh - 104px));
   }
@@ -4030,8 +3981,10 @@ button {
     padding: 10px;
   }
 
+  .vault-product-header,
   .vault-page-canvas,
-  .vault-page-side {
+  .vault-page-side,
+  .vault-trade-ticket {
     padding: 10px;
   }
 
@@ -4052,6 +4005,22 @@ button {
 
   .vault-page-side {
     grid-template-columns: 1fr;
+  }
+
+  .vault-product-header {
+    grid-template-columns: 1fr;
+  }
+
+  .vault-product-copy h1 {
+    font-size: 25px;
+  }
+
+  .vault-product-universe {
+    grid-template-columns: 1fr;
+  }
+
+  .vault-product-symbol strong {
+    font-size: 25px;
   }
 
   .vault-page-side .vault-metrics-layout {
@@ -4168,20 +4137,6 @@ button {
     text-align: left;
   }
 
-  .allocation-bridge-button {
-    justify-self: start;
-  }
-
-  .bridge-wallet-grid,
-  .bridge-controls,
-  .bridge-route-visual {
-    grid-template-columns: 1fr;
-  }
-
-  .bridge-route-visual b {
-    white-space: normal;
-  }
-
   .vault-balance-chart,
   .vault-page-side .vault-balance-chart {
     grid-template-columns: 1fr;
@@ -4201,6 +4156,21 @@ button {
   .vault-balance-donut svg,
   .vault-page-side .vault-balance-donut svg {
     width: 134px;
+  }
+
+  .adapter-data-tabs {
+    margin: 0 -2px;
+  }
+
+  .adapter-filter-button {
+    position: sticky;
+    right: 0;
+    margin-left: 0;
+    background: var(--surface);
+  }
+
+  .adapter-data-balance-layout {
+    grid-template-columns: 1fr;
   }
 
   .profile-stats,
@@ -4368,11 +4338,15 @@ button {
 .edit-profile-panel,
 .launch-logic-form,
 .launch-logic-panel,
+.vault-product-header,
 .vault-page-canvas,
 .vault-page-side,
+.vault-trade-ticket,
 .vault-discussion-panel,
 .vault-value-tracker,
 .vault-share-summary,
+.vault-product-symbol,
+.vault-kpi-card,
 .vault-section,
 .vault-address-row,
 .vault-metric-card,
@@ -4398,7 +4372,9 @@ button {
 .edit-profile-panel,
 .launch-logic-form,
 .launch-logic-panel,
+.vault-product-header,
 .vault-page-side,
+.vault-trade-ticket,
 .vault-discussion-panel {
   background: transparent !important;
 }
@@ -4422,12 +4398,12 @@ button {
 .vault-share-return,
 .vault-share-tags span,
 .vault-share-summary,
-.fork-badge,
+.vault-product-symbol,
+.vault-kpi-card,
 .pump-card-metrics > div,
 .pump-creator-link,
 .profile-strategy-metrics > div,
 .vault-value-chart,
-.vault-margin-rate-chart,
 .vault-balance-donut,
 .ledger-row span,
 .logic-list-item,
@@ -4462,8 +4438,7 @@ button {
 }
 
 .vault-value-tracker,
-.vault-value-chart,
-.vault-margin-rate-chart {
+.vault-value-chart {
   background: color-mix(in srgb, var(--canvas-bg) 66%, transparent);
 }
 
@@ -4539,17 +4514,4 @@ button {
     grid-template-columns: 1fr;
   }
 
-  .vault-activity-panels {
-    grid-template-columns: 1fr;
-  }
-
-  .vault-activity-transaction-row {
-    grid-template-columns: 72px minmax(0, 1fr);
-  }
-
-  .vault-activity-transaction-row .activity-amount-copy,
-  .vault-activity-transaction-row .activity-meta-copy {
-    grid-column: 2;
-    text-align: left;
-  }
 }

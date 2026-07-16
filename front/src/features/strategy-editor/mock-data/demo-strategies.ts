@@ -13,6 +13,264 @@ import {
   createBinanceSpotPriceStreamData,
 } from "./binance-demo-api";
 
+function buildDailySeries(seed: string, length = 96, base = 445) {
+  let hash = 0;
+  for (let index = 0; index < seed.length; index += 1) {
+    hash = (hash * 31 + seed.charCodeAt(index)) >>> 0;
+  }
+  const now = Math.floor(Date.now() / 1000);
+  const day = 86_400;
+
+  return Array.from({ length }, (_, index) => {
+    const wave = Math.sin((index + (hash % 29)) / 7) * 6;
+    const drift = index * 0.18;
+    return {
+      time: now - (length - index - 1) * day,
+      value: Number((base + wave + drift).toFixed(2)),
+      volume: Math.round(52_000_000 + Math.abs(Math.cos(index / 5)) * 24_000_000),
+    };
+  });
+}
+
+function buildThreeDownSignalSeries(length = 96) {
+  const now = Math.floor(Date.now() / 1000);
+  const day = 86_400;
+  return Array.from({ length }, (_, index) => ({
+    time: now - (length - index - 1) * day,
+    value: index >= length - 1 ? 1 : index % 19 === 0 ? 1 : 0,
+  }));
+}
+
+function buildPullbackSeries(length = 96) {
+  const now = Math.floor(Date.now() / 1000);
+  const day = 86_400;
+  return Array.from({ length }, (_, index) => {
+    const baseline = -0.2 + Math.sin(index / 6) * 0.4;
+    const signalPullback = index % 19 === 0 || index >= length - 1 ? -1.8 : 0;
+    return {
+      time: now - (length - index - 1) * day,
+      value: Number((baseline + signalPullback).toFixed(2)),
+    };
+  });
+}
+
+export const getSpyThreeDownDayTradeStrategyNodes = (): { nodes: Node[], edges: Edge[] } => {
+  const closeSeries = buildDailySeries("spy-close", 96, 442);
+  const latestIndex = closeSeries.length - 1;
+  closeSeries[latestIndex - 3] = { ...closeSeries[latestIndex - 3], value: 456.2 };
+  closeSeries[latestIndex - 2] = { ...closeSeries[latestIndex - 2], value: 452.4 };
+  closeSeries[latestIndex - 1] = { ...closeSeries[latestIndex - 1], value: 448.7 };
+  closeSeries[latestIndex] = { ...closeSeries[latestIndex], value: 445.1 };
+  const signalSeries = buildThreeDownSignalSeries(closeSeries.length);
+  const pullbackSeries = buildPullbackSeries(closeSeries.length);
+
+  const nodes: Node[] = [
+    {
+      id: "spy-3down-strategy",
+      type: "groupNode",
+      position: { x: 50, y: 50 },
+      style: { width: 1760, height: 960 },
+      data: {
+        label: "SPY 3-Day Down Mean Reversion Day Trade",
+        purpose: "Implements a simple SPY mean-reversion setup: buy the third consecutive down close and exit the next session.",
+        styleType: "solid",
+      },
+    },
+    {
+      id: "spy-3down-data-seq",
+      type: "groupNode",
+      parentId: "spy-3down-strategy",
+      position: { x: 40, y: 60 },
+      style: { width: 1640, height: 240 },
+      data: {
+        label: "SPY Daily Market Data",
+        purpose: "Daily SPY OHLCV feed used to detect three consecutive close-to-close declines.",
+        styleType: "pipeline",
+        sequenceType: "data-pipeline",
+        sharedDataPipeline: true,
+      } as any,
+    },
+    {
+      id: "spy-3down-signal-seq",
+      type: "groupNode",
+      parentId: "spy-3down-strategy",
+      position: { x: 40, y: 340 },
+      style: { width: 1640, height: 260 },
+      data: {
+        label: "Three Consecutive Down-Day Signal",
+        purpose: "Signal turns true only after SPY has closed below the prior close for three sessions in a row.",
+        styleType: "dashed-trigger",
+      } as any,
+    },
+    {
+      id: "spy-3down-execution-seq",
+      type: "groupNode",
+      parentId: "spy-3down-strategy",
+      position: { x: 40, y: 640 },
+      style: { width: 1640, height: 260 },
+      data: {
+        label: "Close Entry and Next-Session Exit",
+        purpose: "Enter SPY at the third down-day close, then exit at the next open or next close depending on the configured exit action.",
+        styleType: "dashed-init",
+      } as any,
+    },
+    {
+      id: "spy-daily-ohlcv",
+      type: "streamingNode",
+      parentId: "spy-3down-data-seq",
+      extent: "parent",
+      position: { x: 24, y: 52 },
+      data: {
+        label: "SPY Daily OHLCV Stream",
+        method: "POLLING",
+        url: "https://query1.finance.yahoo.com/v8/finance/chart/SPY?range=6mo&interval=1d&symbol=SPY",
+        intervalMs: 86_400_000,
+        isActive: true,
+        streamKind: "url",
+        responseSchema: "chart.result[0].indicators.quote[0].close/open/volume",
+        outputBlocks: [
+          { id: "close", name: "close", type: "output", chartSeries: closeSeries, visualizationFormat: "chart" },
+          { id: "open", name: "open", type: "output" },
+          { id: "volume", name: "volume", type: "output" },
+        ],
+        chartSeries: closeSeries,
+        chartSource: "SPY daily close demo series",
+        chartUpdatedAt: new Date().toISOString(),
+        chartSymbol: "SPY",
+        apiReference: "Yahoo Finance daily chart endpoint",
+        requestHint: "Use adjusted daily SPY OHLC data before live execution.",
+      } as StreamingNodeData,
+    },
+    {
+      id: "spy-3down-detector",
+      type: "functionNode",
+      parentId: "spy-3down-signal-seq",
+      extent: "parent",
+      position: { x: 28, y: 46 },
+      data: {
+        label: "3-Down Close Detector",
+        description: "Computes whether SPY has closed down for three consecutive sessions.",
+        functionName: "detectThreeDownCloses()",
+        code:
+          "function detectThreeDownCloses(close) {\n" +
+          "  const n = close.length;\n" +
+          "  const down1 = close[n - 1] < close[n - 2];\n" +
+          "  const down2 = close[n - 2] < close[n - 3];\n" +
+          "  const down3 = close[n - 3] < close[n - 4];\n" +
+          "  const signal = down1 && down2 && down3;\n" +
+          "  const pullbackPct = ((close[n - 1] / close[n - 4]) - 1) * 100;\n" +
+          "  return { yesNo: signal ? 1 : 0, pullbackPct };\n" +
+          "}",
+        inputBlocks: [
+          { id: "close", name: "close", type: "input", description: "Daily SPY closes" },
+        ],
+        outputBlocks: [
+          {
+            id: "yes-no",
+            name: "yesNo",
+            type: "output",
+            description: "YES when the last three closes are all lower than the previous close.",
+            visualizationFormat: "chart",
+            outputKind: "boolean-data",
+            chartSeries: signalSeries,
+            condition: { metric: "yesNo", operator: ">=", threshold: 0.5, label: "yesNo is YES" },
+            conditionControls: [
+              { id: "primary", condition: { metric: "yesNo", operator: ">=", threshold: 0.5, label: "yesNo is YES" } },
+            ],
+            showConditionControl: true,
+          },
+          {
+            id: "pullback",
+            name: "threeDayPullbackPct",
+            type: "output",
+            description: "Three-day close-to-close pullback percentage.",
+            visualizationFormat: "chart",
+            chartSeries: pullbackSeries,
+          },
+        ],
+        condition: { metric: "yesNo", operator: ">=", threshold: 0.5, label: "yesNo is YES" },
+        conditionMet: true,
+        showChartComparison: true,
+        chartComparisonValues: [{ id: "yes-line", label: "YES threshold", value: 0.5, color: "#f59e0b", enabled: true }],
+        viewMode: "node",
+      } as FunctionNodeData,
+    },
+    {
+      id: "spy-close-entry",
+      type: "actionNode",
+      parentId: "spy-3down-execution-seq",
+      extent: "parent",
+      position: { x: 28, y: 48 },
+      data: {
+        label: "Enter Long SPY at Third Down Close",
+        actionType: "CEX",
+        exchange: "Paper Broker",
+        symbol: "SPY",
+        side: "BUY",
+        orderType: "MARKET",
+        timeInForce: "GTC",
+        amount: "100% available test capital",
+        amountType: "PERCENT",
+        inputBlocks: [
+          { id: "entry-signal", name: "yesNo", type: "input", description: "Indicator YES value from the 3-down close detector" },
+        ],
+        outputBlocks: [{ id: "entry-filled", name: "entryFilled", type: "output" }],
+        isExpanded: false,
+      } as CEXActionData,
+    },
+    {
+      id: "spy-next-session-exit-trigger",
+      type: "timeTrigger",
+      parentId: "spy-3down-execution-seq",
+      extent: "parent",
+      position: { x: 440, y: 56 },
+      data: {
+        label: "Next Session Exit Timer",
+        triggerMode: "TIME",
+        interval: 86_400,
+        isActive: false,
+        outputBlocks: [
+          { id: "yes-no", name: "yes/no", description: "Exit at the next open, or switch the action note to next close.", type: "output", outputKind: "boolean-data" },
+        ],
+      } as TimeTriggerData,
+    },
+    {
+      id: "spy-next-open-exit",
+      type: "actionNode",
+      parentId: "spy-3down-execution-seq",
+      extent: "parent",
+      position: { x: 820, y: 48 },
+      data: {
+        label: "Exit SPY at Next Session Open",
+        actionType: "CEX",
+        exchange: "Paper Broker",
+        symbol: "SPY",
+        side: "SELL",
+        orderType: "MARKET",
+        timeInForce: "GTC",
+        amount: "100% SPY position",
+        amountType: "PERCENT",
+        inputBlocks: [
+          { id: "exit-trigger", name: "exitTrigger", type: "input" },
+        ],
+        outputBlocks: [{ id: "exit-filled", name: "exitFilled", type: "output" }],
+        isExpanded: false,
+      } as CEXActionData,
+    },
+  ];
+
+  const edges: Edge[] = [
+    { id: "spy-data-to-detector-flow", source: "spy-daily-ohlcv", target: "spy-3down-detector", sourceHandle: "spy-daily-ohlcv-trigger-out", targetHandle: "spy-3down-detector-func-in", type: "custom", data: { sharedDataPipeline: true } },
+    { id: "spy-close-to-detector-input", source: "spy-daily-ohlcv", target: "spy-3down-detector", sourceHandle: "spy-daily-ohlcv-block-close-out", targetHandle: "spy-3down-detector-input-close-in", type: "custom", data: { label: "close", sharedDataPipeline: true } },
+    { id: "spy-yes-no-to-long-entry", source: "spy-3down-detector", target: "spy-close-entry", sourceHandle: "spy-3down-detector-block-yes-no-out", targetHandle: "spy-close-entry-func-in", type: "custom", data: { label: "yesNo -> enter long SPY", allowCrossSequence: true, condition: { metric: "yesNo", operator: ">=", threshold: 0.5, label: "yesNo is YES" } } },
+    { id: "spy-entry-to-exit-timer", source: "spy-close-entry", target: "spy-next-session-exit-trigger", sourceHandle: "spy-close-entry-success-out", targetHandle: "spy-next-session-exit-trigger-trigger-in", type: "custom", data: { label: "entry filled" } },
+    { id: "spy-exit-timer-to-exit", source: "spy-next-session-exit-trigger", target: "spy-next-open-exit", sourceHandle: "spy-next-session-exit-trigger-trigger-out", targetHandle: "spy-next-open-exit-func-in", type: "custom", data: { label: "next session" } },
+    { id: "spy-exit-trigger-input", source: "spy-next-session-exit-trigger", target: "spy-next-open-exit", sourceHandle: "spy-next-session-exit-trigger-block-yes-no-out", targetHandle: "spy-next-open-exit-input-exit-trigger-in", type: "custom", data: { label: "exitTrigger" } },
+  ];
+
+  return { nodes, edges };
+};
+
 export const getEtfDcaStrategyNodes = (): { nodes: Node[], edges: Edge[] } => {
   const nodes: Node[] = [
     {
@@ -32,7 +290,7 @@ export const getEtfDcaStrategyNodes = (): { nodes: Node[], edges: Edge[] } => {
       extent: "parent",
       position: { x: 240, y: 40 },
       data: {
-        label: "매달 1회 실행",
+        label: "Run Once a Month",
         interval: 2592000, // 30 days in seconds
         isActive: true,
       } as TimeTriggerData
@@ -44,7 +302,7 @@ export const getEtfDcaStrategyNodes = (): { nodes: Node[], edges: Edge[] } => {
       extent: "parent",
       position: { x: 30, y: 150 },
       data: createBinanceSpotBalanceStreamData({
-        label: "Binance 현물 잔고 스트림",
+        label: "Binance Spot Balance Stream",
         outputBlocks: [
           { id: "spot-usdt-free", name: "spotUsdtFree", type: "output" },
           { id: "spot-btc-free", name: "spotBtcFree", type: "output" },
@@ -59,7 +317,7 @@ export const getEtfDcaStrategyNodes = (): { nodes: Node[], edges: Edge[] } => {
       extent: "parent",
       position: { x: 350, y: 160 },
       data: {
-        label: "DCA 비율 분배기\n(가용 USDT 기준 할당)",
+        label: "DCA Allocation Splitter\n(Based on Available USDT)",
         functionName: "allocateDCA()",
         code: "function allocateDCA(amount) {\n  const rules = [\n    { asset: 'BTC',  weight: 55, executable: true },\n    { asset: 'ETH',  weight: 25, executable: true },\n    { asset: 'SOL',  weight: 10, executable: true },\n    { asset: 'LINK', weight: 3,  executable: false },\n    { asset: 'AAVE', weight: 2,  executable: false },\n    { asset: 'Cash', weight: 5,  executable: false }\n  ];\n\n  let btcAmount = 0, ethAmount = 0, solAmount = 0;\n  let reserveBudget = 0;\n\n  for (const rule of rules) {\n    const notional = amount * (rule.weight / 100);\n    if (rule.executable) {\n      if (rule.asset === 'BTC') btcAmount = notional;\n      if (rule.asset === 'ETH') ethAmount = notional;\n      if (rule.asset === 'SOL') solAmount = notional;\n    } else {\n      reserveBudget += notional;\n    }\n  }\n\n  return {\n    btcAmount,\n    ethAmount,\n    solAmount,\n    reserveBudget\n  };\n}",
         inputBlocks: [{ id: "ib1", name: "spotUsdtFree", type: "input" }],
@@ -84,7 +342,7 @@ export const getEtfDcaStrategyNodes = (): { nodes: Node[], edges: Edge[] } => {
         symbol: "BTC/USDT",
         side: "BUY",
         orderType: "MARKET",
-        amount: "{{DCA 비율 분배기.btcAmount}}",
+        amount: "{{DCA Allocation Splitter.btcAmount}}",
         amountType: "FIXED",
         inputBlocks: [{ id: "ib-btc", name: "btcAmount", type: "input"}],
         outputBlocks: [],
@@ -104,7 +362,7 @@ export const getEtfDcaStrategyNodes = (): { nodes: Node[], edges: Edge[] } => {
         symbol: "ETH/USDT",
         side: "BUY",
         orderType: "MARKET",
-        amount: "{{DCA 비율 분배기.ethAmount}}",
+        amount: "{{DCA Allocation Splitter.ethAmount}}",
         amountType: "FIXED",
         inputBlocks: [{ id: "ib-eth", name: "ethAmount", type: "input"}],
         outputBlocks: [],
@@ -124,7 +382,7 @@ export const getEtfDcaStrategyNodes = (): { nodes: Node[], edges: Edge[] } => {
         symbol: "SOL/USDT",
         side: "BUY",
         orderType: "MARKET",
-        amount: "{{DCA 비율 분배기.solAmount}}",
+        amount: "{{DCA Allocation Splitter.solAmount}}",
         amountType: "FIXED",
         inputBlocks: [{ id: "ib-sol", name: "solAmount", type: "input"}],
         outputBlocks: [],
@@ -166,16 +424,8 @@ export const getPepeHedgeStrategyNodes = (): { nodes: Node[], edges: Edge[] } =>
       parentId: "g_strategy",
       position: { x: 40, y: 50 },
       data: {
-        label: "초기 진입 시퀸스 (Init)",
+        label: "Initial Entry Sequence (Init)",
         styleType: "dashed-init",
-        requiredStates: ["IDLE"],
-        executingStates: ["IDLE"],
-        isCollapsed: true,
-        summaryWord: "진입",
-        summaryEmoji: "🚀",
-        summaryGlyph: "진",
-        collapsedWidth: 196,
-        collapsedHeight: 118,
       } as any,
       style: { width: 1100, height: 160 },
     },
@@ -185,16 +435,8 @@ export const getPepeHedgeStrategyNodes = (): { nodes: Node[], edges: Edge[] } =>
       parentId: "g_strategy",
       position: { x: 40, y: 220 },
       data: {
-        label: "1시간 모니터링: 펀딩비 체크 후 유지 (Trigger)",
+        label: "1h Monitoring: Hold After Funding Check (Trigger)",
         styleType: "dashed-trigger",
-        requiredStates: ["ACTIVE"],
-        executingStates: [],
-        isCollapsed: true,
-        summaryWord: "유지",
-        summaryEmoji: "🛡️",
-        summaryGlyph: "유",
-        collapsedWidth: 196,
-        collapsedHeight: 118,
       } as any,
       style: { width: 1100, height: 160 },
     },
@@ -204,16 +446,8 @@ export const getPepeHedgeStrategyNodes = (): { nodes: Node[], edges: Edge[] } =>
       parentId: "g_strategy",
       position: { x: 40, y: 390 },
       data: {
-        label: "상시 모니터링: PEPE 숏 재정렬 (Trigger)",
+        label: "Continuous Monitoring: Realign PEPE Short (Trigger)",
         styleType: "dashed-trigger",
-        requiredStates: ["ACTIVE", "REBALANCING"],
-        executingStates: ["REBALANCING"],
-        isCollapsed: true,
-        summaryWord: "PEPE 숏",
-        summaryEmoji: "🐸",
-        summaryGlyph: "P",
-        collapsedWidth: 196,
-        collapsedHeight: 118,
       } as any,
       style: { width: 1100, height: 160 },
     },
@@ -223,16 +457,8 @@ export const getPepeHedgeStrategyNodes = (): { nodes: Node[], edges: Edge[] } =>
       parentId: "g_strategy",
       position: { x: 40, y: 560 },
       data: {
-        label: "상시 모니터링: ETH 숏 재정렬 (Trigger)",
+        label: "Continuous Monitoring: Realign ETH Short (Trigger)",
         styleType: "dashed-trigger",
-        requiredStates: ["ACTIVE", "REBALANCING"],
-        executingStates: ["REBALANCING"],
-        isCollapsed: true,
-        summaryWord: "ETH 숏",
-        summaryEmoji: "🔷",
-        summaryGlyph: "E",
-        collapsedWidth: 196,
-        collapsedHeight: 118,
       } as any,
       style: { width: 1100, height: 160 },
     },
@@ -242,16 +468,8 @@ export const getPepeHedgeStrategyNodes = (): { nodes: Node[], edges: Edge[] } =>
       parentId: "g_strategy",
       position: { x: 40, y: 730 },
       data: {
-        label: "수동 긴급 종료 시퀸스 (Trigger)",
+        label: "Manual Emergency Exit Sequence (Trigger)",
         styleType: "dashed-emergency",
-        requiredStates: ["ACTIVE", "CLOSED"],
-        executingStates: ["CLOSED"],
-        isCollapsed: true,
-        summaryWord: "정리",
-        summaryEmoji: "🧯",
-        summaryGlyph: "정",
-        collapsedWidth: 196,
-        collapsedHeight: 118,
       } as any,
       style: { width: 1100, height: 160 },
     },
@@ -260,7 +478,7 @@ export const getPepeHedgeStrategyNodes = (): { nodes: Node[], edges: Edge[] } =>
       type: "clickTrigger",
       parentId: "g_init",
       position: { x: 20, y: 60 },
-      data: { label: "PEPE/WETH 헤지 봇 시작", shortcut: null, isRecording: false } as any,
+      data: { label: "Start PEPE/WETH Hedge Bot", shortcut: null, isRecording: false } as any,
     },
     {
       id: "n_init_prepare",
@@ -268,7 +486,7 @@ export const getPepeHedgeStrategyNodes = (): { nodes: Node[], edges: Edge[] } =>
       parentId: "g_init",
       position: { x: 300, y: 60 },
       data: {
-        label: "초기 자금 분배 및 증거금 정렬",
+        label: "Initial Capital Allocation and Margin Alignment",
         functionName: "preparePepeHedge()",
         code: "function preparePepeHedge(capital, currentPepePrice, currentEthPrice) {\n  const lpSeed = capital * 0.50;\n  const pepeShortMargin = capital * 0.25;\n  const ethShortMargin = capital * 0.25;\n\n  const basePepeQty = (lpSeed * 0.50) / currentPepePrice;\n  const baseEthQty = (lpSeed * 0.50) / currentEthPrice;\n\n  return {\n    hedgePlan: { lpSeed, pepeShortMargin, ethShortMargin },\n    targetOrders: {\n      dexLiquidityPepe: basePepeQty,\n      dexLiquidityEth: baseEthQty,\n      cexShortPepe: basePepeQty,\n      cexShortEth: baseEthQty\n    }\n  };\n}",
         inputBlocks: [],
@@ -282,7 +500,7 @@ export const getPepeHedgeStrategyNodes = (): { nodes: Node[], edges: Edge[] } =>
       parentId: "g_init",
       position: { x: 650, y: 40 },
       data: {
-        label: "실행: PEPE/WETH LP 공급",
+        label: "Execute: Supply PEPE/WETH LP",
         actionType: "DEX",
         contractAddress: "0xPepeWethLpRouter",
         functionName: "addLiquidityPEPEWETH()",
@@ -298,13 +516,13 @@ export const getPepeHedgeStrategyNodes = (): { nodes: Node[], edges: Edge[] } =>
       parentId: "g_init",
       position: { x: 950, y: 40 },
       data: {
-        label: "실행: PEPE 숏 진입",
+        label: "Execute: Enter PEPE Short",
         actionType: "CEX",
         exchange: "Binance",
         symbol: "PEPE/USDT",
         side: "SELL",
         orderType: "MARKET",
-        amount: "{{초기 자금 분배 및 증거금 정렬.targetOrders.cexShortPepe}}",
+        amount: "{{Initial Capital Allocation and Margin Alignment.targetOrders.cexShortPepe}}",
         amountType: "FIXED",
         inputBlocks: [{ id: "ib-cex", name: "targetOrders", type: "input"}],
         outputBlocks: [{ id: "out-3", name: "success", type: "output" }],
@@ -317,13 +535,13 @@ export const getPepeHedgeStrategyNodes = (): { nodes: Node[], edges: Edge[] } =>
       parentId: "g_init",
       position: { x: 1250, y: 40 },
       data: {
-        label: "실행: ETH 숏 진입",
+        label: "Execute: Enter ETH Short",
         actionType: "CEX",
         exchange: "Binance",
         symbol: "ETH/USDT",
         side: "SELL",
         orderType: "MARKET",
-        amount: "{{초기 자금 분배 및 증거금 정렬.targetOrders.cexShortEth}}",
+        amount: "{{Initial Capital Allocation and Margin Alignment.targetOrders.cexShortEth}}",
         amountType: "FIXED",
         inputBlocks: [{ id: "ib-cex-eth", name: "targetOrders", type: "input"}],
         outputBlocks: [{ id: "out-3-eth", name: "success", type: "output" }],
@@ -336,7 +554,7 @@ export const getPepeHedgeStrategyNodes = (): { nodes: Node[], edges: Edge[] } =>
       parentId: "g_trigger1",
       position: { x: 20, y: 60 },
       data: createBinanceFuturesFundingStreamData({
-        label: "Binance 실시간 펀딩비 감지",
+        label: "Binance Live Funding Rate Detector",
         outputBlocks: [
           { id: "out-funding", name: "fundingRateBps", type: "output" },
           { id: "out-slippage", name: "slippageBps", type: "output" }
@@ -350,14 +568,14 @@ export const getPepeHedgeStrategyNodes = (): { nodes: Node[], edges: Edge[] } =>
       parentId: "g_trigger1",
       position: { x: 380, y: 60 },
       data: {
-        label: "조건 대기: 펀딩비 / 슬리피지 허용 시",
-        branches: [{ id: "b1", name: "유지 가능", active: true, code: "// 상위 함수의 판단 결과가 '유지 가능'일 때만 통과시켜 액션 실행\nreturn result === '유지 가능';" }],
+        label: "Condition Wait: Funding and Slippage Allowed",
+        branches: [{ id: "b1", name: "Hold Allowed", active: true, code: "// Let the action pass only when the upstream function returns 'Hold Allowed'.\nreturn result === 'Hold Allowed';" }],
         inputBlocks: [
           { id: "ib-fund", name: "fundingRate", type: "input" },
           { id: "ib-slip", name: "slippage", type: "input" },
         ],
         functionName: "checkFundingStatus()",
-        code: "function checkFundingStatus(fundingRateBps, slippageBps) {\n  // 펀딩비 8bps 이해, 슬리피지 20bps 이하일 경우 포지션 유지\n  if (fundingRateBps <= 8 && slippageBps <= 20) {\n    return '유지 가능';\n  }\n  return '보류';\n}",
+        code: "function checkFundingStatus(fundingRateBps, slippageBps) {\n  // Hold the position when funding is at or below 8 bps and slippage is at or below 20 bps.\n  if (fundingRateBps <= 8 && slippageBps <= 20) {\n    return 'Hold Allowed';\n  }\n  return 'Hold';\n}",
         viewMode: "node",
       } as any,
     },
@@ -367,7 +585,7 @@ export const getPepeHedgeStrategyNodes = (): { nodes: Node[], edges: Edge[] } =>
       parentId: "g_trigger1",
       position: { x: 750, y: 40 },
       data: {
-        label: "실행: PEPE 숏 유지 보정",
+        label: "Execute: Adjust PEPE Short Hold",
         actionType: "CEX",
         exchange: "Binance",
         symbol: "PEPE/USDT",
@@ -386,7 +604,7 @@ export const getPepeHedgeStrategyNodes = (): { nodes: Node[], edges: Edge[] } =>
       parentId: "g_trigger1",
       position: { x: 1050, y: 40 },
       data: {
-        label: "실행: ETH 숏 유지 보정",
+        label: "Execute: Adjust ETH Short Hold",
         actionType: "CEX",
         exchange: "Binance",
         symbol: "ETH/USDT",
@@ -405,7 +623,7 @@ export const getPepeHedgeStrategyNodes = (): { nodes: Node[], edges: Edge[] } =>
       parentId: "g_trigger2",
       position: { x: 20, y: 60 },
       data: createBinanceSpotPriceStreamData({
-        label: "Binance 현물 가격 스트림",
+        label: "Binance Spot Price Stream",
         outputBlocks: [{ id: "out-price", name: "currentPrice", type: "output" }],
         symbols: ["PEPEUSDT", "ETHUSDT"],
       }) as StreamingNodeData,
@@ -417,10 +635,10 @@ export const getPepeHedgeStrategyNodes = (): { nodes: Node[], edges: Edge[] } =>
       position: { x: 380, y: 60 },
       data: {
         functionName: "checkRebalanceNeeded()",
-        code: "function checkRebalanceNeeded(entry, current) {\n  const deviation = Math.abs(1 - current.pepePrice / entry.pepePrice);\n\n  if (deviation > 0.10) {\n     return '재정렬 필요';\n  }\n  return '유지';\n}",
+        code: "function checkRebalanceNeeded(entry, current) {\n  const deviation = Math.abs(1 - current.pepePrice / entry.pepePrice);\n\n  if (deviation > 0.10) {\n     return 'Realignment Needed';\n  }\n  return 'Hold';\n}",
         viewMode: "node",
-        label: "위기 감지: PEPE 급등 / 담보 부족 시",
-        branches: [{ id: "b1", name: "재정렬 필요", active: true, code: "return result === '재정렬 필요';" }],
+        label: "Risk Detection: PEPE Spike or Low Collateral",
+        branches: [{ id: "b1", name: "Realignment Needed", active: true, code: "return result === 'Realignment Needed';" }],
         inputBlocks: [
           { id: "ib-price", name: "currentPrice", type: "input" },
         ],
@@ -432,7 +650,7 @@ export const getPepeHedgeStrategyNodes = (): { nodes: Node[], edges: Edge[] } =>
       parentId: "g_trigger2",
       position: { x: 750, y: 40 },
       data: {
-        label: "실행: PEPE 숏 재정렬",
+        label: "Execute: Realign PEPE Short",
         actionType: "CEX",
         exchange: "Binance",
         symbol: "PEPE/USDT",
@@ -451,7 +669,7 @@ export const getPepeHedgeStrategyNodes = (): { nodes: Node[], edges: Edge[] } =>
       parentId: "g_trigger3",
       position: { x: 20, y: 60 },
       data: createBinanceSpotPriceStreamData({
-        label: "Binance 현물 가격 스트림",
+        label: "Binance Spot Price Stream",
         outputBlocks: [{ id: "out-price-eth", name: "currentPrice", type: "output" }],
         symbols: ["ETHUSDT"],
       }) as StreamingNodeData,
@@ -463,10 +681,10 @@ export const getPepeHedgeStrategyNodes = (): { nodes: Node[], edges: Edge[] } =>
       position: { x: 380, y: 60 },
       data: {
         functionName: "checkEthRebalanceNeeded()",
-        code: "function checkEthRebalanceNeeded(entry, current) {\n  const deviation = Math.abs(1 - current.ethPrice / entry.ethPrice);\n\n  if (deviation > 0.08) {\n     return '재정렬 필요';\n  }\n  return '유지';\n}",
+        code: "function checkEthRebalanceNeeded(entry, current) {\n  const deviation = Math.abs(1 - current.ethPrice / entry.ethPrice);\n\n  if (deviation > 0.08) {\n     return 'Realignment Needed';\n  }\n  return 'Hold';\n}",
         viewMode: "node",
-        label: "위기 감지: ETH 급등 / 담보 부족 시",
-        branches: [{ id: "b1", name: "재정렬 필요", active: true, code: "return result === '재정렬 필요';" }],
+        label: "Risk Detection: ETH Spike or Low Collateral",
+        branches: [{ id: "b1", name: "Realignment Needed", active: true, code: "return result === 'Realignment Needed';" }],
         inputBlocks: [
           { id: "ib-price-eth", name: "currentPrice", type: "input" },
         ],
@@ -478,7 +696,7 @@ export const getPepeHedgeStrategyNodes = (): { nodes: Node[], edges: Edge[] } =>
       parentId: "g_trigger3",
       position: { x: 750, y: 40 },
       data: {
-        label: "실행: ETH 숏 재정렬",
+        label: "Execute: Realign ETH Short",
         actionType: "CEX",
         exchange: "Binance",
         symbol: "ETH/USDT",
@@ -496,7 +714,7 @@ export const getPepeHedgeStrategyNodes = (): { nodes: Node[], edges: Edge[] } =>
       type: "clickTrigger",
       parentId: "g_emergency",
       position: { x: 20, y: 60 },
-      data: { label: "긴급: 모든 PEPE/WETH 포지션 종료", shortcut: null, isRecording: false } as any,
+      data: { label: "Emergency: Close All PEPE/WETH Positions", shortcut: null, isRecording: false } as any,
     },
     {
       id: "n_em_stream",
@@ -504,7 +722,7 @@ export const getPepeHedgeStrategyNodes = (): { nodes: Node[], edges: Edge[] } =>
       parentId: "g_emergency",
       position: { x: 240, y: 36 },
       data: createBinanceFuturesUserDataStreamData({
-        label: "Binance 선물 포지션 스트림",
+        label: "Binance Futures Position Stream",
         outputBlocks: [
           { id: "pos-pepe", name: "pepeShortQty", type: "output" },
           { id: "pos-eth", name: "ethShortQty", type: "output" },
@@ -518,13 +736,13 @@ export const getPepeHedgeStrategyNodes = (): { nodes: Node[], edges: Edge[] } =>
       parentId: "g_emergency",
       position: { x: 560, y: 40 },
       data: {
-        label: "청산: Binance PEPE 숏 전량 정리",
+        label: "Close: Fully Close Binance PEPE Short",
         actionType: "CEX",
         exchange: "Binance",
         symbol: "PEPE/USDT",
         side: "BUY",
         orderType: "MARKET",
-        amount: "{{Binance 선물 포지션 스트림.pepeShortQty}}",
+        amount: "{{Binance Futures Position Stream.pepeShortQty}}",
         amountType: "FIXED",
         inputBlocks: [
           { id: "ib-pos-pepe", name: "pepeShortQty", type: "input" },
@@ -540,13 +758,13 @@ export const getPepeHedgeStrategyNodes = (): { nodes: Node[], edges: Edge[] } =>
       parentId: "g_emergency",
       position: { x: 860, y: 40 },
       data: {
-        label: "청산: Binance ETH 숏 전량 정리",
+        label: "Close: Fully Close Binance ETH Short",
         actionType: "CEX",
         exchange: "Binance",
         symbol: "ETH/USDT",
         side: "BUY",
         orderType: "MARKET",
-        amount: "{{Binance 선물 포지션 스트림.ethShortQty}}",
+        amount: "{{Binance Futures Position Stream.ethShortQty}}",
         amountType: "FIXED",
         inputBlocks: [
           { id: "ib-pos-eth", name: "ethShortQty", type: "input" },
@@ -562,7 +780,7 @@ export const getPepeHedgeStrategyNodes = (): { nodes: Node[], edges: Edge[] } =>
       parentId: "g_emergency",
       position: { x: 1160, y: 40 },
       data: {
-        label: "청산: LP 회수 및 전체 USDT 변환",
+        label: "Close: Withdraw LP and Convert All to USDT",
         actionType: "DEX",
         contractAddress: "0xPepeWethExitRouter",
         functionName: "liquidatePepeHedge()",
@@ -604,13 +822,6 @@ export const getPepeHedgeStrategyNodes = (): { nodes: Node[], edges: Edge[] } =>
     { id: "e_em_data3", source: "n_em_stream", target: "n_em_cex_eth", sourceHandle: "n_em_stream-block-pos-eth-out", targetHandle: "n_em_cex_eth-input-ib-pos-eth-in", type: "custom" },
     { id: "e_em_data4", source: "n_em_stream", target: "n_em_cex_eth", sourceHandle: "n_em_stream-block-wallet-usdt-out", targetHandle: "n_em_cex_eth-input-ib-wallet-usdt-eth-in", type: "custom" },
     { id: "e_em_4", source: "n_em_cex_eth", target: "n_em_execute", sourceHandle: "n_em_cex_eth-success-out", targetHandle: "n_em_execute-func-in", type: "custom" },
-
-    { id: "fsm-1", source: "g_init", target: "g_trigger1", sourceHandle: "g_init-fsm-source", targetHandle: "g_trigger1-fsm-target", type: "fsmEdge", data: { label: "완료 시 ACTIVE 진입", color: "#10b981" }, selectable: false, focusable: false, deletable: false } as any,
-    { id: "fsm-2", source: "g_init", target: "g_trigger2", sourceHandle: "g_init-fsm-source", targetHandle: "g_trigger2-fsm-target", type: "fsmEdge", data: { label: "완료 시 ACTIVE 진입", color: "#10b981" }, selectable: false, focusable: false, deletable: false } as any,
-    { id: "fsm-2b", source: "g_init", target: "g_trigger3", sourceHandle: "g_init-fsm-source", targetHandle: "g_trigger3-fsm-target", type: "fsmEdge", data: { label: "완료 시 ACTIVE 진입", color: "#10b981" }, selectable: false, focusable: false, deletable: false } as any,
-    { id: "fsm-3", source: "g_trigger2", target: "g_trigger1", sourceHandle: "g_trigger2-fsm-source", targetHandle: "g_trigger1-fsm-target", type: "fsmEdge", data: { label: "PEPE 재정렬 완료 → ACTIVE 유지", color: "#a78bfa" }, selectable: false, focusable: false, deletable: false } as any,
-    { id: "fsm-3b", source: "g_trigger3", target: "g_trigger1", sourceHandle: "g_trigger3-fsm-source", targetHandle: "g_trigger1-fsm-target", type: "fsmEdge", data: { label: "ETH 재정렬 완료 → ACTIVE 유지", color: "#60a5fa" }, selectable: false, focusable: false, deletable: false } as any,
-    { id: "fsm-4", source: "g_trigger1", target: "g_emergency", sourceHandle: "g_trigger1-fsm-source", targetHandle: "g_emergency-fsm-target", type: "fsmEdge", data: { label: "ACTIVE 중 수동 종료 가능", color: "#ef4444" }, selectable: false, focusable: false, deletable: false } as any,
   ];
 
   return { nodes, edges };

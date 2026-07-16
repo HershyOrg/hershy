@@ -9,7 +9,7 @@ import {
   EdgeLabelRenderer,
   useReactFlow,
 } from "@xyflow/react";
-import { Timer, Zap } from "lucide-react";
+import { Timer, Zap } from "@/shared/components/icons";
 import { cn } from "@/shared/utils/utils";
 
 export type DelayEdgeData = Record<string, unknown> & {

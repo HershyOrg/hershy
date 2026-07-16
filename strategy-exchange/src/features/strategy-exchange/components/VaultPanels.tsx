@@ -1,11 +1,18 @@
-import { useEffect, useMemo, useState, type FormEvent, type MouseEvent } from "react";
-import { selectUserAccountByAddress, type StrategyVaultMetadata } from "../../../../demoDB";
-import type { VaultBalanceRow } from "../../../../demoDB";
+import { useMemo, useState, type FormEvent, type MouseEvent } from "react";
+import {
+  selectUserAccountByAddress,
+  type AdapterFlowRow,
+  type AdapterFundingHistoryRow,
+  type AdapterPositionRow,
+  type AdapterTradeHistoryRow,
+  type StrategyVaultMetadata,
+  type VaultBalanceRow,
+} from "../../../../demoDB";
 import type { Strategy } from "../types/strategyTypes";
-import { useVaultActivity } from "../hooks/useVaultActivity";
 import { useVaultDiscussion } from "../hooks/useVaultDiscussion";
 import { LightweightReturnChart } from "./LightweightReturnChart";
 import { UserAvatar } from "../../../shared/components";
+import { disclosureLabels, productTypeLabels } from "../constants";
 import {
   formatAddress,
   formatCompact,
@@ -16,8 +23,6 @@ import {
 } from "../../../shared/utils/formatters";
 
 const balanceChartColors = ["#d0ad4f", "#23b56e", "#8da9c9", "#d95757", "#a695d8", "#c9a956"];
-const activityUsersPerPage = 4;
-const activityTransactionsPerPage = 4;
 const vaultChartIntervals = [
   "1m",
   "5m",
@@ -46,6 +51,8 @@ type BalanceDonutChartRow = BalanceDonutRow & {
   color: string;
 };
 
+type AdapterDataTab = "balances" | "positions" | "trades" | "funding" | "flows" | "depositors";
+
 const vaultChartIntervalConfig: Record<VaultChartInterval, { seconds: number; points: number; noise: number }> = {
   "1m": { seconds: 60, points: 60, noise: 0.2 },
   "5m": { seconds: 300, points: 60, noise: 0.26 },
@@ -58,6 +65,28 @@ const vaultChartIntervalConfig: Record<VaultChartInterval, { seconds: number; po
   "1day": { seconds: 86_400, points: 32, noise: 1 },
   "1month": { seconds: 2_592_000, points: 24, noise: 1.18 },
 };
+
+function formatAmount(value: number) {
+  const absoluteValue = Math.abs(value);
+  if (absoluteValue >= 1_000) return formatCompact(value);
+  if (absoluteValue >= 1) {
+    return new Intl.NumberFormat("en-US", { maximumFractionDigits: 3 }).format(value);
+  }
+  return new Intl.NumberFormat("en-US", { maximumSignificantDigits: 4 }).format(value);
+}
+
+function formatUsdPrice(value: number) {
+  return new Intl.NumberFormat("en-US", {
+    style: "currency",
+    currency: "USD",
+    minimumFractionDigits: value >= 100 ? 0 : 2,
+    maximumFractionDigits: value >= 100 ? 0 : 2,
+  }).format(value);
+}
+
+function formatRatioPercent(value: number) {
+  return `${value >= 0 ? "+" : ""}${(value * 100).toFixed(4)}%`;
+}
 
 function getBalanceChartRows(rows: BalanceDonutRow[]) {
   const totalValue = rows.reduce((sum, row) => sum + Math.max(row.value, 0), 0) || 1;
@@ -194,187 +223,370 @@ function TokenBalanceDonut({ balances }: { balances: VaultBalanceRow[] }) {
   return <BalanceDonut rows={rows} ariaLabel="token balance allocation chart" />;
 }
 
-function getChainBalanceRows(balances: VaultBalanceRow[]) {
-  const chainTotals = new Map<string, number>();
+function getStrategyValueRange(strategy: Strategy) {
+  const values = strategy.pnlSeries.map((value) => Math.max(0, strategy.deployedCapital + value));
+  const fallback = strategy.deployedCapital;
 
-  balances.forEach((balance) => {
-    const chain = balance.chain || "Unassigned";
-    chainTotals.set(chain, (chainTotals.get(chain) ?? 0) + Math.max(balance.value, 0));
-  });
-
-  return Array.from(chainTotals.entries())
-    .sort(([, valueA], [, valueB]) => valueB - valueA)
-    .map(([chain, value], index) => ({
-      id: chain,
-      label: chain,
-      amountLabel: formatCurrency(value),
-      value,
-      color: balanceChartColors[index % balanceChartColors.length],
-    }));
+  return {
+    high: values.length ? Math.max(...values) : fallback,
+    low: values.length ? Math.min(...values) : fallback,
+  };
 }
 
-function ChainBalanceDonut({ balances }: { balances: VaultBalanceRow[] }) {
-  const rows = getChainBalanceRows(balances);
-  const totalValue = rows.reduce((sum, row) => sum + row.value, 0);
+function getInvestableBalances(rows: VaultBalanceRow[]) {
+  return rows.filter((row) => row.token !== "Buffer" && row.venue !== "Reserve");
+}
+
+function getPositionBalanceRows(rows: VaultBalanceRow[], positionValue: number): VaultBalanceRow[] {
+  const investableRows = getInvestableBalances(rows);
+  const totalWeight = investableRows.reduce((sum, row) => sum + Math.max(row.weight, 0), 0) || 1;
+
+  return investableRows.map((row) => {
+    const weight = Math.max(row.weight, 0) / totalWeight;
+    const value = positionValue * weight;
+    const amount = row.value > 0 ? row.amount * (value / row.value) : 0;
+    return {
+      ...row,
+      weight,
+      value,
+      amount,
+    };
+  });
+}
+
+function VaultProductProfilePanel({
+  strategy,
+  vaultDetails,
+  maxTvl,
+}: {
+  strategy: Strategy;
+  vaultDetails: StrategyVaultMetadata;
+  maxTvl: number;
+}) {
+  const valueRange = getStrategyValueRange(strategy);
+  const profileRows = [
+    {
+      label: "고점 / 저점",
+      value: `${formatCurrency(valueRange.high)} / ${formatCurrency(valueRange.low)}`,
+    },
+    {
+      label: "30D 리스크",
+      value: `${strategy.maxDrawdown.toFixed(1)}% max drawdown`,
+    },
+    {
+      label: "유동성",
+      value: `$${formatCompact(strategy.dailyVolume)} daily volume`,
+    },
+    {
+      label: "용량",
+      value: `${formatCurrency(vaultDetails.strategyEquity)} / ${formatCurrency(maxTvl)}`,
+    },
+    {
+      label: "업데이트",
+      value: formatTimestamp(vaultDetails.updatedAt),
+    },
+  ];
 
   return (
-    <div className="vault-chain-balance-layout">
-      <BalanceDonut rows={rows} ariaLabel="chain balance allocation chart" totalLabel="Chain TVL" />
-      <div className="vault-chain-balance-list" role="table" aria-label="chain balance totals">
-        {rows.map((row) => {
-          const pct = totalValue > 0 ? (row.value / totalValue) * 100 : 0;
+    <section className="vault-section vault-product-profile" aria-label="strategy product profile">
+      <div className="panel-heading">
+        <span>Overview</span>
+        <strong>{productTypeLabels[strategy.productType]} / {disclosureLabels[strategy.disclosure]}</strong>
+      </div>
+      <div className="vault-profile-grid">
+        {profileRows.map((row) => (
+          <div key={row.label}>
+            <span>{row.label}</span>
+            <strong>{row.value}</strong>
+          </div>
+        ))}
+      </div>
+    </section>
+  );
+}
 
-          return (
-            <div className="vault-chain-balance-row" role="row" key={row.id}>
-              <span className="vault-chain-color" style={{ backgroundColor: row.color }} />
-              <strong>{row.label}</strong>
-              <span>{formatCurrency(row.value)}</span>
-              <em>{pct.toFixed(1)}%</em>
+function AdapterDataEmpty({ label }: { label: string }) {
+  return <div className="adapter-data-empty">No {label} rows</div>;
+}
+
+function AdapterSidePill({ side }: { side: "Long" | "Short" }) {
+  return <span className={`adapter-side ${side.toLowerCase()}`}>{side}</span>;
+}
+
+function AdapterBalancesTable({ balances }: { balances: VaultBalanceRow[] }) {
+  const totalValue = balances.reduce((sum, row) => sum + row.value, 0) || 1;
+
+  if (balances.length === 0) {
+    return <AdapterDataEmpty label="balance" />;
+  }
+
+  return (
+    <div className="adapter-data-balance-layout">
+      <TokenBalanceDonut balances={balances} />
+      <div className="adapter-data-scroll">
+        <div className="adapter-data-table adapter-balances-table">
+          <div className="adapter-data-table-head">
+            <span>Asset</span>
+            <span>Venue</span>
+            <span>Amount</span>
+            <span>Value</span>
+            <span>Weight</span>
+          </div>
+          {balances.map((balance) => (
+            <div className="adapter-data-table-row" key={`${balance.token}-${balance.venue}-${balance.sortOrder}`}>
+              <strong>{balance.token}</strong>
+              <span>{balance.venue}</span>
+              <span>{formatAmount(balance.amount)}</span>
+              <span>{formatCurrency(balance.value)}</span>
+              <span>{((balance.value / totalValue) * 100).toFixed(1)}%</span>
             </div>
-          );
-        })}
+          ))}
+        </div>
       </div>
     </div>
   );
 }
 
-async function copyTextToClipboard(value: string) {
-  if (navigator.clipboard?.writeText) {
-    await navigator.clipboard.writeText(value);
-    return;
+function AdapterPositionsTable({ positions }: { positions: AdapterPositionRow[] }) {
+  if (positions.length === 0) {
+    return <AdapterDataEmpty label="position" />;
   }
 
-  const textarea = document.createElement("textarea");
-  textarea.value = value;
-  textarea.setAttribute("readonly", "true");
-  textarea.style.position = "fixed";
-  textarea.style.opacity = "0";
-  document.body.appendChild(textarea);
-  textarea.select();
-  document.execCommand("copy");
-  document.body.removeChild(textarea);
-}
-
-function CopyAddressButton({
-  address,
-  copied,
-  onCopy,
-}: {
-  address: string;
-  copied: boolean;
-  onCopy: (address: string) => void;
-}) {
   return (
-    <button
-      type="button"
-      className={`copy-address-button${copied ? " copied" : ""}`}
-      title={address}
-      onClick={() => onCopy(address)}
-    >
-      {copied ? "Copied" : formatAddress(address)}
-    </button>
+    <div className="adapter-data-scroll">
+      <div className="adapter-data-table adapter-positions-table">
+        <div className="adapter-data-table-head">
+          <span>Market</span>
+          <span>Side</span>
+          <span>Size</span>
+          <span>Entry</span>
+          <span>Mark</span>
+          <span>Liq.</span>
+          <span>Margin</span>
+          <span>uPnL</span>
+          <span>Funding</span>
+        </div>
+        {positions.map((position) => (
+          <div className="adapter-data-table-row" key={`${position.coin}-${position.sortOrder}`}>
+            <strong>{position.coin}-PERP</strong>
+            <AdapterSidePill side={position.side} />
+            <span>{formatAmount(position.size)}</span>
+            <span>{formatUsdPrice(position.entryPrice)}</span>
+            <span>{formatUsdPrice(position.markPrice)}</span>
+            <span>{formatUsdPrice(position.liquidationPrice)}</span>
+            <span>{formatCurrency(position.marginUsed)}</span>
+            <span className={position.unrealizedPnl >= 0 ? "positive" : "negative"}>
+              {formatSignedCurrency(position.unrealizedPnl)}
+            </span>
+            <span className={position.fundingRate >= 0 ? "positive" : "negative"}>
+              {formatRatioPercent(position.fundingRate)}
+            </span>
+          </div>
+        ))}
+      </div>
+    </div>
   );
 }
 
-export function VaultMetadataBlocks({
-  forkCount,
-  vaultDetails,
-  isVaultLoading,
-  maxTvl,
-}: {
-  forkCount: number;
-  vaultDetails: StrategyVaultMetadata | null;
-  isVaultLoading: boolean;
-  maxTvl: number;
-}) {
-  const [copiedAddress, setCopiedAddress] = useState("");
-
-  if (!vaultDetails) {
-    return <div className="vault-loading">{isVaultLoading ? "Vault loading" : "No vault metadata"}</div>;
+function AdapterTradesTable({ trades }: { trades: AdapterTradeHistoryRow[] }) {
+  if (trades.length === 0) {
+    return <AdapterDataEmpty label="trade history" />;
   }
 
-  const handleCopyAddress = async (address: string) => {
-    try {
-      await copyTextToClipboard(address);
-      setCopiedAddress(address);
-      window.setTimeout(() => {
-        setCopiedAddress((current) => (current === address ? "" : current));
-      }, 1200);
-    } catch {
-      setCopiedAddress("");
-    }
+  return (
+    <div className="adapter-data-scroll">
+      <div className="adapter-data-table adapter-trades-table">
+        <div className="adapter-data-table-head">
+          <span>Time</span>
+          <span>Actor</span>
+          <span>Action</span>
+          <span>Market</span>
+          <span>Side</span>
+          <span>Size</span>
+          <span>Price</span>
+          <span>Value</span>
+          <span>Fee</span>
+          <span>PnL</span>
+        </div>
+        {trades.map((trade) => (
+          <div className="adapter-data-table-row" key={trade.id}>
+            <span>{formatTimestamp(trade.createdAt)}</span>
+            <strong>{trade.actor}</strong>
+            <span className="adapter-action">{trade.action}</span>
+            <span>{trade.coin}-PERP</span>
+            <AdapterSidePill side={trade.side} />
+            <span>{formatAmount(trade.size)}</span>
+            <span>{formatUsdPrice(trade.price)}</span>
+            <span>{formatCurrency(trade.value)}</span>
+            <span>{formatUsdPrice(trade.fee)}</span>
+            <span className={trade.pnl >= 0 ? "positive" : "negative"}>{formatSignedCurrency(trade.pnl)}</span>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function AdapterFundingTable({ funding }: { funding: AdapterFundingHistoryRow[] }) {
+  if (funding.length === 0) {
+    return <AdapterDataEmpty label="funding history" />;
+  }
+
+  return (
+    <div className="adapter-data-scroll">
+      <div className="adapter-data-table adapter-funding-table">
+        <div className="adapter-data-table-head">
+          <span>Time</span>
+          <span>Market</span>
+          <span>Side</span>
+          <span>Rate</span>
+          <span>Payment</span>
+        </div>
+        {funding.map((row) => (
+          <div className="adapter-data-table-row" key={row.id}>
+            <span>{formatTimestamp(row.createdAt)}</span>
+            <strong>{row.coin}-PERP</strong>
+            <AdapterSidePill side={row.side} />
+            <span className={row.rate >= 0 ? "positive" : "negative"}>{formatRatioPercent(row.rate)}</span>
+            <span className={row.payment >= 0 ? "positive" : "negative"}>
+              {formatSignedCurrency(row.payment)}
+            </span>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function AdapterFlowsTable({ flows }: { flows: AdapterFlowRow[] }) {
+  if (flows.length === 0) {
+    return <AdapterDataEmpty label="deposit and withdrawal" />;
+  }
+
+  return (
+    <div className="adapter-data-scroll">
+      <div className="adapter-data-table adapter-flows-table">
+        <div className="adapter-data-table-head">
+          <span>Time</span>
+          <span>Type</span>
+          <span>Account</span>
+          <span>Amount</span>
+        </div>
+        {flows.map((flow) => (
+          <div className="adapter-data-table-row" key={flow.id}>
+            <span>{formatTimestamp(flow.createdAt)}</span>
+            <span className={`adapter-flow ${flow.type.toLowerCase()}`}>{flow.type}</span>
+            <strong>{flow.accountLabel}</strong>
+            <span>{formatCurrency(flow.amount)}</span>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function AdapterDepositorsTable({ depositors }: { depositors: StrategyVaultMetadata["depositors"] }) {
+  if (depositors.length === 0) {
+    return <AdapterDataEmpty label="depositor" />;
+  }
+
+  return (
+    <div className="adapter-data-scroll">
+      <div className="adapter-data-table adapter-depositors-table">
+        <div className="adapter-data-table-head">
+          <span>Depositor</span>
+          <span>Equity</span>
+          <span>Share</span>
+          <span>PnL</span>
+          <span>Since</span>
+        </div>
+        {depositors.map((depositor) => (
+          <div className="adapter-data-table-row" key={depositor.id}>
+            <strong className="depositor-address">{depositor.maskedAddress}</strong>
+            <span>{formatCurrency(depositor.equity)}</span>
+            <span>{(depositor.sharePct * 100).toFixed(2)}%</span>
+            <span className={depositor.pnl >= 0 ? "positive" : "negative"}>
+              {formatSignedCurrency(depositor.pnl)}
+            </span>
+            <span>{formatTimestamp(depositor.joinedAt)}</span>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function AdapterDataPanel({
+  vaultDetails,
+  balanceRows,
+}: {
+  vaultDetails: StrategyVaultMetadata;
+  balanceRows: VaultBalanceRow[];
+}) {
+  const [activeTab, setActiveTab] = useState<AdapterDataTab>("balances");
+  const tabs: Array<{ id: AdapterDataTab; label: string; count: string | number }> = [
+    { id: "balances", label: "Balances", count: balanceRows.length },
+    { id: "positions", label: "Positions", count: vaultDetails.positions.length },
+    { id: "trades", label: "Trade History", count: vaultDetails.trades.length },
+    { id: "funding", label: "Funding History", count: vaultDetails.funding.length },
+    { id: "flows", label: "Deposits and Withdrawals", count: vaultDetails.flows.length },
+    { id: "depositors", label: "Depositors", count: "100+" },
+  ];
+
+  const renderActivePanel = () => {
+    if (activeTab === "balances") return <AdapterBalancesTable balances={balanceRows} />;
+    if (activeTab === "positions") return <AdapterPositionsTable positions={vaultDetails.positions} />;
+    if (activeTab === "trades") return <AdapterTradesTable trades={vaultDetails.trades} />;
+    if (activeTab === "funding") return <AdapterFundingTable funding={vaultDetails.funding} />;
+    if (activeTab === "flows") return <AdapterFlowsTable flows={vaultDetails.flows} />;
+    return <AdapterDepositorsTable depositors={vaultDetails.depositors} />;
   };
 
   return (
-    <>
-      <div className="vault-address-row">
-        <span>Vault</span>
-        <CopyAddressButton
-          address={vaultDetails.address}
-          copied={copiedAddress === vaultDetails.address}
-          onCopy={handleCopyAddress}
-        />
+    <section className="vault-section adapter-data-panel" aria-label="adapter ledger">
+      <div className="adapter-data-tabs" role="tablist" aria-label="adapter ledger tabs">
+        {tabs.map((tab) => (
+          <button
+            type="button"
+            key={tab.id}
+            className={`adapter-data-tab${activeTab === tab.id ? " active" : ""}`}
+            role="tab"
+            aria-selected={activeTab === tab.id}
+            onClick={() => setActiveTab(tab.id)}
+          >
+            <span>{tab.label}</span>
+            <strong>{tab.count}</strong>
+          </button>
+        ))}
+        <button className="adapter-filter-button" type="button">
+          Filter
+        </button>
       </div>
-
-      <div className="vault-metrics-layout">
-        <div className="vault-primary-metrics">
-          <div className="vault-metric-card tvl-ratio-metric">
-            <span className="field-label">TVL / MAX TVL</span>
-            <strong>
-              {formatCurrency(vaultDetails.strategyEquity)}
-              <span>/</span>
-              {formatCurrency(maxTvl)}
-            </strong>
-          </div>
-          <div className="vault-metric-card">
-            <span className="field-label">APR</span>
-            <strong className={vaultDetails.projectedApr >= 0 ? "positive" : "negative"}>
-              {formatPct(vaultDetails.projectedApr)}
-            </strong>
-          </div>
-        </div>
-
-        <div className="vault-secondary-metrics">
-          <div className="vault-metric-card">
-            <span className="field-label">Fork</span>
-            <strong>{forkCount}</strong>
-          </div>
-          <div className="vault-metric-card">
-            <span className="field-label">Leader</span>
-            <CopyAddressButton
-              address={vaultDetails.leaderAddress}
-              copied={copiedAddress === vaultDetails.leaderAddress}
-              onCopy={handleCopyAddress}
-            />
-          </div>
-          <div className="vault-metric-card">
-            <span className="field-label">Leader Share</span>
-            <strong>{(vaultDetails.leaderFraction * 100).toFixed(1)}%</strong>
-          </div>
-          <div className="vault-metric-card">
-            <span className="field-label">Commission</span>
-            <strong>{(vaultDetails.leaderCommission * 100).toFixed(0)}%</strong>
-          </div>
-        </div>
-      </div>
-    </>
+      <div className="adapter-data-body">{renderActivePanel()}</div>
+    </section>
   );
 }
 
 export function VaultAnalyticsSections({
+  strategy,
   vaultDetails,
   isVaultLoading,
-  forkCount,
   maxTvl,
+  positionValue,
 }: {
+  strategy: Strategy;
   vaultDetails: StrategyVaultMetadata | null;
   isVaultLoading: boolean;
-  forkCount: number;
   maxTvl: number;
+  positionValue: number;
 }) {
   if (!vaultDetails) {
-    return <div className="vault-loading">{isVaultLoading ? "Vault loading" : "No vault analytics"}</div>;
+    return <div className="vault-loading">{isVaultLoading ? "Adapter loading" : "No adapter analytics"}</div>;
   }
+
+  const hasPosition = positionValue > 0;
+  const positionBalances = hasPosition ? getPositionBalanceRows(vaultDetails.balances, positionValue) : [];
+  const balanceRows = hasPosition ? positionBalances : vaultDetails.balances;
 
   return (
     <div className="vault-lower-panels">
@@ -401,227 +613,12 @@ export function VaultAnalyticsSections({
             </div>
           ))}
         </div>
-        <div className="vault-performance-metadata">
-          <VaultMetadataBlocks
-            forkCount={forkCount}
-            vaultDetails={vaultDetails}
-            isVaultLoading={isVaultLoading}
-            maxTvl={maxTvl}
-          />
-        </div>
       </section>
 
-      <section className="vault-section" aria-label="token balances">
-        <div className="vault-balance-chart-pair">
-          <div className="vault-balance-card">
-            <div className="vault-balance-card-heading">
-              <span>Token Balance</span>
-              <strong>By Asset</strong>
-            </div>
-            <TokenBalanceDonut balances={vaultDetails.balances} />
-          </div>
-          <div className="vault-balance-card">
-            <div className="vault-balance-card-heading">
-              <span>Chain Balance</span>
-              <strong>By Chain</strong>
-            </div>
-            <ChainBalanceDonut balances={vaultDetails.balances} />
-          </div>
-        </div>
-      </section>
-    </div>
-  );
-}
+      <VaultProductProfilePanel strategy={strategy} vaultDetails={vaultDetails} maxTvl={maxTvl} />
 
-function formatActivityAmount(amountUsd?: number, assetAmount?: number, assetSymbol?: string) {
-  if (!amountUsd || !assetAmount || !assetSymbol) {
-    return {
-      primary: "-",
-      secondary: "No capital move",
-    };
-  }
+      <AdapterDataPanel vaultDetails={vaultDetails} balanceRows={balanceRows} />
 
-  return {
-    primary: formatCurrency(amountUsd),
-    secondary: `${formatCompact(assetAmount)} ${assetSymbol}`,
-  };
-}
-
-function getPageItems<T>(items: T[], page: number, pageSize: number) {
-  const startIndex = (page - 1) * pageSize;
-  return items.slice(startIndex, startIndex + pageSize);
-}
-
-function PaginationControls({
-  page,
-  totalPages,
-  onChange,
-}: {
-  page: number;
-  totalPages: number;
-  onChange: (page: number) => void;
-}) {
-  if (totalPages <= 1) return null;
-
-  return (
-    <div className="activity-pagination" aria-label="activity pagination">
-      <button
-        type="button"
-        disabled={page <= 1}
-        onClick={() => onChange(Math.max(1, page - 1))}
-      >
-        {"<"}
-      </button>
-      {Array.from({ length: totalPages }, (_, index) => index + 1).map((pageNumber) => (
-        <button
-          type="button"
-          className={pageNumber === page ? "active" : ""}
-          key={pageNumber}
-          onClick={() => onChange(pageNumber)}
-        >
-          {pageNumber}
-        </button>
-      ))}
-      <button
-        type="button"
-        disabled={page >= totalPages}
-        onClick={() => onChange(Math.min(totalPages, page + 1))}
-      >
-        {">"}
-      </button>
-    </div>
-  );
-}
-
-export function VaultActivitySections({
-  vaultAddress,
-  onUserSelect,
-}: {
-  vaultAddress: string;
-  onUserSelect: (address: string) => void;
-}) {
-  const {
-    users,
-    transactions,
-    activityEndpoint,
-    isActivityLoading,
-  } = useVaultActivity(vaultAddress);
-  const [usersPage, setUsersPage] = useState(1);
-  const [transactionsPage, setTransactionsPage] = useState(1);
-  const usersTotalPages = Math.max(1, Math.ceil(users.length / activityUsersPerPage));
-  const transactionsTotalPages = Math.max(1, Math.ceil(transactions.length / activityTransactionsPerPage));
-  const currentUsersPage = Math.min(usersPage, usersTotalPages);
-  const currentTransactionsPage = Math.min(transactionsPage, transactionsTotalPages);
-  const visibleUsers = getPageItems(users, currentUsersPage, activityUsersPerPage);
-  const visibleTransactions = getPageItems(
-    transactions,
-    currentTransactionsPage,
-    activityTransactionsPerPage,
-  );
-
-  useEffect(() => {
-    setUsersPage(1);
-    setTransactionsPage(1);
-  }, [vaultAddress]);
-
-  return (
-    <div className="vault-activity-panels" data-activity-api-request={activityEndpoint}>
-      <section className="vault-section vault-activity-section" aria-label="user distribution">
-        <div className="panel-heading">
-          <span>User Distribution</span>
-          <strong>{isActivityLoading ? "Loading" : `${users.length} users`}</strong>
-        </div>
-        <div className="vault-activity-list">
-          {isActivityLoading ? (
-            <div className="vault-activity-empty">Loading activity</div>
-          ) : users.length > 0 ? (
-            <>
-              {visibleUsers.map((user) => (
-                <button
-                  type="button"
-                  className="vault-activity-user-row"
-                  key={`${user.vaultAddress}-${user.userAddress}`}
-                  onClick={() => onUserSelect(user.userAddress)}
-                >
-                  <UserAvatar name={user.userName} src={user.avatarUrl} className="activity-avatar" />
-                  <span className="activity-user-copy">
-                    <strong>{user.userName}</strong>
-                    <small>{formatAddress(user.userAddress)}</small>
-                  </span>
-                  <span className="activity-amount-copy">
-                    <strong>{formatCurrency(user.depositUsd)}</strong>
-                    <small>{formatCompact(user.depositAssetAmount)} {user.assetSymbol}</small>
-                  </span>
-                  <em>{(user.sharePct * 100).toFixed(1)}%</em>
-                </button>
-              ))}
-              <PaginationControls
-                page={currentUsersPage}
-                totalPages={usersTotalPages}
-                onChange={setUsersPage}
-              />
-            </>
-          ) : (
-            <div className="vault-activity-empty">No active users</div>
-          )}
-        </div>
-      </section>
-
-      <section className="vault-section vault-activity-section" aria-label="all transactions">
-        <div className="panel-heading">
-          <span>All Transactions</span>
-          <strong>{isActivityLoading ? "Loading" : `${transactions.length} rows`}</strong>
-        </div>
-        <div className="vault-activity-list">
-          {isActivityLoading ? (
-            <div className="vault-activity-empty">Loading transactions</div>
-          ) : transactions.length > 0 ? (
-            <>
-              {visibleTransactions.map((transaction) => {
-                const amount = formatActivityAmount(
-                  transaction.amountUsd,
-                  transaction.assetAmount,
-                  transaction.assetSymbol,
-                );
-
-                return (
-                  <article className="vault-activity-transaction-row" key={transaction.id}>
-                    <span className={`activity-type ${transaction.type.toLowerCase()}`}>{transaction.type}</span>
-                    <div className="activity-user-copy">
-                      <button type="button" onClick={() => onUserSelect(transaction.userAddress)}>
-                        <UserAvatar
-                          name={transaction.userName}
-                          src={transaction.avatarUrl}
-                          className="activity-avatar"
-                        />
-                        <span>
-                          <strong>{transaction.userName}</strong>
-                          <small>{formatAddress(transaction.userAddress)}</small>
-                        </span>
-                      </button>
-                    </div>
-                    <span className="activity-amount-copy">
-                      <strong>{amount.primary}</strong>
-                      <small>{amount.secondary}</small>
-                    </span>
-                    <span className="activity-meta-copy">
-                      <strong>{transaction.chain}</strong>
-                      <small>{formatAddress(transaction.txHash)} / {formatTimestamp(transaction.createdAt)}</small>
-                    </span>
-                  </article>
-                );
-              })}
-              <PaginationControls
-                page={currentTransactionsPage}
-                totalPages={transactionsTotalPages}
-                onChange={setTransactionsPage}
-              />
-            </>
-          ) : (
-            <div className="vault-activity-empty">No transactions</div>
-          )}
-        </div>
-      </section>
     </div>
   );
 }
@@ -674,39 +671,11 @@ function buildIntervalSeries(series: number[], interval: VaultChartInterval, see
   });
 }
 
-function clamp(value: number, min: number, max: number) {
-  return Math.min(max, Math.max(min, value));
-}
+function buildSharePriceSeries(valueSeries: number[]) {
+  const baseNav = 100;
+  const firstValue = valueSeries[0] || 1;
 
-function buildInitialMarginRateSeries({
-  strategy,
-  vaultDetails,
-  valueSeries,
-  interval,
-}: {
-  strategy: Strategy;
-  vaultDetails: StrategyVaultMetadata | null;
-  valueSeries: number[];
-  interval: VaultChartInterval;
-}) {
-  const config = vaultChartIntervalConfig[interval];
-  const seed = getStableSeed(`margin-${strategy.id}-${interval}`);
-  const equity = vaultDetails?.strategyEquity ?? strategy.deployedCapital;
-  const utilization = vaultDetails ? vaultDetails.strategyEquity / Math.max(vaultDetails.strategyEquity * 2, 1) : 0.5;
-  const sectorPremium = strategy.primarySector === "CEX" ? 2.4 : strategy.primarySector === "DeFi" ? 1.2 : 1.8;
-  const baseRate = clamp(7 + strategy.maxDrawdown * 1.15 + utilization * 7 + sectorPremium, 4, 42);
-  const firstValue = valueSeries[0] ?? equity;
-
-  return valueSeries.map((value, index) => {
-    const previousValue = valueSeries[Math.max(index - 1, 0)] ?? value;
-    const equityChangePct = firstValue > 0 ? ((value - firstValue) / firstValue) * 100 : 0;
-    const localMovePct = previousValue > 0 ? ((value - previousValue) / previousValue) * 100 : 0;
-    const wave =
-      Math.sin(index * 0.61 + seed * 0.017) * config.noise * 0.22 +
-      Math.cos(index * 0.37 + seed * 0.011) * config.noise * 0.13;
-
-    return Number(clamp(baseRate + equityChangePct * 0.08 + localMovePct * 0.55 + wave, 1, 65).toFixed(2));
-  });
+  return valueSeries.map((value) => Number(((value / firstValue) * baseNav).toFixed(2)));
 }
 
 export function VaultValueTracker({
@@ -724,26 +693,20 @@ export function VaultValueTracker({
     () => buildIntervalSeries(baseValueSeries, activeInterval, strategy.id),
     [activeInterval, baseValueSeries, strategy.id],
   );
-  const marginRateSeries = useMemo(
-    () => buildInitialMarginRateSeries({ strategy, vaultDetails, valueSeries, interval: activeInterval }),
-    [activeInterval, strategy, valueSeries, vaultDetails],
-  );
+  const sharePriceSeries = useMemo(() => buildSharePriceSeries(valueSeries), [valueSeries]);
   const timeStepSeconds = vaultChartIntervalConfig[activeInterval].seconds;
-  const currentValue = valueSeries[valueSeries.length - 1] ?? strategy.deployedCapital;
-  const firstValue = valueSeries[0] ?? currentValue;
-  const positive = currentValue >= firstValue;
-  const currentMarginRate = marginRateSeries[marginRateSeries.length - 1] ?? 0;
-  const firstMarginRate = marginRateSeries[0] ?? currentMarginRate;
-  const marginRatePositive = currentMarginRate >= firstMarginRate;
+  const currentSharePrice = sharePriceSeries[sharePriceSeries.length - 1] ?? 100;
+  const firstSharePrice = sharePriceSeries[0] ?? currentSharePrice;
+  const positive = currentSharePrice >= firstSharePrice;
 
   return (
     <div className={`vault-value-tracker${isVaultLoading ? " loading" : ""}`}>
       <div className="vault-chart-header">
         <div>
-          <span>Logic Value</span>
-          <strong>{formatCurrency(currentValue)}</strong>
+          <span>NAV / Share Price</span>
+          <strong>{formatCurrency(currentSharePrice)}</strong>
         </div>
-        <div className="vault-chart-intervals" role="group" aria-label="logic value interval">
+        <div className="vault-chart-intervals" role="group" aria-label="NAV and share price interval">
           {vaultChartIntervals.map((interval) => (
             <button
               type="button"
@@ -758,40 +721,20 @@ export function VaultValueTracker({
         </div>
       </div>
 
-      <div className="vault-value-chart logic-value-chart" aria-label={`${strategy.title} logic value graph`}>
+      <div className="vault-value-chart logic-value-chart" aria-label={`${strategy.title} NAV and share price graph`}>
         <div className="vault-chart-caption">
-          <span>Logic Value</span>
+          <span>NAV / Share Price</span>
           <strong className={positive ? "positive" : "negative"}>
-            {formatPct(firstValue > 0 ? ((currentValue - firstValue) / firstValue) * 100 : 0)}
+            {formatPct(firstSharePrice > 0 ? ((currentSharePrice - firstSharePrice) / firstSharePrice) * 100 : 0)}
           </strong>
         </div>
         <LightweightReturnChart
           className="vault-value-lightweight-chart"
-          series={valueSeries}
+          series={sharePriceSeries}
           mode="value"
           height={620}
           fill
           positive={positive}
-          backgroundColor="var(--surface-2)"
-          timeStepSeconds={timeStepSeconds}
-        />
-      </div>
-
-      <div className="vault-margin-rate-chart" aria-label={`${strategy.title} initial margin rate graph`}>
-        <div className="vault-chart-caption">
-          <span>Initial Margin Rate</span>
-          <strong className={marginRatePositive ? "positive" : "negative"}>
-            {currentMarginRate.toFixed(2)}% ({formatPct(currentMarginRate - firstMarginRate)})
-          </strong>
-        </div>
-        <LightweightReturnChart
-          className="vault-margin-lightweight-chart"
-          series={marginRateSeries}
-          mode="percent"
-          height={150}
-          fill
-          positive={marginRatePositive}
-          lineColor={marginRatePositive ? "#d0ad4f" : "#f6465d"}
           backgroundColor="var(--surface-2)"
           timeStepSeconds={timeStepSeconds}
         />
@@ -801,13 +744,13 @@ export function VaultValueTracker({
 }
 
 export function VaultDiscussionPanel({
-  vaultAddress,
+  adapterAddress,
   onUserSelect,
 }: {
-  vaultAddress: string;
+  adapterAddress: string;
   onUserSelect: (address: string) => void;
 }) {
-  const { messages, discussionEndpoint, isDiscussionLoading, addLocalMessage } = useVaultDiscussion(vaultAddress);
+  const { messages, discussionEndpoint, isDiscussionLoading, addLocalMessage } = useVaultDiscussion(adapterAddress);
   const [draftMessage, setDraftMessage] = useState("");
 
   const handleSubmit = (event: FormEvent<HTMLFormElement>) => {

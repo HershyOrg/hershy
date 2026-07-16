@@ -48,7 +48,6 @@ export function AppHeader({
         />
         <Button onClick={onLaunchLogic}>Launch Logic</Button>
         <Button onClick={onMyPage}>My Page</Button>
-        <Button>Connect</Button>
         <button
           type="button"
           className="theme-mode-button"

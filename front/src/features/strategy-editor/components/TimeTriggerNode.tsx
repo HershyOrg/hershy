@@ -4,7 +4,7 @@ import { memo, useCallback, useEffect, useRef, useState } from "react";
 import { Handle, Position, NodeProps, useReactFlow } from "@xyflow/react";
 import type { TimeTriggerData } from "../types/editorTypes";
 import { cn } from "@/shared/utils/utils";
-import { Keyboard, MousePointer2, Pause, Play, Timer, X } from "lucide-react";
+import { Keyboard, MousePointer2, Pause, Play, Timer, X } from "@/shared/components/icons";
 
 type DurationUnit = "days" | "hours" | "minutes" | "seconds";
 type DurationParts = Record<DurationUnit, string>;
@@ -13,7 +13,7 @@ type TriggerMode = "TIME" | "CLICK";
 const DEFAULT_TRIGGER_OUTPUT_BLOCK = {
   id: "yes-no",
   name: "yes/no",
-  description: "조건이 충족되면 yes, 아니면 no인 boolean 신호를 반환합니다.",
+  description: "Returns a boolean yes/no signal when the condition is met.",
   type: "output" as const,
   outputKind: "boolean-data",
 };
@@ -63,10 +63,10 @@ function formatDuration(totalSeconds: unknown) {
   const minutes = parsePart(parts.minutes);
   const seconds = parsePart(parts.seconds);
   const tokens = [
-    days ? `${days}일` : "",
-    hours ? `${hours}시간` : "",
-    minutes ? `${minutes}분` : "",
-    seconds || (!days && !hours && !minutes) ? `${seconds || 0}초` : "",
+    days ? `${days}d` : "",
+    hours ? `${hours}h` : "",
+    minutes ? `${minutes}m` : "",
+    seconds || (!days && !hours && !minutes) ? `${seconds || 0}s` : "",
   ].filter(Boolean);
   return tokens.join(" ");
 }
@@ -380,9 +380,11 @@ function TimeTriggerNodeComponent({ id, data, selected }: NodeProps<import("@xyf
         position={Position.Left}
         id={`${id}-trigger-in`}
         className={cn(
+          "advanced-port advanced-port--input",
           "!w-2.5 !h-2.5 !top-[24px]",
           isTimeMode ? "!border-[#fcd535] !bg-[#f0b90b]" : "!border-[#5e6673] !bg-[#848e9c]",
         )}
+        data-port-kind="input"
         style={{ left: -5 }}
       />
       <Handle
@@ -390,9 +392,11 @@ function TimeTriggerNodeComponent({ id, data, selected }: NodeProps<import("@xyf
         position={Position.Right}
         id={`${id}-trigger-out`}
         className={cn(
+          "advanced-port advanced-port--output",
           "!w-2.5 !h-2.5 !top-[24px]",
           isTimeMode ? "!border-[#fcd535] !bg-[#f0b90b]" : "!border-[#5e6673] !bg-[#848e9c]",
         )}
+        data-port-kind="output"
         style={{ right: -5 }}
       />
       {isTimeMode ? (
@@ -415,10 +419,10 @@ function TimeTriggerNodeComponent({ id, data, selected }: NodeProps<import("@xyf
               </div>
               <div className="grid grid-cols-4 gap-1.5">
                 {[
-                  ["days", "일"],
-                  ["hours", "시간"],
-                  ["minutes", "분"],
-                  ["seconds", "초"],
+                  ["days", "days"],
+                  ["hours", "hours"],
+                  ["minutes", "minutes"],
+                  ["seconds", "seconds"],
                 ].map(([unit, label]) => (
                   <label key={unit} className="block">
                     <input
@@ -597,13 +601,14 @@ function TimeTriggerNodeComponent({ id, data, selected }: NodeProps<import("@xyf
               >
                 <div className="text-[11px] font-semibold text-[#eaecef]">{block.name}</div>
                 <div className="truncate text-[10px] text-[#848e9c]">
-                  {block.description || "yes/no 신호"}
+                  {block.description || "yes/no signal"}
                 </div>
                 <Handle
                   type="source"
                   position={Position.Right}
                   id={`${id}-block-${block.id}-out`}
-                  className="!h-2.5 !w-2.5 !border-[#5e6673] !bg-[#848e9c]"
+                  className="advanced-port advanced-port--output !h-2.5 !w-2.5 !border-[#5e6673] !bg-[#848e9c]"
+                  data-port-kind="output"
                   style={{ right: -17 }}
                 />
               </div>

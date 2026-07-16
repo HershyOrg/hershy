@@ -4,7 +4,7 @@ import { memo, useCallback, useState } from "react";
 import { Handle, Position, NodeProps, useReactFlow } from "@xyflow/react";
 import type { BranchNodeData } from "../types/editorTypes";
 import { cn } from "@/shared/utils/utils";
-import { GitFork, Plus, X, Code, Minimize2 } from "lucide-react";
+import { GitFork, Plus, X, Code, Minimize2 } from "@/shared/components/icons";
 import Editor from "./MonacoCodeEditor";
 
 function BranchNodeComponent({ id, data, selected }: NodeProps<import("@xyflow/react").Node<BranchNodeData>>) {
@@ -55,7 +55,7 @@ function BranchNodeComponent({ id, data, selected }: NodeProps<import("@xyflow/r
                   ...(node.data as BranchNodeData).branches,
                   {
                     id: `br-${Date.now()}`,
-                    name: `분기 ${(node.data as BranchNodeData).branches.length + 1}`,
+                    name: `Branch ${(node.data as BranchNodeData).branches.length + 1}`,
                     active: false,
                     condition: "",
                     code: `// Branch condition\nreturn value > 0;`,
@@ -255,8 +255,9 @@ function BranchNodeComponent({ id, data, selected }: NodeProps<import("@xyflow/r
           type="target"
           position={Position.Left}
           id={`${id}-branch-in`}
-          className="!w-2.5 !h-2.5 !bg-orange-400 !border-orange-500 !top-[20px]"
-          style={{ left: -5 }}
+          className="advanced-port advanced-port--input !w-2.5 !h-2.5 !bg-orange-400 !border-orange-500 !top-[20px]"
+          data-port-kind="legacy-input"
+          style={{ left: -5, opacity: data.inputBlocks?.length ? 0 : undefined, pointerEvents: data.inputBlocks?.length ? "none" : undefined }}
         />
 
         {/* Input Blocks */}
@@ -276,7 +277,8 @@ function BranchNodeComponent({ id, data, selected }: NodeProps<import("@xyflow/r
                   type="target"
                   position={Position.Left}
                   id={`${id}-input-${block.id}-in`}
-                  className="!w-2 !h-2 !bg-blue-400 !border-blue-500"
+                  className="advanced-port advanced-port--input !w-2 !h-2 !bg-blue-400 !border-blue-500"
+                  data-port-kind="input"
                   style={{ left: -8, top: `${72 + idx * 28}px` }}
                 />
                 <div className="min-w-0">
@@ -396,7 +398,7 @@ function BranchNodeComponent({ id, data, selected }: NodeProps<import("@xyflow/r
           onChange={handleLabelChange}
           className="w-full bg-transparent border-none text-center resize-none focus:outline-none placeholder:text-orange-400/50"
           rows={2}
-          placeholder="분기 조건 설명 입력"
+          placeholder="Enter branch condition description"
         />
       </div>
 
@@ -405,8 +407,9 @@ function BranchNodeComponent({ id, data, selected }: NodeProps<import("@xyflow/r
         type="target"
         position={Position.Left}
         id={`${id}-branch-in`}
-        className="!w-2.5 !h-2.5 !bg-orange-400 !border-orange-500 !top-[24px]"
-        style={{ left: -5 }}
+        className="advanced-port advanced-port--input !w-2.5 !h-2.5 !bg-orange-400 !border-orange-500 !top-[24px]"
+        data-port-kind="legacy-input"
+        style={{ left: -5, opacity: data.inputBlocks?.length ? 0 : undefined, pointerEvents: data.inputBlocks?.length ? "none" : undefined }}
       />
 
       {/* Input Blocks (if any) */}
@@ -424,7 +427,8 @@ function BranchNodeComponent({ id, data, selected }: NodeProps<import("@xyflow/r
                 type="target"
                 position={Position.Left}
                 id={`${id}-input-${block.id}-in`}
-                className="!w-2 !h-2 !bg-blue-400 !border-blue-500"
+                className="advanced-port advanced-port--input !w-2 !h-2 !bg-blue-400 !border-blue-500"
+                data-port-kind="input"
                 style={{ left: -8 }}
               />
               <span className="min-w-0">

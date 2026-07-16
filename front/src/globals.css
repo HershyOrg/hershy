@@ -128,17 +128,23 @@
 
 .advanced-node-editor-flow {
   --xy-selection-background-color: transparent;
-  --advanced-flow-bg: #0b0e11;
-  --advanced-flow-dots: #2b3139;
-  --advanced-flow-panel: rgba(24, 26, 32, 0.96);
-  --advanced-flow-control-border: rgba(43, 49, 57, 0.96);
-  --advanced-flow-connection: #f0b90b;
-  --advanced-edge-default: #848e9c;
-  --advanced-edge-data: #f0b90b;
-  --advanced-edge-shared-pipeline: #f6465d;
-  --advanced-edge-muted: #474d57;
-  --advanced-edge-dim: #2b3139;
-  --advanced-minimap-mask: rgba(11, 14, 17, 0.68);
+  --advanced-flow-bg: #f7f8fa;
+  --advanced-flow-dots: #d8dee6;
+  --advanced-flow-panel: rgba(255, 255, 255, 0.96);
+  --advanced-flow-control-border: rgba(216, 222, 230, 0.96);
+  --advanced-flow-connection: #a66f16;
+  --advanced-edge-default: #64748b;
+  --advanced-edge-data: #a66f16;
+  --advanced-edge-shared-pipeline: #d14b5a;
+  --advanced-edge-muted: #94a3b8;
+  --advanced-edge-dim: #cbd5e1;
+  --advanced-minimap-mask: rgba(248, 250, 252, 0.72);
+  background:
+    linear-gradient(rgba(216, 222, 230, 0.52) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(216, 222, 230, 0.52) 1px, transparent 1px),
+    var(--advanced-flow-bg) !important;
+  background-size: 32px 32px;
+  color: #0f172a;
 }
 
 .advanced-node-editor-flow .react-flow__nodesselection-rect,
@@ -164,6 +170,105 @@
     #0b0e11 !important;
   background-size: 28px 28px;
   color: #eaecef;
+}
+
+.advanced-node-editor-flow .react-flow__pane,
+.advanced-node-editor-flow .react-flow__viewport {
+  background: transparent !important;
+}
+
+.advanced-node-editor-flow .advanced-port.react-flow__handle {
+  width: 13px !important;
+  height: 13px !important;
+  border-width: 2px !important;
+  border-style: solid !important;
+  box-shadow:
+    0 0 0 3px rgba(255, 255, 255, 0.88),
+    0 5px 14px rgba(15, 23, 42, 0.18);
+  transition:
+    transform 140ms ease,
+    box-shadow 140ms ease,
+    border-color 140ms ease,
+    background-color 140ms ease;
+  z-index: 35;
+}
+
+.advanced-node-editor-flow .advanced-port.react-flow__handle:hover,
+.advanced-node-editor-flow .advanced-port.react-flow__handle.connectingfrom,
+.advanced-node-editor-flow .advanced-port.react-flow__handle.connectingto {
+  transform: translate(-50%, -50%) scale(1.14);
+  box-shadow:
+    0 0 0 4px rgba(255, 255, 255, 0.95),
+    0 0 0 8px rgba(14, 165, 233, 0.14),
+    0 8px 18px rgba(15, 23, 42, 0.2);
+}
+
+.advanced-node-editor-flow .advanced-port--node.react-flow__handle {
+  width: 17px !important;
+  height: 17px !important;
+  border-width: 2.5px !important;
+}
+
+.advanced-node-editor-flow .advanced-port--node.advanced-port--input.react-flow__handle {
+  background: #2563eb !important;
+  border-color: #dbeafe !important;
+}
+
+.advanced-node-editor-flow .advanced-port--node.advanced-port--output.react-flow__handle {
+  background: #059669 !important;
+  border-color: #d1fae5 !important;
+}
+
+.dark .advanced-node-editor-flow .advanced-port.react-flow__handle {
+  box-shadow:
+    0 0 0 3px rgba(11, 14, 17, 0.9),
+    0 5px 14px rgba(0, 0, 0, 0.36);
+}
+
+.dark .advanced-node-editor-flow .advanced-port.react-flow__handle:hover,
+.dark .advanced-node-editor-flow .advanced-port.react-flow__handle.connectingfrom,
+.dark .advanced-node-editor-flow .advanced-port.react-flow__handle.connectingto {
+  box-shadow:
+    0 0 0 4px rgba(11, 14, 17, 0.95),
+    0 0 0 8px rgba(240, 185, 11, 0.18),
+    0 8px 18px rgba(0, 0, 0, 0.42);
+}
+
+.dark .advanced-node-editor-flow .advanced-port--node.advanced-port--input.react-flow__handle {
+  background: #60a5fa !important;
+  border-color: #172554 !important;
+}
+
+.dark .advanced-node-editor-flow .advanced-port--node.advanced-port--output.react-flow__handle {
+  background: #10b981 !important;
+  border-color: #064e3b !important;
+}
+
+.advanced-node-editor-flow .react-flow__panel > div,
+.advanced-node-editor-flow .react-flow__controls,
+.advanced-node-editor-flow .react-flow__minimap {
+  background: var(--advanced-flow-panel) !important;
+  border-color: var(--advanced-flow-control-border) !important;
+  color: #334155 !important;
+  box-shadow: none !important;
+}
+
+.advanced-node-editor-flow .react-flow__controls-button {
+  background: #ffffff !important;
+  border-color: #d8dee6 !important;
+  color: #475569 !important;
+  fill: #475569 !important;
+}
+
+.advanced-node-editor-flow .react-flow__controls-button:hover {
+  background: #f2f5f7 !important;
+  color: #936316 !important;
+  fill: #936316 !important;
+}
+
+.advanced-node-editor-flow .react-flow__attribution {
+  background: rgba(255, 255, 255, 0.84) !important;
+  color: #64748b !important;
 }
 
 .dark .advanced-node-editor-flow .react-flow__pane,
@@ -371,6 +476,13 @@
     --hershy-text-strong: #0f172a;
     --hershy-text: #334155;
     --hershy-text-muted: #64748b;
+    --hershy-accent: #b7791f;
+    --hershy-accent-strong: #936316;
+    --hershy-accent-soft: rgba(183, 121, 31, 0.12);
+    --hershy-success: #047857;
+    --hershy-success-soft: rgba(4, 120, 87, 0.11);
+    --hershy-danger: #be3144;
+    --hershy-danger-soft: rgba(190, 49, 68, 0.11);
     --hershy-overlay: rgba(15, 23, 42, 0.36);
     background: var(--hershy-bg);
     color: var(--hershy-text-strong);
@@ -390,6 +502,13 @@
     --hershy-text-strong: #e8edf2;
     --hershy-text: #c7d0da;
     --hershy-text-muted: #8895a5;
+    --hershy-accent: #f0b90b;
+    --hershy-accent-strong: #fcd535;
+    --hershy-accent-soft: rgba(240, 185, 11, 0.15);
+    --hershy-success: #0ecb81;
+    --hershy-success-soft: rgba(14, 203, 129, 0.12);
+    --hershy-danger: #f6465d;
+    --hershy-danger-soft: rgba(246, 70, 93, 0.12);
     --hershy-overlay: rgba(0, 0, 0, 0.62);
     background: var(--hershy-bg);
     color: var(--hershy-text-strong);
@@ -647,12 +766,145 @@
     color: var(--hershy-text-muted) !important;
   }
 
+  .hershy-shell [class~="bg-[#0b0e11]"],
+  .hershy-shell [class~="bg-[#0b0e11]/85"],
+  .hershy-shell [class~="bg-[#0b0e11]/88"] {
+    background-color: var(--hershy-surface) !important;
+  }
+
+  .hershy-shell [class~="bg-[#181a20]"],
+  .hershy-shell [class~="bg-[#181a20]/95"],
+  .hershy-shell [class~="bg-[#181a20]/96"],
+  .hershy-shell [class~="bg-[#1e2329]"] {
+    background-color: var(--hershy-surface-raised) !important;
+  }
+
+  .hershy-shell [class~="bg-[#2b3139]"],
+  .hershy-shell [class~="bg-[#2b3139]/70"],
+  .hershy-shell [class~="bg-[#474d57]"] {
+    background-color: var(--hershy-surface-muted) !important;
+  }
+
+  .hershy-shell [class~="border-[#2b3139]"],
+  .hershy-shell [class~="border-[#474d57]"],
+  .hershy-shell [class~="border-[#5e6673]"] {
+    border-color: var(--hershy-border) !important;
+  }
+
+  .hershy-shell [class~="text-[#eaecef]"],
+  .hershy-shell [class~="text-[#ffffff]"] {
+    color: var(--hershy-text-strong) !important;
+  }
+
+  .hershy-shell [class~="text-[#b7bdc6]"] {
+    color: var(--hershy-text) !important;
+  }
+
+  .hershy-shell [class~="text-[#848e9c]"],
+  .hershy-shell [class~="text-[#5e6673]"] {
+    color: var(--hershy-text-muted) !important;
+  }
+
+  .hershy-shell [class~="bg-[#f0b90b]"] {
+    background-color: var(--hershy-accent) !important;
+  }
+
+  .hershy-shell [class~="border-[#f0b90b]"],
+  .hershy-shell [class~="border-[#f0b90b]/30"],
+  .hershy-shell [class~="border-[#f0b90b]/40"],
+  .hershy-shell [class~="border-[#f0b90b]/50"],
+  .hershy-shell [class~="border-[#f0b90b]/55"],
+  .hershy-shell [class~="border-[#fcd535]"] {
+    border-color: color-mix(in srgb, var(--hershy-accent) 68%, transparent) !important;
+  }
+
+  .hershy-shell [class~="text-[#fcd535]"],
+  .hershy-shell [class~="text-[#f0b90b]"] {
+    color: var(--hershy-accent-strong) !important;
+  }
+
+  .hershy-shell [class~="bg-[#f0b90b]/8"],
+  .hershy-shell [class~="bg-[#f0b90b]/10"],
+  .hershy-shell [class~="bg-[#f0b90b]/15"],
+  .hershy-shell [class~="bg-[#f0b90b]/20"],
+  .hershy-shell [class~="bg-[#f0b90b]/40"] {
+    background-color: var(--hershy-accent-soft) !important;
+  }
+
+  .hershy-shell [class~="bg-[#0ecb81]"] {
+    background-color: var(--hershy-success) !important;
+  }
+
+  .hershy-shell [class~="text-[#0ecb81]"] {
+    color: var(--hershy-success) !important;
+  }
+
+  .hershy-shell [class~="border-[#0ecb81]"],
+  .hershy-shell [class~="border-[#0ecb81]/30"],
+  .hershy-shell [class~="border-[#0ecb81]/40"],
+  .hershy-shell [class~="border-[#0ecb81]/50"] {
+    border-color: color-mix(in srgb, var(--hershy-success) 60%, transparent) !important;
+  }
+
+  .hershy-shell [class~="bg-[#0ecb81]/8"],
+  .hershy-shell [class~="bg-[#0ecb81]/10"],
+  .hershy-shell [class~="bg-[#0ecb81]/15"],
+  .hershy-shell [class~="bg-[#0ecb81]/40"] {
+    background-color: var(--hershy-success-soft) !important;
+  }
+
+  .hershy-shell [class~="bg-[#f6465d]"] {
+    background-color: var(--hershy-danger) !important;
+  }
+
+  .hershy-shell [class~="text-[#f6465d]"],
+  .hershy-shell [class~="text-[#ff808b]"] {
+    color: var(--hershy-danger) !important;
+  }
+
+  .hershy-shell [class~="border-[#f6465d]"],
+  .hershy-shell [class~="border-[#f6465d]/30"],
+  .hershy-shell [class~="border-[#f6465d]/40"] {
+    border-color: color-mix(in srgb, var(--hershy-danger) 58%, transparent) !important;
+  }
+
+  .hershy-shell [class~="bg-[#f6465d]/10"],
+  .hershy-shell [class~="bg-[#f6465d]/15"] {
+    background-color: var(--hershy-danger-soft) !important;
+  }
+
+  .hershy-shell [class*="hover:bg-[#1e2329]"]:hover,
+  .hershy-shell [class*="hover:bg-[#2b3139]"]:hover {
+    background-color: var(--hershy-surface-muted) !important;
+  }
+
+  .hershy-shell [class*="hover:text-[#fcd535]"]:hover,
+  .hershy-shell [class*="hover:text-[#f0b90b]"]:hover {
+    color: var(--hershy-accent-strong) !important;
+  }
+
+  .hershy-shell [class*="hover:border-[#f0b90b]"]:hover,
+  .hershy-shell [class*="hover:border-[#fcd535]"]:hover {
+    border-color: var(--hershy-accent) !important;
+  }
+
+  .hershy-shell input[class~="bg-[#0b0e11]"],
+  .hershy-shell textarea[class~="bg-[#0b0e11]"],
+  .hershy-shell select[class~="bg-[#0b0e11]"],
+  .hershy-shell input[class~="bg-[#181a20]"],
+  .hershy-shell textarea[class~="bg-[#181a20]"],
+  .hershy-shell select[class~="bg-[#181a20]"] {
+    background-color: var(--hershy-surface-raised) !important;
+    border-color: var(--hershy-border) !important;
+    color: var(--hershy-text-strong) !important;
+  }
+
   .dark .hershy-shell .portfolio-workspace {
     background: var(--hershy-bg) !important;
   }
 
-  .dark .hershy-shell .portfolio-workspace [class*="bg-[linear-gradient"],
-  .dark .hershy-shell .portfolio-workspace [class*="bg-[radial-gradient"] {
+  .dark .hershy-shell .portfolio-workspace [class*="bg-[linear-gradient]"],
+  .dark .hershy-shell .portfolio-workspace [class*="bg-[radial-gradient]"] {
     background: var(--hershy-surface) !important;
   }
 
@@ -706,6 +958,20 @@
   }
 
   .hershy-shell .advanced-node-editor-flow {
+    --advanced-flow-bg: #f7f8fa;
+    --advanced-flow-dots: #d8dee6;
+    --advanced-flow-panel: rgba(255, 255, 255, 0.96);
+    --advanced-flow-control-border: rgba(216, 222, 230, 0.96);
+    --advanced-flow-connection: #a66f16;
+    --advanced-edge-default: #64748b;
+    --advanced-edge-data: #a66f16;
+    --advanced-edge-shared-pipeline: #d14b5a;
+    --advanced-edge-muted: #94a3b8;
+    --advanced-edge-dim: #cbd5e1;
+    --advanced-minimap-mask: rgba(248, 250, 252, 0.72);
+  }
+
+  .dark .hershy-shell .advanced-node-editor-flow {
     --advanced-flow-bg: #0c1014;
     --advanced-flow-dots: #232a31;
     --advanced-flow-panel: rgba(18, 23, 29, 0.96);
@@ -717,9 +983,6 @@
     --advanced-edge-muted: #3f4751;
     --advanced-edge-dim: #252b33;
     --advanced-minimap-mask: rgba(12, 16, 20, 0.7);
-  }
-
-  .dark .hershy-shell .advanced-node-editor-flow {
     background:
       linear-gradient(rgba(52, 61, 70, 0.22) 1px, transparent 1px),
       linear-gradient(90deg, rgba(52, 61, 70, 0.22) 1px, transparent 1px),
@@ -730,5 +993,30 @@
   .hershy-shell .advanced-node-editor-flow .react-flow__controls,
   .hershy-shell .advanced-node-editor-flow .react-flow__minimap {
     border-radius: 8px !important;
+  }
+
+  .hershy-shell .strategy-template-launcher {
+    transition: right 180ms ease, bottom 180ms ease;
+  }
+
+  @media (min-width: 1024px) {
+    .hershy-shell:has(.sequence-monitor-panel:not(.sequence-monitor-panel--fullscreen)) .strategy-template-launcher {
+      right: 445px !important;
+    }
+  }
+
+  @media (max-width: 1023px) {
+    .hershy-shell .sequence-monitor-panel:not(.sequence-monitor-panel--fullscreen) {
+      max-width: 100vw !important;
+      width: 100vw !important;
+    }
+
+    .hershy-shell:has(.sequence-monitor-panel) .strategy-template-launcher {
+      display: none !important;
+    }
+  }
+
+  .hershy-shell:has(.sequence-monitor-panel--fullscreen) .strategy-template-launcher {
+    display: none !important;
   }
 }

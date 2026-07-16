@@ -8,4 +8,4 @@ Examples:
 - date/time formatting
 - generic collection helpers
 
-Business calculations for strategies, vaults, or creator rankings belong in the feature folder.
+Business calculations for strategies, adapters, or creator rankings belong in the feature folder.

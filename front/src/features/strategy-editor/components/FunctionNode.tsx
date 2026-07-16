@@ -29,20 +29,20 @@ import {
   Plus,
   X,
   Zap,
-} from "lucide-react";
+} from "@/shared/components/icons";
 import MonacoEditor from "./MonacoCodeEditor";
 
 const DEFAULT_INPUT_BLOCK: BlockData = {
   id: "source",
   name: "source",
-  description: "차트 계산에 들어오는 스트림 또는 지표 블록",
+  description: "Incoming stream or indicator block for chart calculations",
   type: "input",
 };
 
 const DEFAULT_OUTPUT_BLOCK: BlockData = {
   id: "signal",
   name: "signal",
-  description: "실시간으로 변하는 산출 지표",
+  description: "Real-time derived indicator",
   type: "output",
 };
 
@@ -180,8 +180,8 @@ function isBooleanOutputBlock(block: BlockData) {
 function normalizeVisualizationFormat(value: unknown): VisualizationFormat | null {
   const text = String(value ?? "").trim().toLowerCase();
   if (!text) return null;
-  if (/\b(log|logs|logger|console|trace|debug|로그)\b/.test(text)) return "log";
-  if (/\b(order[-_\s]?book|book|depth|ladder|levels?|호가|오더북)\b/.test(text)) return "ladder";
+  if (/\b(log|logs|logger|console|trace|debug)\b/.test(text)) return "log";
+  if (/\b(order[-_\s]?book|book|depth|ladder|levels?)\b/.test(text)) return "ladder";
   if (/\b(chart|line|series|timeseries|time[-_\s]?series)\b/.test(text)) return "chart";
   return null;
 }
@@ -197,8 +197,8 @@ function getBlockVisualizationFormat(block: IndicatorOutputBlock): Visualization
 function normalizeLadderSide(value: unknown): "upper" | "lower" | null {
   const text = String(value ?? "").trim().toLowerCase();
   if (!text) return null;
-  if (/\b(upper|top|ask|asks|offer|offers|sell|sells|above|resistance|위|상단|매도)\b/.test(text)) return "upper";
-  if (/\b(lower|bottom|bid|bids|buy|buys|below|support|아래|하단|매수)\b/.test(text)) return "lower";
+  if (/\b(upper|top|ask|asks|offer|offers|sell|sells|above|resistance)\b/.test(text)) return "upper";
+  if (/\b(lower|bottom|bid|bids|buy|buys|below|support)\b/.test(text)) return "lower";
   return null;
 }
 
@@ -950,7 +950,7 @@ function createOutputBlockClone(source: IndicatorOutputBlock, index: number, exi
     ...cloned,
     id: createUniqueBlockId("ob", existingBlocks, `${Date.now()}-${index}`),
     name: nextName,
-    description: source.description || "복제한 output metric",
+    description: source.description || "Cloned output metric",
     type: "output",
     outputMode: source.outputMode === "passthrough" ? "formula" : source.outputMode,
     passthroughInputBlockId: source.outputMode === "passthrough" ? undefined : source.passthroughInputBlockId,
@@ -1198,7 +1198,7 @@ function NormalizedLadderView({
                   onSwitchToChart();
                 }}
                 className="rounded border border-[#2b3139] bg-[#0b0e11]/85 p-1.5 text-[#b7bdc6] hover:border-[#f0b90b] hover:text-[#fcd535]"
-                title="라인 차트 포맷으로 보기"
+                title="View as line chart"
               >
                 <BarChart3 className="h-3.5 w-3.5" />
               </button>
@@ -1211,7 +1211,7 @@ function NormalizedLadderView({
                   onShowCode();
                 }}
                 className="rounded border border-[#2b3139] bg-[#0b0e11]/85 p-1.5 text-[#b7bdc6] hover:border-[#f0b90b] hover:text-[#fcd535]"
-                title="같은 함수 그룹 코드 편집"
+                title="Edit code for the same function group"
               >
                 <Code2 className="h-3.5 w-3.5" />
               </button>
@@ -1300,7 +1300,7 @@ function LogOutputView({
                   onSwitchToChart();
                 }}
                 className="rounded border border-[#2b3139] bg-[#0b0e11]/85 p-1.5 text-[#b7bdc6] hover:border-[#f0b90b] hover:text-[#fcd535]"
-                title="라인 차트 포맷으로 보기"
+                title="View as line chart"
               >
                 <BarChart3 className="h-3.5 w-3.5" />
               </button>
@@ -1313,7 +1313,7 @@ function LogOutputView({
                   onShowCode();
                 }}
                 className="rounded border border-[#2b3139] bg-[#0b0e11]/85 p-1.5 text-[#b7bdc6] hover:border-[#f0b90b] hover:text-[#fcd535]"
-                title="같은 함수 그룹 코드 편집"
+                title="Edit code for the same function group"
               >
                 <Code2 className="h-3.5 w-3.5" />
               </button>
@@ -1391,7 +1391,7 @@ function FunctionNodeComponent({
     () => ({
       id: "trigger",
       name: "trigger",
-      description: "선택한 output 조건 결과 boolean 데이터",
+      description: "Boolean data from the selected output condition result",
       type: "output",
       outputKind: "boolean-data",
     }),
@@ -1751,7 +1751,7 @@ function FunctionNodeComponent({
         ...(existing ?? {}),
         id: existing?.id ?? `ob-${Date.now()}-${index}-${sanitizeGroupId(spec.key)}`,
         name: spec.key,
-        description: existing?.description || (spec.visualizationFormat === "log" ? "로그에 찍는 output 데이터" : "반환된 output 데이터"),
+        description: existing?.description || (spec.visualizationFormat === "log" ? "Output data written to logs" : "Returned output data"),
         type: "output" as const,
         formulaCode: nodeCode,
         outputMode: "formula" as const,
@@ -2025,7 +2025,7 @@ function FunctionNodeComponent({
             ...(existing ?? {}),
             id: blockId,
             name: spec.key,
-            description: existing?.description || (spec.visualizationFormat === "log" ? "로그에 찍는 output 데이터" : "반환된 output 데이터"),
+            description: existing?.description || (spec.visualizationFormat === "log" ? "Output data written to logs" : "Returned output data"),
             type: "output" as const,
             formulaCode: nextCode,
             outputMode: "formula" as const,
@@ -2479,19 +2479,20 @@ function FunctionNodeComponent({
     event.dataTransfer.effectAllowed = "copy";
   };
 
-  const renderInputHandles = (blocks: BlockData[], baseTop = 70) =>
+  const renderInputHandles = (blocks: BlockData[], baseTop = 70, hidden = false) =>
     blocks.map((block, index) => (
       <Handle
         key={block.id}
         type="target"
         position={Position.Left}
         id={getInputHandleId(id, block.id)}
-        className="!h-2.5 !w-2.5 !border-blue-600 !bg-blue-500"
-        style={{ left: -5, top: baseTop + index * 28 }}
+        className="advanced-port advanced-port--input !h-2.5 !w-2.5 !border-blue-600 !bg-blue-500"
+        data-port-kind="input"
+        style={{ left: -5, top: baseTop + index * 28, opacity: hidden ? 0 : undefined, pointerEvents: hidden ? "none" : undefined }}
       />
     ));
 
-  const renderOutputHandles = (blocks: BlockData[], baseTop = 116) =>
+  const renderOutputHandles = (blocks: BlockData[], baseTop = 116, hidden = false) =>
     blocks.map((block, index) => {
       const isTriggerOutput = isTriggerDataBlock(block);
       return (
@@ -2501,13 +2502,15 @@ function FunctionNodeComponent({
           position={Position.Right}
           id={getOutputHandleId(id, block.id)}
           className={cn(
+            "advanced-port advanced-port--output",
             "!h-2.5 !w-2.5",
             isTriggerOutput
               ? "!border-violet-700 !bg-violet-600"
               : "!border-emerald-600 !bg-emerald-500",
             conditionMet && "!h-3 !w-3 !shadow-[0_0_0_4px_rgba(16,185,129,0.18)]",
           )}
-          style={{ right: -5, top: baseTop + index * 28 }}
+          data-port-kind="output"
+          style={{ right: -5, top: baseTop + index * 28, opacity: hidden ? 0 : undefined, pointerEvents: hidden ? "none" : undefined }}
         />
       );
     });
@@ -2515,14 +2518,32 @@ function FunctionNodeComponent({
   if (!isExpanded && viewMode !== "code") {
     return (
       <div
+        data-connect-target-node={id}
+        data-connect-target-handle={`${id}-collapsed-in`}
         className={cn(
           "w-[310px] overflow-hidden rounded-lg border-2 bg-white shadow-sm transition-all",
           selected ? "border-emerald-400 ring-2 ring-emerald-200" : "border-slate-200",
           conditionMet && "border-emerald-500",
         )}
       >
-        {renderInputHandles(collapsedInputBlocks, 70)}
-        {renderOutputHandles(collapsedOutputBlocks, 160)}
+        <Handle
+          type="target"
+          position={Position.Left}
+          id={`${id}-collapsed-in`}
+          className="advanced-port advanced-port--node advanced-port--input"
+          data-port-kind="node-input"
+          style={{ left: -9, top: "50%" }}
+        />
+        <Handle
+          type="source"
+          position={Position.Right}
+          id={`${id}-collapsed-out`}
+          className="advanced-port advanced-port--node advanced-port--output"
+          data-port-kind="node-output"
+          style={{ right: -9, top: "50%" }}
+        />
+        {renderInputHandles(collapsedInputBlocks, 70, true)}
+        {renderOutputHandles(collapsedOutputBlocks, 160, true)}
         {collapsedTriggerHandles.map((handle) => (
           <Handle
             key={handle.id}
@@ -2612,7 +2633,7 @@ function FunctionNodeComponent({
             >
               {primaryOutputChart?.chartWarning ||
                 primaryOutputChart?.chartSource ||
-                (primaryOutputChart?.showChartComparison ? getConditionLabel(primaryOutputChart.condition) : "비교 표시 꺼짐")}
+                (primaryOutputChart?.showChartComparison ? getConditionLabel(primaryOutputChart.condition) : "Comparison off")}
               {primaryOutputChart?.showChartComparison && primaryOutputChart.chartComparisonValues.length > 0
                 ? ` + ${primaryOutputChart.chartComparisonValues.length}`
                 : ""}
@@ -2651,14 +2672,14 @@ function FunctionNodeComponent({
               value={data.description ?? ""}
               onChange={(e) => updateNodeData({ description: e.target.value })}
               className="w-full bg-transparent text-xs text-slate-500 outline-none placeholder:text-slate-300"
-              placeholder="함수 기능 설명"
+              placeholder="Function description"
             />
           </div>
         </div>
         <div className="flex items-center gap-1">
           <button
             onClick={handleViewModeToggle}
-            title={viewMode === "code" ? "선택한 함수 그룹을 차트로 보기" : "선택한 함수 그룹 코드 편집"}
+            title={viewMode === "code" ? "View selected function group as chart" : "Edit selected function group code"}
             className={cn(
               "inline-flex items-center gap-1 rounded px-2 py-1 text-xs font-semibold transition-colors",
               viewMode === "code"
@@ -2738,7 +2759,7 @@ function FunctionNodeComponent({
                               updateNodeData({ viewMode: "node" });
                             }}
                             className="rounded border border-[#2b3139] bg-[#0b0e11] p-1.5 text-[#b7bdc6] hover:border-[#f0b90b] hover:text-[#fcd535]"
-                            title="이 함수 그룹을 차트로 보기"
+                            title="View this function group as chart"
                           >
                             <BarChart3 className="h-3.5 w-3.5" />
                           </button>
@@ -2905,7 +2926,7 @@ function FunctionNodeComponent({
                               handleGroupVisualizationFormatChange(group, "ladder");
                             }}
                             className="pointer-events-auto rounded border border-[#2b3139] bg-[#0b0e11]/85 p-1.5 text-[#b7bdc6] backdrop-blur hover:border-[#f0b90b] hover:text-[#fcd535]"
-                            title="정규화 ladder 포맷으로 보기"
+                            title="View as normalized ladder"
                           >
                             <Boxes className="h-3.5 w-3.5" />
                           </button>
@@ -2917,7 +2938,7 @@ function FunctionNodeComponent({
                               handleGroupVisualizationFormatChange(group, "log");
                             }}
                             className="pointer-events-auto rounded border border-[#2b3139] bg-[#0b0e11]/85 p-1.5 text-[#b7bdc6] backdrop-blur hover:border-[#f0b90b] hover:text-[#fcd535]"
-                            title="로그 포맷으로 보기"
+                            title="View as log"
                           >
                             <Activity className="h-3.5 w-3.5" />
                           </button>
@@ -2931,7 +2952,7 @@ function FunctionNodeComponent({
                               updateNodeData({ viewMode: "code" });
                             }}
                             className="pointer-events-auto rounded border border-[#2b3139] bg-[#0b0e11]/85 p-1.5 text-[#b7bdc6] backdrop-blur hover:border-[#f0b90b] hover:text-[#fcd535]"
-                            title="같은 함수 그룹 코드 편집"
+                            title="Edit code for the same function group"
                           >
                             <Code2 className="h-3.5 w-3.5" />
                           </button>
@@ -2942,7 +2963,8 @@ function FunctionNodeComponent({
                             type="source"
                             position={Position.Right}
                             id={booleanSignalHandleId}
-                            className="!h-2.5 !w-2.5 !border-[#0ecb81] !bg-[#0ecb81]"
+                            className="advanced-port advanced-port--output !h-2.5 !w-2.5 !border-[#0ecb81] !bg-[#0ecb81]"
+                            data-port-kind="output"
                             style={{
                               right: -5,
                               top: "50%",
@@ -2964,7 +2986,8 @@ function FunctionNodeComponent({
                               type="source"
                               position={Position.Right}
                               id={triggerHandleId}
-                              className="!h-2 !w-2 !border-[#fcd535] !bg-[#f0b90b]"
+                              className="advanced-port advanced-port--output !h-2 !w-2 !border-[#fcd535] !bg-[#f0b90b]"
+                              data-port-kind="output"
                               style={{
                                 right: -5,
                                 top: `${thresholdTopPercent}%`,
@@ -2995,7 +3018,7 @@ function FunctionNodeComponent({
                                     <div
                                       className="h-4 w-1 cursor-ns-resize rounded bg-[#f0b90b]/40 transition-colors hover:bg-[#f0b90b]/70"
                                       onMouseDown={(event) => handleConditionThresholdDragStart(event, model, control.id)}
-                                      title="드래그해서 trigger formula 우측값 조절"
+                                      title="Drag to adjust the right-hand value of the trigger formula"
                                     />
                                     <button
                                       type="button"
@@ -3004,7 +3027,7 @@ function FunctionNodeComponent({
                                         handleOutputConditionOperatorCycle(model, control.id);
                                       }}
                                       className="pointer-events-auto flex h-4 w-4 items-center justify-center rounded text-[12px] font-black leading-none text-[#fcd535] hover:bg-[#f0b90b]/25"
-                                      title={`${control.condition.operator} 방향 전환`}
+                                      title={`Switch ${control.condition.operator} direction`}
                                     >
                                       {CONDITION_OPERATOR_GLYPHS[control.condition.operator]}
                                     </button>
@@ -3030,7 +3053,7 @@ function FunctionNodeComponent({
                                     controlThresholds,
                                   )}%`,
                                 }}
-                                title={hasConditionAction ? "두 번째 threshold control 추가" : "이 threshold yes 조건으로 action 생성"}
+                                title={hasConditionAction ? "Add second threshold control" : "Create an action from this threshold yes condition"}
                               >
                                 <Plus className="h-3 w-3" />
                               </button>
@@ -3044,7 +3067,7 @@ function FunctionNodeComponent({
                               handleCreateConditionControl(model, { x: event.clientX, y: event.clientY });
                             }}
                             className="absolute right-2 top-1/2 z-30 flex h-5 w-5 -translate-y-1/2 items-center justify-center rounded border border-[#f0b90b]/55 bg-[#0b0e11]/88 text-[#fcd535] shadow-sm backdrop-blur hover:border-[#fcd535] hover:text-white"
-                            title={model.isBooleanChart ? "YES 신호로 action 생성" : "threshold control 생성"}
+                            title={model.isBooleanChart ? "Create an action from the YES signal" : "Create threshold control"}
                           >
                             <Plus className="h-3 w-3" />
                           </button>
@@ -3098,7 +3121,7 @@ function FunctionNodeComponent({
             })}
             {outputChartModels.length === 0 ? (
               <div className="flex h-full items-center justify-center text-xs font-semibold text-slate-400">
-                output block을 추가하면 여기에 차트가 생성됩니다.
+                Add an output block to generate charts here.
               </div>
             ) : null}
           </div>
@@ -3131,7 +3154,8 @@ function FunctionNodeComponent({
                       type="target"
                       position={Position.Left}
                       id={`${id}-input-${block.id}-in`}
-                      className="!h-2.5 !w-2.5 !border-blue-600 !bg-blue-500"
+                      className="advanced-port advanced-port--input !h-2.5 !w-2.5 !border-blue-600 !bg-blue-500"
+                      data-port-kind="input"
                       style={{ left: -8 }}
                     />
                     <input
@@ -3174,13 +3198,13 @@ function FunctionNodeComponent({
                       type="button"
                       onClick={handleToggleOutputBlocksExpanded}
                       className="flex max-w-[170px] items-center gap-1 rounded bg-emerald-100 px-1.5 py-0.5 text-[10px] font-black text-emerald-700 hover:bg-emerald-200"
-                      title={areOutputBlocksExpanded ? "output block 접기" : "output block 펼치기"}
+                      title={areOutputBlocksExpanded ? "Collapse output blocks" : "Expand output blocks"}
                     >
                       {areOutputBlocksExpanded ? <ChevronDown className="h-3 w-3" /> : <ChevronRight className="h-3 w-3" />}
                       <span className="truncate">
                         {areOutputBlocksExpanded
-                          ? "접기"
-                          : `${normalVisibleOutputBlocks[0]?.name ?? "data"} 외 ${collapsedOutputSummaryCount}개`}
+                          ? "Collapse"
+                          : `${normalVisibleOutputBlocks[0]?.name ?? "data"} + ${collapsedOutputSummaryCount} more`}
                       </span>
                     </button>
                   ) : null}
@@ -3188,7 +3212,7 @@ function FunctionNodeComponent({
                 <button
                   onClick={() => handleAddBlock("output")}
                   className="rounded p-0.5 text-emerald-600 hover:bg-emerald-50"
-                  title="위 output block의 formula와 차트 설정을 복제합니다"
+                  title="Clone the formula and chart settings from the output block above"
                 >
                   <Plus className="h-3.5 w-3.5" />
                 </button>
@@ -3247,9 +3271,9 @@ function FunctionNodeComponent({
                                   handleToggleOutputBlocksExpanded();
                                 }}
                                 className="shrink-0 rounded bg-white/80 px-1.5 py-0.5 text-[9px] font-black text-emerald-700 hover:bg-white"
-                                title="숨겨진 output block 펼치기"
+                                title="Expand hidden output blocks"
                               >
-                                외 {collapsedOutputSummaryCount}개
+                                + {collapsedOutputSummaryCount} more
                               </button>
                             ) : null}
                           </div>
@@ -3277,7 +3301,7 @@ function FunctionNodeComponent({
                                 updateNodeData({ viewMode: "code" });
                               }}
                               className="rounded bg-white/80 px-1.5 py-0.5 text-[9px] font-black text-emerald-700 hover:bg-white"
-                              title="같은 함수 그룹 코드 편집"
+                              title="Edit code for the same function group"
                             >
                               code
                             </button>
@@ -3296,11 +3320,13 @@ function FunctionNodeComponent({
                         position={Position.Right}
                         id={`${id}-block-${block.id}-out`}
                         className={cn(
+                          "advanced-port advanced-port--output",
                           isTriggerOutput
                             ? "!h-3 !w-3 !border-violet-700 !bg-violet-600"
                             : "!h-2.5 !w-2.5 !border-emerald-600 !bg-emerald-500",
                           conditionMet && "!shadow-[0_0_0_4px_rgba(16,185,129,0.18)]",
                         )}
+                        data-port-kind="output"
                         style={{ right: -8 }}
                       />
                     </div>
@@ -3351,7 +3377,7 @@ function FunctionNodeComponent({
                       ? "border-emerald-200 bg-emerald-50 text-emerald-700"
                       : "border-slate-200 bg-white text-slate-400 hover:bg-slate-50",
                   )}
-                  title={showSelectedChartComparison ? "비교값 차트 표시 끄기" : "비교값 차트 표시 켜기"}
+                  title={showSelectedChartComparison ? "Hide comparison values on chart" : "Show comparison values on chart"}
                   aria-pressed={showSelectedChartComparison}
                 >
                   {showSelectedChartComparison ? <Eye className="h-3.5 w-3.5" /> : <EyeOff className="h-3.5 w-3.5" />}
@@ -3359,7 +3385,7 @@ function FunctionNodeComponent({
                 <button
                   onClick={handleAddChartComparisonValue}
                   className="inline-flex h-7 w-7 items-center justify-center rounded-md border border-emerald-200 bg-emerald-50 text-emerald-700 transition-colors hover:bg-emerald-100"
-                  title="차트 비교값 추가"
+                  title="Add chart comparison value"
                 >
                   <Plus className="h-3.5 w-3.5" />
                 </button>
@@ -3383,7 +3409,7 @@ function FunctionNodeComponent({
                     value={item.label ?? ""}
                     onChange={(event) => handleUpdateChartComparisonValue(item.id, { label: event.target.value })}
                     className="min-w-0 rounded-md border border-slate-200 px-2 py-1 text-xs outline-none focus:border-emerald-300"
-                    placeholder="비교값 이름"
+                    placeholder="Comparison name"
                   />
                   <input
                     type="number"
@@ -3399,7 +3425,7 @@ function FunctionNodeComponent({
                         ? "border-emerald-200 bg-emerald-50 text-emerald-700"
                         : "border-slate-200 bg-white text-slate-400 hover:bg-slate-50",
                     )}
-                    title={item.enabled !== false ? "이 비교값 숨기기" : "이 비교값 표시"}
+                    title={item.enabled !== false ? "Hide this comparison value" : "Show this comparison value"}
                     aria-pressed={item.enabled !== false}
                   >
                     {item.enabled !== false ? <Eye className="h-3.5 w-3.5" /> : <EyeOff className="h-3.5 w-3.5" />}
@@ -3407,7 +3433,7 @@ function FunctionNodeComponent({
                   <button
                     onClick={() => handleRemoveChartComparisonValue(item.id)}
                     className="inline-flex h-7 w-7 items-center justify-center rounded-md border border-rose-200 bg-rose-50 text-rose-600 transition-colors hover:bg-rose-100"
-                    title="차트 비교값 삭제"
+                    title="Delete chart comparison value"
                   >
                     <X className="h-3.5 w-3.5" />
                   </button>
@@ -3426,11 +3452,11 @@ function FunctionNodeComponent({
         >
           <div className="nodrag nopan w-[360px] rounded-md border border-[#f0b90b]/50 bg-[#181a20] p-4 text-[#eaecef] shadow-[0_18px_60px_rgba(0,0,0,0.42)]">
             <div id={`${id}-delete-output-title`} className="text-sm font-black text-[#fcd535]">
-              반환값 삭제 확인
+              Confirm Return Value Deletion
             </div>
             <div className="mt-2 text-xs font-semibold leading-5 text-[#b7bdc6]">
-              `{pendingOutputDelete.groupLabel}` 함수는 반환값 {pendingOutputDelete.returnCount}개를 가지고 있습니다.
-              `{pendingOutputDelete.blockName}` output을 삭제하면 해당 반환값과 차트도 같이 삭제됩니다.
+              `{pendingOutputDelete.groupLabel}` has {pendingOutputDelete.returnCount} return values.
+              Deleting `{pendingOutputDelete.blockName}` output also deletes that return value and its chart.
             </div>
             <div className="mt-4 flex items-center justify-end gap-2">
               <button
@@ -3438,7 +3464,7 @@ function FunctionNodeComponent({
                 onClick={handleCancelPendingOutputDelete}
                 className="h-8 rounded-md border border-[#2b3139] bg-[#0b0e11] px-3 text-xs font-black text-[#b7bdc6] hover:border-[#848e9c] hover:text-[#eaecef]"
               >
-                취소 Esc
+                Cancel Esc
               </button>
               <button
                 type="button"
@@ -3457,7 +3483,7 @@ function FunctionNodeComponent({
         aria-orientation="horizontal"
         className="nodrag nopan absolute bottom-0 right-0 z-30 h-5 w-5 cursor-nwse-resize rounded-tl-md border-l border-t border-[#2b3139] bg-[#181a20]/95 text-[#848e9c] shadow-sm transition-colors hover:border-[#f0b90b] hover:text-[#fcd535]"
         onMouseDown={handleNodeResizeStart}
-        title="인디케이터 블록 크기 조절"
+        title="Resize indicator block"
       >
         <div className="absolute bottom-1 right-1 h-2.5 w-2.5 border-b-2 border-r-2 border-current" />
       </div>

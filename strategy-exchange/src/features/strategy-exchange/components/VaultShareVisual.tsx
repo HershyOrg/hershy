@@ -1,5 +1,5 @@
 import type { CSSProperties } from "react";
-import { sectorLabels } from "../constants";
+import { disclosureLabels, productTypeLabels } from "../constants";
 import type { Strategy } from "../types/strategyTypes";
 import { getVaultSharePalette, getVaultShareSymbol } from "../utils/vaultShare";
 import { formatPct } from "../../../shared/utils/formatters";
@@ -62,8 +62,8 @@ export function VaultShareVisual({
     <div className={visualClassName} style={visualStyle}>
       {!artworkOnly ? (
         <div className="vault-share-tags">
-          <span>{sectorLabels[strategy.primarySector]}</span>
-          <span>{strategy.status}</span>
+          <span>{productTypeLabels[strategy.productType]}</span>
+          <span>{disclosureLabels[strategy.disclosure]}</span>
         </div>
       ) : null}
 

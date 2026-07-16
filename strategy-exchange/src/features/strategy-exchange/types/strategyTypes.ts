@@ -1,14 +1,18 @@
 import type { UserAccountRow } from "../../../../demoDB";
 
 export type Sector =
-  | "CEX"
-  | "DeFi"
-  | "Mixed"
+  | "Perp Index"
   | "Funding"
   | "Basis"
-  | "LP/Hedge";
+  | "Market Neutral"
+  | "Momentum"
+  | "Liquidity"
+  | "Volatility"
+  | "Risk Hedge";
 
-export type BrowseFilter = "Daily Hot" | "New" | "Top Gainer" | "Top Volume";
+export type BrowseFilter = "Featured" | "Perp Index" | "Funding Carry" | "Market Neutral" | "Tactical Quant";
+export type ProductType = "Index" | "Quant";
+export type DisclosureMode = "Full" | "PerformanceOnly";
 
 export type GraphNode = {
   id: string;
@@ -41,8 +45,12 @@ export type Strategy = {
   creatorId: string;
   primarySector: Sector;
   sectors: Sector[];
+  productType: ProductType;
+  disclosure: DisclosureMode;
   venues: string[];
   chains: string[];
+  markets: string[];
+  assetClasses: string[];
   pnlSeries: number[];
   realizedPnl: number;
   pnlPct: number;
@@ -50,9 +58,6 @@ export type Strategy = {
   dailyVolume: number;
   winRate: number;
   maxDrawdown: number;
-  traders: number;
-  status: "Live" | "Cooling" | "Paused";
-  createdAt: string;
   nodes: GraphNode[];
   edges: GraphEdge[];
 };

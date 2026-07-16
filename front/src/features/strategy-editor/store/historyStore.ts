@@ -433,7 +433,7 @@ class HistoryStore {
     return this.snapshots.find((snapshot) => snapshot.id === id) ?? null;
   }
 
-  private buildNextSnapshotName(parentId: string | null, fallbackName = "새 전략 템플릿") {
+  private buildNextSnapshotName(parentId: string | null, fallbackName = "New Strategy Template") {
     if (!parentId) {
       const rootSnapshots = this.snapshots.filter(
         (snapshot) => snapshot.parentId === null && snapshot.name.startsWith(fallbackName),
@@ -690,7 +690,7 @@ class HistoryStore {
     const parent = this.snapshots.find((snapshot) => snapshot.id === previousActiveId);
     if (!parent) return;
 
-    const nextName = this.buildNextSnapshotName(previousActiveId, "전략 템플릿");
+    const nextName = this.buildNextSnapshotName(previousActiveId, "Strategy Template");
     const nextCodeMeta = mergeCodeMeta(parent.codeMeta, codeMeta);
 
     const newSnap: HistorySnapshot = {
@@ -741,7 +741,7 @@ class HistoryStore {
 
     const newSnap: HistorySnapshot = {
       id: `snapshot-${Date.now()}`,
-      name: options?.name?.trim() || this.buildNextSnapshotName(parentId, "새 전략 템플릿"),
+      name: options?.name?.trim() || this.buildNextSnapshotName(parentId, "New Strategy Template"),
       parentId: parentId ?? null,
       nodes: graph.nodes,
       edges: graph.edges,
@@ -850,7 +850,7 @@ class HistoryStore {
       const newSnap = {
         ...this.cloneSnapshot(s),
         id: idMapping.get(s.id)!,
-        name: `${s.name} (복사본)`,
+        name: `${s.name} (Copy)`,
         parentId: parentId ?? null,
         timestamp: Date.now() + newSnapshots.length, // Ensure predictable ordering
       };

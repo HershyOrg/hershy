@@ -2,7 +2,7 @@
 
 import { memo, useState, useCallback } from "react";
 import { Handle, Position, NodeProps, useReactFlow } from "@xyflow/react";
-import { Layers, ChevronDown, X, Maximize2, Minimize2 } from "lucide-react";
+import { Layers, ChevronDown, X, Maximize2, Minimize2 } from "@/shared/components/icons";
 import { cn } from "@/shared/utils/utils";
 import type { MergedFunctionNodeData, BlockData } from "../types/editorTypes";
 
@@ -70,6 +70,8 @@ function MergedFunctionNodeComponent({ id, data, selected }: NodeProps<import("@
   if (!isExpanded) {
     return (
       <div
+        data-connect-target-node={id}
+        data-connect-target-handle={`${id}-collapsed-in`}
         className={cn(
           "min-w-[180px] bg-gradient-to-br from-indigo-50 to-purple-50 border-2 rounded-lg shadow-md transition-all",
           selected ? "border-indigo-500 shadow-indigo-200" : "border-indigo-300",
@@ -79,6 +81,22 @@ function MergedFunctionNodeComponent({ id, data, selected }: NodeProps<import("@
         onMouseLeave={() => setIsHovered(false)}
         onDoubleClick={handleToggleExpand}
       >
+        <Handle
+          type="target"
+          position={Position.Left}
+          id={`${id}-collapsed-in`}
+          className="advanced-port advanced-port--node advanced-port--input"
+          data-port-kind="node-input"
+          style={{ left: -9, top: "50%" }}
+        />
+        <Handle
+          type="source"
+          position={Position.Right}
+          id={`${id}-collapsed-out`}
+          className="advanced-port advanced-port--node advanced-port--output"
+          data-port-kind="node-output"
+          style={{ right: -9, top: "50%" }}
+        />
         {/* Header */}
         <div className="flex items-center justify-between px-3 py-2 bg-indigo-100/50 border-b border-indigo-200 rounded-t-lg">
           <div className="flex items-center gap-2 flex-1 mr-4">
@@ -88,7 +106,7 @@ function MergedFunctionNodeComponent({ id, data, selected }: NodeProps<import("@
               onChange={(e) => {
                 setNodes(nds => nds.map(n => n.id === id ? { ...n, data: { ...n.data, label: e.target.value } } : n))
               }}
-              placeholder="병합된 동작의 이름"
+              placeholder="Merged action name"
               className="bg-transparent border-none outline-none text-sm font-bold text-indigo-700 w-full placeholder:text-indigo-400"
             />
           </div>
@@ -106,11 +124,12 @@ function MergedFunctionNodeComponent({ id, data, selected }: NodeProps<import("@
             type="target"
             position={Position.Left}
             id={`${id}-func-in`}
-            className="!w-2 !h-2 !bg-indigo-400 !border-indigo-500"
-            style={{ left: -4 }}
+            className="advanced-port advanced-port--input !w-2 !h-2 !bg-indigo-400 !border-indigo-500"
+            data-port-kind="legacy-input"
+            style={{ left: -4, opacity: 0, pointerEvents: "none" }}
           />
           <div className="text-xs font-medium text-indigo-500 truncate">
-             {nodeCount}개의 세부 동작
+             {nodeCount} detailed actions
           </div>
         </div>
 
@@ -128,8 +147,9 @@ function MergedFunctionNodeComponent({ id, data, selected }: NodeProps<import("@
               type="source"
               position={Position.Right}
               id={`${id}-block-${block.id}-out`}
-              className="!w-2 !h-2 !bg-green-500 !border-green-600"
-              style={{ right: -4 }}
+              className="advanced-port advanced-port--output !w-2 !h-2 !bg-green-500 !border-green-600"
+              data-port-kind="legacy-output"
+              style={{ right: -4, opacity: 0, pointerEvents: "none" }}
             />
           </div>
         ))}
@@ -154,7 +174,7 @@ function MergedFunctionNodeComponent({ id, data, selected }: NodeProps<import("@
             onChange={(e) => {
               setNodes(nds => nds.map(n => n.id === id ? { ...n, data: { ...n.data, label: e.target.value } } : n))
             }}
-            placeholder="동작을 설명해주세요"
+            placeholder="Describe the action"
             className="bg-transparent border-none outline-none text-sm font-bold text-indigo-700 w-full placeholder:text-indigo-400"
           />
         </div>
@@ -171,8 +191,9 @@ function MergedFunctionNodeComponent({ id, data, selected }: NodeProps<import("@
         type="target"
         position={Position.Left}
         id={`${id}-func-in`}
-        className="!w-3 !h-3 !bg-indigo-500 !border-indigo-600"
-        style={{ left: -6, top: 50 }}
+        className="advanced-port advanced-port--input !w-3 !h-3 !bg-indigo-500 !border-indigo-600"
+        data-port-kind="legacy-input"
+        style={{ left: -6, top: 50, opacity: 0, pointerEvents: "none" }}
       />
 
       {/* Input Blocks Section */}
@@ -190,7 +211,8 @@ function MergedFunctionNodeComponent({ id, data, selected }: NodeProps<import("@
                 type="target"
                 position={Position.Left}
                 id={`${id}-block-${block.id}-in`}
-                className="!w-2 !h-2 !bg-blue-400 !border-blue-500"
+                className="advanced-port advanced-port--input !w-2 !h-2 !bg-blue-400 !border-blue-500"
+                data-port-kind="input"
                 style={{ left: -8 }}
               />
               <input
@@ -198,7 +220,7 @@ function MergedFunctionNodeComponent({ id, data, selected }: NodeProps<import("@
                 value={block.name}
                 onChange={(e) => handleBlockChange("input", block.id, { name: e.target.value })}
                 className="w-full bg-transparent text-xs font-semibold text-blue-700 outline-none placeholder:text-blue-300"
-                placeholder="블록 이름"
+                placeholder="Block name"
               />
               <input
                 type="text"
@@ -207,7 +229,7 @@ function MergedFunctionNodeComponent({ id, data, selected }: NodeProps<import("@
                   handleBlockChange("input", block.id, { description: e.target.value })
                 }
                 className="mt-0.5 w-full bg-transparent text-[11px] text-blue-500 outline-none placeholder:text-blue-300"
-                placeholder="블록 설명 한 줄"
+                placeholder="One-line block description"
               />
             </div>
           ))}
@@ -230,7 +252,7 @@ function MergedFunctionNodeComponent({ id, data, selected }: NodeProps<import("@
                 <div className="flex items-center gap-2 mb-1">
                   <span className="text-[10px] text-gray-400">#{index + 1}</span>
                   <span className="text-xs font-medium text-indigo-600">
-                    {mergedNode.data.label || "세부 동작"}
+                    {mergedNode.data.label || "Detailed action"}
                   </span>
                 </div>
                 
@@ -273,7 +295,7 @@ function MergedFunctionNodeComponent({ id, data, selected }: NodeProps<import("@
               value={block.name}
               onChange={(e) => handleBlockChange("output", block.id, { name: e.target.value })}
               className="w-full bg-transparent text-xs font-semibold text-green-800 outline-none placeholder:text-green-400"
-              placeholder="블록 이름"
+              placeholder="Block name"
             />
             <input
               type="text"
@@ -282,7 +304,7 @@ function MergedFunctionNodeComponent({ id, data, selected }: NodeProps<import("@
                 handleBlockChange("output", block.id, { description: e.target.value })
               }
               className="mt-0.5 w-full bg-transparent text-[11px] text-green-600 outline-none placeholder:text-green-400"
-              placeholder="블록 설명 한 줄"
+              placeholder="One-line block description"
             />
             <button
               onClick={() => handleRemoveOutputBlock(block.id)}
@@ -294,7 +316,8 @@ function MergedFunctionNodeComponent({ id, data, selected }: NodeProps<import("@
               type="source"
               position={Position.Right}
               id={`${id}-block-${block.id}-out`}
-              className="!w-2 !h-2 !bg-green-500 !border-green-600"
+              className="advanced-port advanced-port--output !w-2 !h-2 !bg-green-500 !border-green-600"
+              data-port-kind="output"
               style={{ right: -8 }}
             />
           </div>

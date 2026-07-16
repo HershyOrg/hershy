@@ -18,7 +18,7 @@ import {
   normalizeChartComparisonValues,
 } from "./MetricChart";
 import { cn } from "@/shared/utils/utils";
-import { Activity, BarChart3, Eye, EyeOff, ListFilter, Plus, TerminalSquare, X, Zap } from "lucide-react";
+import { Activity, BarChart3, Eye, EyeOff, ListFilter, Plus, TerminalSquare, X, Zap } from "@/shared/components/icons";
 
 const COMPARE_COLORS = ["#2563eb", "#f97316", "#8b5cf6", "#0f766e", "#dc2626"];
 
@@ -197,7 +197,8 @@ function MonitoringNodeComponent({ id, data, selected }: NodeProps<MonitoringNod
         type="target"
         position={Position.Left}
         id={`${id}-monitor-in`}
-        className="!h-3 !w-3 !border-emerald-700 !bg-emerald-500"
+        className="advanced-port advanced-port--input !h-3 !w-3 !border-emerald-700 !bg-emerald-500"
+        data-port-kind="input"
         style={{ left: -6 }}
       />
 
@@ -242,11 +243,11 @@ function MonitoringNodeComponent({ id, data, selected }: NodeProps<MonitoringNod
                 </div>
                 <div className="truncate text-[11px] text-slate-500">
                   {!showChartComparison
-                    ? "차트 비교 표시 꺼짐"
+                    ? "Chart comparison off"
                     : compareSeries.length > 0
-                      ? `${compareSeries.length + 1} indicators · 기준값 ${chartComparisonValues.length + 1}개`
+                      ? `${compareSeries.length + 1} indicators · ${chartComparisonValues.length + 1} baselines`
                       : chartComparisonValues.length > 0
-                        ? `기준값 ${chartComparisonValues.length + 1}개`
+                        ? `${chartComparisonValues.length + 1} baselines`
                         : primaryVariable.description || "single indicator view"}
                 </div>
               </div>
@@ -322,7 +323,7 @@ function MonitoringNodeComponent({ id, data, selected }: NodeProps<MonitoringNod
                       ? "border-emerald-500/40 bg-emerald-500/10 text-emerald-300"
                       : "border-slate-700 bg-slate-900 text-slate-500 hover:bg-slate-800",
                   )}
-                  title={showChartComparison ? "비교값 차트 표시 끄기" : "비교값 차트 표시 켜기"}
+                  title={showChartComparison ? "Hide comparison values on chart" : "Show comparison values on chart"}
                   aria-pressed={showChartComparison}
                 >
                   {showChartComparison ? <Eye className="h-3.5 w-3.5" /> : <EyeOff className="h-3.5 w-3.5" />}
@@ -330,7 +331,7 @@ function MonitoringNodeComponent({ id, data, selected }: NodeProps<MonitoringNod
                 <button
                   onClick={handleAddChartComparisonValue}
                   className="inline-flex h-7 w-7 items-center justify-center rounded-md border border-emerald-500/40 bg-emerald-500/10 text-emerald-300 transition-colors hover:bg-emerald-500/20"
-                  title="차트 비교값 추가"
+                  title="Add chart comparison value"
                 >
                   <Plus className="h-3.5 w-3.5" />
                 </button>
@@ -345,7 +346,7 @@ function MonitoringNodeComponent({ id, data, selected }: NodeProps<MonitoringNod
                     value={item.label ?? ""}
                     onChange={(event) => handleUpdateChartComparisonValue(item.id, { label: event.target.value })}
                     className="min-w-0 rounded-md border border-slate-700 bg-slate-900 px-2 py-1 text-xs text-slate-200 outline-none focus:border-emerald-500"
-                    placeholder="비교값 이름"
+                    placeholder="Comparison name"
                   />
                   <input
                     type="number"
@@ -361,7 +362,7 @@ function MonitoringNodeComponent({ id, data, selected }: NodeProps<MonitoringNod
                         ? "border-emerald-500/40 bg-emerald-500/10 text-emerald-300"
                         : "border-slate-700 bg-slate-900 text-slate-500 hover:bg-slate-800",
                     )}
-                    title={item.enabled !== false ? "이 비교값 숨기기" : "이 비교값 표시"}
+                    title={item.enabled !== false ? "Hide this comparison value" : "Show this comparison value"}
                     aria-pressed={item.enabled !== false}
                   >
                     {item.enabled !== false ? <Eye className="h-3.5 w-3.5" /> : <EyeOff className="h-3.5 w-3.5" />}
@@ -369,7 +370,7 @@ function MonitoringNodeComponent({ id, data, selected }: NodeProps<MonitoringNod
                   <button
                     onClick={() => handleRemoveChartComparisonValue(item.id)}
                     className="inline-flex h-7 w-7 items-center justify-center rounded-md border border-rose-500/40 bg-rose-500/10 text-rose-300 transition-colors hover:bg-rose-500/20"
-                    title="차트 비교값 삭제"
+                    title="Delete chart comparison value"
                   >
                     <X className="h-3.5 w-3.5" />
                   </button>
@@ -379,7 +380,7 @@ function MonitoringNodeComponent({ id, data, selected }: NodeProps<MonitoringNod
           </>
         ) : (
           <div className="rounded-md border border-dashed border-slate-700 bg-slate-900/60 px-3 py-8 text-center text-xs text-slate-500">
-            output block을 모니터에 연결하면 차트가 생성됩니다
+            Connect an output block to the monitor to generate a chart.
           </div>
         )}
       </div>

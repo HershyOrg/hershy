@@ -8,7 +8,10 @@ export type SequenceLogEntry = {
   dateLabel: string;
   timeLabel: string;
   strategyLabel: string;
+  sequenceId?: string;
   sequenceLabel: string;
+  nodeId?: string;
+  nodeLabel?: string;
   stateLabel: string;
   message: string;
   level: SequenceLogLevel;
@@ -16,7 +19,10 @@ export type SequenceLogEntry = {
 
 type AddSequenceLogInput = {
   strategyLabel: string;
+  sequenceId?: string;
   sequenceLabel: string;
+  nodeId?: string;
+  nodeLabel?: string;
   stateLabel: string;
   message: string;
   level?: SequenceLogLevel;
@@ -24,14 +30,14 @@ type AddSequenceLogInput = {
 };
 
 function formatDate(timestamp: number) {
-  return new Intl.DateTimeFormat("ko-KR", {
+  return new Intl.DateTimeFormat("en-US", {
     month: "2-digit",
     day: "2-digit",
   }).format(new Date(timestamp));
 }
 
 function formatTime(timestamp: number) {
-  return new Intl.DateTimeFormat("ko-KR", {
+  return new Intl.DateTimeFormat("en-US", {
     hour: "2-digit",
     minute: "2-digit",
     second: "2-digit",
@@ -68,7 +74,10 @@ class SequenceLogStore {
       dateLabel: formatDate(timestamp),
       timeLabel: formatTime(timestamp),
       strategyLabel: input.strategyLabel,
+      sequenceId: input.sequenceId,
       sequenceLabel: input.sequenceLabel,
+      nodeId: input.nodeId,
+      nodeLabel: input.nodeLabel,
       stateLabel: input.stateLabel,
       message: input.message,
       level: input.level ?? "info",

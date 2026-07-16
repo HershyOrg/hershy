@@ -11,19 +11,34 @@ const scwOnboardingProxyTarget =
 
 export default defineConfig({
   plugins: [react()],
-  resolve: {
-    alias: {
-      "@": path.resolve(__dirname, "src"),
-    },
-  },
   server: {
     proxy: {
+      "/yahoo-finance": {
+        target: "https://query1.finance.yahoo.com",
+        changeOrigin: true,
+        rewrite: (requestPath) => requestPath.replace(/^\/yahoo-finance/, ""),
+      },
+      "/binance-spot": {
+        target: "https://api.binance.com",
+        changeOrigin: true,
+        rewrite: (requestPath) => requestPath.replace(/^\/binance-spot/, ""),
+      },
+      "/binance-futures": {
+        target: "https://fapi.binance.com",
+        changeOrigin: true,
+        rewrite: (requestPath) => requestPath.replace(/^\/binance-futures/, ""),
+      },
       "/scw-onboarding-api": {
         target: scwOnboardingProxyTarget,
         changeOrigin: true,
         rewrite: (requestPath) =>
           requestPath.replace(/^\/scw-onboarding-api/, "") || "/",
       },
+    },
+  },
+  resolve: {
+    alias: {
+      "@": path.resolve(__dirname, "src"),
     },
   },
 });

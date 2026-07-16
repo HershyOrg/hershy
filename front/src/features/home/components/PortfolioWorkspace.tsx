@@ -10,7 +10,7 @@ import {
   RefreshCw,
   ShieldCheck,
   Wallet,
-} from "lucide-react";
+} from "@/shared/components/icons";
 import { cn } from "@/shared/utils/utils";
 import type { BalanceMyDataSnapshot, ExchangeConnection, MarketRow } from "../types/homeTypes";
 
@@ -124,10 +124,10 @@ function parseAmount(value: unknown) {
 }
 
 function formatSnapshotTime(value?: string) {
-  if (!value) return "방금 전 실잔고 동기화";
+  if (!value) return "Live balance synced just now";
   const date = new Date(value);
-  if (Number.isNaN(date.getTime())) return "실잔고 동기화됨";
-  return `${date.toLocaleString("ko-KR", { month: "numeric", day: "numeric", hour: "2-digit", minute: "2-digit" })} 실잔고`;
+  if (Number.isNaN(date.getTime())) return "Live balance synced";
+  return `${date.toLocaleString("en-US", { month: "numeric", day: "numeric", hour: "2-digit", minute: "2-digit" })} live balance`;
 }
 
 function findBalanceSnapshot(connection: ExchangeConnection, snapshots: BalanceMyDataSnapshot[]) {
@@ -167,7 +167,7 @@ function buildLiveHoldings(snapshot: BalanceMyDataSnapshot): PortfolioHolding[] 
         valueUsd,
         allocation: totalValue > 0 ? (valueUsd / totalValue) * 100 : 0,
         pnl24h: 0,
-        note: available ? `가용 ${available}` : "실잔고",
+        note: available ? `Available ${available}` : "Live balance",
       };
     });
 }
@@ -184,7 +184,7 @@ function buildVenue(connection: ExchangeConnection, snapshots: BalanceMyDataSnap
     id: connection.id,
     name: connection.name,
     status: connection.status,
-    live: connection.status === "연결됨",
+    live: connection.status === "Connected" || connection.status === "Saved" || connection.status === "Synced",
     type: connection.type,
     hasLiveBalance,
     balanceSnapshot,
@@ -192,10 +192,10 @@ function buildVenue(connection: ExchangeConnection, snapshots: BalanceMyDataSnap
     availableUsd: hasLiveBalance ? parseAmount(liveAvailable) : 0,
     deployedUsd: hasLiveBalance ? Math.max(0, parseAmount(liveEquity) - parseAmount(liveAvailable)) : 0,
     pnl24h: 0,
-    syncLabel: hasLiveBalance ? formatSnapshotTime(balanceSnapshot?.updatedAt) : "잔고 동기화 필요",
+    syncLabel: hasLiveBalance ? formatSnapshotTime(balanceSnapshot?.updatedAt) : "Balance sync required",
     riskLabel: hasLiveBalance
-      ? `${balanceSnapshot?.market || balanceSnapshot?.accountType || "spot"} · ${balanceSnapshot?.spendable?.preferredAsset || "잔고"} 사용 가능`
-      : "연결됨 · 실잔고 미동기화",
+      ? `${balanceSnapshot?.market || balanceSnapshot?.accountType || "spot"} · ${balanceSnapshot?.spendable?.preferredAsset || "Balance"} available`
+      : "Connected · live balance not synced",
     holdings: hasLiveBalance ? liveHoldings : [],
   };
 }
@@ -240,8 +240,8 @@ function buildWatchItems(venues: PortfolioVenueView[], totalEquity: number) {
 
   if (venues.length === 0) {
     return [{
-      title: "연결된 자산 계정 없음",
-      detail: "거래소를 연결하고 잔고를 동기화하면 포트폴리오와 전략 자금 기준이 표시됩니다.",
+      title: "No Connected Asset Accounts",
+      detail: "Connect an exchange and sync balances to show portfolio and strategy capital baselines.",
       tone: "neutral",
     }];
   }
@@ -250,7 +250,7 @@ function buildWatchItems(venues: PortfolioVenueView[], totalEquity: number) {
   if (mostConcentrated && totalEquity > 0) {
     const concentration = (mostConcentrated.valueUsd / totalEquity) * 100;
     items.push({
-      title: `${mostConcentrated.symbol} 비중`,
+      title: `${mostConcentrated.symbol} Allocation`,
       detail: `${PERCENT_FORMATTER.format(concentration)}% · ${mostConcentrated.venues.join(", ")}`,
       tone: concentration >= 45 ? "warn" : "good",
     });
@@ -260,8 +260,8 @@ function buildWatchItems(venues: PortfolioVenueView[], totalEquity: number) {
     const cashRatio = venue.equityUsd > 0 ? (venue.availableUsd / venue.equityUsd) * 100 : 0;
     if (cashRatio < 15) {
       items.push({
-        title: `${venue.name} 현금 비중 낮음`,
-        detail: `${PERCENT_FORMATTER.format(cashRatio)}% 가용 자금`,
+        title: `${venue.name} Low Cash Allocation`,
+        detail: `${PERCENT_FORMATTER.format(cashRatio)}% available capital`,
         tone: "warn",
       });
     }
@@ -269,8 +269,8 @@ function buildWatchItems(venues: PortfolioVenueView[], totalEquity: number) {
 
   if (items.length < 3) {
     items.push({
-      title: "리밸런스 메모",
-      detail: "헤지 전략 실행 전 DEX 이벤트 포지션과 CEX 증거금 비중을 같이 확인하세요.",
+      title: "Rebalance Note",
+      detail: "Review DEX event positions and CEX margin allocation before running hedge strategies.",
       tone: "neutral",
     });
   }
@@ -301,9 +301,9 @@ function buildAllocationSlices<T>(
   const hidden = ranked.slice(maxSlices);
   if (hidden.length > 0) {
     visible.push({
-      label: "기타",
+      label: "Other",
       valueUsd: hidden.reduce((sum, item) => sum + item.valueUsd, 0),
-      helper: `${hidden.length}개 항목`,
+      helper: `${hidden.length} items`,
     });
   }
 
@@ -369,10 +369,10 @@ function AllocationDonutCard({
               <div className="mt-1 text-xl font-black text-slate-950">{formatCompactUsd(totalValue)}</div>
               {topSlice ? (
                 <div className="mt-2 text-[11px] font-semibold text-slate-500">
-                  최대 {topSlice.label} · {PERCENT_FORMATTER.format(topSlice.ratio)}%
+                  Largest {topSlice.label} · {PERCENT_FORMATTER.format(topSlice.ratio)}%
                 </div>
               ) : (
-                <div className="mt-2 text-[11px] font-semibold text-slate-400">데이터 없음</div>
+                <div className="mt-2 text-[11px] font-semibold text-slate-400">No data</div>
               )}
             </div>
           </div>
@@ -391,7 +391,7 @@ function AllocationDonutCard({
                     <div className="truncate text-sm font-bold text-slate-900">{slice.label}</div>
                   </div>
                   <div className="mt-0.5 truncate text-[11px] text-slate-500">
-                    {slice.helper ?? "포트폴리오 비중"}
+                    {slice.helper ?? "Portfolio allocation"}
                   </div>
                 </div>
                 <div className="text-right">
@@ -416,7 +416,7 @@ export function PortfolioWorkspace({
   onSyncBalance,
   onManageExchanges,
 }: PortfolioWorkspaceProps) {
-  const connectedExchangeCount = exchangeConnections.filter((connection) => connection.status === "연결됨").length;
+  const connectedExchangeCount = exchangeConnections.filter((connection) => connection.status === "Connected" || connection.status === "Saved" || connection.status === "Synced").length;
   const venues = exchangeConnections
     .map((connection) => buildVenue(connection, balanceSnapshots))
     .filter((venue) => venue.live || venue.hasLiveBalance);
@@ -432,7 +432,7 @@ export function PortfolioWorkspace({
     venues,
     (venue) => venue.name,
     (venue) => venue.equityUsd,
-    (venue) => `${venue.type} · ${venue.hasLiveBalance ? "실잔고" : "동기화 필요"}`,
+    (venue) => `${venue.type} · ${venue.hasLiveBalance ? "Live balance" : "Sync required"}`,
   );
   const assetAllocationSlices = buildAllocationSlices(
     aggregatedAssets,
@@ -469,18 +469,18 @@ export function PortfolioWorkspace({
                   Portfolio Command Center
                 </span>
                 <span className="rounded-full border border-slate-200 bg-white px-3 py-1 text-[11px] font-semibold text-slate-600">
-                  자산 계정 {venues.length}개
+                  Asset accounts {venues.length}
                 </span>
                 <span className="rounded-full border border-emerald-200 bg-emerald-50 px-3 py-1 text-[11px] font-semibold text-emerald-700">
-                  실잔고 {syncedVenueCount}개
+                  Live balances {syncedVenueCount}
                 </span>
               </div>
               <h2 className="mt-4 text-3xl font-black tracking-tight text-slate-950">
-                각 거래소 자산을 한 화면에서 추적하고,
-                <br className="hidden md:block" /> 전략이 실제로 먹는 증거금까지 같이 봅니다.
+                Track assets across every exchange,
+                <br className="hidden md:block" /> including margin that strategies actually consume.
               </h2>
               <p className="mt-3 max-w-3xl text-sm leading-6 text-slate-600">
-                연결되어 있고 잔고가 동기화된 계정만 포트폴리오 자산으로 집계합니다. 아직 연결하지 않은 거래소의 샘플 잔고는 표시하지 않습니다.
+                Only connected accounts with synced balances are counted in portfolio assets. Sample balances from disconnected exchanges are hidden.
               </p>
 
               <div className="mt-5 grid gap-3 md:grid-cols-3">
@@ -490,7 +490,7 @@ export function PortfolioWorkspace({
                     Total Equity
                   </div>
                   <div className="mt-2 text-3xl font-black text-slate-950">{formatCompactUsd(totalEquity)}</div>
-                  <div className="mt-1 text-xs font-semibold text-slate-500">{formatUsd(totalEquity)} 기준</div>
+                  <div className="mt-1 text-xs font-semibold text-slate-500">Based on {formatUsd(totalEquity)}</div>
                 </div>
                 <div className="rounded-2xl border border-slate-200 bg-white/90 p-4 shadow-sm">
                   <div className="flex items-center gap-2 text-xs font-bold uppercase tracking-wide text-slate-500">
@@ -498,7 +498,7 @@ export function PortfolioWorkspace({
                     Strategy Capital
                   </div>
                   <div className="mt-2 text-3xl font-black text-slate-950">{formatCompactUsd(totalDeployed)}</div>
-                  <div className="mt-1 text-xs font-semibold text-slate-500">{strategyCount}개 템플릿이 이 자금을 참조</div>
+                  <div className="mt-1 text-xs font-semibold text-slate-500">{strategyCount} templates reference this capital</div>
                 </div>
                 <div className="rounded-2xl border border-slate-200 bg-white/90 p-4 shadow-sm">
                   <div className="flex items-center gap-2 text-xs font-bold uppercase tracking-wide text-slate-500">
@@ -508,7 +508,7 @@ export function PortfolioWorkspace({
                   <div className={cn("mt-2 text-3xl font-black", weightedPnl >= 0 ? "text-emerald-600" : "text-rose-600")}>
                     {formatSignedPercent(weightedPnl)}
                   </div>
-                  <div className="mt-1 text-xs font-semibold text-slate-500">가중 평균 손익 변화</div>
+                  <div className="mt-1 text-xs font-semibold text-slate-500">Weighted average PnL change</div>
                 </div>
               </div>
             </div>
@@ -525,7 +525,7 @@ export function PortfolioWorkspace({
                   className="inline-flex h-10 items-center gap-2 rounded-xl border border-slate-200 bg-white px-3 text-sm font-bold text-slate-700 hover:bg-slate-50"
                 >
                   <Landmark className="h-4 w-4 text-amber-600" />
-                  거래소 관리
+                  Manage Exchanges
                 </button>
                 <button
                   type="button"
@@ -534,14 +534,14 @@ export function PortfolioWorkspace({
                   className="inline-flex h-10 items-center gap-2 rounded-xl border border-emerald-200 bg-emerald-50 px-3 text-sm font-bold text-emerald-700 hover:bg-emerald-100 disabled:cursor-not-allowed disabled:border-slate-200 disabled:bg-slate-100 disabled:text-slate-400"
                 >
                   <RefreshCw className={cn("h-4 w-4", isSyncingSelectedBalance ? "animate-spin" : "")} />
-                  {isSyncingSelectedBalance ? "동기화 중" : "잔고 동기화"}
+                  {isSyncingSelectedBalance ? "Syncing" : "Sync Balance"}
                 </button>
               </div>
 
               <div className="mt-4 rounded-2xl border border-slate-200 bg-slate-950 p-4 text-slate-100">
                 <div className="flex items-center justify-between">
-                  <div className="text-sm font-black">시장 드리프트 체크</div>
-                  <span className="text-[11px] font-semibold text-slate-400">자산 노출과 같이 보기</span>
+                  <div className="text-sm font-black">Market Drift Check</div>
+                  <span className="text-[11px] font-semibold text-slate-400">View with asset exposure</span>
                 </div>
                 <div className="mt-3 space-y-2">
                   {marketRows.slice(0, 4).map((row) => (
@@ -566,10 +566,10 @@ export function PortfolioWorkspace({
             <div className="flex flex-wrap items-center justify-between gap-3">
               <div>
                 <div className="text-[11px] font-bold uppercase tracking-[0.16em] text-slate-500">Exchange Accounts</div>
-                <h3 className="mt-1 text-xl font-black text-slate-950">거래소별 자산 보기</h3>
+                <h3 className="mt-1 text-xl font-black text-slate-950">Assets by Exchange</h3>
               </div>
               <div className="rounded-full border border-slate-200 bg-slate-50 px-3 py-1 text-xs font-semibold text-slate-600">
-                연결 {connectedExchangeCount} / 실잔고 {syncedVenueCount}
+                Connected {connectedExchangeCount} / live balances {syncedVenueCount}
               </div>
             </div>
 
@@ -599,7 +599,7 @@ export function PortfolioWorkspace({
                           <div className="text-lg font-black">{venue.name}</div>
                         </div>
                         <div className={cn("mt-1 text-xs font-semibold", selectedVenue?.id === venue.id ? "text-slate-300" : "text-slate-500")}>
-                          {venue.type} · {venue.hasLiveBalance ? venue.syncLabel : "잔고 동기화 필요"}
+                          {venue.type} · {venue.hasLiveBalance ? venue.syncLabel : "Balance sync required"}
                         </div>
                       </div>
                       <span className={cn(
@@ -630,7 +630,7 @@ export function PortfolioWorkspace({
 
                     <div className="mt-4 space-y-2">
                       <div className="flex items-center justify-between text-xs">
-                        <span className={selectedVenue?.id === venue.id ? "text-slate-300" : "text-slate-500"}>가용 자금</span>
+                        <span className={selectedVenue?.id === venue.id ? "text-slate-300" : "text-slate-500"}>Available Capital</span>
                         <span className="font-bold">{formatCompactUsd(venue.availableUsd)}</span>
                       </div>
                       <div className="h-2 overflow-hidden rounded-full bg-slate-200/80">
@@ -649,9 +649,9 @@ export function PortfolioWorkspace({
               </div>
             ) : (
               <div className="mt-4 rounded-3xl border border-dashed border-slate-300 bg-slate-50 px-5 py-8 text-center">
-                <div className="text-sm font-black text-slate-900">표시할 실잔고가 없습니다</div>
+                <div className="text-sm font-black text-slate-900">No Live Balances to Show</div>
                 <p className="mx-auto mt-2 max-w-md text-sm leading-6 text-slate-500">
-                  거래소 관리에서 API 키를 저장하고 잔고 동기화를 실행하면 이 영역에 실제 자산 계정만 표시됩니다.
+                  Save API keys in exchange management and run balance sync to show real asset accounts here.
                 </p>
                 <button
                   type="button"
@@ -659,7 +659,7 @@ export function PortfolioWorkspace({
                   className="mt-4 inline-flex h-9 items-center gap-2 rounded-xl border border-slate-200 bg-white px-3 text-sm font-bold text-slate-700 hover:bg-slate-100"
                 >
                   <Landmark className="h-4 w-4 text-amber-600" />
-                  거래소 관리
+                  Manage Exchanges
                 </button>
               </div>
             )}
@@ -667,13 +667,13 @@ export function PortfolioWorkspace({
             <div className="mt-4 grid gap-4 2xl:grid-cols-2">
               <AllocationDonutCard
                 title="Venue Weight"
-                subtitle="거래소별 전체 자산 비중"
+                subtitle="Total asset allocation by exchange"
                 totalValue={totalEquity}
                 slices={venueAllocationSlices}
               />
               <AllocationDonutCard
                 title="Asset Weight"
-                subtitle="자산별 전체 포트폴리오 비중"
+                subtitle="Total portfolio allocation by asset"
                 totalValue={totalEquity}
                 slices={assetAllocationSlices}
               />
@@ -713,7 +713,7 @@ export function PortfolioWorkspace({
                   );
                 }) : (
                   <div className="rounded-2xl border border-dashed border-slate-300 bg-slate-50 px-3 py-5 text-center text-sm font-semibold text-slate-500">
-                    잔고 동기화 후 자산 비중이 표시됩니다.
+                    Asset allocation appears after balance sync.
                   </div>
                 )}
               </div>
@@ -754,9 +754,9 @@ export function PortfolioWorkspace({
             <div className="flex flex-wrap items-center justify-between gap-3">
               <div>
                 <div className="text-[11px] font-bold uppercase tracking-[0.16em] text-slate-500">Selected Venue</div>
-                <h3 className="mt-1 text-xl font-black text-slate-950">{selectedVenue.name} 자산 상세</h3>
+                <h3 className="mt-1 text-xl font-black text-slate-950">{selectedVenue.name} Asset Details</h3>
                 <p className="mt-1 text-sm text-slate-500">
-                  {selectedVenue.hasLiveBalance ? selectedVenue.syncLabel : selectedVenue.live ? "잔고 동기화 버튼으로 실잔고 마이데이터 생성" : "라이브 읽기 권한 연결 시 실잔고 API로 교체"} · {selectedVenue.riskLabel}
+                  {selectedVenue.hasLiveBalance ? selectedVenue.syncLabel : selectedVenue.live ? "Use Sync Balance to generate live balance data" : "Connect live read permission to replace this with the live balance API"} · {selectedVenue.riskLabel}
                 </p>
               </div>
               <div className="flex flex-wrap gap-2">
@@ -807,7 +807,7 @@ export function PortfolioWorkspace({
                   </div>
                 )) : (
                   <div className="px-4 py-8 text-center text-sm font-semibold text-slate-500">
-                    아직 동기화된 자산이 없습니다.
+                    No synced assets yet.
                   </div>
                 )}
               </div>

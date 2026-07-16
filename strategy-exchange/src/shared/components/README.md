@@ -9,4 +9,4 @@ Examples:
 - Generic modals and sidebars when they are needed
 - Empty/loading states that are shared across multiple features
 
-Feature-specific cards, vault panels, or strategy graphs should stay in the feature folder.
+Feature-specific cards, adapter panels, or strategy graphs should stay in the feature folder.

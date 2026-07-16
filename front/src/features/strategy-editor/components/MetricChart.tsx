@@ -71,7 +71,7 @@ function readFiniteNumber(value: unknown, fallback: number) {
 export function createChartComparisonValue(index: number, fallbackValue: number): ChartComparisonValue {
   return {
     id: `comparison-${Date.now()}-${index}`,
-    label: `비교값 ${index}`,
+    label: `Comparison ${index}`,
     value: readFiniteNumber(fallbackValue, 0),
     color: CHART_COMPARISON_COLORS[index % CHART_COMPARISON_COLORS.length],
     enabled: true,
@@ -87,7 +87,7 @@ export function normalizeChartComparisonValues(value: unknown): ChartComparisonV
         if (!Number.isFinite(numeric)) return null;
         return {
           id: `comparison-${index}`,
-          label: `비교값 ${index + 1}`,
+          label: `Comparison ${index + 1}`,
           value: numeric,
           color: CHART_COMPARISON_COLORS[index % CHART_COMPARISON_COLORS.length],
           enabled: true,
@@ -99,7 +99,7 @@ export function normalizeChartComparisonValues(value: unknown): ChartComparisonV
       if (!Number.isFinite(numeric)) return null;
       return {
         id: typeof record.id === "string" && record.id ? record.id : `comparison-${index}`,
-        label: typeof record.label === "string" ? record.label : `비교값 ${index + 1}`,
+        label: typeof record.label === "string" ? record.label : `Comparison ${index + 1}`,
         value: numeric,
         color: typeof record.color === "string" ? record.color : CHART_COMPARISON_COLORS[index % CHART_COMPARISON_COLORS.length],
         enabled: record.enabled !== false,

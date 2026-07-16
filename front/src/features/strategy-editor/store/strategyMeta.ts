@@ -25,13 +25,13 @@ function getSnapshotName(snapshot?: HistorySnapshot | null) {
 }
 
 export function getPrimaryStrategyLabel(snapshot?: HistorySnapshot | null) {
-  if (!snapshot) return "전략";
+  if (!snapshot) return "Strategy";
 
   const solidGroup = (snapshot.nodes ?? []).find(
     (node: any) => node.type === "groupNode" && node.data?.styleType === "solid",
   );
 
-  return solidGroup?.data?.label ?? snapshot.name ?? "전략";
+  return solidGroup?.data?.label ?? snapshot.name ?? "Strategy";
 }
 
 export function detectStrategyKind(snapshot?: HistorySnapshot | null): StrategyKind {
@@ -41,13 +41,13 @@ export function detectStrategyKind(snapshot?: HistorySnapshot | null): StrategyK
   const hasDcaKeyword =
     haystack.includes("dca") ||
     haystack.includes("etf") ||
-    haystack.includes("적립") ||
-    haystack.includes("매달");
+    haystack.includes("accumulation") ||
+    haystack.includes("monthly");
   const hasHedgeKeyword =
     haystack.includes("hedge") ||
     haystack.includes("pepe") ||
-    haystack.includes("유동성") ||
-    haystack.includes("리밸런싱");
+    haystack.includes("liquidity") ||
+    haystack.includes("rebalancing");
 
   const hasMonthlyTrigger = (snapshot.nodes ?? []).some((node: any) => {
     return node.type === "timeTrigger" && Number(node.data?.interval) >= 60 * 60 * 24 * 28;
@@ -61,7 +61,7 @@ export function detectStrategyKind(snapshot?: HistorySnapshot | null): StrategyK
 export function extractDcaPlan(snapshot?: HistorySnapshot | null): DcaPlan {
   const defaultPlan: DcaPlan = {
     monthlyBudget: 500,
-    cadenceLabel: "월 1회",
+    cadenceLabel: "Once a month",
     exchange: "Binance",
     allocations: [],
   };
@@ -78,7 +78,7 @@ export function extractDcaPlan(snapshot?: HistorySnapshot | null): DcaPlan {
 
   const cadenceLabel =
     Number(timeTrigger?.data?.interval) >= 60 * 60 * 24 * 28
-      ? "월 1회"
+      ? "Once a month"
       : timeTrigger?.data?.label ?? defaultPlan.cadenceLabel;
 
   const allocations = actionNodes

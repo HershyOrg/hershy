@@ -1,7 +1,7 @@
 "use client";
 
 import { type Dispatch, type SetStateAction } from "react";
-import { X } from "lucide-react";
+import { X } from "@/shared/components/icons";
 import { cn } from "@/shared/utils/utils";
 import type { ExchangeConnection, ExchangeConnectionCredentials, ExchangeFormState } from "../types/homeTypes";
 
@@ -68,14 +68,14 @@ export function ExchangeLibraryModal({
         <div className="flex items-center justify-between border-b border-slate-200 px-5 py-4">
           <div>
             <div className="text-xs font-bold uppercase tracking-wide text-violet-600">Exchange Setup</div>
-            <h2 className="mt-1 text-xl font-black text-slate-950">거래소 연결</h2>
-            <p className="mt-1 text-xs text-slate-500">필수 입력만 남겼습니다. 지원 거래소: {exchangeConnectionNames}</p>
+            <h2 className="mt-1 text-xl font-black text-slate-950">Exchange Connections</h2>
+            <p className="mt-1 text-xs text-slate-500">Only required inputs are shown. Supported exchanges: {exchangeConnectionNames}</p>
           </div>
           <button
             type="button"
             onClick={onClose}
             className="p-2 text-slate-400 hover:bg-slate-100 hover:text-slate-700"
-            title="닫기"
+            title="Close"
           >
             <X className="h-4 w-4" />
           </button>
@@ -99,7 +99,7 @@ export function ExchangeLibraryModal({
                   <div className="text-sm font-black text-slate-950">{exchange.name}</div>
                   <div className={cn(
                     "mt-1 text-[10px] font-bold",
-                    exchange.status === "연결됨" ? "text-emerald-600" : "text-slate-400",
+                    exchange.status === "Connected" || exchange.status === "Saved" || exchange.status === "Synced" ? "text-emerald-600" : "text-slate-400",
                   )}>
                     {exchange.status}
                   </div>
@@ -115,10 +115,10 @@ export function ExchangeLibraryModal({
                   <div className="text-sm font-black text-slate-950">{selectedExchangeName}</div>
                   <div className="mt-0.5 text-[11px] font-semibold text-slate-500">
                     {isSelectedExchangePolymarket
-                      ? "필수 입력: L1 Private Key, Funder 주소"
+                      ? "Required: L1 Private Key, Funder Address"
                       : isSelectedExchangeOKX
-                        ? "필수 입력: API Key, Secret, Passphrase"
-                        : "필수 입력: API Key, Secret"}
+                        ? "Required: API Key, Secret, Passphrase"
+                        : "Required: API Key, Secret"}
                   </div>
                 </div>
                 <button
@@ -127,7 +127,7 @@ export function ExchangeLibraryModal({
                   disabled={isSavingExchange || !exchangeForm.name.trim() || !hasExchangeExecutionUrl}
                   className="h-8 bg-violet-600 px-3 text-xs font-bold text-white disabled:bg-slate-300"
                 >
-                  {isSavingExchange ? "저장 중" : "저장"}
+                  {isSavingExchange ? "Saving" : "Save"}
                 </button>
               </div>
 
@@ -142,7 +142,7 @@ export function ExchangeLibraryModal({
                       onChange={(event) => updateExchangeForm({ privateKey: event.target.value })}
                       placeholder={
                         selectedExchangeCredentials?.hasPrivateKey
-                          ? `Polymarket L1 Private Key 저장됨 · ****${selectedExchangeCredentials.privateKeyLast4 || "****"}`
+                          ? `Polymarket L1 Private Key saved · ****${selectedExchangeCredentials.privateKeyLast4 || "****"}`
                           : "L1 Private Key"
                       }
                       className="h-9 border border-slate-200 bg-white px-3 text-xs outline-none focus:border-violet-300"
@@ -150,7 +150,7 @@ export function ExchangeLibraryModal({
                     <input
                       value={exchangeForm.funder}
                       onChange={(event) => updateExchangeForm({ funder: event.target.value })}
-                      placeholder="Funder 주소 예: 0x..."
+                      placeholder="Funder address, e.g. 0x..."
                       className="h-9 border border-slate-200 bg-white px-3 text-xs outline-none focus:border-violet-300"
                     />
                   </>
@@ -163,7 +163,7 @@ export function ExchangeLibraryModal({
                       onChange={(event) => updateExchangeForm({ apiKey: event.target.value })}
                       placeholder={
                         selectedExchangeCredentials?.hasApiKey
-                          ? `${selectedExchangeName} API Key 저장됨 · ****${selectedExchangeCredentials.apiKeyLast4 || "****"}`
+                          ? `${selectedExchangeName} API Key saved · ****${selectedExchangeCredentials.apiKeyLast4 || "****"}`
                           : "API Key"
                       }
                       className="h-9 border border-slate-200 bg-white px-3 text-xs outline-none focus:border-violet-300"
@@ -175,7 +175,7 @@ export function ExchangeLibraryModal({
                       onChange={(event) => updateExchangeForm({ apiSecret: event.target.value })}
                       placeholder={
                         selectedExchangeCredentials?.hasApiSecret
-                          ? `${selectedExchangeName} Secret 저장됨 · 새 Secret 입력 시 교체`
+                          ? `${selectedExchangeName} Secret saved · enter a new Secret to replace it`
                           : "API Secret"
                       }
                       className="h-9 border border-slate-200 bg-white px-3 text-xs outline-none focus:border-violet-300"
@@ -188,7 +188,7 @@ export function ExchangeLibraryModal({
                         onChange={(event) => updateExchangeForm({ apiPassphrase: event.target.value })}
                         placeholder={
                           selectedExchangeCredentials?.hasApiPassphrase
-                            ? "OKX Passphrase 저장됨 · 새 값 입력 시 교체"
+                            ? "OKX Passphrase saved · enter a new value to replace it"
                             : "API Passphrase"
                         }
                         className="h-9 border border-slate-200 bg-white px-3 text-xs outline-none focus:border-violet-300"
@@ -206,10 +206,10 @@ export function ExchangeLibraryModal({
                   className="mt-3 inline-flex h-8 items-center border border-amber-300 bg-white px-3 text-xs font-bold text-amber-700 disabled:border-slate-200 disabled:text-slate-400"
                 >
                   {isTestingExchangeAuth
-                    ? "동기화 중"
+                    ? "Syncing"
                     : hasPendingBinanceCredentialInput
-                      ? "저장 후 잔고 동기화"
-                      : "잔고 동기화"}
+                      ? "Save, then Sync Balance"
+                      : "Sync Balance"}
                 </button>
               ) : null}
 

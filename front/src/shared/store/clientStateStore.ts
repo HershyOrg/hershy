@@ -1,6 +1,7 @@
 import type {
   ClientAppState,
   ClientUserProfile,
+  PersistedHistoricalDataState,
   PersistedHistoryStoreState,
   PersistedStrategyBuilderState,
   ThemePreference,
@@ -161,6 +162,27 @@ function updateClientAppState(mutator: (state: ClientAppState) => void) {
   writeRawState(storage, state);
 }
 
+function createEmptyHistoricalDataState(): PersistedHistoricalDataState {
+  return {
+    version: 1,
+    savedAt: Date.now(),
+    datasets: [],
+    mappings: [],
+  };
+}
+
+function normalizeHistoricalDataState(value: unknown): PersistedHistoricalDataState {
+  if (!value || typeof value !== "object") return createEmptyHistoricalDataState();
+  const state = value as Partial<PersistedHistoricalDataState>;
+  return {
+    version: 1,
+    savedAt: typeof state.savedAt === "number" ? state.savedAt : Date.now(),
+    datasets: Array.isArray(state.datasets) ? state.datasets : [],
+    mappings: Array.isArray(state.mappings) ? state.mappings : [],
+    activeApiId: typeof state.activeApiId === "string" ? state.activeApiId : undefined,
+  };
+}
+
 export function readThemePreference(): ThemePreference | undefined {
   return readClientAppState().theme?.preference;
 }
@@ -209,6 +231,20 @@ export function readHistoryState() {
 export function writeHistoryState(history: PersistedHistoryStoreState) {
   updateClientAppState((state) => {
     state.history = history;
+  });
+}
+
+export function readHistoricalDataState() {
+  return normalizeHistoricalDataState(readClientAppState().historicalData);
+}
+
+export function writeHistoricalDataState(historicalData: PersistedHistoricalDataState) {
+  updateClientAppState((state) => {
+    state.historicalData = {
+      ...historicalData,
+      version: 1,
+      savedAt: Date.now(),
+    };
   });
 }
 

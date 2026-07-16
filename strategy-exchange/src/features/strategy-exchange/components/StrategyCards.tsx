@@ -2,17 +2,14 @@ import { creators } from "../store/strategyCatalog";
 import type { Strategy } from "../types/strategyTypes";
 import { Button } from "../../../shared/components";
 import { formatCompact, formatSignedCurrency } from "../../../shared/utils/formatters";
-import { getBaseForkCount } from "../utils/strategyMetrics";
 import { getVaultShareMarketCap, getVaultShareSymbol } from "../utils/vaultShare";
 import { VaultShareVisual } from "./VaultShareVisual";
 
 function VaultShareDetails({
   strategy,
-  forkCount,
   onCreatorSelect,
 }: {
   strategy: Strategy;
-  forkCount: number;
   onCreatorSelect?: () => void;
 }) {
   const creator = creators[strategy.creatorId];
@@ -33,7 +30,7 @@ function VaultShareDetails({
 
       <div className="pump-card-metrics">
         <div>
-          <span>MC</span>
+          <span>AUM</span>
           <strong>${formatCompact(marketCap)}</strong>
         </div>
         {onCreatorSelect ? (
@@ -54,10 +51,6 @@ function VaultShareDetails({
             <strong>{creator.name}</strong>
           </div>
         )}
-        <div>
-          <span>forks</span>
-          <strong>{forkCount}</strong>
-        </div>
       </div>
     </div>
   );
@@ -70,8 +63,6 @@ export function CreatorStrategyCard({
   strategy: Strategy;
   onOpen: () => void;
 }) {
-  const forkCount = getBaseForkCount(strategy);
-
   return (
     <article
       className="profile-strategy-card pump-profile-strategy-card"
@@ -86,7 +77,7 @@ export function CreatorStrategyCard({
       }}
     >
       <VaultShareVisual strategy={strategy} />
-      <VaultShareDetails strategy={strategy} forkCount={forkCount} />
+      <VaultShareDetails strategy={strategy} />
     </article>
   );
 }
@@ -94,23 +85,19 @@ export function CreatorStrategyCard({
 export function StrategyCard({
   strategy,
   bookmarked,
-  forkCount,
   used,
   onBookmark,
   onCreatorSelect,
   onOpen,
   onUse,
-  onDrop,
 }: {
   strategy: Strategy;
   bookmarked: boolean;
-  forkCount: number;
   used: boolean;
   onBookmark: () => void;
   onCreatorSelect: () => void;
   onOpen: () => void;
   onUse: () => void;
-  onDrop: () => void;
 }) {
   return (
     <article
@@ -130,7 +117,7 @@ export function StrategyCard({
         bookmarked={bookmarked}
         onBookmark={onBookmark}
       />
-      <VaultShareDetails strategy={strategy} forkCount={forkCount} onCreatorSelect={onCreatorSelect} />
+      <VaultShareDetails strategy={strategy} onCreatorSelect={onCreatorSelect} />
 
       <div className="trade-actions">
         <Button
@@ -141,15 +128,6 @@ export function StrategyCard({
           }}
         >
           Use
-        </Button>
-        <Button
-          variant="drop"
-          onClick={(event) => {
-            event.stopPropagation();
-            onDrop();
-          }}
-        >
-          Drop
         </Button>
       </div>
     </article>

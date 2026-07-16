@@ -10,9 +10,9 @@
 - 비율 필드는 두 방식이 섞여 있다.
   - `leaderFraction`, `leaderCommission`, `sharePct`, `weight`: `0.1`이 `10%`.
   - `pnlPct`, `projectedApr`, `winRate`, `maxDrawdown`: `8.9`가 `8.9%`.
-- 시간은 ISO string을 권장한다. 전략 피드의 `createdAt`만 현재 UI에서 `"2h"`, `"3h"`, `"5h"` 같은 상대 시간을 사용한다.
+- 시간은 ISO string을 권장한다. 전략 피드에서는 `status`, `traders`, `createdAt`을 사용하지 않는다.
 - 현재 프론트 schema 때문에 `endpoint`, `sql` 필드는 응답에 포함하는 것이 안전하다. 실서버에서 SQL을 노출하지 않을 경우 `sql: ""`로 내려도 된다.
-- Not found는 404보다 `200` + nullable payload를 권장한다. 현재 UI는 `vault: null`, `account: null`을 처리한다.
+- Not found는 404보다 `200` + nullable payload를 권장한다. 현재 UI는 `adapter: null`, `account: null`을 처리한다.
 
 ## 1. Strategy Feed
 
@@ -24,11 +24,11 @@ Query:
 
 ```ts
 {
-  category: "Daily Hot" | "New" | "Top Gainer" | "Top Volume";
-  type: "All" | "CEX" | "DeFi" | "Mixed" | "Funding" | "Basis" | "LP/Hedge";
+  category: "Featured" | "Perp Index" | "Funding Carry" | "Market Neutral" | "Tactical Quant";
+  type: "All" | "Index" | "Quant";
   includeUnconnected: "true" | "false";
   q?: string;
-  connected?: string[]; // repeated query param: connected=Binance&connected=OKX
+  connected?: string[]; // repeated query param: connected=Hyperliquid
 }
 ```
 
@@ -38,8 +38,8 @@ Response:
 {
   endpoint: string;
   request: {
-    category: "Daily Hot" | "New" | "Top Gainer" | "Top Volume";
-    type: "All" | "CEX" | "DeFi" | "Mixed" | "Funding" | "Basis" | "LP/Hedge";
+    category: "Featured" | "Perp Index" | "Funding Carry" | "Market Neutral" | "Tactical Quant";
+    type: "All" | "Index" | "Quant";
     query: string;
     includeUnconnected: boolean;
     connectedVenues?: string[];
@@ -56,10 +56,14 @@ Response:
   id: string;
   title: string;
   creatorId: string;
-  primarySector: "CEX" | "DeFi" | "Mixed" | "Funding" | "Basis" | "LP/Hedge";
-  sectors: Array<"CEX" | "DeFi" | "Mixed" | "Funding" | "Basis" | "LP/Hedge">;
+  primarySector: "Perp Index" | "Funding" | "Basis" | "Market Neutral" | "Momentum" | "Liquidity" | "Volatility" | "Risk Hedge";
+  sectors: Array<"Perp Index" | "Funding" | "Basis" | "Market Neutral" | "Momentum" | "Liquidity" | "Volatility" | "Risk Hedge">;
+  productType: "Index" | "Quant";
+  disclosure: "Full" | "PerformanceOnly";
   venues: string[];
   chains: string[];
+  markets: string[];
+  assetClasses: string[];
   pnlSeries: number[];
   realizedPnl: number;
   pnlPct: number;
@@ -67,9 +71,6 @@ Response:
   dailyVolume: number;
   winRate: number;
   maxDrawdown: number;
-  traders: number;
-  status: "Live" | "Cooling" | "Paused";
-  createdAt: string;
   nodes: Array<{ id: string; label: string; x: number; y: number }>;
   edges: Array<{ from: string; to: string; label: string }>;
 }
@@ -79,52 +80,58 @@ Example:
 
 ```json
 {
-  "endpoint": "/api/strategy-exchange/strategies?category=Daily+Hot&type=All&includeUnconnected=false&connected=Binance",
+  "endpoint": "/api/strategy-exchange/strategies?category=Featured&type=All&includeUnconnected=false&connected=Hyperliquid",
   "request": {
-    "category": "Daily Hot",
+    "category": "Featured",
     "type": "All",
     "query": "",
     "includeUnconnected": false,
-    "connectedVenues": ["Binance"]
+    "connectedVenues": ["Hyperliquid"]
   },
   "strategies": [
     {
-      "id": "sol-momentum-ladder",
-      "title": "SOL Momentum Ladder",
-      "creatorId": "mira.exec",
-      "primarySector": "CEX",
-      "sectors": ["CEX"],
-      "venues": ["OKX", "Binance"],
-      "chains": ["Solana", "Ethereum"],
-      "pnlSeries": [0, 400, 980, 760, 1500],
-      "realizedPnl": 6815,
-      "pnlPct": 11.1,
-      "deployedCapital": 41000,
-      "dailyVolume": 229000,
-      "winRate": 69,
-      "maxDrawdown": 4.1,
-      "traders": 218,
-      "status": "Live",
-      "createdAt": "3h",
-      "nodes": [{ "id": "cash", "label": "USDC", "x": 34, "y": 78 }],
-      "edges": []
+      "id": "hl-majors-index",
+      "title": "Hyperliquid Majors Index",
+      "creatorId": "nari.trade",
+      "primarySector": "Perp Index",
+      "sectors": ["Perp Index"],
+      "productType": "Index",
+      "disclosure": "Full",
+      "venues": ["Hyperliquid"],
+      "chains": ["Hyperliquid"],
+      "markets": ["Hyperliquid Perp DEX"],
+      "assetClasses": ["BTC", "ETH", "SOL", "HYPE perps"],
+      "pnlSeries": [0, 420, 760, 610, 1240, 1680, 2090, 2510, 3110, 3860, 4380, 5120],
+      "realizedPnl": 5120,
+      "pnlPct": 7.9,
+      "deployedCapital": 119000,
+      "dailyVolume": 440000,
+      "winRate": 72,
+      "maxDrawdown": 3.4,
+      "nodes": [{ "id": "weights", "label": "Public Weights", "x": 34, "y": 78 }],
+      "edges": [{ "from": "weights", "to": "btc", "label": "35%" }]
     }
   ],
   "total": 1
 }
 ```
 
-## 2. Vault Metadata
+Notes:
 
-개별 vault 상세 페이지, TVL 차트, Performance, Token Balance, Chain Balance, Use allocation 계산에 사용된다.
+- `markets`, `assetClasses`는 `disclosure: "PerformanceOnly"`인 퀀트 상품에서도 제공한다.
+- 이 두 필드는 정확한 매매 로직이나 실시간 구성비가 아니라 투자자가 상품의 거래 범위를 이해하기 위한 high-level universe 정보다.
 
-현재 프론트 route는 `/:address`이고, 주소가 vault address이면 아래 API를 호출한다.
+## 2. Adapter Metadata
 
-`GET /api/strategy-exchange/vault-addresses/:address`
+개별 adapter 상세 페이지, AUM/NAV 차트, Performance, Adapter Ledger, Use allocation 계산에 사용된다.
+
+현재 프론트 route는 `/:address`이고, 주소가 adapter address이면 아래 API를 호출한다.
+
+`GET /api/strategy-exchange/adapter-addresses/:address`
 
 전략 ID로 조회하는 fallback endpoint도 있다.
 
-`GET /api/strategy-exchange/vaults/:strategyId`
+`GET /api/strategy-exchange/adapters/:strategyId`
 
 Response:
 
@@ -132,11 +139,11 @@ Response:
 {
   endpoint: string;
   sql: string;
-  vault: StrategyVaultMetadata | null;
+  adapter: StrategyAdapterMetadata | null;
 }
 ```
 
-`StrategyVaultMetadata`:
+`StrategyAdapterMetadata`:
 
 ```ts
 {
@@ -167,50 +174,125 @@ Response:
     weight: number;
     sortOrder: number;
   }>;
+  positions: Array<{
+    strategyId: string;
+    coin: string;
+    side: "Long" | "Short";
+    size: number;
+    entryPrice: number;
+    markPrice: number;
+    liquidationPrice: number;
+    marginUsed: number;
+    unrealizedPnl: number;
+    fundingRate: number; // 0.0001 = 0.01%
+    leverage: number;
+    sortOrder: number;
+  }>;
+  trades: Array<{
+    strategyId: string;
+    id: string;
+    actor: "Logic Creator" | "User";
+    accountLabel: string;
+    action: "Open" | "Close" | "Increase" | "Reduce";
+    coin: string;
+    side: "Long" | "Short";
+    price: number;
+    size: number;
+    value: number;
+    fee: number;
+    pnl: number;
+    createdAt: string;
+    sortOrder: number;
+  }>;
+  funding: Array<{
+    strategyId: string;
+    id: string;
+    coin: string;
+    side: "Long" | "Short";
+    rate: number; // 0.0001 = 0.01%
+    payment: number;
+    createdAt: string;
+    sortOrder: number;
+  }>;
+  flows: Array<{
+    strategyId: string;
+    id: string;
+    type: "Deposit" | "Withdrawal";
+    accountLabel: string;
+    amount: number;
+    createdAt: string;
+    sortOrder: number;
+  }>;
+  depositors: Array<{
+    strategyId: string;
+    id: string;
+    maskedAddress: string;
+    equity: number;
+    sharePct: number;
+    pnl: number;
+    joinedAt: string;
+    sortOrder: number;
+  }>;
 }
 ```
 
 Notes:
 
-- `strategyEquity`가 UI의 `TVL`.
-- `MAX TVL`은 현재 프론트에서 `strategyEquity * 2`로 임시 계산한다. 백엔드가 별도 값으로 내려줄 수 있으면 `maxTvl` 추가를 권장한다.
-- Use allocation UI는 입금 자산을 USDC로 고정한다. `balances.weight`와 `balances.chain`으로 체인별 필요한 USDC를 계산한다.
-- `balances.token`, `balances.amount`, `balances.value`는 Token Balance 원형 차트에 사용된다.
-- `balances.chain`, `balances.value`는 Chain Balance 원형 차트에 사용된다.
+- `strategyEquity`가 UI의 `AUM`.
+- `MAX AUM`은 현재 프론트에서 `strategyEquity * 2`로 임시 계산한다. 백엔드가 별도 값으로 내려줄 수 있으면 `maxAum` 추가를 권장한다.
+- Use allocation UI는 입금 자산을 USDC로 고정한다. 현재 primary execution venue는 Hyperliquid다.
+- `balances`, `positions`, `trades`, `funding`, `flows`, `depositors`는 Adapter 상세의 tabbed ledger 패널에 사용된다.
+- `depositors`는 프론트에 전체 주소를 내려주지 않는다. `maskedAddress`만 내려주고 full address 필드는 포함하지 않는다.
+- 현재 더미 데이터의 `balances.venue`, `balances.chain`은 모두 `Hyperliquid`다.
 
 Example:
 
 ```json
 {
-  "endpoint": "/api/strategy-exchange/vault-addresses/0xf60c458247521bf6de41704859040ce8ba5fd4db",
+  "endpoint": "/api/strategy-exchange/adapter-addresses/0xe70c2de5482bb9b071d58a4fb22905edfd93b385",
   "sql": "",
-  "vault": {
-    "strategyId": "sol-momentum-ladder",
-    "address": "0xf60c458247521bf6de41704859040ce8ba5fd4db",
-    "leaderAddress": "0x5668ddaacb72dcb427639d114783930275e11e12",
-    "leaderFraction": 0.699199,
+  "adapter": {
+    "strategyId": "hl-majors-index",
+    "address": "0xe70c2de5482bb9b071d58a4fb22905edfd93b385",
+    "leaderAddress": "0x751c7566baf4fec0be6edf0d479b5bf73a68918f",
+    "leaderFraction": 0.742,
     "leaderCommission": 0.1,
-    "projectedApr": 71.04,
-    "strategyEquity": 45890,
-    "allTimePnl": 6815,
-    "chains": ["Solana", "Ethereum"],
+    "projectedApr": 42.4,
+    "strategyEquity": 128400,
+    "allTimePnl": 9400,
+    "chains": ["Hyperliquid"],
     "updatedAt": "2026-06-07T07:00:00.000Z",
     "periods": [
-      { "strategyId": "sol-momentum-ladder", "label": "24h", "pnl": -290, "equity": 45890, "volume": 229000 },
-      { "strategyId": "sol-momentum-ladder", "label": "7d", "pnl": 2150, "equity": 45522.8, "volume": 1603000 }
+      { "strategyId": "hl-majors-index", "label": "24h", "pnl": 680, "equity": 128400, "volume": 440000 },
+      { "strategyId": "hl-majors-index", "label": "7d", "pnl": 2460, "equity": 127260, "volume": 3080000 }
     ],
     "balances": [
-      { "strategyId": "sol-momentum-ladder", "token": "SOL", "venue": "OKX", "chain": "Solana", "amount": 175.911667, "value": 21109.4, "weight": 0.46, "sortOrder": 1 },
-      { "strategyId": "sol-momentum-ladder", "token": "USDC", "venue": "Cash", "chain": "Solana", "amount": 9178, "value": 9178, "weight": 0.2, "sortOrder": 3 }
+      { "strategyId": "hl-majors-index", "token": "BTC-PERP", "venue": "Hyperliquid", "chain": "Hyperliquid", "amount": 0.661, "value": 44940, "weight": 0.35, "sortOrder": 1 },
+      { "strategyId": "hl-majors-index", "token": "ETH-PERP", "venue": "Hyperliquid", "chain": "Hyperliquid", "amount": 10.7, "value": 38520, "weight": 0.3, "sortOrder": 2 }
+    ],
+    "positions": [
+      { "strategyId": "hl-majors-index", "coin": "BTC", "side": "Long", "size": 0.661, "entryPrice": 66776, "markPrice": 68000, "liquidationPrice": 48960, "marginUsed": 4943, "unrealizedPnl": 809, "fundingRate": -0.00014, "leverage": 3, "sortOrder": 1 }
+    ],
+    "trades": [
+      { "strategyId": "hl-majors-index", "id": "hl-majors-index-trade-1", "actor": "Logic Creator", "accountLabel": "Creator Logic", "action": "Open", "coin": "BTC", "side": "Long", "price": 67728, "size": 0.119, "value": 8058, "fee": 2.82, "pnl": 0, "createdAt": "2026-06-07T07:48:00.000Z", "sortOrder": 1 }
+    ],
+    "funding": [
+      { "strategyId": "hl-majors-index", "id": "hl-majors-index-funding-1", "coin": "BTC", "side": "Long", "rate": -0.00011, "payment": -4.94, "createdAt": "2026-06-07T07:30:00.000Z", "sortOrder": 1 }
+    ],
+    "flows": [
+      { "strategyId": "hl-majors-index", "id": "hl-majors-index-flow-deposit-1", "type": "Deposit", "accountLabel": "User Allocation", "amount": 4366, "createdAt": "2026-06-07T07:40:00.000Z", "sortOrder": 1 }
+    ],
+    "depositors": [
+      { "strategyId": "hl-majors-index", "id": "hl-majors-index-depositor-1", "maskedAddress": "0x7421...91ce", "equity": 9502, "sharePct": 0.074, "pnl": 452, "joinedAt": "2026-06-06T20:00:00.000Z", "sortOrder": 1 }
     ]
   }
 }
 ```
 
-## 2.1 Vault Chart Data
+## 2.1 Adapter Chart Data
 
-Vault 상세 상단 차트와 ETF형 분석 차트에 사용된다.
-현재 프론트는 `strategy.pnlSeries`, `vault.strategyEquity`, `vault.allTimePnl`, `vault.balances`로 일부 차트를 임시 파생해서 그리고 있다.
+Adapter 상세 상단 차트와 ETF형 분석 차트에 사용된다.
+현재 프론트는 `strategy.pnlSeries`, `adapter.strategyEquity`, `adapter.allTimePnl`, `adapter.balances`로 일부 차트를 임시 파생해서 그리고 있다.
 실제 백엔드 연결 시에는 아래 chart API로 내려주는 것을 권장한다.
 
 Important:
@@ -218,20 +300,19 @@ Important:
 - 차트 종류와 최종 데이터 포맷은 아직 확정되지 않았다.
 - 아래 response shape는 현재 프론트/디자인 기준의 working draft다.
 - 백엔드 구현 전 chart format은 변동될 수 있으며, 특히 `composition`, `premiumDiscount`, `netFlow`, `drawdown`은 제품 결정에 따라 필드가 바뀔 수 있다.
-- 우선 확정에 가까운 것은 상단 `logicValue`와 `initialMarginRate` 시계열이다.
+- 우선 확정에 가까운 것은 상단 `navSharePrice` 시계열이다.
 
-`GET /api/strategy-exchange/vault-addresses/:address/charts`
+`GET /api/strategy-exchange/adapter-addresses/:address/charts`
 
 Query:
 
 ```ts
 {
   interval: "1m" | "5m" | "15m" | "30m" | "1h" | "2h" | "4h" | "8h" | "1day" | "1month";
-  charts?: Array<
-    | "logicValue"
-    | "initialMarginRate"
-    | "premiumDiscount"
-    | "composition"
+	  charts?: Array<
+	    | "navSharePrice"
+	    | "premiumDiscount"
+	    | "composition"
     | "netFlow"
     | "drawdown"
   >;
@@ -251,24 +332,17 @@ Response:
     from?: string;
     to?: string;
   };
-  vaultAddress: string;
+  adapterAddress: string;
   strategyId: string;
   currency: "USD";
   charts: {
-    logicValue: {
-      label: "Logic Value";
+    navSharePrice: {
+      label: "NAV / Share Price";
       unit: "USD";
       series: Array<{
         time: string;
-        value: number;
-      }>;
-    };
-    initialMarginRate: {
-      label: "Initial Margin Rate";
-      unit: "percent";
-      series: Array<{
-        time: string;
-        value: number;
+        navPerShare: number;
+        sharePrice: number;
       }>;
     };
     premiumDiscount?: {
@@ -319,17 +393,14 @@ Response:
 
 Chart meaning:
 
-- `logicValue`
+- `navSharePrice`
   - 현재 상단 메인 차트.
-  - 기존 UI의 `Vault Value`가 아니라 `Logic Value`로 표시한다.
-  - ETF의 NAV/TLV 성격에 대응되는 핵심 value curve.
-- `initialMarginRate`
-  - 해당 전략을 사용하는 유동성의 초기 증거금 변화율.
-  - 단위는 percent. 예: `12.4`는 `12.4%`.
+  - ETF 상세의 핵심값인 NAV와 거래/표시 share price를 함께 보여준다.
+  - `navPerShare`는 adapter AUM과 share supply로 계산한 기준 가격, `sharePrice`는 화면에 표시할 현재 가격이다.
 - `premiumDiscount`
   - ETF 성격을 가장 잘 보여주는 차트.
   - `premiumDiscountPct = (marketPrice - navPerShare) / navPerShare * 100`.
-  - vault share가 NAV 대비 비싸게/싸게 거래되는지 보여준다.
+  - adapter share가 NAV 대비 비싸게/싸게 거래되는지 보여준다.
 - `composition`
   - ETF 구성자산 비중 변화.
   - 프론트에서는 stacked area chart로 표현하는 것을 권장한다.
@@ -338,38 +409,29 @@ Chart meaning:
   - Use/Drop 유입·유출.
   - 프론트에서는 bar chart 또는 positive/negative flow chart로 표현한다.
 - `drawdown`
-  - Logic Value 고점 대비 하락률.
+  - NAV 고점 대비 하락률.
   - 단위는 percent이며 일반적으로 `0` 이하 값으로 내려줘도 된다.
 
 Example:
 
 ```json
 {
-  "endpoint": "/api/strategy-exchange/vault-addresses/0xf60c458247521bf6de41704859040ce8ba5fd4db/charts?interval=1h",
+  "endpoint": "/api/strategy-exchange/adapter-addresses/0xe70c2de5482bb9b071d58a4fb22905edfd93b385/charts?interval=1h",
   "request": {
     "interval": "1h",
-    "charts": ["logicValue", "initialMarginRate", "premiumDiscount", "composition", "netFlow"]
+    "charts": ["navSharePrice", "premiumDiscount", "composition", "netFlow"]
   },
-  "vaultAddress": "0xf60c458247521bf6de41704859040ce8ba5fd4db",
-  "strategyId": "sol-momentum-ladder",
+  "adapterAddress": "0xe70c2de5482bb9b071d58a4fb22905edfd93b385",
+  "strategyId": "hl-majors-index",
   "currency": "USD",
   "charts": {
-    "logicValue": {
-      "label": "Logic Value",
+    "navSharePrice": {
+      "label": "NAV / Share Price",
       "unit": "USD",
       "series": [
-        { "time": "2026-06-10T00:00:00.000Z", "value": 44020 },
-        { "time": "2026-06-10T01:00:00.000Z", "value": 44580 },
-        { "time": "2026-06-10T02:00:00.000Z", "value": 45890 }
-      ]
-    },
-    "initialMarginRate": {
-      "label": "Initial Margin Rate",
-      "unit": "percent",
-      "series": [
-        { "time": "2026-06-10T00:00:00.000Z", "value": 14.2 },
-        { "time": "2026-06-10T01:00:00.000Z", "value": 15.1 },
-        { "time": "2026-06-10T02:00:00.000Z", "value": 14.8 }
+        { "time": "2026-06-10T00:00:00.000Z", "navPerShare": 1.024, "sharePrice": 1.031 },
+        { "time": "2026-06-10T01:00:00.000Z", "navPerShare": 1.028, "sharePrice": 1.021 },
+        { "time": "2026-06-10T02:00:00.000Z", "navPerShare": 1.034, "sharePrice": 1.036 }
       ]
     },
     "premiumDiscount": {
@@ -387,8 +449,8 @@ Example:
         {
           "time": "2026-06-10T00:00:00.000Z",
           "assets": [
-            { "token": "SOL", "chain": "Solana", "valueUsd": 21109.4, "weight": 0.46 },
-            { "token": "USDC", "chain": "Ethereum", "valueUsd": 12849.2, "weight": 0.28 }
+            { "token": "BTC-PERP", "chain": "Hyperliquid", "valueUsd": 44940, "weight": 0.35 },
+            { "token": "HYPE-PERP", "chain": "Hyperliquid", "valueUsd": 19260, "weight": 0.15 }
           ]
         }
       ]
@@ -408,8 +470,7 @@ Example:
 
 Frontend mapping:
 
-- 상단 메인 차트: `charts.logicValue.series`
-- 상단 보조 차트: `charts.initialMarginRate.series`
+- 상단 메인 차트: `charts.navSharePrice.series`
 - ETF premium/discount 분석: `charts.premiumDiscount.series`
 - 구성자산 변화 stacked area: `charts.composition.series`
 - Use/Drop 유입·유출: `charts.netFlow.series`
@@ -460,57 +521,17 @@ Example:
 }
 ```
 
-## 4. Vault Activity
+## 4. Adapter Activity
 
-Vault 상세 페이지 하단의 User Distribution, All Transactions에 사용된다.
+Removed from the investor-facing adapter detail page.
 
-`GET /api/strategy-exchange/activity/vaults/:address`
+`GET /api/strategy-exchange/activity/adapters/:address` is no longer required because User Distribution and All Transactions are not shown in the current ETF-style product detail.
 
-Response:
+## 5. Adapter Discussion
 
-```ts
-{
-  endpoint: string;
-  sql: string;
-  users: Array<{
-    vaultAddress: string;
-    userAddress: string;
-    userName: string;
-    avatarUrl?: string;
-    depositUsd: number;
-    depositAssetAmount: number;
-    assetSymbol: string;
-    sharePct: number;
-    sortOrder: number;
-  }>;
-  transactions: Array<{
-    id: string;
-    vaultAddress: string;
-    type: "Use" | "Drop";
-    userAddress: string;
-    userName: string;
-    avatarUrl?: string;
-    amountUsd?: number;
-    assetAmount?: number;
-    assetSymbol?: string;
-    txHash: string;
-    chain: string;
-    createdAt: string;
-  }>;
-}
-```
+Adapter 상세 페이지 토론 영역에 사용된다.
 
-Notes:
-
-- `users`는 `sortOrder` asc.
-- `transactions`는 `createdAt` desc.
-- 페이지네이션은 현재 프론트에서 client-side로 4개씩 처리한다. 백엔드 pagination을 넣을 경우 `page`, `pageSize`, `total` 확장이 필요하다.
-
-## 5. Vault Discussion
-
-Vault 상세 페이지 토론 영역에 사용된다.
-
-`GET /api/strategy-exchange/discussions/vaults/:address`
+`GET /api/strategy-exchange/discussions/adapters/:address`
 
 Response:
 
@@ -520,7 +541,7 @@ Response:
   sql: string;
   messages: Array<{
     id: string;
-    vaultAddress: string;
+    adapterAddress: string;
     authorName: string;
     authorAddress: string;
     body: string;
@@ -537,7 +558,7 @@ Notes:
 
 Recommended write endpoint:
 
-`POST /api/strategy-exchange/discussions/vaults/:address/messages`
+`POST /api/strategy-exchange/discussions/adapters/:address/messages`
 
 Request:
 
@@ -555,7 +576,7 @@ Response:
   endpoint: string;
   message: {
     id: string;
-    vaultAddress: string;
+    adapterAddress: string;
     authorName: string;
     authorAddress: string;
     body: string;
@@ -691,11 +712,11 @@ Recommended flow:
 
 #### Use Handoff
 
-Use에서 유저가 서명하는 것은 “내 SCW에 이 vault strategy adapter를 install하고, 이 USDC allocation으로 Hershy strategy code를 실행해도 된다”는 permission이다.
+Use에서 유저가 서명하는 것은 “내 SCW에 이 strategy adapter contract를 install하고, 이 USDC allocation으로 Hershy strategy code를 실행해도 된다”는 permission이다.
 
 ```txt
 1. Frontend -> Backend API
-   POST /api/strategy-exchange/vault-addresses/:vaultAddress/use/prepare
+   POST /api/strategy-exchange/adapter-addresses/:adapterAddress/use/prepare
 
    body:
    {
@@ -707,8 +728,8 @@ Use에서 유저가 서명하는 것은 “내 SCW에 이 vault strategy adapter
    }
 
 2. Backend API 내부 처리
-   - vaultAddress로 strategyId 조회
-   - strategyId로 adapterAddress 조회
+   - adapterAddress로 strategyId 조회
+   - strategyId로 adapterContractAddress 조회
    - strategyId로 Hershy codeId/codeHash 조회
    - scwAddress의 chainId, nonce 조회
    - SCW에 보낼 install calldata 생성
@@ -722,9 +743,9 @@ Use에서 유저가 서명하는 것은 “내 SCW에 이 vault strategy adapter
      purpose: "InstallStrategyAdapter",
      userAddress,
      scwAddress,
-     vaultAddress,
-     strategyId,
      adapterAddress,
+     strategyId,
+     adapterContractAddress,
      codeHash,
      amountUsd,
      allocationHash,
@@ -735,7 +756,7 @@ Use에서 유저가 서명하는 것은 “내 SCW에 이 vault strategy adapter
    response.installTxPreview 반환
    {
      to: scwAddress,
-     data: installAdapter(adapterAddress, installCalldata),
+     data: installAdapter(adapterContractAddress, installCalldata),
      value: "0",
      chainId
    }
@@ -747,7 +768,7 @@ Use에서 유저가 서명하는 것은 “내 SCW에 이 vault strategy adapter
    signature 반환
 
 6. Frontend -> Backend API
-   POST /api/strategy-exchange/vault-addresses/:vaultAddress/use/execute
+   POST /api/strategy-exchange/adapter-addresses/:adapterAddress/use/execute
 
    body:
    {
@@ -758,7 +779,7 @@ Use에서 유저가 서명하는 것은 “내 SCW에 이 vault strategy adapter
    }
 
 7. Backend API 내부 처리
-   - signatureRequestId로 원본 typed data, install calldata, adapterAddress 조회
+   - signatureRequestId로 원본 typed data, install calldata, adapterContractAddress 조회
    - signature recover 결과가 userAddress인지 검증
    - deadline 만료 여부 검증
    - SCW nonce가 prepare 당시 nonce와 같은지 검증
@@ -774,7 +795,7 @@ Use에서 유저가 서명하는 것은 “내 SCW에 이 vault strategy adapter
      scwAddress,
      target: scwAddress,
      value: "0",
-     data: installAdapter(adapterAddress, installCalldata),
+     data: installAdapter(adapterContractAddress, installCalldata),
      userSignature: signature,
      signatureRequestId
    }
@@ -786,7 +807,7 @@ Use에서 유저가 서명하는 것은 “내 SCW에 이 vault strategy adapter
    SCW.executeWithSignature({
      target: scwAddress,
      value: 0,
-     data: installAdapter(adapterAddress, installCalldata),
+     data: installAdapter(adapterContractAddress, installCalldata),
      signature
    })
 
@@ -804,10 +825,10 @@ Use에서 유저가 서명하는 것은 “내 SCW에 이 vault strategy adapter
      runId,
      codeId,
      codeHash,
-     vaultAddress,
+     adapterAddress,
      strategyId,
      scwAddress,
-     adapterAddress,
+     adapterContractAddress,
      amountUsd,
      allocations
    }
@@ -826,7 +847,7 @@ Drop은 순서가 중요하다. Hershy kill switch가 먼저고, adapter uninsta
 
 ```txt
 1. Frontend -> Backend API
-   POST /api/strategy-exchange/vault-addresses/:vaultAddress/drop/prepare
+   POST /api/strategy-exchange/adapter-addresses/:adapterAddress/drop/prepare
 
    body:
    {
@@ -841,10 +862,10 @@ Drop은 순서가 중요하다. Hershy kill switch가 먼저고, adapter uninsta
    payload:
    {
      runId,
-     vaultAddress,
+     adapterAddress,
      strategyId,
      scwAddress,
-     adapterAddress,
+     adapterContractAddress,
      reason
    }
 
@@ -872,9 +893,9 @@ Drop은 순서가 중요하다. Hershy kill switch가 먼저고, adapter uninsta
      purpose: "UninstallStrategyAdapter",
      userAddress,
      scwAddress,
-     vaultAddress,
-     strategyId,
      adapterAddress,
+     strategyId,
+     adapterContractAddress,
      codeHash,
      killSwitchRunId,
      killSwitchTxHash,
@@ -885,7 +906,7 @@ Drop은 순서가 중요하다. Hershy kill switch가 먼저고, adapter uninsta
    response.uninstallTxPreview 반환
    {
      to: scwAddress,
-     data: uninstallAdapter(adapterAddress),
+     data: uninstallAdapter(adapterContractAddress),
      value: "0",
      chainId
    }
@@ -897,7 +918,7 @@ Drop은 순서가 중요하다. Hershy kill switch가 먼저고, adapter uninsta
    signature 반환
 
 8. Frontend -> Backend API
-   POST /api/strategy-exchange/vault-addresses/:vaultAddress/drop/execute
+   POST /api/strategy-exchange/adapter-addresses/:adapterAddress/drop/execute
 
    body:
    {
@@ -922,7 +943,7 @@ Drop은 순서가 중요하다. Hershy kill switch가 먼저고, adapter uninsta
      scwAddress,
      target: scwAddress,
      value: "0",
-     data: uninstallAdapter(adapterAddress),
+     data: uninstallAdapter(adapterContractAddress),
      userSignature: signature,
      signatureRequestId
    }
@@ -934,7 +955,7 @@ Drop은 순서가 중요하다. Hershy kill switch가 먼저고, adapter uninsta
    SCW.executeWithSignature({
      target: scwAddress,
      value: 0,
-     data: uninstallAdapter(adapterAddress),
+     data: uninstallAdapter(adapterContractAddress),
      signature
    })
 
@@ -1100,7 +1121,7 @@ Frontend
   - 유저 signature를 execute API로 넘긴다.
 
 Backend API
-  - vault address에 연결된 strategy, adapter, Hershy code를 resolve한다.
+  - adapter address에 연결된 strategy, adapter, Hershy code를 resolve한다.
   - EIP-712 typed data와 calldata를 만든다.
   - signature를 검증한다.
   - relayer에게 tx 실행을 요청한다.
@@ -1116,7 +1137,7 @@ SCW Contract
   - bridge tx 또는 adapter call을 실행한다.
 
 Strategy Adapter Contract
-  - 특정 vault strategy와 Hershy code를 SCW에 연결하는 contract module.
+  - 특정 adapter strategy와 Hershy code를 SCW에 연결하는 contract module.
   - install되면 해당 전략 실행 권한/라우팅/asset handling을 담당한다.
 
 Hershy Runtime
@@ -1124,15 +1145,15 @@ Hershy Runtime
   - Drop 시 kill switch를 먼저 실행해 전략 실행을 멈춘다.
 ```
 
-Use Vault contract flow:
+Use Adapter contract flow:
 
 ```txt
 1. Frontend -> Backend
-   POST /vault-addresses/:address/use/prepare
+   POST /adapter-addresses/:address/use/prepare
    userAddress, scwAddress, amountUsd, USDC allocations 전달
 
 2. Backend
-   vault address -> strategyId resolve
+   adapter address -> strategyId resolve
    strategyId -> adapter contract resolve
    strategyId -> Hershy codeId/codeHash resolve
    SCW nonce/chainId 조회
@@ -1149,7 +1170,7 @@ Use Vault contract flow:
    signature 반환
 
 6. Frontend -> Backend
-   POST /vault-addresses/:address/use/execute
+   POST /adapter-addresses/:address/use/execute
    signatureRequestId, signature 전달
 
 7. Backend
@@ -1170,15 +1191,15 @@ Use Vault contract flow:
    adapterInstall status, hershyRuntime status, position, activity transaction 반환
 ```
 
-Drop Vault contract flow:
+Drop Adapter contract flow:
 
 ```txt
 1. Frontend -> Backend
-   POST /vault-addresses/:address/drop/prepare
+   POST /adapter-addresses/:address/drop/prepare
    userAddress, scwAddress 전달
 
 2. Backend / Hershy Runtime
-   해당 user/scw/vault에 연결된 running strategy runId 조회
+   해당 user/scw/adapter에 연결된 running strategy runId 조회
    Hershy code kill switch 실행
 
 3. Backend
@@ -1196,7 +1217,7 @@ Drop Vault contract flow:
    signature 반환
 
 7. Frontend -> Backend
-   POST /vault-addresses/:address/drop/execute
+   POST /adapter-addresses/:address/drop/execute
    signatureRequestId, signature 전달
 
 8. Backend
@@ -1269,9 +1290,9 @@ Backend storage should keep:
 - `signatureRequestId`
 - `userAddress`
 - `scwAddress`
-- `vaultAddress`
-- `strategyId`
 - `adapterAddress`
+- `strategyId`
+- `adapterContractAddress`
 - `codeId`
 - `codeHash`
 - `nonce`
@@ -1280,13 +1301,13 @@ Backend storage should keep:
 - `createdAt`
 - `updatedAt`
 
-### Use Vault
+### Use Adapter
 
 Use는 “해당 전략에 대응되는 adapter contract를 유저 SCW에 install하고, 그 adapter와 함께 Hershy strategy code를 실행”하는 동작이다.
 
 #### Prepare Use
 
-`POST /api/strategy-exchange/vault-addresses/:address/use/prepare`
+`POST /api/strategy-exchange/adapter-addresses/:address/use/prepare`
 
 Request:
 
@@ -1309,11 +1330,11 @@ Response:
 {
   endpoint: string;
   status: "NeedsSignature";
-  vault: {
+  adapterProduct: {
     address: string;
     strategyId: string;
   };
-  adapter: {
+  adapterContract: {
     address: string;
     implementationAddress: string;
     version: string;
@@ -1344,6 +1365,7 @@ Response:
     codeId: string;
     codeHash: string;
     adapterAddress: string;
+    adapterContractAddress: string;
     startMode: "AfterAdapterInstalled";
     input: {
       amountUsd: number;
@@ -1359,7 +1381,7 @@ Response:
 
 #### Execute Use
 
-`POST /api/strategy-exchange/vault-addresses/:address/use/execute`
+`POST /api/strategy-exchange/adapter-addresses/:address/use/execute`
 
 Request:
 
@@ -1399,7 +1421,7 @@ Response:
     startedAt?: string;
   };
   position: {
-    vaultAddress: string;
+    adapterAddress: string;
     userAddress: string;
     netPositionUsd: number;
     pnlUsd: number;
@@ -1409,7 +1431,7 @@ Response:
   };
   transaction: {
     id: string;
-    vaultAddress: string;
+    adapterAddress: string;
     type: "Use";
     userAddress: string;
     userName: string;
@@ -1424,13 +1446,13 @@ Response:
 }
 ```
 
-### Drop Vault
+### Drop Adapter
 
 Drop은 “먼저 Hershy code kill switch를 실행하고, 그 다음 adapter uninstall 서명을 받아 SCW에서 adapter를 제거”하는 동작이다.(이때 서명을 먼저 받고, 그 다음에 kill switch를 실행시키고 나서 서명을 execute시켜야 함)
 
 #### Prepare Drop
 
-`POST /api/strategy-exchange/vault-addresses/:address/drop/prepare`
+`POST /api/strategy-exchange/adapter-addresses/:address/drop/prepare`
 
 Request:
 
@@ -1456,7 +1478,7 @@ Response:
     txHash?: string;
     triggeredAt: string;
   };
-  adapter: {
+  adapterContract: {
     address: string;
     strategyCodeHash: string;
   };
@@ -1492,7 +1514,7 @@ Rules:
 
 #### Execute Drop
 
-`POST /api/strategy-exchange/vault-addresses/:address/drop/execute`
+`POST /api/strategy-exchange/adapter-addresses/:address/drop/execute`
 
 Request:
 
@@ -1529,7 +1551,7 @@ Response:
     scwAddress: string;
   };
   position: {
-    vaultAddress: string;
+    adapterAddress: string;
     userAddress: string;
     netPositionUsd: 0;
     pnlUsd: number;
@@ -1539,7 +1561,7 @@ Response:
   };
   transaction: {
     id: string;
-    vaultAddress: string;
+    adapterAddress: string;
     type: "Drop";
     userAddress: string;
     userName: string;
@@ -1662,10 +1684,9 @@ Response:
 ## Backend Implementation Priority
 
 1. `GET /strategies`
-2. `GET /vault-addresses/:address`
+2. `GET /adapter-addresses/:address`
 3. `GET /users/:address`
-4. `GET /activity/vaults/:address`
-5. `GET /discussions/vaults/:address`
-6. `POST /user-logics`, `GET /user-logics`
-7. `PATCH /users/:address/profile`
-8. Use/Drop/Bridge write APIs
+4. `GET /discussions/adapters/:address`
+5. `POST /user-logics`, `GET /user-logics`
+6. `PATCH /users/:address/profile`
+7. Use/Drop write APIs
